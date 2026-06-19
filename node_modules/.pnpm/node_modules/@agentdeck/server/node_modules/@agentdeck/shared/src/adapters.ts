@@ -4,6 +4,15 @@ export interface AgentConfig {
   workspace: string;
   binaryPath?: string;
   model?: string;
+  /**
+   * Promise-based callback to request user approval.
+   * Resolves true if approved, false if denied or timed out.
+   */
+  requestApproval?: (description: string, command: string) => Promise<boolean>;
+  /**
+   * Optional callback triggered when the agent process exits.
+   */
+  onExit?: (exitCode: number) => void;
 }
 
 export interface IAgentAdapter {
@@ -23,7 +32,17 @@ export interface IAgentAdapter {
   sendCommand(command: string): Promise<void>;
 
   /**
+   * Writes data directly to the agent's stdin.
+   */
+  writeStdin?(data: string): void;
+
+  /**
    * Registers a callback to receive events (logs, status, approvals) from the agent.
    */
   onEvent(callback: (event: AgentDeckEvent) => void): void;
+
+  /**
+   * Returns the PID of the running process, if applicable.
+   */
+  getPid?(): number | undefined;
 }

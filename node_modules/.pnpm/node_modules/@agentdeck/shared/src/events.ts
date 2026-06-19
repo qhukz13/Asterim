@@ -26,6 +26,10 @@ export interface ClientCommandPayload {
   command: string;
 }
 
+export interface ClientStdinPayload {
+  data: string;
+}
+
 export interface ClientApprovalResponsePayload {
   actionId: string;
   approved: boolean;
@@ -38,10 +42,23 @@ export interface FileChangedPayload {
   diff?: string;
 }
 
+export interface ClientPairPayload {
+  pin: string;
+}
+
+export interface ServerAuthResultPayload {
+  success: boolean;
+  token?: string;
+  error?: string;
+}
+
 // Helper types for specific events
 export type AgentLogEvent = AgentDeckEvent<AgentLogPayload>;
 export type AgentStatusEvent = AgentDeckEvent<AgentStatusPayload>;
 export type ApprovalRequestEvent = AgentDeckEvent<ApprovalRequestPayload>;
 export type ClientCommandEvent = AgentDeckEvent<ClientCommandPayload>;
+export type ClientStdinEvent = AgentDeckEvent<ClientStdinPayload>;
 export type ClientApprovalResponseEvent = AgentDeckEvent<ClientApprovalResponsePayload>;
 export type FileChangedEvent = AgentDeckEvent<FileChangedPayload>;
+export type ClientPairEvent = AgentDeckEvent<ClientPairPayload>;
+export type ServerAuthResultEvent = AgentDeckEvent<ServerAuthResultPayload>;

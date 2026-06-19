@@ -1,55 +1,44 @@
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
+import { dbService } from './DatabaseService';
 
 export interface ProjectConfig {
   id: string;
   name: string;
   path: string;
+  created_at?: string;
 }
 
 export class ProjectManager {
-  private configPath: string;
-  private projects: ProjectConfig[] = [];
-
-  constructor() {
-    this.configPath = path.resolve(process.cwd(), 'agentdeck.config.json');
-    this.load();
-  }
-
-  private load() {
-    if (fs.existsSync(this.configPath)) {
-      try {
-        const data = fs.readFileSync(this.configPath, 'utf8');
-        this.projects = JSON.parse(data);
-      } catch (err) {
-        console.error('Failed to load agentdeck.config.json', err);
-      }
-    }
-  }
-
-  private save() {
-    fs.writeFileSync(this.configPath, JSON.stringify(this.projects, null, 2), 'utf8');
-  }
-
   public getProjects(): ProjectConfig[] {
-    return this.projects;
+    const db = dbService.getDb();
+    const query = db.prepare('SELECT id, name, path, created_at FROM projects ORDER BY created_at DESC');
+    return query.all() as unknown as ProjectConfig[];
+  }
+
+  public getProject(id: string): ProjectConfig | undefined {
+    const db = dbService.getDb();
+    const query = db.prepare('SELECT id, name, path, created_at FROM projects WHERE id = ?');
+    return query.get(id) as unknown as ProjectConfig | undefined;
   }
 
   public addProject(name: string, projectPath: string): ProjectConfig {
+    const db = dbService.getDb();
     const newProject: ProjectConfig = {
       id: crypto.randomUUID(),
       name,
       path: projectPath
     };
-    this.projects.push(newProject);
-    this.save();
+    
+    const insert = db.prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)');
+    insert.run(newProject.id, newProject.name, newProject.path);
+    
     return newProject;
   }
 
   public removeProject(id: string): void {
-    this.projects = this.projects.filter(p => p.id !== id);
-    this.save();
+    const db = dbService.getDb();
+    const remove = db.prepare('DELETE FROM projects WHERE id = ?');
+    remove.run(id);
   }
 }
 

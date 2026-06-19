@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dev-dist/
+.next/
+out/
+
+# Turbo cache
+.turbo/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Database files — AgentDeck data lives in ~/.agentdeck/, never in the repo
+*.db
+*.db-shm
+*.db-wal
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor directories
+.vscode/
+.idea/
+
+# Test coverage
+coverage/

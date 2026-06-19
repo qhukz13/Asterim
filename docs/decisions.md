@@ -47,11 +47,35 @@
 **Rationale:** Fastify is modern, highly performant, has built-in schema validation, and excellent TypeScript support. It is the modern standard for new Node.js projects.
 **Consequences:** Different middleware ecosystem compared to Express.
 
-## ADR-006: JSON Config for Local MVP
-**Context:** We need a way to manage multiple projects quickly to test the Agent Adapters, but setting up SQLite with an ORM right now would delay the core adapter logic testing.
+## ADR-006: JSON Config for Local MVP (SUPERSEDED)
+
+**Context:** We needed a way to manage multiple projects quickly to test the Agent Adapters, but setting up SQLite with an ORM right now would delay the core adapter logic testing.
 **Options Considered:**
 1. Stick with SQLite immediately.
 2. Temporary JSON configuration file.
-**Selected Option:** Temporary JSON configuration file (`agentdeck.config.json`).
-**Rationale:** The core value of AgentDeck is the adapter system and WebSocket real-time interface. Using a simple JSON file allows us to test multi-project flows and the API immediately. We will migrate to SQLite in Phase 4 when session history is required.
-**Consequences:** No historical session data or logs can be reliably persisted yet. Data is restricted to simple active project references.
+**Selected Option (ORIGINAL):** Temporary JSON configuration file (`agentdeck.config.json`).
+**ACTUAL OUTCOME:** The JSON config file was never implemented. SQLite was integrated directly in Phase 4, making this ADR obsolete. The `agentdeck.config.json` file does not exist anywhere in the codebase. This ADR is kept for historical context only.
+**Current State:** SQLite is the only persistence layer, implemented in `apps/server/src/services/DatabaseService.ts`.
+
+## ADR-007: Security Model — Deferred Authentication (TECHNICAL DEBT)
+
+**Date:** 2026-06-19  
+**Context:** During MVP development, authentication (device pairing, session tokens) was deferred in favor of shipping core features. The server was intentionally left open with `origin: '*'` CORS and no WebSocket authentication.  
+**Decision:** Accept this technical debt through Phase 1-5 development only.  
+**Resolution Required:** Authentication must be implemented before any public release. See `release-blockers.md` BLK-001, BLK-002, BLK-003 and `production-backlog.md` P0-001, P0-002.  
+**Consequences:** The codebase in its current state is not safe to expose to untrusted networks. All development and testing should be on trusted local networks only.
+
+## ADR-008: EventBus Wildcard Pattern — Literal String Convention
+
+**Date:** 2026-06-19  
+**Context:** `EventBus.ts` emits `'*'` as a literal event name (not a true wildcard, since Node.js `EventEmitter` doesn't support wildcards). `SocketManager` and `RelayClient` both subscribe to `'*'` explicitly.  
+**Decision:** Document this as an intentional convention, not a real wildcard. Any component that wants to receive ALL events must subscribe to the literal string `'*'`.  
+**Future Option:** Replace `EventEmitter` with `mitt` (2KB, supports wildcards natively) when this pattern causes confusion or a true wildcard is needed.  
+**Consequences:** Engineers unfamiliar with this pattern may misuse it. The convention must be documented in `architecture.md`.
+
+
+### [2026-06-19] Device Pairing and Authentication Flow
+- **Context**: AgentDeck exposes a local control plane that could be accessed by anyone on the local network or via the cloud relay.
+- **Decision**: Implemented a 6-digit PIN system that is generated on startup. Users must enter this PIN to receive an HMAC-SHA256 signed session token. This token is required for all REST endpoints and WebSocket connections.
+- **Consequences**: Secure by default. Local network attackers cannot control agents without seeing the console PIN. Remote attackers cannot blindly guess Tunnel IDs to execute commands, as E2E payloads now require the PIN for an auth handshake.
+

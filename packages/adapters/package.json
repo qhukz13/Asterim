@@ -9,10 +9,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@agentdeck/shared": "workspace:*"
+    "@agentdeck/shared": "workspace:*",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
   }
 }
