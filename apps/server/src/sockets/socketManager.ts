@@ -8,6 +8,7 @@ import crypto from 'crypto';
 
 export class SocketManager {
   private io: SocketIOServer;
+  private recentLogs = new Map<string, AgentDeckEvent<any>[]>();
 
   constructor(fastify: FastifyInstance) {
     this.io = new SocketIOServer(fastify.server, {
@@ -46,6 +47,16 @@ export class SocketManager {
 
         // Sync history for this project
         this.syncHistory(socket, projectId);
+
+        // Send system status (binaries)
+        const { startupService } = require('../services/StartupService');
+        socket.emit('server.system_status', {
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          source: 'server',
+          type: 'server.system_status',
+          payload: { binaries: startupService.getAgentBinariesStatus() }
+        });
       });
 
       // Forward client commands and approvals to the internal EventBus
@@ -70,7 +81,10 @@ export class SocketManager {
       // Rows are descending, we need ascending for correct playback
       const historyEvents = rows.reverse().map(row => JSON.parse(row.payload_json));
       
-      socket.emit('session.history', historyEvents);
+      const recentLogs = this.recentLogs.get(projectId) || [];
+      const combinedHistory = [...historyEvents, ...recentLogs].sort((a, b) => a.timestamp - b.timestamp);
+      
+      socket.emit('session.history', combinedHistory);
     } catch (err) {
       console.error('[Socket.IO] Failed to sync history:', err);
     }
@@ -88,6 +102,15 @@ export class SocketManager {
       if (projectId) {
         // Route strictly to the project room
         this.io.to(projectId).emit(event.type, event);
+
+        // Buffer agent.log in memory instead of persisting to DB to save space
+        if (event.type === 'agent.log') {
+          const logs = this.recentLogs.get(projectId) || [];
+          logs.push(event);
+          if (logs.length > 500) logs.shift();
+          this.recentLogs.set(projectId, logs);
+          return;
+        }
 
         // Persist event to Database
         try {

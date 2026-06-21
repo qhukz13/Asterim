@@ -26,7 +26,7 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const [error, setError] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
-  const [selectedDefaultAgent, setSelectedDefaultAgent] = useState<'aider' | 'claude'>('claude');
+  const [selectedDefaultAgent, setSelectedDefaultAgent] = useState<'aider' | 'claude' | 'antigravity'>('claude');
 
   const fetchProjects = async () => {
     try {
@@ -160,12 +160,12 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
                 Select the AI engine you'd like to use by default. You can change this anytime from the sidebar.
               </p>
               
-              <div style={{ display: 'flex', gap: '16px', marginBottom: '32px' }}>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '32px' }}>
                 <div 
                   onClick={() => setSelectedDefaultAgent('claude')}
                   style={{
                     flex: 1,
-                    padding: '20px',
+                    padding: '16px 8px',
                     background: selectedDefaultAgent === 'claude' ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(0,0,0,0.2)',
                     border: selectedDefaultAgent === 'claude' ? '2px solid var(--accent-color)' : '1px solid var(--panel-border)',
                     borderRadius: '16px',
@@ -174,15 +174,15 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
                   }}
                 >
                   <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🤖</div>
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Claude Code</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Anthropic CLI agent</div>
+                  <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>Claude Code</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Anthropic CLI agent</div>
                 </div>
                 
                 <div 
                   onClick={() => setSelectedDefaultAgent('aider')}
                   style={{
                     flex: 1,
-                    padding: '20px',
+                    padding: '16px 8px',
                     background: selectedDefaultAgent === 'aider' ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(0,0,0,0.2)',
                     border: selectedDefaultAgent === 'aider' ? '2px solid var(--accent-color)' : '1px solid var(--panel-border)',
                     borderRadius: '16px',
@@ -191,8 +191,25 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
                   }}
                 >
                   <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🐍</div>
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Aider</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Python Git agent</div>
+                  <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>Aider</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Python Git agent</div>
+                </div>
+
+                <div 
+                  onClick={() => setSelectedDefaultAgent('antigravity')}
+                  style={{
+                    flex: 1,
+                    padding: '16px 8px',
+                    background: selectedDefaultAgent === 'antigravity' ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(0,0,0,0.2)',
+                    border: selectedDefaultAgent === 'antigravity' ? '2px solid var(--accent-color)' : '1px solid var(--panel-border)',
+                    borderRadius: '16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🛸</div>
+                  <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>Antigravity</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Google AI agent</div>
                 </div>
               </div>
               

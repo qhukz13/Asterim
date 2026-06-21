@@ -246,6 +246,18 @@ Items that don't block release but significantly impact user experience and reli
 
 ---
 
+### P1-000: Google Antigravity Adapter Implementation
+
+**Status:** Not Started  
+**Description:** Implement the adapter to interface with the Google Antigravity CLI tool/agent.
+
+**Requirements:**
+- PTY-based adapter following `IAgentAdapter` interface
+- Parse standard input/output for Antigravity-specific approval formats
+- Expose options to run and control Antigravity from the dashboard
+
+---
+
 ### P1-001: Push Notification Reliability
 
 **Status:** Partially implemented  
@@ -275,10 +287,10 @@ Items that don't block release but significantly impact user experience and reli
 ### P1-003: Agent Binary Detection at Startup
 
 **Status:** Not implemented  
-**Description:** If `claude` or `aider` is not on PATH, the server starts fine but agent start silently fails.
+**Description:** If `claude` or `antigravity` is not on PATH, the server starts fine but agent start silently fails.
 
 **Requirements:**
-- On startup, check `which claude` and `which aider` (or Windows equivalent)
+- On startup, check `which claude` and `which antigravity` (or Windows equivalent)
 - If not found, log a clear warning with installation instructions
 - Surface missing binary status in `/health` endpoint
 - Show warning in UI when selecting an unavailable agent type
@@ -288,7 +300,7 @@ Items that don't block release but significantly impact user experience and reli
 ### P1-004: Hardened Approval Regex
 
 **Status:** Fragile  
-**Description:** Single regex per adapter. Version updates to Claude/Aider will break detection silently.
+**Description:** Single regex per adapter. Version updates to Claude/Antigravity will break detection silently.
 
 **Requirements:**
 - Maintain versioned regex patterns per agent (primary + fallback)
@@ -441,17 +453,6 @@ Items that improve the product but are not blocking.
 
 ---
 
-### P2-006: Google Antigravity Adapter
-
-**Status:** Not implemented  
-**Description:** Extend adapter coverage to Google Antigravity (this tool).
-
-**Requirements:**
-- Investigate Antigravity's communication interface
-- Implement adapter following `IAgentAdapter` interface
-
----
-
 ### P2-007: Event Throttling & Batching
 
 **Status:** Not implemented  
@@ -533,6 +534,7 @@ P0-011 (Docs)            → 2 hours
 
 [GitHub Release Gate]
 
+P1-000 (Antigravity Adapter)→ 2-3 days
 P1-003 (Binary Detection)→ 4 hours
 P1-005 (QR Code)         → 4 hours (depends on P0-001)
 P1-001 (Push HTTPS)      → 1 day

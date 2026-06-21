@@ -92,6 +92,21 @@ export class RelayClient {
                     payload: { type: 'encrypted_payload', targetClient: sourceClient, encrypted }
                   });
                   console.log(`[RelayClient] Client ${sourceClient} authenticated successfully.`);
+
+                  // Send system status (binaries)
+                  const { startupService } = require('./StartupService');
+                  const systemStatusEvent = {
+                    id: crypto.randomUUID(),
+                    timestamp: Date.now(),
+                    source: 'server',
+                    type: 'server.system_status',
+                    payload: { binaries: startupService.getAgentBinariesStatus() }
+                  };
+                  const encryptedStatus = await encryptPayload(sharedKey, systemStatusEvent);
+                  this.socket?.emit('tunnel_message', {
+                    tunnelId: this.tunnelId,
+                    payload: { type: 'encrypted_payload', targetClient: sourceClient, encrypted: encryptedStatus }
+                  });
                 } else {
                   const authResultEvent = {
                     id: crypto.randomUUID(),

@@ -1,5 +1,7 @@
 import { execSync } from 'child_process';
 import os from 'os';
+import path from 'path';
+import fs from 'fs';
 import qrcode from 'qrcode-terminal';
 import { dbService } from './DatabaseService';
 
@@ -20,11 +22,7 @@ export class StartupService {
       const host = localIp || 'localhost';
       const pairingUrl = `http://${host}:${port}/?pin=${pairingPin}`;
 
-      // 2. Check binary paths
-      const hasClaude = this.isBinaryOnPath('claude');
-      const hasAider = this.isBinaryOnPath('aider');
-
-      // 3. Draw welcome console frame
+      // 2. Draw welcome console frame
       console.log('\n==================================================');
       console.log('           WELCOME TO AGENTDECK v0.1');
       console.log('      AI Agent Control Plane is Initialized');
@@ -41,19 +39,7 @@ export class StartupService {
       }
       console.log('==================================================\n');
 
-      // Check warnings
-      if (!hasClaude) {
-        console.warn(`\x1b[33m⚠️  Warning: 'claude' CLI binary was not found on your PATH.
-   Claude Code is required for the Claude Agent.
-   Install via: npm install -g @anthropic-ai/claude-code\x1b[0m\n`);
-      }
-      if (!hasAider) {
-        console.warn(`\x1b[33m⚠️  Warning: 'aider' CLI binary was not found on your PATH.
-   Aider is required for the Aider Agent.
-   Install via: pip install aider-chat\x1b[0m\n`);
-      }
-
-      // 4. Generate Pairing QR Code
+      // 3. Generate Pairing QR Code
       console.log('Scan this QR code with your mobile device to pair automatically:');
       qrcode.generate(pairingUrl, { small: true });
       console.log(`Pairing URL: ${pairingUrl}\n`);
@@ -61,6 +47,57 @@ export class StartupService {
     } catch (err) {
       console.error('[StartupService] Error executing first-run onboarding checks:', err);
     }
+  }
+
+  public getAntigravityBinaryPath(): string | null {
+    if (this.isBinaryOnPath('agy')) {
+      return 'agy';
+    }
+    if (process.platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+      const winPath = path.join(localAppData, 'agy', 'bin', 'agy.exe');
+      if (fs.existsSync(winPath)) {
+        return winPath;
+      }
+    } else {
+      const unixPath = path.join(os.homedir(), '.agy', 'bin', 'agy');
+      if (fs.existsSync(unixPath)) {
+        return unixPath;
+      }
+    }
+    return null;
+  }
+
+  public checkBinaries() {
+    const hasClaude = this.isBinaryOnPath('claude');
+    const hasAider = this.isBinaryOnPath('aider');
+    const antigravityPath = this.getAntigravityBinaryPath();
+
+    if (!hasClaude) {
+      console.warn(`\x1b[33m⚠️  Warning: 'claude' CLI binary was not found on your PATH.
+   Claude Code is required for the Claude Agent.
+   Install via: npm install -g @anthropic-ai/claude-code\x1b[0m\n`);
+    }
+    if (!hasAider) {
+      console.warn(`\x1b[33m⚠️  Warning: 'aider' CLI binary was not found on your PATH.
+   Aider is required for the Aider Agent.
+   Install via: pip install aider-chat\x1b[0m\n`);
+    }
+    if (antigravityPath) {
+      console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary found at ${antigravityPath}.
+   AgentDeck will run the real Antigravity agent process.\x1b[0m\n`);
+    } else {
+      console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary was not found on your PATH or default location.
+   AgentDeck will run in simulated mode using 'mock-antigravity.js'.\x1b[0m\n`);
+    }
+  }
+
+  public getAgentBinariesStatus() {
+    return {
+      claude: this.isBinaryOnPath('claude'),
+      aider: this.isBinaryOnPath('aider'),
+      antigravity: this.getAntigravityBinaryPath() !== null || true
+    };
   }
 
   private getLocalIpAddress(): string | null {
@@ -77,7 +114,7 @@ export class StartupService {
     return null;
   }
 
-  private isBinaryOnPath(binary: string): boolean {
+  public isBinaryOnPath(binary: string): boolean {
     try {
       const cmd = process.platform === 'win32' ? `where ${binary}` : `which ${binary}`;
       execSync(cmd, { stdio: 'ignore' });
@@ -89,3 +126,4 @@ export class StartupService {
 }
 
 export const startupService = new StartupService();
+

@@ -36,6 +36,15 @@ export interface ClientApprovalResponsePayload {
   feedback?: string;
 }
 
+export interface ChatMessagePayload {
+  role: 'user' | 'agent';
+  content: string;
+}
+
+export interface ClientChatMessagePayload {
+  message: string;
+}
+
 export interface FileChangedPayload {
   filePath: string;
   changeType: 'added' | 'modified' | 'deleted';
@@ -62,3 +71,5 @@ export type ClientApprovalResponseEvent = AgentDeckEvent<ClientApprovalResponseP
 export type FileChangedEvent = AgentDeckEvent<FileChangedPayload>;
 export type ClientPairEvent = AgentDeckEvent<ClientPairPayload>;
 export type ServerAuthResultEvent = AgentDeckEvent<ServerAuthResultPayload>;
+export type ChatMessageEvent = AgentDeckEvent<ChatMessagePayload>;
+export type ClientChatMessageEvent = AgentDeckEvent<ClientChatMessagePayload>;

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { relayClient } from '../services/RelayClient';
 import { pushService } from '../services/PushService';
 import { dbService } from '../services/DatabaseService';
+import { startupService } from '../services/StartupService';
 
 export default async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/system', async (request, reply) => {
@@ -21,6 +22,7 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       tunnelId: relayClient.tunnelId,
       relayUrl: relayClient.relayUrl,
       isFirstRun,
+      binaries: startupService.getAgentBinariesStatus()
     };
   });
 

@@ -30,6 +30,11 @@ export class PairingService {
     console.log('[AUTH] AGENTDECK DEVICE PAIRING PIN');
     console.log(`[PIN] PIN: ${this.currentPin}`);
     console.log('=======================================\n');
+    try {
+      require('fs').writeFileSync(require('path').join(process.cwd(), 'pairing_pin.txt'), this.currentPin, 'utf8');
+    } catch (e) {
+      console.error('[AUTH] Failed to write pairing_pin.txt', e);
+    }
   }
 
   private generatePin(): string {

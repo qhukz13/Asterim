@@ -40,3 +40,6 @@ pnpm-debug.log*
 
 # Test coverage
 coverage/
+
+# Temp directories
+temp_test_nogit/

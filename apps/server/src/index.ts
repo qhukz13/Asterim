@@ -95,7 +95,14 @@ const socketManager = new SocketManager(fastify);
 import './services/RelayClient';
 import './services/PushService';
 
-fastify.get('/health', async () => ({ status: 'ok', service: 'agentdeck-server' }));
+fastify.get('/health', async () => {
+  const { startupService } = await import('./services/StartupService');
+  return {
+    status: 'ok',
+    service: 'agentdeck-server',
+    binaries: startupService.getAgentBinariesStatus()
+  };
+});
 
 import systemRoutes from './routes/system';
 import authRoutes from './routes/auth';
@@ -130,6 +137,7 @@ const start = async () => {
     const { relayClient } = await import('./services/RelayClient');
     const { startupService } = await import('./services/StartupService');
     startupService.checkFirstRun(port, pairingService.getPin(), relayClient.tunnelId);
+    startupService.checkBinaries();
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

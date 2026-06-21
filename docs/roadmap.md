@@ -23,11 +23,11 @@
 ## PHASE 2: Agent Integrations
 **Goals:** Connect real AI agents to the system.
 **Deliverables:**
-- Aider Adapter implementation.
+- Google Antigravity Adapter implementation.
 - Claude Code Adapter implementation.
 - File system and Git monitoring modules.
 - Approval interception system.
-**Success Criteria:** A user can run Aider through AgentDeck and approve/deny actions from the local web dashboard.
+**Success Criteria:** A user can run Antigravity through AgentDeck and approve/deny actions from the local web dashboard.
 **Risks:** Agents updating their CLI output formats and breaking adapters.
 
 ## PHASE 3: Mobile-first Experience

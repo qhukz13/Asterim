@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload } from '@agentdeck/shared';
+import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, ChatMessagePayload } from '@agentdeck/shared';
 import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@agentdeck/shared';
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  timestamp: number;
+}
 
 export function useSocket(projectId: string | null, relayUrl?: string) {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -9,8 +16,10 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
   const [events, setEvents] = useState<AgentDeckEvent<any>[]>([]);
 
   const [agentStatus, setAgentStatus] = useState<AgentStatusPayload>({ status: 'idle' });
-  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequestPayload | null>(null);
+  const [approvalRequest, setApprovalRequest] = useState<(ApprovalRequestPayload & { timestamp?: number }) | null>(null);
   const [fileChanges, setFileChanges] = useState<FileChangedPayload[]>([]);
+  const [systemStatus, setSystemStatus] = useState<{ binaries: { claude: boolean; aider: boolean; antigravity: boolean } } | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   // P0-007 FIX: Use useRef instead of useState for the shared secret.
   // Event handlers registered inside useEffect capture the closure at registration
@@ -127,6 +136,11 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     });
 
     const handleInternalEvent = (event: AgentDeckEvent<any>) => {
+      if (event.type === 'server.system_status') {
+        setSystemStatus(event.payload);
+        return;
+      }
+
       if (event.type === 'server.auth_result') {
         if (event.payload.success) {
           console.log('[E2E] Authentication successful');
@@ -156,18 +170,36 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
           latestFiles.set(fe.payload.filePath, fe.payload);
         }
         setFileChanges(Array.from(latestFiles.values()));
+
+        const chatEvents = historyEvents.filter(e => e.type === 'chat.message');
+        const loadedMessages = chatEvents.map(e => ({
+          id: e.id,
+          role: e.payload.role,
+          content: e.payload.content,
+          timestamp: e.timestamp || Date.now()
+        }));
+        setMessages(loadedMessages);
+
         return;
       }
 
       if (event.type === 'agent.log') {
         setEvents(prev => [...prev, event].slice(-1000));
+      } else if (event.type === 'chat.message') {
+        const payload = event.payload as ChatMessagePayload;
+        setMessages(prev => [...prev, {
+          id: event.id,
+          role: payload.role,
+          content: payload.content,
+          timestamp: event.timestamp
+        }]);
       } else if (event.type === 'agent.status') {
         setAgentStatus(event.payload);
         if (event.payload.status !== 'waiting_approval') {
           setApprovalRequest(null);
         }
       } else if (event.type === 'agent.approval_request') {
-        setApprovalRequest(event.payload);
+        setApprovalRequest({ ...event.payload, timestamp: event.timestamp || Date.now() });
       } else if (event.type === 'file.changed') {
         setFileChanges(prev => {
           const existingIdx = prev.findIndex(fc => fc.filePath === event.payload.filePath);
@@ -193,9 +225,11 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     // Local mode direct event bindings
     newSocket.on('session.history', (history: any) => handleInternalEvent({ type: 'session.history', payload: history } as any));
     newSocket.on('agent.log', handleInternalEvent);
+    newSocket.on('chat.message', handleInternalEvent);
     newSocket.on('agent.status', handleInternalEvent);
     newSocket.on('agent.approval_request', handleInternalEvent);
     newSocket.on('file.changed', handleInternalEvent);
+    newSocket.on('server.system_status', handleInternalEvent);
 
     socketRef.current = newSocket;
     setSocket(newSocket);
@@ -255,6 +289,13 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     sendInternalEvent('client.stdin', { data, projectId });
   };
 
-  return { socket, connected, isE2EReady, events, agentStatus, approvalRequest, fileChanges, sendCommand, sendApproval, sendStdin };
-}
+  const sendChatMessage = (message: string) => {
+    sendInternalEvent('client.chat_message', { content: message, projectId });
+  };
 
+  const clearMessages = () => {
+    setMessages([]);
+  };
+
+  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, fileChanges, sendCommand, sendApproval, sendStdin, sendChatMessage, clearMessages, systemStatus };
+}
