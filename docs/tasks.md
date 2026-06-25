@@ -6,15 +6,20 @@ This file is the single source of truth for project progress.
 
 ## TODO
 
-- **TSK-028**: Fix Antigravity PTY Syncing and Message Drop Bugs
-  - *Description*: The Antigravity adapter is currently failing to emit messages to the chat after the initial startup. Further investigation is required to stabilize the PTY parsing pipeline, handle LLM output chunking gracefully, and ensure reliable two-way message flow without freezing the UI in a "WORKING" state.
-  - *Priority*: Critical
-  - *Dependencies*: None
-  - *Status*: TODO## IN PROGRESS
+(None)
+
+## IN PROGRESS
 
 (None)
 
 ## DONE
+
+- **TSK-028**: Fix Antigravity PTY Syncing and Message Drop Bugs
+  - *Description*: The Antigravity adapter is currently failing to emit messages to the chat after the initial startup. Further investigation is required to stabilize the PTY parsing pipeline, handle LLM output chunking gracefully, and ensure reliable two-way message flow without freezing the UI in a "WORKING" state.
+  - *Priority*: Critical
+  - *Dependencies*: None
+  - *Status*: DONE
+
 
 - **TSK-027**: Chat UI Overhaul & Antigravity Adapter Setup
   - *Description*: Redesigned the sidebar navigation (tabs to segmented controls) and chat layout. Styled chat bubbles with responsive max-widths, user/agent alignment, drop shadows, and typing animations. Repositioned the Clear Chat button and added a global "Restart Agent" control. Addressed `node-pty` ANSI escape code parsing to clean up terminal artifacts like cursor movement scrambling, history leaks, and Windows newline truncation.

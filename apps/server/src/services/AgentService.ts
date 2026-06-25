@@ -86,6 +86,18 @@ export class AgentService {
         console.error('[AgentService] Error processing chat message:', err);
       }
     });
+
+    eventBus.subscribe<any>('client.clear_chat', async (event) => {
+      try {
+        const { projectId } = event.payload;
+        if (!projectId) return;
+        console.log(`[AgentService] Clearing chat history for project ${projectId}`);
+        const db = dbService.getDb();
+        db.prepare('DELETE FROM events WHERE project_id = ?').run(projectId);
+      } catch (err) {
+        console.error('[AgentService] Error clearing chat:', err);
+      }
+    });
   }
 
   private async startAgent(projectId: string, workspace: string, agentType: 'aider' | 'claude' | 'antigravity') {

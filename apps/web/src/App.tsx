@@ -11,7 +11,165 @@ interface Project {
   name: string;
   path: string;
   /** Relay server URL — only present when connecting via tunnel (relay mode). */
+  /** Relay server URL — only present when connecting via tunnel (relay mode). */
   relayUrl?: string;
+}
+
+function CustomDropdown({ value, onChange, options, style = {}, disabled = false, dropup = false }: { value: string, onChange: (val: string) => void, options: {value: string, label: string}[], style?: React.CSSProperties, disabled?: boolean, dropup?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selected = options.find(o => o.value === value) || options[0];
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'block', zIndex: isOpen ? 1000 : 1, ...style }}>
+      <div 
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className="glass-panel"
+        style={{ 
+          width: '100%',
+          padding: '6px 12px', 
+          background: disabled ? 'rgba(0,0,0,0.1)' : 'transparent', 
+          border: '1px solid transparent', 
+          borderRadius: '8px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          color: disabled ? 'rgba(255,255,255,0.4)' : 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+          fontSize: '0.8rem',
+          opacity: disabled ? 0.6 : 1,
+          transition: 'all 0.2s ease',
+        }}
+        onMouseOver={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.color = '#fff';
+            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+          }
+        }}
+        onMouseOut={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.background = 'transparent';
+          }
+        }}
+      >
+        <span>{selected.label}</span>
+        <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>▼</span>
+      </div>
+      
+      {isOpen && !disabled && (
+        <div style={{
+          position: 'absolute',
+          ...(dropup ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+          left: 0,
+          right: 0,
+          background: '#1e293b',
+          border: '1px solid var(--panel-border)',
+          borderRadius: '8px',
+          padding: '4px',
+          minWidth: '100%',
+          zIndex: 1000,
+          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px'
+        }}>
+          {options.map(opt => (
+            <div 
+              key={opt.value}
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                background: value === opt.value ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: value === opt.value ? '#60a5fa' : 'var(--text-secondary)',
+                fontSize: '0.85rem',
+                transition: 'background 0.2s'
+              }}
+              onMouseOver={(e) => {
+                if (value !== opt.value) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+              }}
+              onMouseOut={(e) => {
+                if (value !== opt.value) e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatInput({ onSend, disabled, autoApproval, setAutoApproval }: { onSend: (text: string) => void, disabled: boolean, autoApproval: 'ask' | 'approve' | 'deny', setAutoApproval: (val: any) => void }) {
+  const [input, setInput] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  const handleSend = () => {
+    if (input.trim()) {
+      onSend(input.trim());
+      setInput('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    }
+  };
+
+  return (
+    <>
+      <div className="approval-dropdown-container">
+        <CustomDropdown 
+          value={autoApproval}
+          onChange={setAutoApproval}
+          options={[
+            { value: 'ask', label: '⚠️ Always Ask for Approval' },
+            { value: 'approve', label: '✅ Auto-Approve Commands' },
+            { value: 'deny', label: '❌ Auto-Deny Commands' }
+          ]}
+          dropup={true}
+        />
+      </div>
+      <div className="input-container">
+        <textarea 
+          ref={textareaRef}
+          className="input-box" 
+          placeholder="Ask the agent to do something..." 
+          value={input}
+          onChange={(e) => {
+             setInput(e.target.value);
+             e.target.style.height = 'auto';
+             e.target.style.height = `${e.target.scrollHeight}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+          disabled={disabled}
+          rows={1}
+        />
+        <button className="btn-primary" onClick={handleSend} disabled={disabled}>Send</button>
+      </div>
+    </>
+  );
 }
 
 interface ApprovalOverlayProps {
@@ -102,17 +260,26 @@ function ApprovalOverlay({ approvalRequest, onApprove, onDeny, onSwitchToTermina
 
 function Dashboard({ project, onBack }: { project: Project, onBack: () => void }) {
   const { connected, events, messages, agentStatus, approvalRequest, fileChanges, sendCommand, sendApproval, sendStdin, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, project.relayUrl);
-  const [input, setInput] = useState('');
   const [agentType, setAgentType] = useState<'aider' | 'claude' | 'antigravity'>(
     (localStorage.getItem('agentdeck_default_agent') as 'aider' | 'claude' | 'antigravity') || 'claude'
   );
   const isBinaryMissing = systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
   const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'settings'>('chat');
+  const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = () => {
-    if (input.trim()) {
-      const text = input.trim();
+  useEffect(() => {
+    if (approvalRequest && autoApproval !== 'ask') {
+      if (autoApproval === 'approve') {
+        sendApproval(approvalRequest.actionId, true);
+      } else if (autoApproval === 'deny') {
+        sendApproval(approvalRequest.actionId, false);
+      }
+    }
+  }, [approvalRequest, autoApproval, sendApproval]);
+
+  const handleSend = (text: string) => {
+    if (text.trim()) {
       if (text.toLowerCase() === 'start' || text.toLowerCase() === 'stop') {
         sendCommand(text, agentType);
       } else if (agentStatus.status === 'idle' || agentStatus.status === 'error') {
@@ -122,7 +289,6 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
       } else {
         sendChatMessage(text);
       }
-      setInput('');
     }
   };
 
@@ -162,16 +328,16 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
         </div>
           <div style={{ marginBottom: '32px' }}>
             <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '1px' }}>Agent Engine</div>
-            <select 
+            <CustomDropdown 
               value={agentType} 
-              onChange={(e) => setAgentType(e.target.value as any)}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--panel-border)', color: '#fff' }}
+              onChange={(val: any) => setAgentType(val)}
+              options={[
+                { value: 'claude', label: 'Claude Code (Anthropic)' },
+                { value: 'aider', label: 'Aider (Python)' },
+                { value: 'antigravity', label: 'Antigravity (Google)' }
+              ]}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
-            >
-              <option value="claude">Claude Code (Anthropic)</option>
-              <option value="aider">Aider (Python)</option>
-              <option value="antigravity">Antigravity (Google)</option>
-            </select>
+            />
             {isBinaryMissing && (
               <div style={{ marginTop: '8px', padding: '8px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--error-color)', fontSize: '0.75rem', color: 'var(--error-color)', lineHeight: '1.4' }}>
                 ⚠️ Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting this agent will fail.
@@ -254,24 +420,17 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
           </div>
         </div>
 
-        {/* Tab Content */}
         {activeTab === 'chat' ? (
           <>
             <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
               <ChatView messages={messages} isWorking={agentStatus.status === 'working'} onClearChat={clearMessages} />
             </div>
-            <div className="input-container">
-              <input 
-                type="text" 
-                className="input-box" 
-                placeholder="Ask the agent to do something... (or type 'start')" 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                disabled={agentStatus.status === 'waiting_approval'}
-              />
-              <button className="btn-primary" onClick={handleSend} disabled={agentStatus.status === 'waiting_approval'}>Send</button>
-            </div>
+            <ChatInput 
+              onSend={handleSend} 
+              disabled={agentStatus.status === 'waiting_approval'} 
+              autoApproval={autoApproval} 
+              setAutoApproval={setAutoApproval} 
+            />
           </>
         ) : activeTab === 'terminal' ? (
           <>
@@ -385,7 +544,7 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
       </nav>
 
       {/* Approval Overlay */}
-      {approvalRequest && (
+      {approvalRequest && autoApproval === 'ask' && (
         <ApprovalOverlay 
           approvalRequest={approvalRequest} 
           onApprove={(id) => sendApproval(id, true)}

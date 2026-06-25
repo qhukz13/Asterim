@@ -2,17 +2,21 @@ import * as pty from 'node-pty';
 import { IAgentAdapter, AgentConfig, AgentDeckEvent } from '@agentdeck/shared';
 import crypto from 'crypto';
 import path from 'path';
+import { Terminal } from '@xterm/headless';
 
 export class AntigravityAdapter implements IAgentAdapter {
   private ptyProcess: pty.IPty | null = null;
+  private xterm: Terminal | null = null;
   private eventCallback?: (event: AgentDeckEvent) => void;
   private dataBuffer: string = '';
   private chatBuffer: string = '';
+  private lastScreenText: string = '';
   private pendingApproval: boolean = false;
   private requestApprovalCallback?: (desc: string, cmd: string) => Promise<boolean>;
   private isStartingUp: boolean = true;
   private startupTimeout: NodeJS.Timeout | null = null;
   private commandQueue: string[] = [];
+  private parseTimeout: NodeJS.Timeout | null = null;
 
   private getRealAgyBinaryPath(): string | null {
     try {
@@ -90,10 +94,17 @@ export class AntigravityAdapter implements IAgentAdapter {
 
   private spawnAndWatch(spawnCmd: string, spawnArgs: string[], config: AgentConfig, isFallback: boolean = false) {
     const startTime = Date.now();
+    this.xterm = new Terminal({
+      cols: 80,
+      rows: 9999,
+      scrollback: 10000,
+      allowProposedApi: true
+    });
+
     this.ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-color',
       cols: 80,
-      rows: 30,
+      rows: 9999,
       cwd: config.workspace,
       env: { ...process.env, FORCE_COLOR: '1' } as any
     });
@@ -101,13 +112,27 @@ export class AntigravityAdapter implements IAgentAdapter {
     this.ptyProcess.onData((data) => {
       this.emitLog('info', data);
       this.parseOutputForApprovals(data);
-      this.parseOutputForChat(data);
+      
+      if (this.xterm) {
+        this.xterm.write(data, () => {
+          if (this.parseTimeout) {
+            clearTimeout(this.parseTimeout);
+          }
+          this.parseTimeout = setTimeout(() => {
+            this.parseTerminalScreen();
+          }, 400);
+        });
+      }
     });
 
     const onExitCallback = config.onExit;
     this.ptyProcess.onExit(({ exitCode }) => {
       console.log(`[AntigravityAdapter] Process exited with code ${exitCode}. isFallback: ${isFallback}, args: ${spawnArgs}`);
       this.ptyProcess = null;
+      if (this.xterm) {
+        this.xterm.dispose();
+        this.xterm = null;
+      }
 
       // Fallback: If 'agy -c' failed (likely due to no previous conversation),
       // retry once without the '-c' argument to start a brand new session.
@@ -142,7 +167,11 @@ export class AntigravityAdapter implements IAgentAdapter {
       return;
     }
     if (this.ptyProcess) {
-      this.ptyProcess.write(`${command}\r`);
+      if (this.xterm) {
+        this.xterm.clear();
+      }
+      this.emitStatus('working', 'Running command...');
+      this.ptyProcess.write(`${command}\r\n`);
     } else {
       throw new Error('Antigravity process is not running');
     }
@@ -165,19 +194,37 @@ export class AntigravityAdapter implements IAgentAdapter {
   private async parseOutputForApprovals(data: string) {
     this.dataBuffer += data;
 
-    if (this.dataBuffer.length > 1000) {
-      this.dataBuffer = this.dataBuffer.slice(-1000);
+    if (this.dataBuffer.length > 2000) {
+      this.dataBuffer = this.dataBuffer.slice(-2000);
     }
 
-    const approvalRegex = /([^\n\r]*?)\s*[\(\[][yY]\/[nN][\)\]]/i;
-    const match = this.dataBuffer.match(approvalRegex);
+    const claudeRegex = /([^\n\r]*?)\s*[\(\[][yY]\/[nN][\)\]]/i;
+    const antigravityRegex = /Requesting permission for:\s*([\s\S]*?)\s*Do you want to proceed\?/i;
 
-    if (match && !this.pendingApproval && this.requestApprovalCallback) {
+    let desc = '';
+    let cmd = '';
+    let promptType: 'claude' | 'antigravity' | null = null;
+
+    const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+
+    let match = this.dataBuffer.match(claudeRegex);
+    if (match) {
+      desc = match[1].replace(ansiRegex, '').trim() || 'Action requires approval';
+      cmd = match[0].replace(ansiRegex, '').trim();
+      promptType = 'claude';
+    } else {
+      match = this.dataBuffer.match(antigravityRegex);
+      if (match) {
+        desc = 'Agent wants to run a command:';
+        cmd = match[1].replace(ansiRegex, '').trim();
+        promptType = 'antigravity';
+      }
+    }
+
+    if (promptType && !this.pendingApproval && this.requestApprovalCallback) {
       this.pendingApproval = true;
       this.emitStatus('waiting_approval', 'Antigravity needs approval');
 
-      const desc = match[1].trim() || 'Action requires approval';
-      const cmd = match[0].trim();
       this.dataBuffer = '';
 
       try {
@@ -185,15 +232,25 @@ export class AntigravityAdapter implements IAgentAdapter {
         if (!this.ptyProcess) return;
 
         if (approved) {
-          this.ptyProcess.write('y\r');
+          if (promptType === 'antigravity') {
+            this.ptyProcess.write('\r');
+          } else {
+            this.ptyProcess.write('y\r');
+          }
           this.emitStatus('working', 'Action approved, continuing...');
         } else {
-          this.ptyProcess.write('n\r');
+          if (promptType === 'antigravity') {
+            this.ptyProcess.write('4\r');
+          } else {
+            this.ptyProcess.write('n\r');
+          }
           this.emitStatus('working', 'Action denied.');
         }
       } catch (err) {
         console.error('[AntigravityAdapter] Approval failed:', err);
-        if (this.ptyProcess) this.ptyProcess.write('n\r');
+        if (this.ptyProcess) {
+          this.ptyProcess.write(promptType === 'antigravity' ? '4\r' : 'n\r');
+        }
         this.emitStatus('working', 'Approval error, defaulted to denied.');
       } finally {
         this.pendingApproval = false;
@@ -212,104 +269,129 @@ export class AntigravityAdapter implements IAgentAdapter {
     });
   }
 
-  private parseOutputForChat(data: string) {
-    // Note: The isStartingUp check is now performed after buffering and text formatting
-    // so we can reliably detect the first prompt.
+  private parseTerminalScreen() {
+    if (!this.xterm) return;
 
-    // Add raw data to buffer FIRST to handle ANSI codes split across chunks
-    this.chatBuffer += data;
-
-    // Translate cursor movement and erase sequences into simple control characters
-    // Cursor Left (e.g. \x1b[D or \x1b[1D) -> Backspace (\x08)
-    this.chatBuffer = this.chatBuffer.replace(/\x1b\[\d*D/g, '\x08');
-    // Erase Line (e.g. \x1b[2K or \x1b[K) -> Carriage Return (\r)
-    this.chatBuffer = this.chatBuffer.replace(/\x1b\[2?K/g, '\r');
-
-    // Robust ANSI stripping (includes OSC sequences and all CSI terminators)
-    const ansiRegex = new RegExp([
-      '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)',
-      '(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[A-Za-z=><~]))'
-    ].join('|'), 'g');
-    
-    this.chatBuffer = this.chatBuffer.replace(ansiRegex, '');
-    
-    // Strip Braille spinner characters and other terminal UI artifacts
-    const spinnerRegex = /[⣷⣯⣟⡿⢿⣻⣽⣾⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g;
-    this.chatBuffer = this.chatBuffer.replace(spinnerRegex, '');
-
-    // Remove any backspace characters and the character preceding it (simple backspace handling)
-    while (this.chatBuffer.includes('\x08')) {
-      this.chatBuffer = this.chatBuffer.replace(/[^\x08]\x08/, '');
-      // If backspace is at the start, just remove it
-      this.chatBuffer = this.chatBuffer.replace(/^\x08+/, '');
+    let screenText = '';
+    const buffer = this.xterm.buffer.active;
+    for (let i = 0; i < buffer.length; i++) {
+      const line = buffer.getLine(i);
+      if (line) {
+        screenText += line.translateToString(true) + '\n';
+      }
     }
 
-    // Resolve carriage returns (\r) which mean "overwrite this line"
-    // First normalize Windows newlines to Unix to prevent \r at the end of lines from deleting the line
-    this.chatBuffer = this.chatBuffer.replace(/\r\n/g, '\n');
-    // We only keep the last part of each line after \r
-    let lines = this.chatBuffer.split('\n');
-    lines = lines.map(line => {
-      const parts = line.split('\r');
-      return parts[parts.length - 1];
-    });
-    this.chatBuffer = lines.join('\n');
+    // Clean up empty lines at the end to reliably find the prompt
+    const trimmedScreen = screenText.trimEnd();
 
-    // We strictly match the interactive command prompt to ensure we don't accidentally
-    // trigger on welcome messages (like "Type ? for shortcuts").
-    const promptRegex = /(?:>|aider>)\s*$/i;
+    // Look for the standard prompt indicator at the end of the text.
+    // It's usually > or ❯ on a line by itself, optionally followed by status bars.
+    // We use matchAll to find the LAST occurrence of the prompt.
+    const matches = [...trimmedScreen.matchAll(/(?:^|\n)[❯>](?:\s*\n|$)/g)];
+    const match = matches.length > 0 ? matches[matches.length - 1] : null;
 
-    if (promptRegex.test(this.chatBuffer)) {
+    if (match) {
+      let skipEmit = false;
+      let message = trimmedScreen.substring(0, match.index);
+      message = this.cleanMessage(message);
+
       if (this.isStartingUp) {
-        // The first prompt indicates the agent has finished dumping history and is ready
         this.isStartingUp = false;
-        this.chatBuffer = '';
+        skipEmit = true;
+        this.lastScreenText = message;
         console.log('[AntigravityAdapter] Startup complete, history ignored. Ready for commands.');
         
-        // Flush any queued commands
         while (this.commandQueue.length > 0) {
           const cmd = this.commandQueue.shift();
           if (cmd && this.ptyProcess) {
             console.log(`[AntigravityAdapter] Flushing queued command: ${cmd}`);
+            if (this.xterm) {
+              this.xterm.clear();
+            }
+            this.emitStatus('working', 'Running queued command...');
             this.ptyProcess.write(cmd + '\r\n');
+            // We return here so we don't emit idle status, as we just sent a command
+            return;
           }
         }
+        this.emitStatus('idle', 'Ready');
         return;
       }
 
-      // Clean up the message before emitting
-      let message = this.chatBuffer
-        .replace(promptRegex, '')
-        // Strip CLI UI artifacts
-        .replace(/Generating(\s*\.*)+/gi, '')
-        .replace(/Gemini 3\.5 Flash \(Medium\)/gi, '')
-        .replace(/esc to cancel/gi, '')
-        .replace(/─{10,}/g, '') // Strip long separator lines
-        // Remove trailing or isolated 'X' and 'W' artifacts from bad PTY sequences
-        .replace(/(\r\n|\n|\r)[XW](\r\n|\n|\r)/g, '\n')
-        .replace(/[XW]$/g, '')
-        .trim();
+      let newText = message;
+      if (this.lastScreenText) {
+        const oldLines = this.lastScreenText.split('\n');
+        const newLines = message.split('\n');
         
-      // Simple heuristic to strip the echoed user prompt if it appears as the first line and is followed by an empty line
-      const msgLines = message.split('\n');
+        let matchEndIndexInNew = -1;
+        let bestK = 0;
+
+        for (let k = oldLines.length; k > 0; k--) {
+          const searchBlock = oldLines.slice(oldLines.length - k);
+          const blockText = searchBlock.join('').trim();
+          
+          if (k < oldLines.length && blockText.length < 15) {
+            continue;
+          }
+
+          // Search backwards to find the last occurrence in the scrollback
+          for (let i = newLines.length - k; i >= 0; i--) {
+            let match = true;
+            for (let j = 0; j < k; j++) {
+              if (newLines[i + j].trimEnd() !== searchBlock[j].trimEnd()) {
+                match = false;
+                break;
+              }
+            }
+            if (match) {
+              bestK = k;
+              matchEndIndexInNew = i + k;
+              break;
+            }
+          }
+          if (bestK > 0) break;
+        }
+
+        if (bestK > 0) {
+          newText = newLines.slice(matchEndIndexInNew).join('\n').trim();
+        }
+      }
+      this.lastScreenText = message;
+
+      const msgLines = newText.split('\n');
       if (msgLines.length >= 3 && msgLines[1].trim() === '') {
-        message = msgLines.slice(2).join('\n').trim();
+        newText = msgLines.slice(2).join('\n').trim();
       } else if (msgLines.length > 0 && msgLines[0].startsWith('> ')) {
-        message = msgLines.slice(1).join('\n').trim();
+        newText = msgLines.slice(1).join('\n').trim();
       }
 
-      // Don't emit purely system/auth messages as chat
-      const isSystemMessage = message.includes('Welcome to the Antigravity CLI') || 
-                              message.includes('Signing in...') ||
-                              message.includes('You are currently not signed in');
+      const isSystemMessage = newText.includes('Welcome to the Antigravity CLI') || 
+                              newText.includes('Signing in...') ||
+                              newText.includes('You are currently not signed in');
 
-      if (message && !isSystemMessage) {
-        this.emitChatMessage('agent', message);
+      if (newText && !isSystemMessage && !skipEmit) {
+        this.emitChatMessage('agent', newText);
       }
       
-      // Clear buffer
-      this.chatBuffer = '';
+      this.emitStatus('idle', 'Ready');
     }
+  }
+
+  private cleanMessage(message: string): string {
+    return message
+      .replace(/Generating(\s*\.*)+/gi, '')
+      .replace(/Gemini 3\.5 Flash \(Medium\)/gi, '')
+      .replace(/\(Google AI Pro\)/gi, '')
+      .replace(/esc to cancel/gi, '')
+      .replace(/\? for shortcuts[\r\n]+[^\r\n]+/gi, '')
+      .replace(/^.*Antigravity CLI.*$/gim, '')
+      .replace(/^.*[█▀▄]+.*$/gim, '')
+      .replace(/─{10,}/g, '')
+      .replace(/^\s*[○●]\s+[A-Za-z0-9_-]+\(.*?\).*$/gim, '')
+      .replace(/(\r\n|\n|\r)[XW](\r\n|\n|\r)/g, '\n')
+      .replace(/[XW]$/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   private emitChatMessage(role: 'agent' | 'user', content: string) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, ChatMessagePayload } from '@agentdeck/shared';
+import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload } from '@agentdeck/shared';
 import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@agentdeck/shared';
 
 export interface ChatMessage {
@@ -186,7 +186,7 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
       if (event.type === 'agent.log') {
         setEvents(prev => [...prev, event].slice(-1000));
       } else if (event.type === 'chat.message') {
-        const payload = event.payload as ChatMessagePayload;
+        const payload = event.payload as any;
         setMessages(prev => [...prev, {
           id: event.id,
           role: payload.role,
@@ -246,8 +246,20 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     const sock = socketRef.current;
     if (!sock || !connectedRef.current || !projectId) return;
 
+    // Fallback for non-secure contexts where crypto.randomUUID is not available
+    const generateId = () => {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    };
+
     const eventObj = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       timestamp: Date.now(),
       type,
       source: `remote:${sock.id}`,
@@ -295,6 +307,7 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
 
   const clearMessages = () => {
     setMessages([]);
+    sendInternalEvent('client.clear_chat', { projectId });
   };
 
   return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, fileChanges, sendCommand, sendApproval, sendStdin, sendChatMessage, clearMessages, systemStatus };
