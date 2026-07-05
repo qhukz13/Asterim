@@ -124,9 +124,11 @@ export class AgentService {
 
     try {
       const { approvalManager } = await import('./ApprovalManager');
+      const { questionManager } = await import('./QuestionManager');
       await adapter.start({
         workspace,
         requestApproval: (desc, cmd) => approvalManager.requestApproval(projectId, desc, cmd),
+        requestQuestion: (q, opts) => questionManager.requestQuestion(projectId, q, opts),
         onExit: async (exitCode) => {
           const wasUserStopped = this.userStopped.has(projectId);
           if (wasUserStopped) {

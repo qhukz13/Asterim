@@ -1,22 +1,26 @@
 import * as pty from 'node-pty';
 import { IAgentAdapter, AgentConfig, AgentDeckEvent } from '@agentdeck/shared';
-import crypto from 'crypto';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { Terminal } from '@xterm/headless';
+import { takeSnapshot, TerminalSnapshot } from './terminal/ScreenSnapshot';
+import { diffScreens } from './terminal/ScreenDiff';
+import { AntigravityFSM, AgentState } from './terminal/TerminalFSM';
 
 export class AntigravityAdapter implements IAgentAdapter {
   private ptyProcess: pty.IPty | null = null;
-  private xterm: Terminal | null = null;
+  private term: Terminal | null = null;
   private eventCallback?: (event: AgentDeckEvent) => void;
-  private dataBuffer: string = '';
-  private chatBuffer: string = '';
-  private lastScreenText: string = '';
-  private pendingApproval: boolean = false;
   private requestApprovalCallback?: (desc: string, cmd: string) => Promise<boolean>;
-  private isStartingUp: boolean = true;
-  private startupTimeout: NodeJS.Timeout | null = null;
+  private requestQuestionCallback?: (question: string, options: string[]) => Promise<number | string>;
+  private config?: AgentConfig;
+  
+  private fsm!: AntigravityFSM;
+  private previousSnapshot: TerminalSnapshot | null = null;
+  
   private commandQueue: string[] = [];
-  private parseTimeout: NodeJS.Timeout | null = null;
+  private lastCommandSent: string = '';
+  private isStartingUp: boolean = true;
 
   private getRealAgyBinaryPath(): string | null {
     try {
@@ -26,154 +30,228 @@ export class AntigravityAdapter implements IAgentAdapter {
       if (output) {
         return output.split('\n')[0].trim();
       }
-    } catch (e) {}
-
-    if (process.platform === 'win32') {
-      const localAppData = process.env.LOCALAPPDATA || path.join(require('os').homedir(), 'AppData', 'Local');
-      const winPath = path.join(localAppData, 'agy', 'bin', 'agy.exe');
-      if (require('fs').existsSync(winPath)) {
-        return winPath;
-      }
-    } else {
-      const unixPath = path.join(require('os').homedir(), '.agy', 'bin', 'agy');
-      if (require('fs').existsSync(unixPath)) {
-        return unixPath;
-      }
+    } catch (err) {
+      // Ignore
     }
+    
+    try {
+      const userProfile = process.env.USERPROFILE || process.env.HOME;
+      if (userProfile) {
+        const defaultPath = path.join(userProfile, 'AppData', 'Local', 'agy', 'bin', 'agy.exe');
+        const fs = require('fs');
+        if (fs.existsSync(defaultPath)) {
+          return defaultPath;
+        }
+      }
+    } catch (err) {
+      // Ignore
+    }
+    
     return null;
   }
 
+  public onEvent(callback: (event: AgentDeckEvent) => void) {
+    this.eventCallback = callback;
+  }
+
   public async start(config: AgentConfig): Promise<void> {
-    if (this.ptyProcess) {
-      throw new Error('Antigravity is already running');
-    }
-
-    this.isStartingUp = true;
+    this.config = config;
     this.requestApprovalCallback = config.requestApproval;
-    const binPath = config.binaryPath || 'antigravity';
-    const args: string[] = [];
+    this.requestQuestionCallback = config.requestQuestion;
+    const isMock = process.env.MOCK_AGENT === 'true';
 
-    let spawnCmd: string;
-    let spawnArgs: string[];
+    let spawnCmd = isMock ? 'node' : 'agy';
+    let spawnArgs = isMock ? [path.join(__dirname, '..', 'mock-antigravity.js')] : ['-c'];
 
-    if (binPath === 'antigravity') {
-      const realAgyPath = this.getRealAgyBinaryPath();
-      if (realAgyPath) {
-        spawnCmd = realAgyPath;
-        spawnArgs = ['-c'];
-      } else {
-        const possiblePaths = [
-          path.resolve(__dirname, '../mock-antigravity.js'),
-          path.resolve(__dirname, '../../packages/adapters/mock-antigravity.js'),
-          path.resolve(process.cwd(), 'packages/adapters/mock-antigravity.js'),
-        ];
-        
-        let mockScriptPath = '';
-        for (const p of possiblePaths) {
-          if (require('fs').existsSync(p)) {
-            mockScriptPath = p;
-            break;
-          }
-        }
-        
-        if (!mockScriptPath) {
-          throw new Error(`Could not find mock-antigravity.js in any of the resolved locations: ${possiblePaths.join(', ')}`);
-        }
-
-        spawnCmd = 'node';
-        spawnArgs = [mockScriptPath, ...args];
+    if (!isMock) {
+      const realPath = this.getRealAgyBinaryPath();
+      if (realPath) {
+        spawnCmd = realPath;
       }
-    } else {
-      spawnCmd = binPath;
-      spawnArgs = args;
     }
 
     console.log('[AntigravityAdapter] Calling spawnAndWatch with:', { spawnCmd, spawnArgs, workspace: config.workspace });
-    this.spawnAndWatch(spawnCmd, spawnArgs, config);
+
+    await this.spawnAndWatch(spawnCmd, spawnArgs, config.workspace, config.onExit);
   }
 
-  private spawnAndWatch(spawnCmd: string, spawnArgs: string[], config: AgentConfig, isFallback: boolean = false) {
-    const startTime = Date.now();
-    this.xterm = new Terminal({
-      cols: 80,
-      rows: 9999,
-      scrollback: 10000,
-      allowProposedApi: true
-    });
-
-    this.ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
-      name: 'xterm-color',
-      cols: 80,
-      rows: 9999,
-      cwd: config.workspace,
-      env: { ...process.env, FORCE_COLOR: '1' } as any
-    });
-
-    this.ptyProcess.onData((data) => {
-      this.emitLog('info', data);
-      this.parseOutputForApprovals(data);
-      
-      if (this.xterm) {
-        this.xterm.write(data, () => {
-          if (this.parseTimeout) {
-            clearTimeout(this.parseTimeout);
-          }
-          this.parseTimeout = setTimeout(() => {
-            this.parseTerminalScreen();
-          }, 400);
+  private async spawnAndWatch(cmd: string, args: string[], workspace: string, onExit?: (code: number) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.term = new Terminal({
+          allowProposedApi: true,
+          cols: 80,
+          rows: 24,
+          scrollback: 10000 // Large scrollback to prevent truncation issues
         });
+
+        this.fsm = new AntigravityFSM(
+          (message) => this.handleMessageComplete(message),
+          (state, reason) => this.handleStateChange(state, reason),
+          (desc, command) => this.handleApprovalRequired(desc, command),
+          () => this.handleTrustRequired(),
+          (q, opts) => this.handleQuestionRequired(q, opts)
+        );
+
+        this.ptyProcess = pty.spawn(cmd, args, {
+          name: 'xterm-color',
+          cols: 80,
+          rows: 24,
+          cwd: workspace,
+          env: {
+            ...process.env,
+            FORCE_COLOR: '1'
+          },
+          useConpty: process.platform === 'win32'
+        });
+
+        this.ptyProcess.onData((data) => {
+          if (!this.term) return;
+          this.term.write(data, () => {
+            this.processScreenTick();
+          });
+        });
+
+        this.ptyProcess.onExit(({ exitCode }) => {
+          console.log(`[AntigravityAdapter] PTY process exited with code ${exitCode}`);
+          if (onExit) onExit(exitCode);
+        });
+
+        this.emitStatus('working', 'Agent started successfully.');
+        resolve();
+      } catch (err) {
+        console.error('[AntigravityAdapter] Failed to spawn PTY:', err);
+        reject(err);
       }
     });
+  }
 
-    const onExitCallback = config.onExit;
-    this.ptyProcess.onExit(({ exitCode }) => {
-      console.log(`[AntigravityAdapter] Process exited with code ${exitCode}. isFallback: ${isFallback}, args: ${spawnArgs}`);
-      this.ptyProcess = null;
-      if (this.xterm) {
-        this.xterm.dispose();
-        this.xterm = null;
+  private processScreenTick() {
+    if (!this.term) return;
+    
+    const currentSnapshot = takeSnapshot(this.term);
+    
+    let diff: import('./terminal/ScreenDiff').DiffResult = { newLines: [], modifiedLines: [], appendedText: '' };
+    
+    if (this.previousSnapshot) {
+      diff = diffScreens(this.previousSnapshot, currentSnapshot);
+    }
+    
+    this.previousSnapshot = currentSnapshot;
+
+    // Pass the diff to our State Machine
+    this.fsm.process(diff, currentSnapshot);
+    
+    try {
+      const fs = require('fs');
+      const cursorLineIndex = currentSnapshot.baseY + currentSnapshot.cursorY;
+      const cursorLine = currentSnapshot.lines[cursorLineIndex] || '';
+      const log = `\n--- TICK ---\nSTATE: ${this.fsm.getState()}\nDIFF APPENDED: ${JSON.stringify(diff.appendedText)}\nCURSOR Y: ${currentSnapshot.cursorY}\nCURSOR LINE: ${JSON.stringify(cursorLine)}\nLINES: ${JSON.stringify(currentSnapshot.lines.slice(-3))}\n`;
+      fs.appendFileSync('C:\\Projects\\AgentDeck\\fsm_debug.log', log);
+    } catch (e) {}
+  }
+
+  private handleStateChange(state: AgentState, reason: string) {
+    let internalState: 'idle' | 'working' | 'waiting_approval' | 'error' = 'working';
+    
+    if (state === AgentState.Idle) internalState = 'idle';
+    if (state === AgentState.WaitingApproval) internalState = 'waiting_approval';
+    if (state === AgentState.Working) internalState = 'working';
+    
+    this.emitStatus(internalState, reason);
+
+    if (state === AgentState.Idle && this.isStartingUp) {
+      this.isStartingUp = false;
+      console.log('[AntigravityAdapter] Startup complete. Ready for commands.');
+      
+      // Flush queued commands
+      while (this.commandQueue.length > 0) {
+        const queuedCmd = this.commandQueue.shift();
+        if (queuedCmd && this.ptyProcess) {
+          console.log(`[AntigravityAdapter] Flushing queued command: ${queuedCmd}`);
+          this.sendCommand(queuedCmd);
+          return; // Wait for next idle state
+        }
       }
+    }
+  }
 
-      // Fallback: If 'agy -c' failed (likely due to no previous conversation),
-      // retry once without the '-c' argument to start a brand new session.
-      const duration = Date.now() - startTime;
-      if ((exitCode !== 0 || duration < 5000) && !isFallback && spawnArgs.includes('-c')) {
-        this.emitLog('warn', 'Antigravity continue exited quickly. Retrying without "-c" to start a new session...');
-        this.spawnAndWatch(spawnCmd, [], config, true);
-        return;
+  private handleMessageComplete(message: string) {
+    if (message === 'y' || message === 'n' || message === this.lastCommandSent) {
+      return;
+    }
+    if (message.length > 0) {
+      this.emitLog('agent', message);
+    }
+  }
+
+  private handleApprovalRequired(desc: string, command: string) {
+    if (!this.requestApprovalCallback) return;
+
+    this.requestApprovalCallback(desc, command).then(approved => {
+      if (!this.ptyProcess) return;
+
+      const fullText = this.previousSnapshot?.lines.join('\n') || '';
+      const isMenu = fullText.includes('Do you want to proceed?');
+
+      if (approved) {
+        const input = isMenu ? '1' : 'y';
+        this.lastCommandSent = input;
+        this.ptyProcess.write(input + '\r');
+      } else {
+        const input = isMenu ? '4' : 'n';
+        this.lastCommandSent = input;
+        this.ptyProcess.write(input + '\r');
       }
-
-      this.emitStatus('idle', `Antigravity exited with code ${exitCode}`);
-      if (onExitCallback) {
-        onExitCallback(exitCode);
+    }).catch(err => {
+      console.error('[AntigravityAdapter] Approval failed:', err);
+      if (this.ptyProcess) {
+        this.ptyProcess.write('n\r');
       }
     });
+  }
 
-    this.emitStatus('working', isFallback ? 'Antigravity started (new session)' : 'Antigravity started');
+  private handleTrustRequired() {
+    if (this.ptyProcess) {
+      console.log('[AntigravityAdapter] Auto-approving workspace trust prompt.');
+      this.ptyProcess.write('\r');
+    }
+  }
+
+  private handleQuestionRequired(question: string, options: string[]) {
+    if (!this.requestQuestionCallback) return;
+
+    this.requestQuestionCallback(question, options).then((response: number | string) => {
+      if (!this.ptyProcess) return;
+      this.lastCommandSent = response.toString();
+      this.ptyProcess.write(response + '\r');
+    }).catch((err: any) => {
+      console.error('[AntigravityAdapter] Question failed:', err);
+      if (this.ptyProcess) {
+        this.ptyProcess.write('\x1b'); // Escape to skip if supported
+      }
+    });
   }
 
   public async stop(): Promise<void> {
     if (this.ptyProcess) {
       this.ptyProcess.kill();
       this.ptyProcess = null;
-      this.emitStatus('idle', 'Antigravity stopped');
     }
+    this.term = null;
   }
 
   public async sendCommand(command: string): Promise<void> {
     if (this.isStartingUp) {
-      this.commandQueue.push(command);
       console.log(`[AntigravityAdapter] Queued command during startup: ${command}`);
+      this.commandQueue.push(command);
       return;
     }
+
     if (this.ptyProcess) {
-      if (this.xterm) {
-        this.xterm.clear();
-      }
+      this.lastCommandSent = command.trim();
       this.emitStatus('working', 'Running command...');
-      this.ptyProcess.write(`${command}\r\n`);
-    } else {
-      throw new Error('Antigravity process is not running');
+      this.ptyProcess.write(command + '\r\n');
     }
   }
 
@@ -184,235 +262,30 @@ export class AntigravityAdapter implements IAgentAdapter {
   }
 
   public getPid(): number | undefined {
-    return this.ptyProcess?.pid;
+    return this.ptyProcess?.pid ?? undefined;
   }
 
-  public onEvent(callback: (event: AgentDeckEvent) => void): void {
-    this.eventCallback = callback;
-  }
-
-  private async parseOutputForApprovals(data: string) {
-    this.dataBuffer += data;
-
-    if (this.dataBuffer.length > 2000) {
-      this.dataBuffer = this.dataBuffer.slice(-2000);
+  private emitLog(role: 'agent' | 'user', content: string) {
+    if (this.eventCallback) {
+      this.eventCallback({
+        id: randomUUID(),
+        timestamp: Date.now(),
+        type: 'chat.message',
+        source: 'agent',
+        payload: { role, content }
+      });
     }
-
-    const claudeRegex = /([^\n\r]*?)\s*[\(\[][yY]\/[nN][\)\]]/i;
-    const antigravityRegex = /Requesting permission for:\s*([\s\S]*?)\s*Do you want to proceed\?/i;
-
-    let desc = '';
-    let cmd = '';
-    let promptType: 'claude' | 'antigravity' | null = null;
-
-    const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-
-    let match = this.dataBuffer.match(claudeRegex);
-    if (match) {
-      desc = match[1].replace(ansiRegex, '').trim() || 'Action requires approval';
-      cmd = match[0].replace(ansiRegex, '').trim();
-      promptType = 'claude';
-    } else {
-      match = this.dataBuffer.match(antigravityRegex);
-      if (match) {
-        desc = 'Agent wants to run a command:';
-        cmd = match[1].replace(ansiRegex, '').trim();
-        promptType = 'antigravity';
-      }
-    }
-
-    if (promptType && !this.pendingApproval && this.requestApprovalCallback) {
-      this.pendingApproval = true;
-      this.emitStatus('waiting_approval', 'Antigravity needs approval');
-
-      this.dataBuffer = '';
-
-      try {
-        const approved = await this.requestApprovalCallback(desc, cmd);
-        if (!this.ptyProcess) return;
-
-        if (approved) {
-          if (promptType === 'antigravity') {
-            this.ptyProcess.write('\r');
-          } else {
-            this.ptyProcess.write('y\r');
-          }
-          this.emitStatus('working', 'Action approved, continuing...');
-        } else {
-          if (promptType === 'antigravity') {
-            this.ptyProcess.write('4\r');
-          } else {
-            this.ptyProcess.write('n\r');
-          }
-          this.emitStatus('working', 'Action denied.');
-        }
-      } catch (err) {
-        console.error('[AntigravityAdapter] Approval failed:', err);
-        if (this.ptyProcess) {
-          this.ptyProcess.write(promptType === 'antigravity' ? '4\r' : 'n\r');
-        }
-        this.emitStatus('working', 'Approval error, defaulted to denied.');
-      } finally {
-        this.pendingApproval = false;
-      }
-    }
-  }
-
-  private emitLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) {
-    if (!this.eventCallback) return;
-    this.eventCallback({
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      source: 'adapter:antigravity',
-      type: 'agent.log',
-      payload: { level, message }
-    });
-  }
-
-  private parseTerminalScreen() {
-    if (!this.xterm) return;
-
-    let screenText = '';
-    const buffer = this.xterm.buffer.active;
-    for (let i = 0; i < buffer.length; i++) {
-      const line = buffer.getLine(i);
-      if (line) {
-        screenText += line.translateToString(true) + '\n';
-      }
-    }
-
-    // Clean up empty lines at the end to reliably find the prompt
-    const trimmedScreen = screenText.trimEnd();
-
-    // Look for the standard prompt indicator at the end of the text.
-    // It's usually > or ❯ on a line by itself, optionally followed by status bars.
-    // We use matchAll to find the LAST occurrence of the prompt.
-    const matches = [...trimmedScreen.matchAll(/(?:^|\n)[❯>](?:\s*\n|$)/g)];
-    const match = matches.length > 0 ? matches[matches.length - 1] : null;
-
-    if (match) {
-      let skipEmit = false;
-      let message = trimmedScreen.substring(0, match.index);
-      message = this.cleanMessage(message);
-
-      if (this.isStartingUp) {
-        this.isStartingUp = false;
-        skipEmit = true;
-        this.lastScreenText = message;
-        console.log('[AntigravityAdapter] Startup complete, history ignored. Ready for commands.');
-        
-        while (this.commandQueue.length > 0) {
-          const cmd = this.commandQueue.shift();
-          if (cmd && this.ptyProcess) {
-            console.log(`[AntigravityAdapter] Flushing queued command: ${cmd}`);
-            if (this.xterm) {
-              this.xterm.clear();
-            }
-            this.emitStatus('working', 'Running queued command...');
-            this.ptyProcess.write(cmd + '\r\n');
-            // We return here so we don't emit idle status, as we just sent a command
-            return;
-          }
-        }
-        this.emitStatus('idle', 'Ready');
-        return;
-      }
-
-      let newText = message;
-      if (this.lastScreenText) {
-        const oldLines = this.lastScreenText.split('\n');
-        const newLines = message.split('\n');
-        
-        let matchEndIndexInNew = -1;
-        let bestK = 0;
-
-        for (let k = oldLines.length; k > 0; k--) {
-          const searchBlock = oldLines.slice(oldLines.length - k);
-          const blockText = searchBlock.join('').trim();
-          
-          if (k < oldLines.length && blockText.length < 15) {
-            continue;
-          }
-
-          // Search backwards to find the last occurrence in the scrollback
-          for (let i = newLines.length - k; i >= 0; i--) {
-            let match = true;
-            for (let j = 0; j < k; j++) {
-              if (newLines[i + j].trimEnd() !== searchBlock[j].trimEnd()) {
-                match = false;
-                break;
-              }
-            }
-            if (match) {
-              bestK = k;
-              matchEndIndexInNew = i + k;
-              break;
-            }
-          }
-          if (bestK > 0) break;
-        }
-
-        if (bestK > 0) {
-          newText = newLines.slice(matchEndIndexInNew).join('\n').trim();
-        }
-      }
-      this.lastScreenText = message;
-
-      const msgLines = newText.split('\n');
-      if (msgLines.length >= 3 && msgLines[1].trim() === '') {
-        newText = msgLines.slice(2).join('\n').trim();
-      } else if (msgLines.length > 0 && msgLines[0].startsWith('> ')) {
-        newText = msgLines.slice(1).join('\n').trim();
-      }
-
-      const isSystemMessage = newText.includes('Welcome to the Antigravity CLI') || 
-                              newText.includes('Signing in...') ||
-                              newText.includes('You are currently not signed in');
-
-      if (newText && !isSystemMessage && !skipEmit) {
-        this.emitChatMessage('agent', newText);
-      }
-      
-      this.emitStatus('idle', 'Ready');
-    }
-  }
-
-  private cleanMessage(message: string): string {
-    return message
-      .replace(/Generating(\s*\.*)+/gi, '')
-      .replace(/Gemini 3\.5 Flash \(Medium\)/gi, '')
-      .replace(/\(Google AI Pro\)/gi, '')
-      .replace(/esc to cancel/gi, '')
-      .replace(/\? for shortcuts[\r\n]+[^\r\n]+/gi, '')
-      .replace(/^.*Antigravity CLI.*$/gim, '')
-      .replace(/^.*[█▀▄]+.*$/gim, '')
-      .replace(/─{10,}/g, '')
-      .replace(/^\s*[○●]\s+[A-Za-z0-9_-]+\(.*?\).*$/gim, '')
-      .replace(/(\r\n|\n|\r)[XW](\r\n|\n|\r)/g, '\n')
-      .replace(/[XW]$/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  private emitChatMessage(role: 'agent' | 'user', content: string) {
-    if (!this.eventCallback) return;
-    this.eventCallback({
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      source: 'adapter:antigravity',
-      type: 'chat.message',
-      payload: { role, content }
-    });
   }
 
   private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'error', message: string) {
-    if (!this.eventCallback) return;
-    this.eventCallback({
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      source: 'adapter:antigravity',
-      type: 'agent.status',
-      payload: { status, message }
-    });
+    if (this.eventCallback) {
+      this.eventCallback({
+        id: randomUUID(),
+        timestamp: Date.now(),
+        type: 'agent.status',
+        source: 'agent',
+        payload: { status, message }
+      });
+    }
   }
 }

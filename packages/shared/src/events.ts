@@ -41,6 +41,18 @@ export interface ChatMessagePayload {
   content: string;
 }
 
+export interface QuestionRequestPayload {
+  questionId: string;
+  question: string;
+  options: string[];
+}
+
+export interface ClientQuestionResponsePayload {
+  questionId: string;
+  selectedIndex: number; // 1-based index
+  selectedText?: string;
+}
+
 export interface ClientChatMessagePayload {
   message: string;
 }
@@ -68,6 +80,8 @@ export type ApprovalRequestEvent = AgentDeckEvent<ApprovalRequestPayload>;
 export type ClientCommandEvent = AgentDeckEvent<ClientCommandPayload>;
 export type ClientStdinEvent = AgentDeckEvent<ClientStdinPayload>;
 export type ClientApprovalResponseEvent = AgentDeckEvent<ClientApprovalResponsePayload>;
+export type QuestionRequestEvent = AgentDeckEvent<QuestionRequestPayload>;
+export type ClientQuestionResponseEvent = AgentDeckEvent<ClientQuestionResponsePayload>;
 export type FileChangedEvent = AgentDeckEvent<FileChangedPayload>;
 export type ClientPairEvent = AgentDeckEvent<ClientPairPayload>;
 export type ServerAuthResultEvent = AgentDeckEvent<ServerAuthResultPayload>;

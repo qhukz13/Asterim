@@ -10,6 +10,11 @@ export interface AgentConfig {
    */
   requestApproval?: (description: string, command: string) => Promise<boolean>;
   /**
+   * Promise-based callback to request user to answer a multiple-choice question.
+   * Resolves to the 1-based index of the selected option, or a string for write-ins.
+   */
+  requestQuestion?: (question: string, options: string[]) => Promise<number | string>;
+  /**
    * Optional callback triggered when the agent process exits.
    */
   onExit?: (exitCode: number) => void;

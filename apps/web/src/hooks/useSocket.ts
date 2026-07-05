@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload } from '@agentdeck/shared';
+import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, QuestionRequestPayload } from '@agentdeck/shared';
 import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@agentdeck/shared';
 
 export interface ChatMessage {
@@ -17,6 +17,7 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
 
   const [agentStatus, setAgentStatus] = useState<AgentStatusPayload>({ status: 'idle' });
   const [approvalRequest, setApprovalRequest] = useState<(ApprovalRequestPayload & { timestamp?: number }) | null>(null);
+  const [questionRequest, setQuestionRequest] = useState<(QuestionRequestPayload & { timestamp?: number }) | null>(null);
   const [fileChanges, setFileChanges] = useState<FileChangedPayload[]>([]);
   const [systemStatus, setSystemStatus] = useState<{ binaries: { claude: boolean; aider: boolean; antigravity: boolean } } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -199,7 +200,11 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
           setApprovalRequest(null);
         }
       } else if (event.type === 'agent.approval_request') {
+        if (!event.payload) return;
         setApprovalRequest({ ...event.payload, timestamp: event.timestamp || Date.now() });
+      } else if (event.type === 'agent.question_request') {
+        if (!event.payload) return;
+        setQuestionRequest({ ...event.payload, timestamp: event.timestamp || Date.now() });
       } else if (event.type === 'file.changed') {
         setFileChanges(prev => {
           const existingIdx = prev.findIndex(fc => fc.filePath === event.payload.filePath);
@@ -297,12 +302,13 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     setApprovalRequest(null);
   };
 
-  const sendStdin = (data: string) => {
-    sendInternalEvent('client.stdin', { data, projectId });
+  const sendQuestionResponse = (questionId: string, selectedIndex: number, selectedText?: string) => {
+    sendInternalEvent('client.question_response', { questionId, selectedIndex, selectedText, projectId });
+    setQuestionRequest(null);
   };
 
-  const sendChatMessage = (message: string) => {
-    sendInternalEvent('client.chat_message', { content: message, projectId });
+  const sendStdin = (data: string) => {
+    sendInternalEvent('client.stdin', { data, projectId });
   };
 
   const clearMessages = () => {
@@ -310,5 +316,9 @@ export function useSocket(projectId: string | null, relayUrl?: string) {
     sendInternalEvent('client.clear_chat', { projectId });
   };
 
-  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, fileChanges, sendCommand, sendApproval, sendStdin, sendChatMessage, clearMessages, systemStatus };
+  const sendChatMessage = (message: string) => {
+    sendInternalEvent('client.chat_message', { content: message, projectId });
+  };
+
+  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus };
 }
