@@ -3,7 +3,7 @@ export interface AgentDeckEvent<T = any> {
   timestamp: number;
   source: string; // e.g., 'adapter:aider', 'client:web-123'
   type: string;
-  payload: T;
+  payload: T & { projectId?: string; threadId?: string };
 }
 
 export interface AgentLogPayload {

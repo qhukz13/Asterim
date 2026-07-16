@@ -1,7 +1,7 @@
 # AgentDeck Architecture
 
 ## Product Vision
-AgentDeck is a local-first control center for AI coding agents. It aims to provide developers with a structured, AI-native interface to monitor and control coding agents running on their computers directly from a phone, tablet, or another device. AgentDeck replaces remote desktop access with an intuitive dashboard showing current tasks, progress, git diffs, logs, and actionable approvals without being tightly coupled to any specific agent.
+AgentDeck is a local-first control center for AI coding agents. It provides developers with a structured, AI-native interface to monitor and control coding agents running on their computers. A single application supports different license tiers, allowing free local usage (Community) while unlocking cloud features (Pro) and team collaboration (Enterprise) via subscriptions.
 
 ## System Architecture
 AgentDeck uses an event-driven, adapter-based architecture. The system consists of:
@@ -56,6 +56,7 @@ New agents can be supported by writing a new adapter that maps the agent's stdou
 ## Websocket Design
 - **Protocol**: Socket.IO for robust fallback and broadcasting.
 - **Rooms**: Each active project or session is a room. Clients join rooms to receive localized telemetry.
+- **Parallel Agent Sessions**: The server and WebSocket architecture is designed to support **Parallel Agent Execution**. Multiple distinct agent processes (e.g., Aider, Claude, Antigravity) can run simultaneously in the same project, orchestrating different tasks concurrently.
 - **Message Types**: Telemetry updates (one-way server-to-client), commands (client-to-server), and approval handshakes (bidirectional).
 
 ## Security Model
@@ -66,17 +67,32 @@ New agents can be supported by writing a new adapter that maps the agent's stdou
 ## Local Network Communication
 The server will broadcast its presence on the local network using mDNS (Bonjour/Zeroconf) so mobile clients can discover the AgentDeck server automatically without manual IP entry.
 
-## Future Cloud Synchronization Strategy
-- **Relay Server**: A hosted cloud relay that securely bridges local servers to mobile devices outside the local network via WebRTC or encrypted WebSocket tunnels.
-- **E2E Encryption**: All payloads routed through the cloud must be end-to-end encrypted; the cloud relay cannot read the code or logs.
+## SaaS & Cloud Strategy (Monetization & Licensing)
+AgentDeck is distributed as a single application that unlocks features based on the user's license, authenticated via the marketing website.
 
-## Mobile Application Strategy
+### 1. Community Edition (Open Source)
+- **Cost**: Free.
+- **Features**: Local LAN access only, local server, agent management, logs, start/stop agents. No cloud access.
+
+### 2. Pro (Cloud Subscription)
+- **Cost**: Monthly subscription.
+- **Features**: Remote access from anywhere via Cloud Relay tunnel, user account synchronization, mobile app with push notifications, session history, backups, and auto-updates.
+
+### 3. Enterprise
+- **Cost**: Organization/per-user subscription.
+- **Features**: Team management, RBAC (Role-Based Access Control), SSO, audit logs, REST API, priority support, and optional On-Premise cloud relay deployment.
+
+The local AgentDeck app will prompt the user to log in to their cloud account to verify their subscription tier and unlock Pro/Enterprise capabilities.
+
+
+## Application UI Strategy
 - **Phase 1**: Responsive PWA (Progressive Web App) served directly from the local server.
-- **Phase 2**: Native wrapper (React Native or similar) to handle push notifications for approval requests.
+- **Phase 2**: UI Overhaul introducing a global Main Dashboard (for Personal Profile and global stats) with a persistent Project Sidebar for quick switching. Adding Advanced File Viewer and Split-pane Git Diff.
+- **Phase 3**: Native wrapper (React Native or similar) to handle push notifications for approval requests.
 
 ## Database Strategy
 - **MVP**: Local SQLite. It requires zero setup from the user, stores data in a single file, and is fast enough for single-user concurrent access.
-- **Schema**: Tables for `Projects`, `Sessions`, `Events` (pruned periodically), and `Settings`.
+- **Schema**: Tables for `Projects`, `Threads/Chat Sessions` (to support multiple isolated chats per project), `Events` (pruned periodically), and `Settings`.
 
 ## Deployment Strategy
 - **Distribution**: npm package (`npm install -g agentdeck`) or single executable binaries via pkg/nexe.

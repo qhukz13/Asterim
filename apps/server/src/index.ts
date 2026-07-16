@@ -1,3 +1,6 @@
+import { initLogger } from './utils/logger';
+initLogger();
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
@@ -43,7 +46,8 @@ const isLocalOrigin = (origin: string): boolean => {
       /^192\.168\./.test(hostname) ||
       /^10\./.test(hostname) ||
       /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
-      /^169\.254\./.test(hostname)
+      /^169\.254\./.test(hostname) ||
+      /^26\./.test(hostname) // Radmin VPN / Hamachi
     );
   } catch (e) {
     return false;
@@ -72,7 +76,12 @@ fastify.register(cors, {
 fastify.register(authMiddleware);
 
 // Setup Static File Serving for Production (Phase 6)
-const webDistPath = path.join(__dirname, 'web');
+let webDistPath = path.join(__dirname, 'web');
+if (!fs.existsSync(webDistPath)) {
+  // Fallback for tsx watch where __dirname is src/
+  webDistPath = path.join(__dirname, '..', '..', '..', 'apps', 'web', 'dist');
+}
+
 if (fs.existsSync(webDistPath)) {
   fastify.register(fastifyStatic, {
     root: webDistPath,
@@ -94,6 +103,7 @@ const socketManager = new SocketManager(fastify);
 
 import './services/RelayClient';
 import './services/PushService';
+import './services/TerminalService';
 
 fastify.get('/health', async () => {
   const { startupService } = await import('./services/StartupService');

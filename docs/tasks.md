@@ -6,7 +6,30 @@ This file is the single source of truth for project progress.
 
 ## TODO
 
-(None)
+- **TSK-033**: Implement Parallel Agent Execution & Multiple Chats
+  - *Description*: Update database schema and UI to support running multiple agents simultaneously in the same project. (e.g., Aider executing tasks while Claude orchestrates and Antigravity writes code). Allow users to switch between these parallel chat threads easily.
+  - *Priority*: High
+  - *Status*: TODO
+
+- **TSK-032**: Advanced File Viewer and Git Diff UI
+  - *Description*: Build a dedicated file explorer component and a robust split-pane (or unified) Git diff viewer. Allow users to easily review changes before approving commands.
+  - *Priority*: High
+  - *Status*: TODO
+
+- **TSK-031**: Full Terminal Support / Redesign
+  - *Description*: The current terminal tab does not work. Either completely replace it with a fully functional standalone terminal (e.g., using `xterm.js` and `node-pty` for direct bash access) or remove it if deemed unnecessary. If kept, it must allow manual user input and full shell interaction.
+  - *Priority*: Critical
+  - *Status*: TODO
+
+- **TSK-030**: Subscription Tiers & License Verification
+  - *Description*: Implement the licensing model (Community, Pro, Enterprise). Users will register and purchase subscriptions on the website. The local AgentDeck app will prompt users to log in, checking their subscription status to unlock Cloud Relay, Push Notifications, and Sync capabilities for Pro/Enterprise users.
+  - *Priority*: High
+  - *Status*: TODO
+
+- **TSK-029**: UI Redesign (Global Dashboard & Project Sidebar)
+  - *Description*: Overhaul the application layout. The root page should display general info/User Profile. Move the project selector into a persistent collapsible sidebar for quick switching.
+  - *Priority*: High
+  - *Status*: TODO
 
 ## IN PROGRESS
 

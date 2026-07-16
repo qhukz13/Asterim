@@ -36,7 +36,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-var AntigravityAdapter_1 = require("./src/AntigravityAdapter");
+var AntigravityAdapter_1 = require("./dist/AntigravityAdapter");
 function test() {
     return __awaiter(this, void 0, void 0, function () {
         var adapter;

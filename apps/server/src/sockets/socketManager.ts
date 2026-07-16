@@ -115,10 +115,12 @@ export class SocketManager {
         // Persist event to Database
         try {
           const db = dbService.getDb();
-          const insert = db.prepare('INSERT INTO events (id, project_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?)');
+          const threadId = (event.payload as any)?.threadId || null;
+          const insert = db.prepare('INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
           insert.run(
             crypto.randomUUID(),
             projectId,
+            threadId,
             event.timestamp || Date.now(),
             event.source,
             event.type,

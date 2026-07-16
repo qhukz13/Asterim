@@ -21,4 +21,20 @@ export default async function projectRoutes(fastify: FastifyInstance) {
     projectManager.removeProject(id);
     return { success: true };
   });
+
+  fastify.get('/api/v1/projects/:id/threads', async (request: any, reply) => {
+    const { id } = request.params;
+    return { threads: projectManager.getThreads(id) };
+  });
+
+  fastify.post('/api/v1/projects/:id/threads', async (request: any, reply) => {
+    const { id } = request.params;
+    const { name } = request.body;
+    if (!name) {
+      reply.code(400);
+      return { error: 'Name is required' };
+    }
+    const thread = projectManager.createThread(id, name);
+    return { thread };
+  });
 }

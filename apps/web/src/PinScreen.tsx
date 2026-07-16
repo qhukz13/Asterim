@@ -22,6 +22,7 @@ export function PinScreen() {
         } else {
           // Clear query params from URL so refresh doesn't trigger pairing loop
           window.history.replaceState({}, document.title, window.location.pathname);
+          window.location.reload();
         }
         setLoading(false);
       };
@@ -37,6 +38,8 @@ export function PinScreen() {
     const result = await login(pin);
     if (!result.success) {
       setError(result.error || 'Invalid PIN. Check the server console.');
+    } else {
+      window.location.reload();
     }
     setLoading(false);
   };

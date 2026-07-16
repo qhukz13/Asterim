@@ -45,9 +45,17 @@ export class DatabaseService {
         path TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS threads (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS events (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
+        thread_id TEXT,
         timestamp INTEGER NOT NULL,
         source TEXT NOT NULL,
         type TEXT NOT NULL,
@@ -65,6 +73,7 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
+        thread_id TEXT,
         agent_type TEXT NOT NULL,
         status TEXT NOT NULL,
         pid INTEGER,
@@ -74,6 +83,7 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS approvals (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
+        thread_id TEXT,
         action_id TEXT NOT NULL UNIQUE,
         description TEXT NOT NULL,
         command TEXT NOT NULL,
@@ -81,6 +91,17 @@ export class DatabaseService {
         created_at INTEGER NOT NULL
       );
     `);
+
+    // Add thread_id to existing tables if they were created before this update
+    try {
+      this.db.exec('ALTER TABLE events ADD COLUMN thread_id TEXT;');
+    } catch (e) { /* ignore if exists */ }
+    try {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN thread_id TEXT;');
+    } catch (e) { /* ignore if exists */ }
+    try {
+      this.db.exec('ALTER TABLE approvals ADD COLUMN thread_id TEXT;');
+    } catch (e) { /* ignore if exists */ }
 
     // Index for quick history retrieval
     this.db.exec(`

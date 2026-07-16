@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import qrcode from 'qrcode-terminal';
 import { dbService } from './DatabaseService';
+import { printToConsole } from '../utils/logger';
 
 export class StartupService {
   public checkFirstRun(port: number, pairingPin: string, tunnelId: string | null) {
@@ -14,6 +15,18 @@ export class StartupService {
       
       const isFirstRun = !row || row.value !== 'true';
       if (!isFirstRun) {
+        // Still print the connection info even if it's not the first run
+        const localIp = this.getLocalIpAddress();
+        const host = localIp || 'localhost';
+        printToConsole('\n==================================================');
+        printToConsole(`  Local URL    : http://localhost:${port}`);
+        if (localIp) {
+          printToConsole(`  LAN URL      : http://${localIp}:${port}`);
+        }
+        if (tunnelId) {
+          printToConsole(`  Tunnel ID    : ${tunnelId}`);
+        }
+        printToConsole('==================================================\n');
         return;
       }
 
@@ -23,26 +36,26 @@ export class StartupService {
       const pairingUrl = `http://${host}:${port}/?pin=${pairingPin}`;
 
       // 2. Draw welcome console frame
-      console.log('\n==================================================');
-      console.log('           WELCOME TO AGENTDECK v0.1');
-      console.log('      AI Agent Control Plane is Initialized');
-      console.log('==================================================');
-      console.log(`  Local URL    : http://localhost:${port}`);
+      printToConsole('\n==================================================');
+      printToConsole('           WELCOME TO AGENTDECK v0.1');
+      printToConsole('      AI Agent Control Plane is Initialized');
+      printToConsole('==================================================');
+      printToConsole(`  Local URL    : http://localhost:${port}`);
       if (localIp) {
-        console.log(`  LAN URL      : http://${localIp}:${port}`);
+        printToConsole(`  LAN URL      : http://${localIp}:${port}`);
       }
-      console.log(`  Pairing PIN  : ${pairingPin}`);
+      printToConsole(`  Pairing PIN  : ${pairingPin}`);
       if (tunnelId) {
-        console.log(`  Tunnel ID    : ${tunnelId}`);
+        printToConsole(`  Tunnel ID    : ${tunnelId}`);
       } else {
-        console.log('  Tunnel ID    : Not connected to relay server');
+        printToConsole('  Tunnel ID    : Not connected to relay server');
       }
-      console.log('==================================================\n');
+      printToConsole('==================================================\n');
 
       // 3. Generate Pairing QR Code
-      console.log('Scan this QR code with your mobile device to pair automatically:');
+      printToConsole('Scan this QR code with your mobile device to pair automatically:');
       qrcode.generate(pairingUrl, { small: true });
-      console.log(`Pairing URL: ${pairingUrl}\n`);
+      printToConsole(`Pairing URL: ${pairingUrl}\n`);
 
     } catch (err) {
       console.error('[StartupService] Error executing first-run onboarding checks:', err);

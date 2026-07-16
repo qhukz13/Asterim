@@ -4,9 +4,10 @@ import { ProjectSelector } from './ProjectSelector';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
 import { useAuth } from './hooks/useAuth';
+import { Sidebar } from './components/Sidebar';
 import { PinScreen } from './PinScreen';
 
-interface Project {
+export interface Project {
   id: string;
   name: string;
   path: string;
@@ -330,7 +331,8 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
 }
 
 function Dashboard({ project, onBack }: { project: Project, onBack: () => void }) {
-  const { connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, project.relayUrl);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, activeThreadId, project.relayUrl);
   const [agentType, setAgentType] = useState<'aider' | 'claude' | 'antigravity'>(
     (localStorage.getItem('agentdeck_default_agent') as 'aider' | 'claude' | 'antigravity') || 'claude'
   );
@@ -372,110 +374,66 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
 
   return (
     <div className="app-container">
-      {/* Sidebar - Hidden on mobile */}
-      <aside className="sidebar glass-panel">
-        <h1>AgentDeck</h1>
-        
-        <div style={{ marginBottom: '32px' }}>
-          <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '1px' }}>Connection</div>
-          <div className={`status-badge ${connected ? 'connected' : 'disconnected'}`}>
-            <div className="status-dot"></div>
-            {connected ? 'Connected' : 'Disconnected'}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '32px' }}>
-          <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '1px' }}>Active Project</div>
-          <div style={{ padding: '12px 16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', fontSize: '0.9rem', border: '1px solid var(--panel-border)' }}>
-            <div style={{ fontWeight: 600 }}>{project.name}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', wordBreak: 'break-all' }}>{project.path}</div>
-          </div>
-          <button 
-            onClick={onBack}
-            style={{ marginTop: '12px', background: 'transparent', color: 'var(--accent-hover)', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}
-          >
-            ← Switch Project
-          </button>
-        </div>
-          <div style={{ marginBottom: '32px' }}>
-            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '1px' }}>Agent Engine</div>
-            <CustomDropdown 
-              value={agentType} 
-              onChange={(val: any) => setAgentType(val)}
-              options={[
-                { value: 'claude', label: 'Claude Code (Anthropic)' },
-                { value: 'aider', label: 'Aider (Python)' },
-                { value: 'antigravity', label: 'Antigravity (Google)' }
-              ]}
-              disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
-            />
-            {isBinaryMissing && (
-              <div style={{ marginTop: '8px', padding: '8px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--error-color)', fontSize: '0.75rem', color: 'var(--error-color)', lineHeight: '1.4' }}>
-                ⚠️ Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting this agent will fail.
-              </div>
-            )}
-            <button 
-              className="btn-secondary"
-              onClick={() => {
-                sendCommand('stop', agentType);
-                setTimeout(() => sendCommand('start', agentType), 500);
-              }}
-              style={{
-                width: '100%',
-                marginTop: '12px',
-                padding: '10px',
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid var(--panel-border)',
-                color: 'var(--text-secondary)',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'all 0.2s'
-              }}
-              onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-              onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
-            >
-              🔄 Restart Agent
-            </button>
-          </div>
-
-          {/* PC Navigation Links */}
-          <div className="pc-nav" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '4px', letterSpacing: '1px' }}>Views</div>
-            <button className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
-              <span style={{ fontSize: '1.2rem' }}>💬</span>
-              <span>Chat</span>
-            </button>
-            <button className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>
-              <span style={{ fontSize: '1.2rem' }}>⌨️</span>
-              <span>Terminal</span>
-            </button>
-            <button className={`nav-btn ${activeTab === 'files' ? 'active' : ''}`} onClick={() => setActiveTab('files')}>
-              <span style={{ fontSize: '1.2rem' }}>📁</span>
-              <span>Files {fileChanges.length > 0 && `(${fileChanges.length})`}</span>
-            </button>
-          </div>
-        </aside>
+      <Sidebar 
+        projectId={project.id} 
+        activeThreadId={activeThreadId} 
+        onSelectThread={setActiveThreadId} 
+        onBackToProjects={onBack} 
+      />
 
       {/* Main Content Area */}
       <main className="main-content glass-panel">
         {/* Top Bar */}
-        <div className="top-bar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button 
-              className="mobile-back-btn"
-              onClick={onBack}
-              style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer', fontSize: '1.2rem', display: 'none' }}
-            >
-              ←
-            </button>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-              {activeTab === 'chat' ? 'Agent Chat' : activeTab === 'terminal' ? 'Live Telemetry' : 'Workspace Changes'}
-            </h2>
+        <div className="top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '8px' }}>
+              <button className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'chat' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'chat' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('chat')}>
+                💬 Chat
+              </button>
+              <button className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'terminal' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'terminal' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('terminal')}>
+                ⌨️ Terminal
+              </button>
+              <button className={`nav-btn ${activeTab === 'files' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'files' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'files' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('files')}>
+                📁 Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ width: '220px' }}>
+                <CustomDropdown 
+                  value={agentType} 
+                  onChange={(val: any) => setAgentType(val)}
+                  options={[
+                    { value: 'claude', label: 'Claude (Anthropic)' },
+                    { value: 'aider', label: 'Aider (Python)' },
+                    { value: 'antigravity', label: 'Antigravity (Google)' }
+                  ]}
+                  disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
+                />
+              </div>
+              <button 
+                onClick={() => {
+                  sendCommand('stop', agentType);
+                  setTimeout(() => sendCommand('start', agentType), 500);
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--panel-border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  padding: '0 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s'
+                }}
+                title="Restart Agent"
+                onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+              >
+                🔄
+              </button>
+            </div>
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -506,40 +464,7 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
         ) : activeTab === 'terminal' ? (
           <>
             <div className="terminal-view" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-              {events.length === 0 ? (
-                <div style={{ opacity: 0.8, textAlign: 'center', marginTop: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '20px' }}>
-                  {agentStatus.message ? (
-                    <div style={{
-                      color: '#f87171',
-                      padding: '16px 24px',
-                      background: 'rgba(239, 68, 68, 0.1)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)',
-                      borderRadius: '12px',
-                      maxWidth: '500px',
-                      fontSize: '0.9rem',
-                      lineHeight: '1.5',
-                      textAlign: 'left',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                    }}>
-                      <strong style={{ display: 'block', marginBottom: '6px', fontSize: '0.95rem', color: '#ef4444' }}>⚠️ Agent Status Alert:</strong>
-                      {agentStatus.message}
-                    </div>
-                  ) : (
-                    <span style={{ opacity: 0.5 }}>Waiting for agent events...</span>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <XTerminal events={events} onData={sendStdin} />
-                  {/* Mobile D-Pad */}
-                  <div className="mobile-dpad">
-                    <button onClick={() => sendStdin('\x1b[A')} aria-label="Up">↑</button>
-                    <button onClick={() => sendStdin('\x1b[B')} aria-label="Down">↓</button>
-                    <button onClick={() => sendStdin('\r')} aria-label="Enter">↵</button>
-                    <button onClick={() => sendStdin('\x03')} aria-label="Ctrl+C" style={{ fontSize: '0.7rem', fontWeight: 'bold' }}>^C</button>
-                  </div>
-                </>
-              )}
+              <XTerminal socket={socket} projectId={project.id} />
             </div>
           </>
         ) : activeTab === 'files' ? (

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
+import { printToConsole } from '../utils/logger';
 
 export class PairingService {
   private currentPin: string = '';
@@ -26,10 +27,10 @@ export class PairingService {
       insert.run(this.hmacSecret);
     }
 
-    console.log('\n=======================================');
-    console.log('[AUTH] AGENTDECK DEVICE PAIRING PIN');
-    console.log(`[PIN] PIN: ${this.currentPin}`);
-    console.log('=======================================\n');
+    printToConsole('\n=======================================');
+    printToConsole('[AUTH] AGENTDECK DEVICE PAIRING PIN');
+    printToConsole(`[PIN] PIN: ${this.currentPin}`);
+    printToConsole('=======================================\n');
     try {
       require('fs').writeFileSync(require('path').join(process.cwd(), 'pairing_pin.txt'), this.currentPin, 'utf8');
     } catch (e) {

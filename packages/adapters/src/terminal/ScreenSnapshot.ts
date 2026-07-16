@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/headless';
 
 export interface TerminalSnapshot {
   lines: string[];
+  isWrapped: boolean[];
   cursorX: number;
   cursorY: number;
   baseY: number;
@@ -10,6 +11,7 @@ export interface TerminalSnapshot {
 export function takeSnapshot(term: Terminal): TerminalSnapshot {
   const buffer = term.buffer.active;
   const lines: string[] = [];
+  const isWrapped: boolean[] = [];
   
   // We capture the entire buffer up to the current line where the cursor is.
   // Actually, sometimes the terminal writes below the cursor and then moves up,
@@ -19,11 +21,21 @@ export function takeSnapshot(term: Terminal): TerminalSnapshot {
   for (let i = 0; i < endRow; i++) {
     const line = buffer.getLine(i);
     if (line) {
-      // translateToString(true) trims trailing whitespaces, which is usually what we want for diffing,
-      // but if we want EXACT diffs we might want false. For now, true is safer to avoid trailing space noise.
-      lines.push(line.translateToString(true));
+      // translateToString(false) preserves trailing whitespaces, which is important
+      // if the line wraps to the next one at a space.
+      lines.push(line.translateToString(false));
+      isWrapped.push(line.isWrapped);
     } else {
       lines.push('');
+      isWrapped.push(false);
+    }
+  }
+
+  // Trim trailing spaces for lines that do not wrap to the next line
+  for (let i = 0; i < lines.length; i++) {
+    const nextIsWrapped = i + 1 < lines.length ? isWrapped[i + 1] : false;
+    if (!nextIsWrapped) {
+      lines[i] = lines[i].trimEnd();
     }
   }
 
@@ -35,9 +47,11 @@ export function takeSnapshot(term: Terminal): TerminalSnapshot {
   }
   
   const finalLines = lines.slice(0, trimIndex + 1);
+  const finalIsWrapped = isWrapped.slice(0, trimIndex + 1);
 
   return {
     lines: finalLines,
+    isWrapped: finalIsWrapped,
     cursorX: buffer.cursorX,
     cursorY: buffer.cursorY,
     baseY: buffer.baseY,

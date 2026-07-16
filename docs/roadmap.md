@@ -65,3 +65,14 @@
 - Marketing site and documentation.
 **Success Criteria:** 1,000 active weekly developers using AgentDeck.
 **Risks:** User adoption, maintaining support for rapidly evolving third-party AI agents.
+
+## PHASE 7: Advanced UI & SaaS Platform
+**Goals:** Transform the local tool into a connected SaaS platform with a premium interface.
+**Deliverables:**
+- SaaS Website Authentication and User Profiles (subscription management, cloud settings).
+- UI Redesign: General dashboard homepage and persistent project sidebar.
+- Multiple chat sessions/threads within a single project.
+- Advanced Git Diff and File Viewer interface.
+- Complete overhaul and bug fixes for the Live Terminal view.
+**Success Criteria:** Users can log in with a cloud account, manage multiple chat threads, review code diffs natively, and seamlessly switch projects via the sidebar.
+**Risks:** Complexity in syncing local CLI state with cloud user profiles; building a performant in-browser code diff viewer.
