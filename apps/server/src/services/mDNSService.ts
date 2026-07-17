@@ -13,9 +13,8 @@ export class MDNSService {
       this.bonjour = new Bonjour();
       this.service = this.bonjour.publish({
         name: `AgentDeck-${os.hostname()}`,
-        type: 'http',
-        port: port,
-        txt: { service: 'agentdeck' }
+        type: 'agentdeck',
+        port: port
       });
 
       console.log(`[mDNS] Publishing AgentDeck service on port ${port}`);
@@ -28,32 +27,28 @@ export class MDNSService {
   private startDiscovery() {
     if (!this.bonjour) return;
     
-    const browser = this.bonjour.find({ type: 'http' });
+    const browser = this.bonjour.find({ type: 'agentdeck' });
     
     browser.on('up', (service: Service) => {
-      if (service.txt && service.txt.service === 'agentdeck') {
-        const ip = service.addresses?.[0] || service.host;
+      const ip = service.addresses?.[0] || service.host;
         const id = `${ip}:${service.port}`;
-        this.discoveredWorkstations[id] = {
-          id,
-          name: service.name,
-          ip: ip,
-          port: service.port,
-          lastSeen: Date.now(),
-          isOnline: true
-        };
-        this.notifyListeners();
-      }
+      this.discoveredWorkstations[id] = {
+        id,
+        name: service.name,
+        ip: ip,
+        port: service.port,
+        lastSeen: Date.now(),
+        isOnline: true
+      };
+      this.notifyListeners();
     });
 
     browser.on('down', (service: Service) => {
-      if (service.txt && service.txt.service === 'agentdeck') {
-        const ip = service.addresses?.[0] || service.host;
-        const id = `${ip}:${service.port}`;
-        if (this.discoveredWorkstations[id]) {
-          this.discoveredWorkstations[id].isOnline = false;
-          this.notifyListeners();
-        }
+      const ip = service.addresses?.[0] || service.host;
+      const id = `${ip}:${service.port}`;
+      if (this.discoveredWorkstations[id]) {
+        this.discoveredWorkstations[id].isOnline = false;
+        this.notifyListeners();
       }
     });
   }
