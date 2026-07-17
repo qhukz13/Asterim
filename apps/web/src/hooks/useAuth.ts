@@ -36,7 +36,9 @@ export function useAuth(activeBackendUrl?: string) {
       });
       if (res.ok) {
         const data = await res.json();
+        localStorage.setItem(getStorageKey(), data.token);
         setToken(data.token);
+        setIsAuthenticated(true);
         return { success: true };
       }
       
@@ -62,7 +64,9 @@ export function useAuth(activeBackendUrl?: string) {
   };
 
   const logout = () => {
+    localStorage.removeItem(getStorageKey());
     setToken(null);
+    setIsAuthenticated(false);
   };
 
   return { token, isAuthenticated, login, logout, setToken };

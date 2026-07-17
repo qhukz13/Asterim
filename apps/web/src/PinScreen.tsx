@@ -5,7 +5,7 @@ export function PinScreen({ activeBackendUrl }: { activeBackendUrl?: string }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login } = useAuth(activeBackendUrl);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
