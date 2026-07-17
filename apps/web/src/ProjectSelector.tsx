@@ -15,6 +15,7 @@ interface ProjectSelectorProps {
 }
 
 export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorProps) {
+  const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
@@ -35,7 +36,7 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
       setError(null);
       const token = localStorage.getItem('agentdeck_token') || '';
       const headers = { 'Authorization': `Bearer ${token}` };
-      const res = await fetch(`${activeBackendUrl}/api/v1/projects`, { headers });
+      const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
       if (res.status === 401) {
         localStorage.removeItem('agentdeck_token');
         window.location.reload();
@@ -44,7 +45,7 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
       const data = await res.json();
       setProjects(data.projects || []);
 
-      const sysRes = await fetch(`${activeBackendUrl}/api/v1/system`, { headers });
+      const sysRes = await fetch(`${baseUrl}/api/v1/system`, { headers });
       if (sysRes.status === 401) {
         localStorage.removeItem('agentdeck_token');
         window.location.reload();
@@ -70,7 +71,7 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
       setError(null);
       const token = localStorage.getItem('agentdeck_token') || '';
       
-      const res = await fetch(`${activeBackendUrl}/api/v1/system/first-run-complete`, {
+      const res = await fetch(`${baseUrl}/api/v1/system/first-run-complete`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -100,7 +101,7 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
       setIsCreating(true);
       const token = localStorage.getItem('agentdeck_token') || '';
       
-      const res = await fetch(`${activeBackendUrl}/api/v1/projects`, {
+      const res = await fetch(`${baseUrl}/api/v1/projects`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

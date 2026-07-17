@@ -11,7 +11,8 @@ export function Sidebar({
   projectId,
   activeThreadId,
   onSelectThread,
-  onBackToProjects
+  onBackToProjects,
+  activeBackendUrl
 }: {
   projectId: string;
   activeThreadId: string | null;

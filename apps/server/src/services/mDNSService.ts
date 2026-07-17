@@ -30,7 +30,7 @@ export class MDNSService {
     const browser = this.bonjour.find({ type: 'agentdeck' });
     
     browser.on('up', (service: Service) => {
-      const ip = service.addresses?.[0] || service.host;
+      const ip = service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
         const id = `${ip}:${service.port}`;
       this.discoveredWorkstations[id] = {
         id,
@@ -44,7 +44,7 @@ export class MDNSService {
     });
 
     browser.on('down', (service: Service) => {
-      const ip = service.addresses?.[0] || service.host;
+      const ip = service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
       const id = `${ip}:${service.port}`;
       if (this.discoveredWorkstations[id]) {
         this.discoveredWorkstations[id].isOnline = false;
