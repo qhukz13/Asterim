@@ -1,22 +1,15 @@
 import { AntigravityAdapter } from './src/AntigravityAdapter';
-
-async function test() {
-  const adapter = new AntigravityAdapter();
-  
-  adapter.onEvent((event) => {
-    console.log("EVENT:", event.type, event.payload);
-  });
-
-  await adapter.start({
-    workspace: 'C:\\Projects\\AgentDeck',
-    requestApproval: async () => true,
-    onExit: async (code) => console.log("EXIT:", code)
-  });
-
+const adapter = new AntigravityAdapter();
+adapter.onEvent((e) => console.log('EVENT:', e));
+adapter.start({
+  workspace: process.cwd(),
+  requestApproval: async () => true,
+  requestQuestion: async () => 1,
+  onExit: (code) => console.log('EXIT:', code)
+}).then(() => {
+  console.log('Started');
   setTimeout(() => {
-    console.log("Sending hi...");
-    adapter.sendCommand('hi');
-  }, 2000);
-}
-
-test().catch(console.error);
+    console.log('Sending message...');
+    adapter.sendCommand('hello');
+  }, 4000);
+}).catch(console.error);

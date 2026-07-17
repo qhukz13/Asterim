@@ -274,7 +274,7 @@ export class AntigravityFSM extends TerminalFSM {
       .replace(/Gemini \d+\.\d+ Flash(?: \(Medium\))?/gi, '')
       .replace(/\? for shortcuts/g, '')
       .replace(/esc to cancel/gi, '')
-      .replace(/────────────────────────────────────────────────────────────────────────────────/g, '')
+      .replace(/─{10,}/g, '')
       .replace(/v\.onashchuk@gmail\.com/g, '')
       .replace(/Antigravity CLI \d+\.\d+\.\d+/g, '')
       .replace(/^[A-Z]:\\.*?>\s*$/gm, '')
