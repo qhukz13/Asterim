@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
 
-export function PinScreen() {
+export function PinScreen({ activeBackendUrl }: { activeBackendUrl?: string }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +16,7 @@ export function PinScreen() {
       const autoPair = async () => {
         setLoading(true);
         setError('');
-        const result = await login(urlPin);
+        const result = await login(urlPin, activeBackendUrl);
         if (!result.success) {
           setError(result.error || 'Invalid PIN. Check the server console.');
         } else {
@@ -35,7 +35,7 @@ export function PinScreen() {
     if (!pin) return;
     setLoading(true);
     setError('');
-    const result = await login(pin);
+    const result = await login(pin, activeBackendUrl);
     if (!result.success) {
       setError(result.error || 'Invalid PIN. Check the server console.');
     } else {

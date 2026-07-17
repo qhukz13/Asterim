@@ -576,7 +576,7 @@ export default function App() {
   const { activeBackendUrl } = useWorkstations();
 
   if (!isAuthenticated) {
-    return <PinScreen />;
+    return <PinScreen activeBackendUrl={activeBackendUrl} />;
   }
 
   if (!selectedProject) {

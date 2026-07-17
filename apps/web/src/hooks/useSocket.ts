@@ -174,6 +174,8 @@ export function useSocket(projectId: string | null, threadId: string | null, act
           if (event.payload.token) localStorage.setItem('agentdeck_token', event.payload.token);
         } else {
           setAgentStatus({ status: 'error', message: event.payload.error || 'Authentication Failed' });
+          localStorage.removeItem('agentdeck_token');
+          window.location.reload();
         }
         return;
       }

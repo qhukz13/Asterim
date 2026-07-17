@@ -90,7 +90,7 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
 
   useEffect(() => {
     fetchProjects();
-  }, []);
+  }, [activeBackendUrl]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -240,8 +240,9 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
 
   return (
     <div className="project-selector-container">
-      <div className="glass-panel project-selector-panel">
-        <div className="project-selector-header">
+      <div style={{ margin: '40px auto', width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="glass-panel project-selector-panel" style={{ maxWidth: '100%', margin: 0 }}>
+          <div className="project-selector-header">
           <h1 style={{ margin: 0 }}>Select a Project</h1>
           <button onClick={() => subscribeToPushNotifications(localStorage.getItem('agentdeck_token') || '')} className="btn-primary" style={{ padding: '8px 12px', fontSize: '0.8rem', background: 'var(--success-color)' }}>
             🔔 Enable Push
@@ -376,8 +377,9 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
             <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Use this ID to connect from your mobile device.</div>
           </div>
         )}
+        </div>
+        <DeveloperSettings />
       </div>
-      <DeveloperSettings />
     </div>
   );
 }
