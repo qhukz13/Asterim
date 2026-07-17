@@ -18,8 +18,8 @@ export function diffScreens(prev: TerminalSnapshot, curr: TerminalSnapshot): Dif
     if (line.match(/\? for shortcuts/i)) return true;
     if (line.match(/Gemini \d+\.\d+ Flash/i)) return true;
     if (line.match(/Navigate.*?(enter|esc)/i)) return true;
-    if (line.match(/(Working|Generating|Running|Thinking)\.\.\./i)) return true;
-    if (line.match(/^[^\w\s]*\s*(Working|Generating|Running|Thinking)\.\.\./i)) return true;
+    if (line.match(/(Working|Generating|Running|Thinking)(\.\.\.|…)/i)) return true;
+    if (line.match(/^[^\w\s]*\s*(Working|Generating|Running|Thinking)(\.\.\.|…)/i)) return true;
     return false;
   };
 

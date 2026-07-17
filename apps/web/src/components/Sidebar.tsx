@@ -22,7 +22,9 @@ export function Sidebar({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/v1/projects/${projectId}/threads`, { headers: localStorage.getItem("agentdeck_token") ? { "Authorization": `Bearer ${localStorage.getItem("agentdeck_token")}` } : {} })
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    fetch(`${protocol}//${hostname}:3000/api/v1/projects/${projectId}/threads`, { headers: localStorage.getItem("agentdeck_token") ? { "Authorization": `Bearer ${localStorage.getItem("agentdeck_token")}` } : {} })
       .then(res => res.json())
       .then(data => {
         if (data.threads) {
@@ -44,7 +46,9 @@ export function Sidebar({
     if (!name) return;
 
     try {
-      const res = await fetch(`/api/v1/projects/${projectId}/threads`, {
+      const protocol = window.location.protocol;
+      const hostname = window.location.hostname;
+      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/projects/${projectId}/threads`, {
         method: 'POST',
         headers: { "Content-Type": "application/json", "Authorization": localStorage.getItem("agentdeck_token") ? `Bearer ${localStorage.getItem("agentdeck_token")}` : "" },
         body: JSON.stringify({ name })

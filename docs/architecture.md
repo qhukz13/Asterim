@@ -6,7 +6,7 @@ AgentDeck is a local-first control center for AI coding agents. It provides deve
 ## System Architecture
 AgentDeck uses an event-driven, adapter-based architecture. The system consists of:
 1. **Core Engine**: Manages event routing, state, and coordination.
-2. **Agent Adapters**: Pluggable modules that interface with specific AI agents (e.g., Claude Code, Aider, Roo Code).
+2. **Agent Adapters**: Pluggable modules that interface with specific AI agents (e.g., Claude Code, Aider, Roo Code, Antigravity).
 3. **Websocket Server**: Provides real-time bidirectional communication with client devices.
 4. **Dashboard Client**: A responsive web application (mobile-first) serving as the UI.
 5. **Local Database**: Stores project metadata, session history, and configuration.

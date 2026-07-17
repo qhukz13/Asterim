@@ -358,9 +358,14 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
       } else if (agentStatus.status === 'idle' || agentStatus.status === 'error') {
         // Auto-start agent with the message
         sendCommand('start', agentType);
-        setTimeout(() => sendChatMessage(text), 1500);
+        sendChatMessage(text);
       } else {
         sendChatMessage(text);
+      }
+
+      // CLI agents only emit raw PTY data, not chat events. Auto-switch to terminal so user sees response.
+      if (agentType === 'claude' || agentType === 'aider') {
+        setActiveTab('terminal');
       }
     }
   };

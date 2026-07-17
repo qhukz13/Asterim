@@ -80,10 +80,18 @@ export function XTerminal({ socket, projectId }: { socket: Socket | null, projec
       }
     };
 
+    const handleLog = (event: any) => {
+      if (event.payload?.message) {
+        termInstance.current?.write(event.payload.message);
+      }
+    };
+
     socket.on('terminal.data', handleData);
+    socket.on('agent.log', handleLog);
 
     return () => {
       socket.off('terminal.data', handleData);
+      socket.off('agent.log', handleLog);
     };
   }, [socket, projectId]);
 

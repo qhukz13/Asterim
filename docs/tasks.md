@@ -37,6 +37,11 @@ This file is the single source of truth for project progress.
 
 ## DONE
 
+- **TSK-034**: Fix Antigravity Terminal FSM Idle Detection and Bubbletea Sync
+  - *Description*: Fixed TerminalFSM state transitions where TUI menu footers (like `esc to cancel` and `? for shortcuts`) caused premature idle detection and blocked agent working state. Addressed prompt back-scanning logic and regex stripping for spinner artifacts.
+  - *Priority*: High
+  - *Status*: DONE
+
 - **TSK-028**: Fix Antigravity PTY Syncing and Message Drop Bugs
   - *Description*: The Antigravity adapter is currently failing to emit messages to the chat after the initial startup. Further investigation is required to stabilize the PTY parsing pipeline, handle LLM output chunking gracefully, and ensure reliable two-way message flow without freezing the UI in a "WORKING" state.
   - *Priority*: Critical

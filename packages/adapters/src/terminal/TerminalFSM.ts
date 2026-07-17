@@ -126,20 +126,27 @@ export class AntigravityFSM extends TerminalFSM {
 
     // Update TUI mode if we see known TUI elements
     const bottomLines = curr.lines.slice(Math.max(0, curr.lines.length - 5)).join('\n');
-    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel') || bottomLines.includes('Navigate')) {
+    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel') || bottomLines.toLowerCase().includes('navigate')) {
       this.isTuiMode = true;
     }
 
     // 2. Check for Idle State FIRST
     let isIdle = false;
     
-    if (this.isTuiMode) {
-      isIdle = bottomLines.includes('? for shortcuts');
+    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel')) {
+      this.isTuiMode = true;
+      isIdle = bottomLines.includes('? for shortcuts') && !bottomLines.includes('esc to cancel');
     } else {
-      const cursorLineIndex = curr.baseY + curr.cursorY;
-      const cursorLine = curr.lines[cursorLineIndex] || '';
-      const trimmedCursorLine = cursorLine.trimEnd();
-      if (trimmedCursorLine.match(/^\s*[❯>]$/) || trimmedCursorLine.match(/^\s*antigravity>$/) || trimmedCursorLine.match(/^[A-Z]:\\.*?>\s*$/)) {
+      let lastNonEmpty = '';
+      for (let i = curr.lines.length - 1; i >= 0; i--) {
+        if (curr.lines[i].trim().length > 0) {
+          lastNonEmpty = curr.lines[i].trimEnd();
+          break;
+        }
+      }
+      
+      if (lastNonEmpty.match(/^\s*[❯>]$/) || lastNonEmpty.match(/^\s*antigravity>$/) || lastNonEmpty.match(/^[A-Z]:\\.*?>\s*$/)) {
+        this.isTuiMode = false;
         isIdle = true;
       }
     }
@@ -198,7 +205,7 @@ export class AntigravityFSM extends TerminalFSM {
     }
     
     // Check for multiple choice questions
-    const isMultipleChoice = (bottomLines.includes('Navigate') || bottomLines.includes('esc ')) && (fullText.match(/>\s*1\.\s+/) || fullText.match(/Question \d+\/\d+:/));
+    const isMultipleChoice = (bottomLines.toLowerCase().includes('navigate') || bottomLines.includes('esc ')) && (fullText.match(/>\s*1\.\s+/) || fullText.match(/Question \d+\/\d+:/));
     if (this.state !== AgentState.WaitingQuestion && isMultipleChoice) {
       let questionTitle = 'Action Required';
       const options: string[] = [];
@@ -246,12 +253,12 @@ export class AntigravityFSM extends TerminalFSM {
     if (this.state === AgentState.Idle) {
       let startedWorking = false;
       
-      if (fullText.includes('▸ Thought') || fullText.includes('●') || diff.appendedText.trim().length > 0) {
-        startedWorking = true;
-      }
-      
       if (this.isTuiMode) {
-        if (!bottomLines.includes('? for shortcuts')) {
+        if (bottomLines.includes('esc to cancel') || diff.appendedText.trim().length > 0) {
+          startedWorking = true;
+        }
+      } else {
+        if (diff.appendedText.includes('▸ Thought') || diff.appendedText.includes('●') || diff.appendedText.trim().length > 0) {
           startedWorking = true;
         }
       }
@@ -273,9 +280,11 @@ export class AntigravityFSM extends TerminalFSM {
       .replace(/^[A-Z]:\\.*?>\s*$/gm, '')
       .replace(/Accessing workspace:/g, '')
       .replace(/[❯>]\s*$/g, '')
-      .replace(/.*?Navigate.*?enter Select.*?esc Skip/g, '')
-      // Remove ● Thought lines (meta info, not content)
-      .replace(/●\s*Thought for \d+s?,?\s*\d*\s*tokens?\s*/g, '')
+      .replace(/.*?Navigate.*?enter Select.*?esc Skip/gi, '')
+      // Remove spinner lines
+      .replace(/^[^\\w\\s]*\\s*(Working|Generating|Running|Thinking)(\\.+|…)/gim, '')
+      // Remove ● lines (tools, thoughts, meta info)
+      .replace(/●[^\n]*\n?/g, '')
       .trim();
   }
 }

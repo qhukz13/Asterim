@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!-next/cache/**"]
     },
+    "agentdeck#build": {
+      "dependsOn": ["^build", "@agentdeck/web#build"],
+      "outputs": ["dist/**"]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },

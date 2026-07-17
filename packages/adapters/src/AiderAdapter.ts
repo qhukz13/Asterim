@@ -20,9 +20,8 @@ export class AiderAdapter implements IAgentAdapter {
     const binPath = config.binaryPath || 'aider';
     const args = ['--no-auto-commits'];
 
-    // Use pty to spoof a real terminal
-    const shell = process.platform === 'win32' ? 'cmd.exe' : 'bash';
-    const ptyArgs = process.platform === 'win32' ? ['/c', binPath, ...args] : ['-c', `${binPath} ${args.join(' ')}`];
+    const shell = process.platform === 'win32' ? 'cmd.exe' : binPath;
+    const ptyArgs = process.platform === 'win32' ? ['/c', binPath, ...args] : args;
 
     this.ptyProcess = pty.spawn(shell, ptyArgs, {
       name: 'xterm-color',
@@ -72,7 +71,12 @@ export class AiderAdapter implements IAgentAdapter {
   }
 
   public getPid(): number | undefined {
-    return this.ptyProcess?.pid;
+    return this.ptyProcess?.pid ?? undefined;
+  }
+
+  public getLastOutput(): string {
+    const lines = this.dataBuffer.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0);
+    return lines.slice(-10).join('\n');
   }
 
   public onEvent(callback: (event: AgentDeckEvent) => void): void {

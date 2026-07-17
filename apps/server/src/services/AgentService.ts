@@ -117,6 +117,24 @@ export class AgentService {
     this.userStopped.delete(threadId);
     this.adapterConfigs.set(threadId, { projectId, workspace, agentType });
 
+    const fs = require('fs');
+    if (!fs.existsSync(workspace)) {
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: 'agent.status',
+        payload: {
+          status: 'error',
+          message: `Error: Workspace directory does not exist: ${workspace}`,
+          projectId,
+          threadId
+        }
+      });
+      this.adapterConfigs.delete(threadId);
+      return;
+    }
+
     const adapter = agentType === 'claude'
       ? new ClaudeAdapter()
       : agentType === 'antigravity'
@@ -180,8 +198,9 @@ export class AgentService {
               this.crashCounts.set(threadId, { count: nextCount, lastCrash: Date.now() });
               const delay = nextCount * 2000;
               
-              console.log(`[AgentService] Agent for thread ${threadId} crashed. Attempting auto-restart ${nextCount}/3 in ${delay}ms...`);
-              
+              const lastOutput = adapter.getLastOutput ? adapter.getLastOutput() : '';
+              const outputMsg = lastOutput ? `\n\nLast Output:\n\`\`\`\n${lastOutput}\n\`\`\`` : '';
+
               eventBus.publish({
                 id: crypto.randomUUID(),
                 timestamp: Date.now(),
@@ -189,7 +208,7 @@ export class AgentService {
                 type: 'agent.status',
                 payload: {
                   status: 'error',
-                  message: `Agent crashed. Auto-restarting (attempt ${nextCount}/3) in ${delay/1000}s...`,
+                  message: `⚠️ **System Error**: Agent crashed. Auto-restarting (attempt ${nextCount}/3) in ${delay/1000}s...${outputMsg}`,
                   projectId,
                   threadId
                 }

@@ -155,12 +155,12 @@ export class AntigravityAdapter implements IAgentAdapter {
       const cursorLineIndex = currentSnapshot.baseY + currentSnapshot.cursorY;
       const cursorLine = currentSnapshot.lines[cursorLineIndex] || '';
       const log = `\n--- TICK ---\nSTATE: ${newState}\nDIFF APPENDED: ${JSON.stringify(diff.appendedText)}\nDIFF MODIFIED: ${diff.modifiedLines.length}\nCURSOR Y: ${currentSnapshot.cursorY}\nCURSOR LINE: ${JSON.stringify(cursorLine)}\nLINES: ${JSON.stringify(currentSnapshot.lines.slice(-3))}\n`;
-      fs.appendFileSync('C:\\Projects\\AgentDeck\\fsm_debug.log', log);
+      fs.appendFileSync('/tmp/fsm_debug.log', log);
       
       // Dump full screen when transitioning to Idle from Working
       if (prevState !== newState && (newState === 'Idle' || newState === 'Working')) {
         const fullDump = `\n=== FULL SCREEN (${prevState} -> ${newState}) ===\n${currentSnapshot.lines.map((l: string, i: number) => `[${i}] ${l}`).join('\n')}\n=== END SCREEN ===\n`;
-        fs.appendFileSync('C:\\Projects\\AgentDeck\\fsm_debug.log', fullDump);
+        fs.appendFileSync('/tmp/fsm_debug.log', fullDump);
       }
     } catch (e) {}
   }
@@ -305,6 +305,12 @@ export class AntigravityAdapter implements IAgentAdapter {
 
   public getPid(): number | undefined {
     return this.ptyProcess?.pid ?? undefined;
+  }
+
+  public getLastOutput(): string {
+    if (!this.previousSnapshot) return '';
+    const lines = this.previousSnapshot.lines.map(l => l.trimRight()).filter(l => l.length > 0);
+    return lines.slice(-10).join('\n');
   }
 
   private emitLog(role: 'agent' | 'user', content: string) {

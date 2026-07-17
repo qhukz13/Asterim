@@ -31,6 +31,11 @@ export function useSocket(projectId: string | null, threadId: string | null, rel
   // We keep the raw history from the server to re-filter when threadId changes without reconnecting
   const rawHistoryRef = useRef<AgentDeckEvent<any>[]>([]);
 
+  const threadIdRef = useRef(threadId);
+  useEffect(() => {
+    threadIdRef.current = threadId;
+  }, [threadId]);
+
   const applyHistory = (historyEvents: AgentDeckEvent<any>[], currentThreadId: string | null) => {
     // file changes are global to project
     const fileEvents = historyEvents.filter(e => e.type === 'file.changed');
@@ -197,7 +202,7 @@ export function useSocket(projectId: string | null, threadId: string | null, rel
       }
 
       // Thread-specific filtering
-      if (event.payload?.threadId && event.payload.threadId !== threadId) {
+      if (event.payload?.threadId && event.payload.threadId !== threadIdRef.current) {
         rawHistoryRef.current.push(event); // keep in raw history for switching threads
         return;
       }
@@ -216,6 +221,14 @@ export function useSocket(projectId: string | null, threadId: string | null, rel
         }]);
       } else if (event.type === 'agent.status') {
         setAgentStatus(event.payload);
+        if (event.payload.status === 'error' && event.payload.message) {
+          setMessages(prev => [...prev, {
+            id: event.id || Date.now().toString(),
+            role: 'system',
+            content: `⚠️ **System Error**: ${event.payload.message}`,
+            timestamp: event.timestamp || Date.now()
+          }]);
+        }
         if (event.payload.status !== 'waiting_approval') {
           setApprovalRequest(null);
         }

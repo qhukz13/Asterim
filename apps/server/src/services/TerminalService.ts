@@ -59,6 +59,18 @@ class TerminalService {
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
     
+    const fs = require('fs');
+    if (!fs.existsSync(project.path)) {
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'terminal',
+        type: 'terminal.data',
+        payload: { projectId, data: `\x1b[31mError: Workspace directory does not exist:\x1b[0m ${project.path}\r\n` }
+      });
+      return;
+    }
+
     try {
       const ptyProcess = pty.spawn(shell, [], {
         name: 'xterm-color',

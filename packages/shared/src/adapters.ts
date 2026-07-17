@@ -50,4 +50,9 @@ export interface IAgentAdapter {
    * Returns the PID of the running process, if applicable.
    */
   getPid?(): number | undefined;
+
+  /**
+   * Returns the last few lines of output from the agent, useful for crash reports.
+   */
+  getLastOutput?(): string;
 }
