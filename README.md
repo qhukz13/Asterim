@@ -1,15 +1,13 @@
 # AgentDeck
 
-AgentDeck is a local-first control center for AI coding agents. It provides a structured, AI-native interface to monitor and control coding agents running on your computer directly from a phone, tablet, or another device.
+AgentDeck is the control plane for autonomous AI coding agents. It provides a secure, local-first interface to monitor, orchestrate, and control coding agents running on your workstation, directly from any connected mobile or desktop device.
 
-![AgentDeck Dashboard Mockup](./assets/agentdeck_dashboard_mockup.png)
+## Core Capabilities
 
-## Key Features
-
-* 💻 **Live Telemetry Dashboard**: Stream terminal output from AI agents in a responsive, real-time web interface.
-* 🛡️ **Interactive Approval Interceptors**: Pause agent execution and review high-risk actions (file edits, script executions) with standard Approve/Deny buttons.
-* 📱 **Mobile & Remote Support**: Connect securely from mobile devices using end-to-end encrypted relay tunnels.
-* 🔒 **Console QR Onboarding**: Start the server to see a pairing PIN and QR code in the terminal for instant, auto-configured pairing.
+* **Live Telemetry Dashboard**: Stream high-frequency terminal output from AI agents into a responsive, real-time web interface without locking up your browser.
+* **Interactive Interceptors**: Programmatically pause agent execution. Safely review high-risk actions (file edits, script executions) via standard Approve/Deny interfaces.
+* **Cross-Device Orchestration**: Connect securely from mobile devices using end-to-end encrypted relay tunnels, allowing you to manage agents while away from your desk.
+* **Zero-Config Pairing**: Secure, ephemeral 6-digit PINs and QR codes generated on startup for instant, trusted device pairing within your local network.
 
 ---
 
@@ -17,26 +15,27 @@ AgentDeck is a local-first control center for AI coding agents. It provides a st
 
 ### Prerequisites
 
-To build and run AgentDeck, you need the following requirements:
+To build and run AgentDeck, ensure the following are installed:
 
-#### 1. Core Runtimes
-* **Node.js** >= 18
-* **pnpm** >= 9
+#### 1. Runtimes
+* **Node.js** (v18 or higher)
+* **pnpm** (v9 or higher)
 
-#### 2. Native Compilation Tools
-AgentDeck relies on `node-pty` for terminal emulation, which requires native build tools:
-* **Windows**: Run `npm install --global windows-build-tools` from an administrative terminal, or ensure you have **Visual Studio Build Tools** installed with the "Desktop development with C++" workload, along with **Python**.
+#### 2. Native Build Tools
+AgentDeck utilizes `node-pty` for robust terminal emulation, which requires native compilation tools on your host machine:
+* **Windows**: Run `npm install --global windows-build-tools` (requires Administrative privileges) or install **Visual Studio Build Tools** (Desktop development with C++) and **Python**.
 * **macOS**: Install Xcode Command Line Tools via `xcode-select --install`.
-* **Linux**: Install standard compiler packages (e.g. `sudo apt install build-essential python3`).
+* **Linux**: Install standard build packages (e.g., `sudo apt install build-essential python3`).
 
-#### 3. Supported AI Agents (Install on PATH)
-Ensure your preferred CLI agents are installed and accessible on your system's PATH:
-* **Claude Code**: [Anthropic Claude Code](https://github.com/anthropic-ai/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-* **Aider**: [Aider Chat CLI](https://aider.chat) (`pip install aider-chat`)
+#### 3. Supported AI Agents
+AgentDeck interfaces with your existing CLI agents. Ensure they are installed and accessible on your system's `PATH`:
+* **Claude Code**: `npm install -g @anthropic-ai/claude-code`
+* **Aider**: `pip install aider-chat`
+* **Antigravity**: Internal CLI (if applicable)
 
 ---
 
-### Quick Start
+## Quick Start
 
 1. **Clone the repository and install dependencies**:
    ```bash
@@ -49,27 +48,32 @@ Ensure your preferred CLI agents are installed and accessible on your system's P
    ```
 
 3. **Pair your device**:
-   * On startup, the terminal prints an onboarding welcome banner:
-     ```
-     ==================================================
-                WELCOME TO AGENTDECK v0.1
-           AI Agent Control Plane is Initialized
-     ==================================================
-       Local URL    : http://localhost:3000
-       LAN URL      : http://192.168.1.34:3000
-       Pairing PIN  : 813351
-     ==================================================
-     ```
-   * Scan the generated **Pairing QR Code** in your terminal using your mobile device, or navigate to the Local/LAN URL.
-   * The browser will automatically pair using the PIN query parameter and launch the onboarding setup wizard to select your default agent.
+   On startup, the terminal will print a localized onboarding banner and a QR code:
+   ```text
+   ==================================================
+              AGENTDECK CONTROL PLANE
+   ==================================================
+     Local URL    : http://localhost:3000
+     LAN URL      : http://192.168.1.34:3000
+     Pairing PIN  : 813351
+   ==================================================
+   ```
+   * Scan the generated QR code using your mobile device or open the Local/LAN URL directly in your browser.
+   * The browser will securely pair using the PIN and launch the setup wizard to configure your default agent.
 
 ---
 
-## Documentation
+## Documentation & Product Specification
 
-For detailed information on design decisions, specifications, and architecture:
-* 📄 [Architecture Specification](./docs/architecture.md)
-* 📋 [ADR Decisions Log](./docs/decisions.md)
-* 🗺️ [Project Roadmap](./docs/roadmap.md)
-* 🏗️ [Pending Task List](./docs/tasks.md)
+AgentDeck operates under a strict, documentation-driven methodology governed by the **Product Specification Blueprint**.
+
+All major architectural decisions, workflows, and rules are documented in the `blueprint/` directory:
+
+* 📄 [Product Specification](./blueprint/PRODUCT.md)
+* 🏛️ [System Architecture](./blueprint/ARCHITECTURE.md)
+* 🗺️ [Official Roadmap](./blueprint/ROADMAP.md)
+* 🛠️ [Engineering Standards](./blueprint/ENGINEERING.md)
+* 🤖 [AI Development Context](./blueprint/AI_CONTEXT.md)
 * 🔐 [Security & Disclosure Policy](./SECURITY.md)
+
+*(Note: Future development must always begin by consulting `blueprint/ROADMAP.md` and `blueprint/AI_CONTEXT.md`.)*
