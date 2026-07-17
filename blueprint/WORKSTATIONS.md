@@ -9,7 +9,7 @@ This document defines the architecture, responsibilities, and user experience fo
 
 ## User Experience
 - **Developer Settings**: The Client UI provides a Developer Settings panel.
-- **Zero Configuration**: A developer on a laptop on the same Wi-Fi network as their desktop should open AgentDeck Web, enable Developer Mode, and see their Desktop automatically listed as a target workstation.
+- **Zero Configuration (Deferred)**: Ideally, a developer on a laptop on the same Wi-Fi network as their desktop should open AgentDeck Web, enable Developer Mode, and see their Desktop automatically listed as a target workstation. *Note: Currently, mDNS discovery is deferred, and users must manually add the workstation IP and port.*
 - **One-Click Connect**: Connecting to a workstation sets it as the active backend for WebSockets and API calls.
 - **Auto-Reconnect**: If the Core server restarts, the Client seamlessly reconnects when it comes back online.
 
