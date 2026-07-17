@@ -12,6 +12,7 @@ export class AgentService {
   private crashCounts = new Map<string, { count: number; lastCrash: number }>(); // threadId
   private adapterConfigs = new Map<string, { projectId: string; workspace: string; agentType: 'aider' | 'claude' | 'antigravity' }>();
   private userStopped = new Set<string>(); // threadId
+  private pendingStarts = new Map<string, Promise<void>>(); // threadId -> start promise
 
   constructor() {
     this.setupListeners();
@@ -37,7 +38,13 @@ export class AgentService {
             console.error(`[AgentService] Project ${projectId} not found`);
             return;
           }
-          await this.startAgent(projectId, threadId, project.path, agentType);
+          const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+          this.pendingStarts.set(threadId, startPromise);
+          try {
+            await startPromise;
+          } finally {
+            this.pendingStarts.delete(threadId);
+          }
         } else if (command === 'stop') {
           await this.stopAgent(threadId);
         } else if (command === 'restart') {
@@ -46,7 +53,13 @@ export class AgentService {
           const { projectManager } = await import('./ProjectManager');
           const project = projectManager.getProject(projectId);
           if (project) {
-            await this.startAgent(projectId, threadId, project.path, agentType);
+            const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+            this.pendingStarts.set(threadId, startPromise);
+            try {
+              await startPromise;
+            } finally {
+              this.pendingStarts.delete(threadId);
+            }
           }
         } else {
           await this.sendCommand(threadId, command);
@@ -86,6 +99,11 @@ export class AgentService {
             content
           }
         });
+
+        // If the agent is currently starting, wait for it to finish
+        if (this.pendingStarts.has(threadId)) {
+          await this.pendingStarts.get(threadId);
+        }
 
         const adapter = this.activeAdapters.get(threadId);
         if (adapter && adapter.sendCommand) {
@@ -222,6 +240,22 @@ export class AgentService {
               console.log(`[AgentService] Agent for thread ${threadId} crashed 3 times or has no config. Giving up.`);
               this.crashCounts.delete(threadId);
               this.adapterConfigs.delete(threadId);
+              
+              const lastOutput = adapter.getLastOutput ? adapter.getLastOutput() : '';
+              const outputMsg = lastOutput ? `\n\nLast Output:\n\`\`\`\n${lastOutput}\n\`\`\`` : '';
+
+              eventBus.publish({
+                id: crypto.randomUUID(),
+                timestamp: Date.now(),
+                source: 'server',
+                type: 'agent.status',
+                payload: {
+                  status: 'error',
+                  message: `⚠️ **System Error**: Agent crashed repeatedly and cannot be restarted. Please verify that the agent CLI is installed and available in your PATH.${outputMsg}`,
+                  projectId,
+                  threadId
+                }
+              });
             }
           }
 

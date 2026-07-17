@@ -85,7 +85,9 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     let newSocket: Socket;
     let localKeyPair: CryptoKeyPair | null = null;
 
-    const token = localStorage.getItem('agentdeck_token');
+    const getStorageKey = () => activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+    const tokenKey = getStorageKey();
+    const token = localStorage.getItem(tokenKey);
 
     if (isRelayMode) {
       const url = relayUrl || 'http://localhost:4000';
@@ -110,7 +112,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     newSocket.on('connect_error', (err) => {
       console.error('[Socket] Connection error:', err.message);
       if (err.message === 'unauthorized') {
-        localStorage.removeItem('agentdeck_token');
+        localStorage.removeItem(tokenKey);
         window.location.reload();
       }
     });
@@ -171,10 +173,10 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       }
       if (event.type === 'server.auth_result') {
         if (event.payload.success) {
-          if (event.payload.token) localStorage.setItem('agentdeck_token', event.payload.token);
+          if (event.payload.token) localStorage.setItem(tokenKey, event.payload.token);
         } else {
           setAgentStatus({ status: 'error', message: event.payload.error || 'Authentication Failed' });
-          localStorage.removeItem('agentdeck_token');
+          localStorage.removeItem(tokenKey);
           window.location.reload();
         }
         return;

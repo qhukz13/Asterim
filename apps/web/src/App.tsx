@@ -462,7 +462,7 @@ function Dashboard({ project, onBack, activeBackendUrl }: { project: Project, on
             </div>
             <ChatInput 
               onSend={handleSend} 
-              disabled={agentStatus.status === 'waiting_approval'} 
+              disabled={agentStatus.status === 'waiting_approval' || agentStatus.status === 'working' || agentStatus.status === 'startup'}
               autoApproval={autoApproval} 
               setAutoApproval={setAutoApproval} 
             />
@@ -573,16 +573,16 @@ import { useWorkstations } from './hooks/useWorkstations';
 
 export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const { isAuthenticated } = useAuth();
-  const { activeBackendUrl } = useWorkstations();
+  const workstations = useWorkstations();
+  const { isAuthenticated } = useAuth(workstations.activeBackendUrl);
 
   if (!isAuthenticated) {
-    return <PinScreen activeBackendUrl={activeBackendUrl} />;
+    return <PinScreen activeBackendUrl={workstations.activeBackendUrl} />;
   }
 
   if (!selectedProject) {
-    return <ProjectSelector onSelect={setSelectedProject} activeBackendUrl={activeBackendUrl} />;
+    return <ProjectSelector onSelect={setSelectedProject} workstations={workstations} />;
   }
 
-  return <Dashboard project={selectedProject} onBack={() => setSelectedProject(null)} activeBackendUrl={activeBackendUrl} />;
+  return <Dashboard project={selectedProject} onBack={() => setSelectedProject(null)} activeBackendUrl={workstations.activeBackendUrl} />;
 }

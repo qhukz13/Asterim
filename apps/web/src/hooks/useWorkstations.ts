@@ -45,12 +45,10 @@ export function useWorkstations() {
   };
 
   useEffect(() => {
-    if (config.developerMode) {
-      fetchDiscovered();
-      const interval = setInterval(fetchDiscovered, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [config.developerMode]);
+    fetchDiscovered();
+    const interval = setInterval(fetchDiscovered, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const activeWorkstation = config.preferredWorkstationId 
     ? config.knownWorkstations[config.preferredWorkstationId] || discovered.find(w => w.id === config.preferredWorkstationId)

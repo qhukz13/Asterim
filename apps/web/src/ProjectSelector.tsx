@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { subscribeToPushNotifications } from './push';
-import { DeveloperSettings } from './components/DeveloperSettings';
 
 interface Project {
   id: string;
@@ -11,10 +10,11 @@ interface Project {
 
 interface ProjectSelectorProps {
   onSelect: (project: Project) => void;
-  activeBackendUrl: string;
+  workstations: any; // ReturnType<typeof useWorkstations>
 }
 
-export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorProps) {
+export function ProjectSelector({ onSelect, workstations }: ProjectSelectorProps) {
+  const { config, discovered, activeWorkstation, activeBackendUrl, setActiveWorkstation, addManualWorkstation, forgetWorkstation } = workstations;
   const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +34,9 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
   const fetchProjects = async () => {
     try {
       setError(null);
-      const token = localStorage.getItem('agentdeck_token') || '';
+      const { activeBackendUrl } = workstations;
+    const tokenKey = activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+    const token = localStorage.getItem(tokenKey) || '';
       const headers = { 'Authorization': `Bearer ${token}` };
       const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
       if (res.status === 401) {
@@ -69,7 +71,9 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
   const handleWizardComplete = async () => {
     try {
       setError(null);
-      const token = localStorage.getItem('agentdeck_token') || '';
+      const { activeBackendUrl } = workstations;
+    const tokenKey = activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+    const token = localStorage.getItem(tokenKey) || '';
       
       const res = await fetch(`${baseUrl}/api/v1/system/first-run-complete`, {
         method: 'POST',
@@ -99,7 +103,9 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
 
     try {
       setIsCreating(true);
-      const token = localStorage.getItem('agentdeck_token') || '';
+      const { activeBackendUrl } = workstations;
+    const tokenKey = activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+    const token = localStorage.getItem(tokenKey) || '';
       
       const res = await fetch(`${baseUrl}/api/v1/projects`, {
         method: 'POST',
@@ -245,9 +251,72 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
         <div className="glass-panel project-selector-panel" style={{ maxWidth: '100%', margin: 0 }}>
           <div className="project-selector-header">
           <h1 style={{ margin: 0 }}>Select a Project</h1>
-          <button onClick={() => subscribeToPushNotifications(localStorage.getItem('agentdeck_token') || '')} className="btn-primary" style={{ padding: '8px 12px', fontSize: '0.8rem', background: 'var(--success-color)' }}>
+          <button onClick={() => {
+            const tk = workstations.activeBackendUrl ? `agentdeck_token_${workstations.activeBackendUrl}` : 'agentdeck_token';
+            subscribeToPushNotifications(localStorage.getItem(tk) || '');
+          }} className="btn-primary" style={{ padding: '8px 12px', fontSize: '0.8rem', background: 'var(--success-color)' }}>
             🔔 Enable Push
           </button>
+        </div>
+
+        {/* Workstation Selector Section */}
+        <div style={{ marginBottom: '24px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid var(--panel-border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>Active Workstation</h3>
+          </div>
+          
+          <select 
+            className="input-box"
+            style={{ width: '100%', marginBottom: '12px', padding: '12px', cursor: 'pointer' }}
+            value={config.preferredWorkstationId || 'local'}
+            onChange={(e) => setActiveWorkstation(e.target.value === 'local' ? undefined : e.target.value)}
+          >
+            <option value="local">💻 Local Machine (Default)</option>
+            {discovered.map((w: any) => (
+              <option key={w.id} value={w.id}>
+                🔍 Discovered: {w.name} ({w.ip}:{w.port})
+              </option>
+            ))}
+            {Object.values(config.knownWorkstations).map((w: any) => (
+              <option key={w.id} value={w.id}>
+                💾 Saved: {w.name} ({w.ip}:{w.port})
+              </option>
+            ))}
+          </select>
+
+          {activeWorkstation && activeWorkstation.name.startsWith('Manual') && (
+            <button 
+              className="btn-deny" 
+              style={{ padding: '6px 12px', fontSize: '0.8rem', marginBottom: '12px' }}
+              onClick={() => forgetWorkstation(activeWorkstation.id)}
+            >
+              Forget this saved workstation
+            </button>
+          )}
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px', borderTop: '1px solid var(--panel-border)', paddingTop: '12px' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Add via IP:</span>
+            <input 
+              id="manualIp" 
+              placeholder="e.g. 192.168.1.100" 
+              className="input-box" 
+              style={{ flex: 1, padding: '8px' }} 
+            />
+            <button 
+              className="btn-primary"
+              style={{ padding: '8px 12px' }}
+              onClick={() => {
+                const ipInput = (document.getElementById('manualIp') as HTMLInputElement).value.trim();
+                if (ipInput) {
+                  addManualWorkstation(ipInput, 3000);
+                  setActiveWorkstation(`${ipInput}:3000`);
+                  (document.getElementById('manualIp') as HTMLInputElement).value = '';
+                }
+              }}
+            >
+              Add
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -379,7 +448,6 @@ export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorP
           </div>
         )}
         </div>
-        <DeveloperSettings />
       </div>
     </div>
   );

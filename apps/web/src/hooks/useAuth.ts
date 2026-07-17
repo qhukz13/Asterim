@@ -1,18 +1,27 @@
 import { useState, useEffect } from 'react';
 
-export function useAuth() {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('agentdeck_token'));
+export function useAuth(activeBackendUrl?: string) {
+  const getStorageKey = () => activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+  const [token, setToken] = useState<string | null>(localStorage.getItem(getStorageKey()));
+
+  useEffect(() => {
+    const key = getStorageKey();
+    const stored = localStorage.getItem(key);
+    setToken(stored);
+  }, [activeBackendUrl]);
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!token);
 
   useEffect(() => {
+    const key = getStorageKey();
     if (token) {
-      localStorage.setItem('agentdeck_token', token);
+      localStorage.setItem(key, token);
       setIsAuthenticated(true);
     } else {
-      localStorage.removeItem('agentdeck_token');
+      localStorage.removeItem(key);
       setIsAuthenticated(false);
     }
-  }, [token]);
+  }, [token, activeBackendUrl]);
 
   const login = async (pin: string, hostUrl?: string): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -38,7 +47,7 @@ export function useAuth() {
           errorMsg = data.error;
         }
       } catch (jsonErr) {
-        // Ignore JSON parsing errors
+        // Ignore
       }
       
       return { success: false, error: errorMsg };
