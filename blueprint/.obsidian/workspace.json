@@ -1,0 +1,211 @@
+{
+  "main": {
+    "id": "da8c92c71c553b93",
+    "type": "split",
+    "children": [
+      {
+        "id": "21551a5328e3a85d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "01f28eac0d8e9323",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "ARCHITECTURE.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "ARCHITECTURE"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b565c6f890a51890",
+    "type": "split",
+    "children": [
+      {
+        "id": "0489329a8b94c5d1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d7b2bf97f8687e9c",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "397fa8d714c63bff",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "aa21e8a2fb3494b5",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "7c88efe650c41d70",
+    "type": "split",
+    "children": [
+      {
+        "id": "5fe3f0bdfa2cba4f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c1bc4431afac6bcc",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "01-product/Business_Model.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Business_Model"
+            }
+          },
+          {
+            "id": "bfc9692f8e70cb00",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "01-product/Business_Model.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Business_Model"
+            }
+          },
+          {
+            "id": "9e7fe78da267552b",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "fb6cd7e927bbdef4",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "5f087a83fa8d54c9",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "01-product/Business_Model.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Business_Model"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "d7b2bf97f8687e9c",
+  "lastOpenFiles": [
+    "audit/MIGRATION_REPORT.md",
+    "audit/NEXT_MILESTONES.md",
+    "audit/MISSING_SPECIFICATION.md",
+    "audit/IMPLEMENTED_FEATURES.md",
+    "audit/IMPLEMENTATION_DRIFT.md",
+    "audit",
+    "ROADMAP.md",
+    "DEVELOPMENT.md",
+    "GOVERNANCE.md",
+    "MASTER_PROMPT.md",
+    "AI_CONTEXT.md",
+    "PRODUCT.md",
+    "README.md",
+    "ENGINEERING.md",
+    "DESIGN_SYSTEM.md",
+    "ARCHITECTURE.md",
+    "00-foundation/Product_Philosophy.md",
+    "00-foundation/Mission.md",
+    "00-foundation/Glossary.md",
+    "00-foundation/Core_Principles.md",
+    "05-development/Roadmap.md",
+    "04-engineering/Testing_Strategy.md"
+  ]
+}
