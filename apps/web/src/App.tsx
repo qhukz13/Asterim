@@ -383,7 +383,8 @@ function Dashboard({ project, onBack, activeBackendUrl }: { project: Project, on
         projectId={project.id} 
         activeThreadId={activeThreadId} 
         onSelectThread={setActiveThreadId} 
-        onBackToProjects={onBack} 
+        onBackToProjects={onBack}
+        activeBackendUrl={activeBackendUrl}
       />
 
       {/* Main Content Area */}

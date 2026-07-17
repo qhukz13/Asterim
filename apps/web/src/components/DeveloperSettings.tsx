@@ -12,6 +12,14 @@ export function DeveloperSettings() {
     addManualWorkstation
   } = useWorkstations();
 
+  const connectWorkstation = (id: string) => {
+    setActiveWorkstation(id);
+    const container = document.querySelector('.project-selector-container');
+    if (container) {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('3000');
 

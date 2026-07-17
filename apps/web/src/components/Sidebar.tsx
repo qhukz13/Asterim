@@ -17,14 +17,14 @@ export function Sidebar({
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
   onBackToProjects: () => void;
+  activeBackendUrl?: string;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    fetch(`${protocol}//${hostname}:3000/api/v1/projects/${projectId}/threads`, { headers: localStorage.getItem("agentdeck_token") ? { "Authorization": `Bearer ${localStorage.getItem("agentdeck_token")}` } : {} })
+    const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+    fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, { headers: localStorage.getItem("agentdeck_token") ? { "Authorization": `Bearer ${localStorage.getItem("agentdeck_token")}` } : {} })
       .then(res => res.json())
       .then(data => {
         if (data.threads) {
@@ -46,9 +46,8 @@ export function Sidebar({
     if (!name) return;
 
     try {
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
-      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/projects/${projectId}/threads`, {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, {
         method: 'POST',
         headers: { "Content-Type": "application/json", "Authorization": localStorage.getItem("agentdeck_token") ? `Bearer ${localStorage.getItem("agentdeck_token")}` : "" },
         body: JSON.stringify({ name })
