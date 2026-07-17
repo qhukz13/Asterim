@@ -117,9 +117,23 @@ export class AgentService {
     eventBus.subscribe<any>('client.clear_chat', async (event) => {
       try {
         const { projectId, threadId } = event.payload;
-        if (!threadId) return;
+        if (!threadId || !projectId) return;
         const db = dbService.getDb();
         db.prepare('DELETE FROM events WHERE thread_id = ?').run(threadId);
+
+        // Stop the agent so the terminal is cleared
+        const adapter = this.activeAdapters.get(threadId);
+        if (adapter) {
+          adapter.stop();
+          this.activeAdapters.delete(threadId);
+          eventBus.publish({
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+            source: 'server',
+            type: 'agent.status',
+            payload: { status: 'idle', projectId, threadId }
+          });
+        }
       } catch (err) {
         console.error('[AgentService] Error clearing chat:', err);
       }

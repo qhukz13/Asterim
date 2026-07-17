@@ -293,6 +293,9 @@ export class AntigravityAdapter implements IAgentAdapter {
     if (this.ptyProcess) {
       this.lastCommandSent = command.trim();
       this.emitStatus('working', 'Running command...');
+      if (this.fsm instanceof AntigravityFSM) {
+        this.fsm.notifyCommandSent();
+      }
       this.ptyProcess.write(command + '\r\n');
     }
   }

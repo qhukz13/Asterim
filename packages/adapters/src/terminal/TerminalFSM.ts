@@ -15,6 +15,12 @@ export abstract class TerminalFSM {
   protected isTuiMode: boolean = false;
   // Store the screen snapshot when we enter Working state so we can diff later
   protected workingStartSnapshot: TerminalSnapshot | null = null;
+  public hasSeenWorkingIndicator: boolean = false;
+
+  public notifyCommandSent() {
+    this.setState(AgentState.Working, 'Working...');
+    this.hasSeenWorkingIndicator = false;
+  }
 
   constructor(
     protected onMessageComplete: (message: string) => void,
@@ -126,16 +132,46 @@ export class AntigravityFSM extends TerminalFSM {
 
     // Update TUI mode if we see known TUI elements
     const bottomLines = curr.lines.slice(Math.max(0, curr.lines.length - 5)).join('\n');
-    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel') || bottomLines.toLowerCase().includes('navigate')) {
+    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel') || bottomLines.toLowerCase().includes('navigate') || bottomLines.includes('Gemini')) {
       this.isTuiMode = true;
+    }
+
+    if (this.state === AgentState.Working) {
+      if (bottomLines.includes('esc to cancel') || diff.appendedText.includes('●') || diff.appendedText.includes('Thought') || diff.appendedText.includes('Working')) {
+        this.hasSeenWorkingIndicator = true;
+      }
     }
 
     // 2. Check for Idle State FIRST
     let isIdle = false;
     
-    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel')) {
-      this.isTuiMode = true;
-      isIdle = bottomLines.includes('? for shortcuts') && !bottomLines.includes('esc to cancel');
+    if (this.isTuiMode) {
+      const hasGemini = bottomLines.includes('Gemini');
+      const hasEscToCancel = bottomLines.includes('esc to cancel');
+      const hasShortcuts = bottomLines.includes('? for shortcuts');
+      
+      if (hasShortcuts) {
+        isIdle = true;
+      } else if (hasGemini && !hasEscToCancel) {
+        let lastNonEmpty = '';
+        let secondLastNonEmpty = '';
+        for (let i = curr.lines.length - 1; i >= 0; i--) {
+          if (curr.lines[i].trim().length > 0) {
+            if (!lastNonEmpty) lastNonEmpty = curr.lines[i].trimEnd();
+            else if (!secondLastNonEmpty) {
+              secondLastNonEmpty = curr.lines[i].trimEnd();
+              break;
+            }
+          }
+        }
+        if (lastNonEmpty.match(/^\s*[❯>]$/) || secondLastNonEmpty.match(/^\s*[❯>]$/)) {
+          isIdle = true;
+        }
+      }
+
+      if (this.state === AgentState.Working && !this.hasSeenWorkingIndicator) {
+        isIdle = false;
+      }
     } else {
       let lastNonEmpty = '';
       for (let i = curr.lines.length - 1; i >= 0; i--) {
