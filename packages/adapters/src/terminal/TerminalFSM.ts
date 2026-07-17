@@ -153,18 +153,18 @@ export class AntigravityFSM extends TerminalFSM {
       if (hasShortcuts) {
         isIdle = true;
       } else if (hasGemini && !hasEscToCancel) {
-        let lastNonEmpty = '';
-        let secondLastNonEmpty = '';
-        for (let i = curr.lines.length - 1; i >= 0; i--) {
+        let promptFound = false;
+        let nonEmptiesChecked = 0;
+        for (let i = curr.lines.length - 1; i >= 0 && nonEmptiesChecked < 10; i--) {
           if (curr.lines[i].trim().length > 0) {
-            if (!lastNonEmpty) lastNonEmpty = curr.lines[i].trimEnd();
-            else if (!secondLastNonEmpty) {
-              secondLastNonEmpty = curr.lines[i].trimEnd();
+            nonEmptiesChecked++;
+            if (curr.lines[i].trimEnd().match(/^\s*[❯>]$/)) {
+              promptFound = true;
               break;
             }
           }
         }
-        if (lastNonEmpty.match(/^\s*[❯>]$/) || secondLastNonEmpty.match(/^\s*[❯>]$/)) {
+        if (promptFound) {
           isIdle = true;
         }
       }

@@ -12,7 +12,7 @@ export interface AgentLogPayload {
 }
 
 export interface AgentStatusPayload {
-  status: 'idle' | 'working' | 'waiting_approval' | 'error';
+  status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup';
   message?: string;
 }
 

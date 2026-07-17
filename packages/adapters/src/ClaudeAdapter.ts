@@ -134,7 +134,7 @@ export class ClaudeAdapter implements IAgentAdapter {
     });
   }
 
-  private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'error', message: string) {
+  private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup', message: string) {
     if (!this.eventCallback) return;
     this.eventCallback({
       id: crypto.randomUUID(),

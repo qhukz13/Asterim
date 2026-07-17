@@ -154,7 +154,7 @@ export class AntigravityAdapter implements IAgentAdapter {
       const fs = require('fs');
       const cursorLineIndex = currentSnapshot.baseY + currentSnapshot.cursorY;
       const cursorLine = currentSnapshot.lines[cursorLineIndex] || '';
-      const log = `\n--- TICK ---\nSTATE: ${newState}\nDIFF APPENDED: ${JSON.stringify(diff.appendedText)}\nDIFF MODIFIED: ${diff.modifiedLines.length}\nCURSOR Y: ${currentSnapshot.cursorY}\nCURSOR LINE: ${JSON.stringify(cursorLine)}\nLINES: ${JSON.stringify(currentSnapshot.lines.slice(-3))}\n`;
+      const log = `\n--- TICK ---\nSTATE: ${newState}\nDIFF APPENDED: ${JSON.stringify(diff.appendedText)}\nDIFF MODIFIED: ${diff.modifiedLines.length}\nCURSOR Y: ${currentSnapshot.cursorY}\nCURSOR LINE: ${JSON.stringify(cursorLine)}\nLINES: ${JSON.stringify(currentSnapshot.lines)}\n`;
       fs.appendFileSync('/tmp/fsm_debug.log', log);
       
       // Dump full screen when transitioning to Idle from Working
@@ -166,10 +166,12 @@ export class AntigravityAdapter implements IAgentAdapter {
   }
 
   private handleStateChange(state: AgentState, reason: string) {
-    let internalState: 'idle' | 'working' | 'waiting_approval' | 'error' = 'working';
-    
+    let internalState: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup' = 'working';
+
+    if (state === AgentState.Startup) internalState = 'startup';
     if (state === AgentState.Idle) internalState = 'idle';
     if (state === AgentState.WaitingApproval) internalState = 'waiting_approval';
+    if (state === AgentState.WaitingQuestion) internalState = 'waiting_question';
     if (state === AgentState.Working) internalState = 'working';
     
     this.emitStatus(internalState, reason);
@@ -328,7 +330,7 @@ export class AntigravityAdapter implements IAgentAdapter {
     }
   }
 
-  private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'error', message: string) {
+  private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup', message: string) {
     if (this.eventCallback) {
       this.eventCallback({
         id: randomUUID(),
