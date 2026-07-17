@@ -10,7 +10,7 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export function useSocket(projectId: string | null, threadId: string | null, relayUrl?: string) {
+export function useSocket(projectId: string | null, threadId: string | null, activeBackendUrl?: string, relayUrl?: string) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<AgentDeckEvent<any>[]>([]);
@@ -91,9 +91,7 @@ export function useSocket(projectId: string | null, threadId: string | null, rel
       const url = relayUrl || 'http://localhost:4000';
       newSocket = io(url);
     } else {
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
-      newSocket = io(`${protocol}//${hostname}:3000`, {
+      newSocket = io(activeBackendUrl || `http://localhost:3000`, {
         auth: { token }
       });
     }

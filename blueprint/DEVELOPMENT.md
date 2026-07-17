@@ -16,3 +16,4 @@ The roadmap and active backlog have been migrated to the authoritative `ROADMAP.
 
 ## Related Documents
 - `ROADMAP.md`
+- `WORKSTATIONS.md`

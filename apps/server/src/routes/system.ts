@@ -3,6 +3,7 @@ import { relayClient } from '../services/RelayClient';
 import { pushService } from '../services/PushService';
 import { dbService } from '../services/DatabaseService';
 import { startupService } from '../services/StartupService';
+import { mdnsService } from '../services/mDNSService';
 
 export default async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/system', async (request, reply) => {
@@ -40,6 +41,10 @@ export default async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/v1/system/vapid', async (request, reply) => {
     return { publicKey: pushService.getPublicKey() };
+  });
+
+  fastify.get('/api/v1/system/workstations', async (request, reply) => {
+    return { workstations: mdnsService.getWorkstations() };
   });
 
   fastify.post('/api/v1/system/subscribe', async (request: any, reply) => {

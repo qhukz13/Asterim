@@ -11,7 +11,9 @@ This document is the normative architectural specification. It defines the capab
 
 ```mermaid
 graph TD
-    UI[Client Web App] <-->|WebSockets/REST| API[Core Server]
+    Laptop[Development Laptop Web App] -.->|mDNS Discovery| API
+    Laptop <-->|WebSockets/REST| API
+    UI[Client Web App] <-->|WebSockets/REST| API[Core Server Desktop]
     API <--> Bus[Event Bus]
     Bus <--> State[State Manager]
     Bus <--> AdapterManager[Adapter Manager]

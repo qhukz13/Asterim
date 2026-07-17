@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { subscribeToPushNotifications } from './push';
+import { DeveloperSettings } from './components/DeveloperSettings';
 
 interface Project {
   id: string;
@@ -10,9 +11,10 @@ interface Project {
 
 interface ProjectSelectorProps {
   onSelect: (project: Project) => void;
+  activeBackendUrl: string;
 }
 
-export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
+export function ProjectSelector({ onSelect, activeBackendUrl }: ProjectSelectorProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
@@ -31,12 +33,9 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const fetchProjects = async () => {
     try {
       setError(null);
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
       const token = localStorage.getItem('agentdeck_token') || '';
       const headers = { 'Authorization': `Bearer ${token}` };
-
-      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/projects`, { headers });
+      const res = await fetch(`${activeBackendUrl}/api/v1/projects`, { headers });
       if (res.status === 401) {
         localStorage.removeItem('agentdeck_token');
         window.location.reload();
@@ -45,7 +44,7 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
       const data = await res.json();
       setProjects(data.projects || []);
 
-      const sysRes = await fetch(`${protocol}//${hostname}:3000/api/v1/system`, { headers });
+      const sysRes = await fetch(`${activeBackendUrl}/api/v1/system`, { headers });
       if (sysRes.status === 401) {
         localStorage.removeItem('agentdeck_token');
         window.location.reload();
@@ -69,11 +68,9 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
   const handleWizardComplete = async () => {
     try {
       setError(null);
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
       const token = localStorage.getItem('agentdeck_token') || '';
       
-      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/system/first-run-complete`, {
+      const res = await fetch(`${activeBackendUrl}/api/v1/system/first-run-complete`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -101,11 +98,9 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
 
     try {
       setIsCreating(true);
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
       const token = localStorage.getItem('agentdeck_token') || '';
       
-      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/projects`, {
+      const res = await fetch(`${activeBackendUrl}/api/v1/projects`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -382,6 +377,7 @@ export function ProjectSelector({ onSelect }: ProjectSelectorProps) {
           </div>
         )}
       </div>
+      <DeveloperSettings />
     </div>
   );
 }

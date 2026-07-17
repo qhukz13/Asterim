@@ -330,9 +330,9 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
   );
 }
 
-function Dashboard({ project, onBack }: { project: Project, onBack: () => void }) {
+function Dashboard({ project, onBack, activeBackendUrl }: { project: Project, onBack: () => void, activeBackendUrl: string }) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, activeThreadId, project.relayUrl);
+  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, activeThreadId, activeBackendUrl, project.relayUrl);
   const [agentType, setAgentType] = useState<'aider' | 'claude' | 'antigravity'>(
     (localStorage.getItem('agentdeck_default_agent') as 'aider' | 'claude' | 'antigravity') || 'claude'
   );
@@ -568,20 +568,20 @@ function Dashboard({ project, onBack }: { project: Project, onBack: () => void }
   );
 }
 
+import { useWorkstations } from './hooks/useWorkstations';
+
 export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const { isAuthenticated } = useAuth();
+  const { activeBackendUrl } = useWorkstations();
 
-  // If not authenticated and we are running from a local domain, we must pair first
-  // For cloud relay hosted versions in the future, we will skip this if it fails,
-  // but for now, we assume local or LAN.
   if (!isAuthenticated) {
     return <PinScreen />;
   }
 
   if (!selectedProject) {
-    return <ProjectSelector onSelect={setSelectedProject} />;
+    return <ProjectSelector onSelect={setSelectedProject} activeBackendUrl={activeBackendUrl} />;
   }
 
-  return <Dashboard project={selectedProject} onBack={() => setSelectedProject(null)} />;
+  return <Dashboard project={selectedProject} onBack={() => setSelectedProject(null)} activeBackendUrl={activeBackendUrl} />;
 }

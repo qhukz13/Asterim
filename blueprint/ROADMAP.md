@@ -9,7 +9,7 @@ To build the definitive control plane for autonomous AI coding agents, providing
 ## Current Milestone
 **Phase 3 & 4: Mobile-First Experience & Multi-Device Support**
 - **Objective**: Ensure the local dashboard is accessible and highly usable on mobile devices, allowing seamless switching between projects and persistent agent sessions.
-- **Success Criteria**: A user can securely scan a QR code to connect their mobile device and manage concurrent Aider, Claude, and Antigravity sessions.
+- **Success Criteria**: A user can securely scan a QR code to connect their mobile device and manage concurrent Aider, Claude, and Antigravity sessions. A laptop user can seamlessly discover and connect to a local Desktop workstation via mDNS.
 - **Remaining Work**: PWA offline support, Throttling high-frequency PTY output for mobile browsers.
 
 ## Active Tasks

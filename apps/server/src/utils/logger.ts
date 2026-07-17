@@ -20,13 +20,13 @@ export function initLogger() {
 
   // Redirect stdout
   (process.stdout as any).write = (chunk: any, encoding: any, cb: any) => {
-    logStream.write(chunk, typeof encoding === 'string' ? encoding : undefined, typeof encoding === 'function' ? encoding : cb);
+    logStream.write(chunk, typeof encoding === 'string' ? (encoding as BufferEncoding) : 'utf8', typeof encoding === 'function' ? encoding : cb);
     return true;
   };
 
   // Redirect stderr
   (process.stderr as any).write = (chunk: any, encoding: any, cb: any) => {
-    logStream.write(chunk, typeof encoding === 'string' ? encoding : undefined, typeof encoding === 'function' ? encoding : cb);
+    logStream.write(chunk, typeof encoding === 'string' ? (encoding as BufferEncoding) : 'utf8', typeof encoding === 'function' ? encoding : cb);
     return true;
   };
 }

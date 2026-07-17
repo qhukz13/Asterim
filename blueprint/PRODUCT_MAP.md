@@ -11,7 +11,7 @@ Product boundaries.
 
 ## 1. AgentDeck Core (The Engine)
 The local Node.js runtime executing on the developer's machine.
-- **Subsystems**: State Manager, Event Bus, Database (SQLite), WebSocket Server, Adapter Manager.
+- **Subsystems**: State Manager, Event Bus, Database (SQLite), WebSocket Server, Adapter Manager, Workstation Discovery Service.
 
 ## 2. Agent Adapters (The Plugins)
 The translation layer between the Core and third-party tools.
@@ -19,7 +19,7 @@ The translation layer between the Core and third-party tools.
 
 ## 3. AgentDeck Client (The Interface)
 The UI consumed by the user.
-- **Subsystems**: Terminal Viewer, Diff Viewer, Mission Dashboard, Project Selector.
+- **Subsystems**: Terminal Viewer, Diff Viewer, Mission Dashboard, Project Selector, Workstation Manager.
 - **Implementations**: Local Web App (localhost), Mobile PWA (Remote).
 
 ## 4. AgentDeck Cloud (The SaaS)

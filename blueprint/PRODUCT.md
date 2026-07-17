@@ -18,6 +18,7 @@ Autonomous AI coding agents (Claude Code, Aider) lack visibility and safety cont
 ## Target Audience
 - **Primary**: The Senior Software Engineer / Tech Lead. Highly technical, skeptical of "magic", wants verifiable control.
 - **Secondary**: Indie Hackers (speed, concurrent agent execution) and Platform Engineers (audit logs, RBAC).
+- **Development Workstation Users**: Developers using a lightweight laptop connected to a local, heavy execution environment.
 - **Anti-Targets**: Non-technical users looking for no-code tools.
 
 ## The Golden Loop

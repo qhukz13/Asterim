@@ -18,3 +18,18 @@ export interface ProjectState {
   agentState: AgentState;
   pendingApprovals: number;
 }
+
+export interface Workstation {
+  id: string; // typically ip:port
+  name: string;
+  ip: string;
+  port: number;
+  lastSeen: number;
+  isOnline: boolean;
+}
+
+export interface WorkstationConfig {
+  developerMode: boolean;
+  preferredWorkstationId?: string;
+  knownWorkstations: Record<string, Workstation>;
+}
