@@ -5,7 +5,7 @@
 - Monetization MUST come from convenience, cloud features, and enterprise security.
 
 ## Purpose
-Defines the business model, pricing strategy, and licensing for AgentDeck.
+Defines the business model, pricing strategy, and licensing for Asterim.
 
 ## Scope
 Company strategy and feature gating.

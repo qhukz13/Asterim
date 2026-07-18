@@ -1,5 +1,5 @@
 import * as pty from 'node-pty';
-import { IAgentAdapter, AgentConfig, AgentDeckEvent } from '@agentdeck/shared';
+import { IAgentAdapter, AgentConfig, AsterimEvent } from '@asterim/shared';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { Terminal } from '@xterm/headless';
@@ -10,7 +10,7 @@ import { AntigravityFSM, AgentState } from './terminal/TerminalFSM';
 export class AntigravityAdapter implements IAgentAdapter {
   private ptyProcess: pty.IPty | null = null;
   private term: Terminal | null = null;
-  private eventCallback?: (event: AgentDeckEvent) => void;
+  private eventCallback?: (event: AsterimEvent) => void;
   private requestApprovalCallback?: (desc: string, cmd: string) => Promise<boolean>;
   private requestQuestionCallback?: (question: string, options: string[]) => Promise<number | string>;
   private config?: AgentConfig;
@@ -51,7 +51,7 @@ export class AntigravityAdapter implements IAgentAdapter {
     return null;
   }
 
-  public onEvent(callback: (event: AgentDeckEvent) => void) {
+  public onEvent(callback: (event: AsterimEvent) => void) {
     this.eventCallback = callback;
   }
 
@@ -87,7 +87,7 @@ export class AntigravityAdapter implements IAgentAdapter {
       try {
         this.term = new Terminal({
           allowProposedApi: true,
-          cols: 80,
+          cols: 1000,
           rows: 24,
           scrollback: 10000 // Large scrollback to prevent truncation issues
         });
@@ -102,7 +102,7 @@ export class AntigravityAdapter implements IAgentAdapter {
 
         this.ptyProcess = pty.spawn(cmd, args, {
           name: 'xterm-color',
-          cols: 80,
+          cols: 1000,
           rows: 24,
           cwd: workspace,
           env: {
@@ -176,9 +176,11 @@ export class AntigravityAdapter implements IAgentAdapter {
     
     this.emitStatus(internalState, reason);
 
-    if (state === AgentState.Idle && this.isStartingUp) {
-      this.isStartingUp = false;
-      console.log('[AntigravityAdapter] Startup complete. Ready for commands.');
+    if (state === AgentState.Idle) {
+      if (this.isStartingUp) {
+        this.isStartingUp = false;
+        console.log('[AntigravityAdapter] Startup complete. Ready for commands.');
+      }
       
       // Flush queued commands
       while (this.commandQueue.length > 0) {
@@ -193,6 +195,11 @@ export class AntigravityAdapter implements IAgentAdapter {
   }
 
   private handleMessageComplete(message: string) {
+    if (this.lastCommandSent === '/clear') {
+      console.log('[AntigravityAdapter] Ignoring system greeting from /clear command.');
+      return;
+    }
+
     if (!this.lastCommandSent) {
       console.log('[AntigravityAdapter] Ignoring message because no command was sent yet (likely startup restoration).');
       return;
@@ -286,8 +293,9 @@ export class AntigravityAdapter implements IAgentAdapter {
   }
 
   public async sendCommand(command: string): Promise<void> {
-    if (this.isStartingUp) {
-      console.log(`[AntigravityAdapter] Queued command during startup: ${command}`);
+    const isBusy = this.fsm && this.fsm.getState() !== AgentState.Idle;
+    if (this.isStartingUp || isBusy) {
+      console.log(`[AntigravityAdapter] Queued command because agent is busy: ${command}`);
       this.commandQueue.push(command);
       return;
     }

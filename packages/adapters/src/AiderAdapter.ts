@@ -1,11 +1,11 @@
 import * as pty from 'node-pty';
-import { IAgentAdapter, AgentConfig, AgentDeckEvent, ClientApprovalResponsePayload } from '@agentdeck/shared';
+import { IAgentAdapter, AgentConfig, AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
 import crypto from 'crypto';
 import os from 'os';
 
 export class AiderAdapter implements IAgentAdapter {
   private ptyProcess: pty.IPty | null = null;
-  private eventCallback?: (event: AgentDeckEvent) => void;
+  private eventCallback?: (event: AsterimEvent) => void;
   private currentActionId: string | null = null;
   private dataBuffer: string = '';
   private pendingApproval: boolean = false;
@@ -79,7 +79,7 @@ export class AiderAdapter implements IAgentAdapter {
     return lines.slice(-10).join('\n');
   }
 
-  public onEvent(callback: (event: AgentDeckEvent) => void): void {
+  public onEvent(callback: (event: AsterimEvent) => void): void {
     this.eventCallback = callback;
   }
 

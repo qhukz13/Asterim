@@ -4,7 +4,7 @@ function App() {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText('npm install -g agentdeck');
+    navigator.clipboard.writeText('npm install -g asterim');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -12,9 +12,9 @@ function App() {
   return (
     <div className="marketing-container">
       <nav>
-        <div className="logo">AgentDeck</div>
+        <div className="logo">Asterim</div>
         <div>
-          <a href="https://github.com/agentdeck/agentdeck" style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500 }}>GitHub</a>
+          <a href="https://github.com/asterim/asterim" style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500 }}>GitHub</a>
         </div>
       </nav>
 
@@ -25,7 +25,7 @@ function App() {
         <div className="terminal-mockup">
           <div style={{ color: '#94a3b8', marginBottom: '8px' }}># Install globally via NPM</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>$ npm install -g agentdeck</span>
+            <span>$ npm install -g asterim</span>
             <button 
               onClick={handleCopy}
               style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', fontFamily: 'inherit' }}

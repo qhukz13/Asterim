@@ -1,11 +1,11 @@
 # Product Strategy
 
 ## Level 1: Product Principles
-- AgentDeck MUST provide unparalleled visibility and strict, interceptable control over agent actions.
+- Asterim MUST provide unparalleled visibility and strict, interceptable control over agent actions.
 - The product MUST prioritize Developer Trust above all else.
 
 ## Purpose
-Defines the core problem, target audience, and fundamental philosophy of AgentDeck.
+Defines the core problem, target audience, and fundamental philosophy of Asterim.
 
 ## Scope
 Guides feature triage, product management, and UX design.
@@ -34,11 +34,11 @@ The core behavioral loop the product MUST optimize for:
 **Time-to-Approval (TTA)**: The average time elapsed between an agent hitting an Approval Gate and the user responding. A low TTA indicates high user trust and low friction in the UX.
 
 ## Competitive Positioning
-AgentDeck IS NOT a code editor or IDE. It IS a control plane.
+Asterim IS NOT a code editor or IDE. It IS a control plane.
 - **Alternatives Considered**: Building agent orchestration directly into an IDE extension (like VS Code).
 - **Decision Rationale**: IDE extensions tether the user to a specific workstation. A standalone control plane allows true remote, untethered orchestration via mobile devices while the heavy computation runs on the desktop.
 
-## Boundaries (What AgentDeck is NOT)
+## Boundaries (What Asterim is NOT)
 - The system SHALL NOT train or host foundational LLM models.
 - The system SHALL NOT be a general-purpose chat application.
 

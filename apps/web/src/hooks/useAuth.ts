@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 export function useAuth(activeBackendUrl?: string) {
-  const getStorageKey = () => activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+  const getStorageKey = () => activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
   const [token, setToken] = useState<string | null>(localStorage.getItem(getStorageKey()));
 
   useEffect(() => {

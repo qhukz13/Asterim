@@ -1,5 +1,5 @@
 import { eventBus } from './EventBus';
-import { AgentDeckEvent, ClientApprovalResponsePayload } from '@agentdeck/shared';
+import { AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 

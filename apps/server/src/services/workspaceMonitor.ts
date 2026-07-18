@@ -1,12 +1,12 @@
 import chokidar, { FSWatcher } from 'chokidar';
 import simpleGit, { SimpleGit } from 'simple-git';
-import { AgentDeckEvent, FileChangedPayload } from '@agentdeck/shared';
+import { AsterimEvent, FileChangedPayload } from '@asterim/shared';
 import crypto from 'crypto';
 
 export class WorkspaceMonitor {
   private watcher: FSWatcher | null = null;
   private git: SimpleGit;
-  private eventCallback?: (event: AgentDeckEvent) => void;
+  private eventCallback?: (event: AsterimEvent) => void;
 
   constructor(private workspacePath: string) {
     this.git = simpleGit(workspacePath);
@@ -52,7 +52,7 @@ export class WorkspaceMonitor {
     }
   }
 
-  public onEvent(callback: (event: AgentDeckEvent) => void): void {
+  public onEvent(callback: (event: AsterimEvent) => void): void {
     this.eventCallback = callback;
   }
 

@@ -1,79 +1,130 @@
-# AgentDeck
-
-AgentDeck is the control plane for autonomous AI coding agents. It provides a secure, local-first interface to monitor, orchestrate, and control coding agents running on your workstation, directly from any connected mobile or desktop device.
-
-## Core Capabilities
-
-* **Live Telemetry Dashboard**: Stream high-frequency terminal output from AI agents into a responsive, real-time web interface without locking up your browser.
-* **Interactive Interceptors**: Programmatically pause agent execution. Safely review high-risk actions (file edits, script executions) via standard Approve/Deny interfaces.
-* **Cross-Device Orchestration**: Connect securely from mobile devices using end-to-end encrypted relay tunnels, allowing you to manage agents while away from your desk.
-* **Zero-Config Pairing**: Secure, ephemeral 6-digit PINs and QR codes generated on startup for instant, trusted device pairing within your local network.
+<div align="center">
+  <h1>Asterim</h1>
+  <p><strong>The AI-native workspace for orchestrating autonomous software engineering agents.</strong></p>
+  <p>Asterim is a premium, local-first control plane that brings production-grade multi-agent orchestration directly to your development environment. By keeping data secure on your machine and keeping humans firmly in the loop, Asterim empowers you to coordinate specialized AI agents to solve complex engineering challenges.</p>
+</div>
 
 ---
 
-## Getting Started
+## Features
 
-### Prerequisites
+### AI Workspace
+A beautifully designed, premium workspace to house all your projects and manage intelligent agents.
 
-To build and run AgentDeck, ensure the following are installed:
+### Multi-agent Orchestration
+Coordinate multiple specialized AI agents, allowing them to collaborate seamlessly on complex tasks.
 
-#### 1. Runtimes
-* **Node.js** (v18 or higher)
-* **pnpm** (v9 or higher)
+### Local-first Architecture
+Your code, your data, your machine. Asterim is built to operate locally, ensuring maximum privacy and speed.
 
-#### 2. Native Build Tools
-AgentDeck utilizes `node-pty` for robust terminal emulation, which requires native compilation tools on your host machine:
-* **Windows**: Run `npm install --global windows-build-tools` (requires Administrative privileges) or install **Visual Studio Build Tools** (Desktop development with C++) and **Python**.
-* **macOS**: Install Xcode Command Line Tools via `xcode-select --install`.
-* **Linux**: Install standard build packages (e.g., `sudo apt install build-essential python3`).
+### Human Approvals
+Engineers maintain ultimate control. Autonomous actions can be gated by human-in-the-loop approvals, ensuring nothing executes without your say-so.
 
-#### 3. Supported AI Agents
-AgentDeck interfaces with your existing CLI agents. Ensure they are installed and accessible on your system's `PATH`:
-* **Claude Code**: `npm install -g @anthropic-ai/claude-code`
-* **Aider**: `pip install aider-chat`
-* **Antigravity**: Internal CLI (if applicable)
+### Cloud Relay
+Connect your local Workstations to external or cloud resources securely via the Cloud Relay service.
+
+### Development Workstations
+Dedicated, isolated environments where your agents operate, preserving your host system's integrity.
+
+### Real-time Dashboard
+Monitor your agents, view logs, and intervene at any time through our responsive, intuitive real-time dashboard.
+
+---
+
+## Screenshots
+
+> *Coming soon.*
+>
+> ![Dashboard Placeholder](./assets/asterim_dashboard_mockup.png)
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/asterim.git
+cd asterim
+
+# Install dependencies (requires pnpm)
+pnpm install
+```
 
 ---
 
 ## Quick Start
 
-1. **Clone the repository and install dependencies**:
-   ```bash
-   pnpm install
-   ```
+To spin up the local development environment:
 
-2. **Run in development mode**:
-   ```bash
-   pnpm dev
-   ```
+```bash
+# Start the web client and backend services
+pnpm run dev
+```
 
-3. **Pair your device**:
-   On startup, the terminal will print a localized onboarding banner and a QR code:
-   ```text
-   ==================================================
-              AGENTDECK CONTROL PLANE
-   ==================================================
-     Local URL    : http://localhost:3000
-     LAN URL      : http://192.168.1.34:3000
-     Pairing PIN  : 813351
-   ==================================================
-   ```
-   * Scan the generated QR code using your mobile device or open the Local/LAN URL directly in your browser.
-   * The browser will securely pair using the PIN and launch the setup wizard to configure your default agent.
+Visit `http://localhost:5173` to access your Asterim dashboard.
 
 ---
 
-## Documentation & Product Specification
+## Architecture Overview
 
-AgentDeck operates under a strict, documentation-driven methodology governed by the **Product Specification Blueprint**.
+Asterim is composed of three primary components:
+1. **Web Client**: A modern, responsive React UI.
+2. **Server (Control Plane)**: A Fastify-based backend that manages orchestration, event buses, and mDNS discovery.
+3. **Adapters**: Connectors that interface with different AI models (e.g., Claude, Antigravity) to act as specialized agents.
 
-All major architectural decisions, workflows, and rules are documented in the `blueprint/` directory:
+All components communicate asynchronously via an internal EventBus.
 
-* 📄 [Product Specification](./blueprint/PRODUCT.md)
-* 🏛️ [System Architecture](./blueprint/ARCHITECTURE.md)
-* 🗺️ [Official Roadmap](./blueprint/ROADMAP.md)
-* 🛠️ [Engineering Standards](./blueprint/ENGINEERING.md)
-* 🤖 [AI Development Context](./blueprint/AI_CONTEXT.md)
-* 🔐 [Security & Disclosure Policy](./SECURITY.md)
+---
 
-*(Note: Future development must always begin by consulting `blueprint/ROADMAP.md` and `blueprint/AI_CONTEXT.md`.)*
+## Monorepo Structure
+
+```text
+asterim/
+├── apps/
+│   ├── web/        # The React frontend workspace
+│   ├── server/     # The Fastify backend service
+│   └── relay/      # The Cloud Relay service
+├── packages/
+│   ├── shared/     # Shared types and utilities
+│   └── adapters/   # Agent adapters (Claude, Aider, etc.)
+└── blueprint/      # Comprehensive project documentation
+```
+
+---
+
+## Development
+
+We use `turbo` to manage our monorepo tasks.
+
+- `pnpm run build`: Build all packages and applications.
+- `pnpm run lint`: Run ESLint across the repository.
+- `pnpm run clean`: Clean build artifacts.
+
+---
+
+## Roadmap
+
+To see what we're working on next, check out our [Roadmap](./blueprint/ROADMAP.md).
+
+---
+
+## Documentation
+
+The definitive requirements and documentation for Asterim live in the `blueprint/` directory.
+
+- **[Product Specification](./blueprint/PRODUCT.md)**: Why we are building this.
+- **[Architecture Details](./blueprint/ARCHITECTURE.md)**: How the system works.
+- **[Brand Guidelines](./blueprint/BRAND.md)**: Voice, tone, and brand rules.
+- **[AI Context](./blueprint/AI_CONTEXT.md)**: Context tailored specifically for AI agents.
+
+---
+
+## Contributing
+
+We welcome contributions! Please review our [Governance](./blueprint/GOVERNANCE.md) and development guides before submitting a pull request.
+
+---
+
+## License
+
+MIT

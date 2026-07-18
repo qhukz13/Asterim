@@ -74,9 +74,21 @@ export function XTerminal({ socket, projectId }: { socket: Socket | null, projec
   useEffect(() => {
     if (!socket || !termInstance.current) return;
 
+    let writeBuffer = '';
+    let rafId: number | null = null;
+
     const handleData = (event: any) => {
       if (event.payload?.projectId === projectId && event.payload?.data) {
-        termInstance.current?.write(event.payload.data);
+        writeBuffer += event.payload.data;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(() => {
+            if (writeBuffer && termInstance.current) {
+              termInstance.current.write(writeBuffer);
+            }
+            writeBuffer = '';
+            rafId = null;
+          });
+        }
       }
     };
 
@@ -92,6 +104,9 @@ export function XTerminal({ socket, projectId }: { socket: Socket | null, projec
     return () => {
       socket.off('terminal.data', handleData);
       socket.off('agent.log', handleLog);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
     };
   }, [socket, projectId]);
 

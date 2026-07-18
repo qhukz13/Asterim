@@ -35,7 +35,7 @@ The central orchestrator that manages state and communication.
 - **Reasoning**: Developer speed and ecosystem (NPM) trump raw performance for an orchestration layer.
 
 ## 3. Event Bus
-The nervous system of AgentDeck.
+The nervous system of Asterim.
 
 - **Requirements**: The system MUST implement a Publish/Subscribe pattern. Components MUST communicate asynchronously. The bus MUST support wildcard subscriptions for global logging.
 - **Level 4 Current Implementation**: Node.js `EventEmitter` with literal `'*'` string convention (ADR-008).

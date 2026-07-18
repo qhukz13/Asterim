@@ -49,7 +49,7 @@ export function PinScreen({ activeBackendUrl }: { activeBackendUrl?: string }) {
       <div className="glass-panel project-selector-panel" style={{ maxWidth: '400px', textAlign: 'center' }}>
         <h1 style={{ marginBottom: '8px' }}>Device Pairing</h1>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-          Enter the 6-digit PIN displayed in your AgentDeck server console to authorize this device.
+          Enter the 6-digit PIN displayed in your Asterim server console to authorize this device.
         </p>
         
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

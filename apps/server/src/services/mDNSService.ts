@@ -1,5 +1,5 @@
 import Bonjour, { Service } from 'bonjour-service';
-import { Workstation } from '@agentdeck/shared';
+import { Workstation } from '@asterim/shared';
 import os from 'os';
 
 export class MDNSService {
@@ -12,12 +12,12 @@ export class MDNSService {
     try {
       this.bonjour = new Bonjour();
       this.service = this.bonjour.publish({
-        name: `AgentDeck-${os.hostname()}`,
-        type: 'agentdeck',
+        name: `Asterim-${os.hostname()}`,
+        type: 'asterim',
         port: port
       });
 
-      console.log(`[mDNS] Publishing AgentDeck service on port ${port}`);
+      console.log(`[mDNS] Publishing Asterim service on port ${port}`);
       this.startDiscovery();
     } catch (err) {
       console.error('[mDNS] Failed to start mDNS service:', err);
@@ -27,7 +27,7 @@ export class MDNSService {
   private startDiscovery() {
     if (!this.bonjour) return;
     
-    const browser = this.bonjour.find({ type: 'agentdeck' });
+    const browser = this.bonjour.find({ type: 'asterim' });
     
     browser.on('up', (service: Service) => {
       const ip = service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;

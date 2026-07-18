@@ -1,7 +1,7 @@
 # Blueprint Synchronization Migration Report
 
 ## Audit Overview
-The first official Blueprint Synchronization Audit has been completed successfully. The project now has a single, definitive Source of Truth in `blueprint`. The legacy `agentdeck-docs` folder has been preserved entirely as a historical archive, but all active planning information has been migrated out of it.
+The first official Blueprint Synchronization Audit has been completed successfully. The project now has a single, definitive Source of Truth in `blueprint`. The legacy `asterim-docs` folder has been preserved entirely as a historical archive, but all active planning information has been migrated out of it.
 
 ## Blueprint Files Updated
 - **`PRODUCT.md`**: Updated to strictly define the Golden Loop steps and latency constraints, incorporating information lost during the initial documentation migration.

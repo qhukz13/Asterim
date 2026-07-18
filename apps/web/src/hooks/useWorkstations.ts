@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Workstation, WorkstationConfig } from '@agentdeck/shared';
+import { Workstation, WorkstationConfig } from '@asterim/shared';
 
 const DEFAULT_CONFIG: WorkstationConfig = {
   developerMode: false,
@@ -8,14 +8,14 @@ const DEFAULT_CONFIG: WorkstationConfig = {
 
 export function useWorkstations() {
   const [config, setConfig] = useState<WorkstationConfig>(() => {
-    const stored = localStorage.getItem('agentdeck_workstation_config');
+    const stored = localStorage.getItem('asterim_workstation_config');
     return stored ? JSON.parse(stored) : DEFAULT_CONFIG;
   });
   
   const [discovered, setDiscovered] = useState<Workstation[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('agentdeck_workstation_config', JSON.stringify(config));
+    localStorage.setItem('asterim_workstation_config', JSON.stringify(config));
   }, [config]);
 
   const fetchDiscovered = async () => {

@@ -3,7 +3,7 @@ const ptyProcess = pty.spawn('C:\\Users\\qhukz\\AppData\\Local\\agy\\bin\\agy.ex
   name: 'xterm-color',
   cols: 80,
   rows: 30,
-  cwd: 'C:\\Projects\\AgentDeckTEST',
+  cwd: 'C:\\Projects\\AsterimTEST',
   env: process.env
 });
 ptyProcess.onData((data) => console.log('DATA:', data));

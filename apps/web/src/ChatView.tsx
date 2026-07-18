@@ -1,5 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import { Prism } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+const SyntaxHighlighter = Prism as any;
 
 export interface ChatMessage {
   id: string;
@@ -14,9 +20,34 @@ interface ChatViewProps {
   onClearChat?: () => void;
 }
 
+const markdownComponents = {
+  code({node, className, children, ...props}: any) {
+    const match = /language-(\w+)/.exec(className || '');
+    return match ? (
+      <div style={{ borderRadius: '8px', overflow: 'hidden', margin: '14px 0', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ background: 'rgba(0,0,0,0.6)', padding: '6px 16px', fontSize: '0.75rem', color: '#9ca3af', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span>{match[1]}</span>
+        </div>
+        <SyntaxHighlighter
+          {...props}
+          children={String(children).replace(/\n$/, '')}
+          style={vscDarkPlus as any}
+          language={match[1]}
+          PreTag="div"
+          customStyle={{ margin: 0, borderRadius: '0', background: 'rgba(0,0,0,0.4)', padding: '16px' }}
+        />
+      </div>
+    ) : (
+      <code {...props} className={className}>
+        {children}
+      </code>
+    );
+  }
+};
+
 const renderMessageContent = (content: string) => {
   if (!content.includes('▸ Thought')) {
-    return <ReactMarkdown>{content}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>{content}</ReactMarkdown>;
   }
 
   const lines = content.split('\n');
@@ -58,7 +89,7 @@ const renderMessageContent = (content: string) => {
           if (!text) return null;
           return (
             <div key={idx} className="agent-normal-text">
-              <ReactMarkdown>{text}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>{text}</ReactMarkdown>
             </div>
           );
         }

@@ -49,7 +49,7 @@ function test() {
                         console.log("EVENT:", event.type, event.payload);
                     });
                     return [4 /*yield*/, adapter.start({
-                            workspace: 'C:\\Projects\\AgentDeck',
+                            workspace: 'C:\\Projects\\Asterim',
                             requestApproval: function () { return __awaiter(_this, void 0, void 0, function () { return __generator(this, function (_a) {
                                 return [2 /*return*/, true];
                             }); }); },

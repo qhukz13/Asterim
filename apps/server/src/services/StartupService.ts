@@ -37,7 +37,7 @@ export class StartupService {
 
       // 2. Draw welcome console frame
       printToConsole('\n==================================================');
-      printToConsole('           WELCOME TO AGENTDECK v0.1');
+      printToConsole('           WELCOME TO ASTERIM v0.1');
       printToConsole('      AI Agent Control Plane is Initialized');
       printToConsole('==================================================');
       printToConsole(`  Local URL    : http://localhost:${port}`);
@@ -98,10 +98,10 @@ export class StartupService {
     }
     if (antigravityPath) {
       console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary found at ${antigravityPath}.
-   AgentDeck will run the real Antigravity agent process.\x1b[0m\n`);
+   Asterim will run the real Antigravity agent process.\x1b[0m\n`);
     } else {
       console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary was not found on your PATH or default location.
-   AgentDeck will run in simulated mode using 'mock-antigravity.js'.\x1b[0m\n`);
+   Asterim will run in simulated mode using 'mock-antigravity.js'.\x1b[0m\n`);
     }
   }
 

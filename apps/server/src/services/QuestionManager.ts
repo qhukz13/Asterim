@@ -1,5 +1,5 @@
 import { eventBus } from './EventBus';
-import { AgentDeckEvent, ClientQuestionResponsePayload } from '@agentdeck/shared';
+import { AsterimEvent, ClientQuestionResponsePayload } from '@asterim/shared';
 import crypto from 'crypto';
 
 interface PendingQuestion {

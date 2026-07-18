@@ -1,7 +1,7 @@
 # Technical Onboarding & Navigation
 
 ## Repository Layout
-AgentDeck is a monorepo.
+Asterim is a monorepo.
 - `apps/server`: Core Node.js runtime.
 - `apps/web`: React PWA client.
 - `packages/shared`: Shared types and interfaces.

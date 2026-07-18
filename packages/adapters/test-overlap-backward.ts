@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 
 function testOverlap() {
-  const oldText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AgentDeckTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
+  const oldText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AsterimTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
 
 hi
 
@@ -10,7 +10,7 @@ understand the project structure and see if there are any existing files we
 are working with.`;
 
   // newText simulates scrollback containing oldText TWICE (due to xterm not being cleared)
-  const newText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AgentDeckTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
+  const newText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AsterimTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
 
 hi
 
@@ -20,7 +20,7 @@ are working with.
 
 hi
 
-▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AgentDeckTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
+▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AsterimTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
 
 hi
 

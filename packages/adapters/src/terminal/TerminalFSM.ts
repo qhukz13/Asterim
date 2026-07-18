@@ -140,6 +140,11 @@ export class AntigravityFSM extends TerminalFSM {
       if (bottomLines.includes('esc to cancel') || diff.appendedText.includes('●') || diff.appendedText.includes('Thought') || diff.appendedText.includes('Working')) {
         this.hasSeenWorkingIndicator = true;
       }
+      
+      // If a new empty prompt appears in the appended text, the agent must have finished processing (even if it was so fast we didn't see an indicator).
+      if (diff.appendedText.match(/(?:^|\n)\s*[❯>]\s*(?:\n|$)/)) {
+        this.hasSeenWorkingIndicator = true;
+      }
     }
 
     // 2. Check for Idle State FIRST
@@ -290,7 +295,7 @@ export class AntigravityFSM extends TerminalFSM {
       let startedWorking = false;
       
       if (this.isTuiMode) {
-        if (bottomLines.includes('esc to cancel') || diff.appendedText.trim().length > 0) {
+        if (bottomLines.includes('esc to cancel') || diff.appendedText.includes('●') || diff.appendedText.includes('Thought') || diff.appendedText.includes('Working')) {
           startedWorking = true;
         }
       } else {
@@ -301,6 +306,7 @@ export class AntigravityFSM extends TerminalFSM {
 
       if (startedWorking) {
         this.setState(AgentState.Working, 'Working...');
+        this.hasSeenWorkingIndicator = true;
       }
     }
   }
@@ -318,7 +324,9 @@ export class AntigravityFSM extends TerminalFSM {
       .replace(/[❯>]\s*$/g, '')
       .replace(/.*?Navigate.*?enter Select.*?esc Skip/gi, '')
       // Remove spinner lines
-      .replace(/^[^\\w\\s]*\\s*(Working|Generating|Running|Thinking)(\\.+|…)/gim, '')
+      .replace(/^[^\w\s]*\s*(Working|Generating|Running|Thinking)(\.+|…)/gim, '')
+      // Remove Tip lines
+      .replace(/^[^\w\s]*\s*Tip:.*$/gim, '')
       // Remove ● lines (tools, thoughts, meta info)
       .replace(/●[^\n]*\n?/g, '')
       .trim();

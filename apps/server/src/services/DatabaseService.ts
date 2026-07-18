@@ -7,7 +7,7 @@ import os from 'os';
 import fs from 'fs';
 
 /**
- * Resolves the AgentDeck data directory.
+ * Resolves the Asterim data directory.
  * Priority: AGENTDECK_DATA_DIR env var → ~/.agentdeck
  */
 function resolveDataDir(): string {
@@ -30,7 +30,7 @@ export class DatabaseService {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dataDir, 'agentdeck.db');
+    this.dbPath = path.join(dataDir, 'asterim.db');
     console.log(`[Database] Using database at: ${this.dbPath}`);
 
     this.db = new DBSync(this.dbPath);

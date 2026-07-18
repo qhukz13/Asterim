@@ -1,7 +1,7 @@
 # Blueprint Consolidation Migration Report
 
 ## Purpose
-This document explains the rationale and mapping used to refactor the original over-engineered, 50+ file AgentDeck Blueprint into the current streamlined, 11-file structure.
+This document explains the rationale and mapping used to refactor the original over-engineered, 50+ file Asterim Blueprint into the current streamlined, 11-file structure.
 
 ## The Goal
 The primary objective of this refactor was to **maximize clarity while minimizing navigation cost**, particularly for AI agents contributing to the codebase. By enforcing a "one document = one domain" rule, we eliminated deep folder hierarchies and ensured every concept has exactly one canonical location.

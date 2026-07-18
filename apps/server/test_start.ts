@@ -10,6 +10,6 @@ eventBus.subscribe('agent.log', (event) => {
 
 async function main() {
   console.log("Starting agent...");
-  await agentService.startAgent('fake-id', 'C:\\Projects\\AgentDeckTEST', 'antigravity');
+  await agentService.startAgent('fake-id', 'C:\\Projects\\AsterimTEST', 'antigravity');
 }
 main().catch(console.error);

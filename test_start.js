@@ -12,6 +12,6 @@ eventBus.subscribe('agent.status', (event) => {
 async function test() {
   console.log("Starting agent...");
   // Simulate starting agent for a fake project
-  await agentService.startAgent('fake-id', 'C:\\Projects\\AgentDeck', 'antigravity');
+  await agentService.startAgent('fake-id', 'C:\\Projects\\Asterim', 'antigravity');
 }
 test().catch(console.error);

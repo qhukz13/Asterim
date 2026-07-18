@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import { dbService } from './DatabaseService';
 import { eventBus } from './EventBus';
-import { AgentDeckEvent, ApprovalRequestPayload } from '@agentdeck/shared';
+import { AsterimEvent, ApprovalRequestPayload } from '@asterim/shared';
 
 export class PushService {
   private vapidPublicKey: string = '';
@@ -32,7 +32,7 @@ export class PushService {
     }
 
     webpush.setVapidDetails(
-      'mailto:agentdeck@example.com',
+      'mailto:asterim@example.com',
       this.vapidPublicKey,
       this.vapidPrivateKey
     );

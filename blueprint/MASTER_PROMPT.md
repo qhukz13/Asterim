@@ -6,7 +6,7 @@
 - Technical debt MUST NOT be accumulated intentionally.
 
 ## Purpose
-This document provides permanent operating instructions for AI development agents contributing to AgentDeck.
+This document provides permanent operating instructions for AI development agents contributing to Asterim.
 
 ## Scope
 Guides AI behavior regarding code review, decision-making, and documentation maintenance.

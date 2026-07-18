@@ -1,11 +1,11 @@
-# AgentDeck Product Specification
+# Asterim Product Specification
 
 ## Level 1: Product Principles
-- AgentDeck is the control plane for autonomous AI coding agents.
+- Asterim is the control plane for autonomous AI coding agents.
 - This repository contains the normative Product Specification.
 
 ## Purpose
-This directory (`blueprint`) contains the definitive requirements for AgentDeck. If the source code is lost, the product SHALL be entirely recoverable from these documents.
+This directory (`blueprint`) contains the definitive requirements for Asterim. If the source code is lost, the product SHALL be entirely recoverable from these documents.
 
 ## Scope
 Human onboarding and project orientation.

@@ -28,7 +28,7 @@ export class PairingService {
     }
 
     printToConsole('\n=======================================');
-    printToConsole('[AUTH] AGENTDECK DEVICE PAIRING PIN');
+    printToConsole('[AUTH] ASTERIM DEVICE PAIRING PIN');
     printToConsole(`[PIN] PIN: ${this.currentPin}`);
     printToConsole('=======================================\n');
     try {

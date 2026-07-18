@@ -19,7 +19,7 @@ const io = new SocketIOServer(fastify.server, {
 
 // Basic health check
 fastify.get('/health', async () => {
-  return { status: 'ok', service: 'agentdeck-relay' };
+  return { status: 'ok', service: 'asterim-relay' };
 });
 
 // Mapping of tunnelId -> localServer socket ID
@@ -79,7 +79,7 @@ const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '4000', 10);
     await fastify.listen({ port, host: '0.0.0.0' });
-    console.log(`[Relay] AgentDeck Cloud Relay listening on port ${port}`);
+    console.log(`[Relay] Asterim Cloud Relay listening on port ${port}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

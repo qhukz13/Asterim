@@ -1,4 +1,4 @@
-export interface AgentDeckEvent<T = any> {
+export interface AsterimEvent<T = any> {
   id: string;
   timestamp: number;
   source: string; // e.g., 'adapter:aider', 'client:web-123'
@@ -74,16 +74,16 @@ export interface ServerAuthResultPayload {
 }
 
 // Helper types for specific events
-export type AgentLogEvent = AgentDeckEvent<AgentLogPayload>;
-export type AgentStatusEvent = AgentDeckEvent<AgentStatusPayload>;
-export type ApprovalRequestEvent = AgentDeckEvent<ApprovalRequestPayload>;
-export type ClientCommandEvent = AgentDeckEvent<ClientCommandPayload>;
-export type ClientStdinEvent = AgentDeckEvent<ClientStdinPayload>;
-export type ClientApprovalResponseEvent = AgentDeckEvent<ClientApprovalResponsePayload>;
-export type QuestionRequestEvent = AgentDeckEvent<QuestionRequestPayload>;
-export type ClientQuestionResponseEvent = AgentDeckEvent<ClientQuestionResponsePayload>;
-export type FileChangedEvent = AgentDeckEvent<FileChangedPayload>;
-export type ClientPairEvent = AgentDeckEvent<ClientPairPayload>;
-export type ServerAuthResultEvent = AgentDeckEvent<ServerAuthResultPayload>;
-export type ChatMessageEvent = AgentDeckEvent<ChatMessagePayload>;
-export type ClientChatMessageEvent = AgentDeckEvent<ClientChatMessagePayload>;
+export type AgentLogEvent = AsterimEvent<AgentLogPayload>;
+export type AgentStatusEvent = AsterimEvent<AgentStatusPayload>;
+export type ApprovalRequestEvent = AsterimEvent<ApprovalRequestPayload>;
+export type ClientCommandEvent = AsterimEvent<ClientCommandPayload>;
+export type ClientStdinEvent = AsterimEvent<ClientStdinPayload>;
+export type ClientApprovalResponseEvent = AsterimEvent<ClientApprovalResponsePayload>;
+export type QuestionRequestEvent = AsterimEvent<QuestionRequestPayload>;
+export type ClientQuestionResponseEvent = AsterimEvent<ClientQuestionResponsePayload>;
+export type FileChangedEvent = AsterimEvent<FileChangedPayload>;
+export type ClientPairEvent = AsterimEvent<ClientPairPayload>;
+export type ServerAuthResultEvent = AsterimEvent<ServerAuthResultPayload>;
+export type ChatMessageEvent = AsterimEvent<ChatMessagePayload>;
+export type ClientChatMessageEvent = AsterimEvent<ClientChatMessagePayload>;

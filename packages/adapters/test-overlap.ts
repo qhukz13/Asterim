@@ -4,7 +4,7 @@ function testOverlap() {
   const oldText = `I will check the workspace directory to see if there have been any changes
 or updates over the last few days.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
 Hello! I see the workspace hasn't changed since our last session.
 
@@ -13,7 +13,7 @@ What would you like to work on today?`;
   const newText = `create file hello_world.pyI will check the workspace directory to see if there have been any changes
 or updates over the last few days.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
 Hello! I see the workspace hasn't changed since our last session.
 

@@ -11,8 +11,8 @@ export default defineConfig({
         enabled: true
       },
       manifest: {
-        name: 'AgentDeck',
-        short_name: 'AgentDeck',
+        name: 'Asterim',
+        short_name: 'Asterim',
         description: 'Local Web Dashboard for AI Coding Agents',
         theme_color: '#0f1115',
         background_color: '#0f1115',
@@ -29,6 +29,11 @@ export default defineConfig({
             type: 'image/png'
           }
         ]
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        navigateFallback: '/index.html',
+        cleanupOutdatedCaches: true,
       }
     })
   ],

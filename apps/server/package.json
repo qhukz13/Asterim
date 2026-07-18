@@ -1,9 +1,9 @@
 {
-  "name": "agentdeck",
+  "name": "asterim",
   "version": "0.1.0",
   "private": false,
   "bin": {
-    "agentdeck": "./dist/index.js"
+    "asterim": "./dist/index.js"
   },
   "main": "dist/index.js",
   "scripts": {
@@ -13,8 +13,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@agentdeck/adapters": "workspace:*",
-    "@agentdeck/shared": "workspace:*",
+    "@asterim/adapters": "workspace:*",
+    "@asterim/shared": "workspace:*",
     "@fastify/cors": "^8.5.0",
     "@fastify/static": "^7.0.4",
     "bonjour-service": "^1.4.1",

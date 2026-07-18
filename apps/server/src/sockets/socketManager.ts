@@ -1,14 +1,14 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { FastifyInstance } from 'fastify';
 import { eventBus } from '../services/EventBus';
-import { AgentDeckEvent } from '@agentdeck/shared';
+import { AsterimEvent } from '@asterim/shared';
 import { dbService } from '../services/DatabaseService';
 import { pairingService } from '../services/PairingService';
 import crypto from 'crypto';
 
 export class SocketManager {
   private io: SocketIOServer;
-  private recentLogs = new Map<string, AgentDeckEvent<any>[]>();
+  private recentLogs = new Map<string, AsterimEvent<any>[]>();
 
   constructor(fastify: FastifyInstance) {
     this.io = new SocketIOServer(fastify.server, {
@@ -60,7 +60,7 @@ export class SocketManager {
       });
 
       // Forward client commands and approvals to the internal EventBus
-      socket.on('client_event', (event: AgentDeckEvent<any>) => {
+      socket.on('client_event', (event: AsterimEvent<any>) => {
         event.source = event.source || `client:${socket.id}`;
         eventBus.publish(event);
       });
@@ -75,7 +75,7 @@ export class SocketManager {
     try {
       const db = dbService.getDb();
       // Fetch the last 1000 events
-      const query = db.prepare('SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 1000');
+      const query = db.prepare('SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT 1000');
       const rows = query.all(projectId) as { payload_json: string }[];
       
       // Rows are descending, we need ascending for correct playback
@@ -96,7 +96,7 @@ export class SocketManager {
   private setupEventBusBridge() {
     // In a real system, we'd subscribe to specific topics. For the MVP,
     // we listen to the catch-all and route based on payload properties.
-    eventBus.subscribe('*', (event: AgentDeckEvent<any>) => {
+    eventBus.subscribe('*', (event: AsterimEvent<any>) => {
       const projectId = (event.payload as any)?.projectId;
       
       if (projectId) {

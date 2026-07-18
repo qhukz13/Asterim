@@ -1,6 +1,6 @@
 import { eventBus } from './EventBus';
-import { IAgentAdapter, AgentDeckEvent, ClientCommandPayload, ClientApprovalResponsePayload } from '@agentdeck/shared';
-import { AiderAdapter, ClaudeAdapter, AntigravityAdapter } from '@agentdeck/adapters';
+import { IAgentAdapter, AsterimEvent, ClientCommandPayload, ClientApprovalResponsePayload } from '@asterim/shared';
+import { AiderAdapter, ClaudeAdapter, AntigravityAdapter } from '@asterim/adapters';
 import { WorkspaceMonitor } from './workspaceMonitor';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
@@ -121,11 +121,11 @@ export class AgentService {
         const db = dbService.getDb();
         db.prepare('DELETE FROM events WHERE thread_id = ?').run(threadId);
 
-        // Stop the agent so the terminal is cleared
         const adapter = this.activeAdapters.get(threadId);
         if (adapter) {
-          adapter.stop();
-          this.activeAdapters.delete(threadId);
+          adapter.sendCommand('/clear');
+          // We do not stop the adapter here, because we want it to stay alive
+          // with a clean history.
           eventBus.publish({
             id: crypto.randomUUID(),
             timestamp: Date.now(),
@@ -175,7 +175,7 @@ export class AgentService {
       
     this.activeAdapters.set(threadId, adapter);
     
-    adapter.onEvent((event: AgentDeckEvent) => {
+    adapter.onEvent((event: AsterimEvent) => {
       event.payload = { ...event.payload, projectId, threadId };
       eventBus.publish(event);
     });
@@ -303,7 +303,7 @@ export class AgentService {
       // Start WorkspaceMonitor (Only start one per project)
       if (!this.workspaceMonitors.has(projectId)) {
         const monitor = new WorkspaceMonitor(workspace);
-        monitor.onEvent((event: AgentDeckEvent) => {
+        monitor.onEvent((event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId }; // workspace changes don't belong to a single thread
           eventBus.publish(event);
         });

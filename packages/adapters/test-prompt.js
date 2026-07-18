@@ -22,7 +22,7 @@ var ptyProcess = pty.spawn('C:\\Users\\qhukz\\AppData\\Local\\agy\\bin\\agy.exe'
     name: 'xterm-color',
     cols: 80,
     rows: 30,
-    cwd: 'C:\\Projects\\AgentDeck',
+    cwd: 'C:\\Projects\\Asterim',
     env: __assign(__assign({}, process.env), { FORCE_COLOR: '1' })
 });
 ptyProcess.onData(function (data) {

@@ -1,10 +1,10 @@
 import * as pty from 'node-pty';
 
-const ptyProcess = pty.spawn('C:/Projects/AgentDeckTEST/agy.exe', [], {
+const ptyProcess = pty.spawn('C:/Projects/AsterimTEST/agy.exe', [], {
   name: 'xterm-color',
   cols: 80,
   rows: 30,
-  cwd: 'C:/Projects/AgentDeckTEST',
+  cwd: 'C:/Projects/AsterimTEST',
   env: { ...process.env, FORCE_COLOR: '1' }
 });
 

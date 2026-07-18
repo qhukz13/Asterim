@@ -22,7 +22,7 @@ const logCrash = (error: Error, type: string) => {
     const logPath = path.join(crashDir, 'crash.log');
     const msg = `\n[${new Date().toISOString()}] ${type}: ${error.stack || error.message}\n`;
     fs.appendFileSync(logPath, msg);
-    console.error(`[AgentDeck] ${type}:`, error);
+    console.error(`[Asterim] ${type}:`, error);
   } catch (e) {
     console.error('Failed to write crash log', e);
   }
@@ -109,7 +109,7 @@ fastify.get('/health', async () => {
   const { startupService } = await import('./services/StartupService');
   return {
     status: 'ok',
-    service: 'agentdeck-server',
+    service: 'asterim-server',
     binaries: startupService.getAgentBinariesStatus()
   };
 });
@@ -125,7 +125,7 @@ const start = async () => {
 
     const port = parseInt(process.env.PORT || '3000', 10);
     await fastify.listen({ port, host: '::' });
-    console.log(`[Server] AgentDeck server listening on port ${port}`);
+    console.log(`[Server] Asterim server listening on port ${port}`);
 
     // Session and Approval Recovery (P0-004)
     const { agentService } = await import('./services/AgentService');
@@ -137,7 +137,7 @@ const start = async () => {
     pruningService.start();
 
     // Telemetry ping
-    console.log('[Telemetry] Anonymous ping: AgentDeck Started');
+    console.log('[Telemetry] Anonymous ping: Asterim Started');
 
     const { mdnsService } = await import('./services/mDNSService');
     mdnsService.start(port);

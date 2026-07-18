@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { eventBus } from './EventBus';
-import { AgentDeckEvent } from '@agentdeck/shared';
-import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@agentdeck/shared';
+import { AsterimEvent } from '@asterim/shared';
+import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@asterim/shared';
 import crypto from 'crypto';
 import { pairingService } from './PairingService';
 
@@ -138,7 +138,7 @@ export class RelayClient {
     });
 
     // Bridge Local EventBus -> Relay Server
-    eventBus.subscribe('*', async (event: AgentDeckEvent<any>) => {
+    eventBus.subscribe('*', async (event: AsterimEvent<any>) => {
       // Don't forward events that came from a remote client back to them
       if (event.source?.startsWith('remote:')) return;
 

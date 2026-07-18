@@ -1,13 +1,13 @@
-# Current State of AgentDeck
+# Current State of Asterim
 
 This document records the current snapshot of development, recent achievements, and known issues that have been deferred for later. It acts as a bridge between active tasks and the high-level roadmap.
 
 ## Recent Work & Achievements
 
 ### 1. Developer Workstation Mode (LAN Connectivity)
-- **Goal:** Allow developers to run the AgentDeck UI on a lightweight laptop while the Core runs on a powerful desktop in the same local network.
+- **Goal:** Allow developers to run the Asterim UI on a lightweight laptop while the Core runs on a powerful desktop in the same local network.
 - **Implementation:** Built dynamic WebSocket and API connection logic (`useSocket` and `useAuth`) that can connect to arbitrary `activeBackendUrl`s instead of just `localhost`.
-- **Auth Separation:** Updated the token management to save access tokens keyed by the specific workstation URL (`agentdeck_token_<url>`) to prevent cross-contamination or looping login prompts when switching between local and remote machines.
+- **Auth Separation:** Updated the token management to save access tokens keyed by the specific workstation URL (`asterim_token_<url>`) to prevent cross-contamination or looping login prompts when switching between local and remote machines.
 
 ### 2. Terminal State Machine Stability (TerminalFSM)
 - **Bug Fixed:** "Stuck in working mode" / "Repeating previous messages".

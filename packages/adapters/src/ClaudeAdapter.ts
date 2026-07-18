@@ -1,11 +1,11 @@
 import * as pty from 'node-pty';
-import { IAgentAdapter, AgentConfig, AgentDeckEvent, ClientApprovalResponsePayload } from '@agentdeck/shared';
+import { IAgentAdapter, AgentConfig, AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
 import crypto from 'crypto';
 import os from 'os';
 
 export class ClaudeAdapter implements IAgentAdapter {
   private ptyProcess: pty.IPty | null = null;
-  private eventCallback?: (event: AgentDeckEvent) => void;
+  private eventCallback?: (event: AsterimEvent) => void;
   private currentActionId: string | null = null;
   private dataBuffer: string = '';
   private pendingApproval: boolean = false;
@@ -25,7 +25,7 @@ export class ClaudeAdapter implements IAgentAdapter {
 
     this.ptyProcess = pty.spawn(shell, ptyArgs, {
       name: 'xterm-color',
-      cols: 80,
+      cols: 1000,
       rows: 30,
       cwd: config.workspace,
       env: { ...process.env, FORCE_COLOR: '1' } as any
@@ -79,7 +79,7 @@ export class ClaudeAdapter implements IAgentAdapter {
     return lines.slice(-10).join('\n');
   }
 
-  public onEvent(callback: (event: AgentDeckEvent) => void): void {
+  public onEvent(callback: (event: AsterimEvent) => void): void {
     this.eventCallback = callback;
   }
 

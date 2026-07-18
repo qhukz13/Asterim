@@ -1,7 +1,7 @@
-# AgentDeck AI Development System
+# Asterim AI Development System
 
 ## What is this directory?
-The `.agents` directory is a lightweight AI operating system. It defines **how AI agents work**, providing the development workflow, behavioral rules, and engineering templates required to contribute to AgentDeck.
+The `.agents` directory is a lightweight AI operating system. It defines **how AI agents work**, providing the development workflow, behavioral rules, and engineering templates required to contribute to Asterim.
 
 ## How it differs from `/blueprint`
 - **`/blueprint`** defines **the product** (What we are building). It is the normative Source of Truth.

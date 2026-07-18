@@ -5,7 +5,7 @@ export default defineConfig({
   format: ['cjs'],
   target: 'node22',
   clean: true,
-  noExternal: ['@agentdeck/shared', '@agentdeck/adapters'],
+  noExternal: ['@asterim/shared', '@asterim/adapters'],
   external: [
     'node:sqlite',
     'node-pty',

@@ -1,7 +1,7 @@
 const text = `> whats in the hello_world.py file?
 
-● ListDir(C:/Projects/AgentDeckTEST)
-● Read(C:/Projects/AgentDeckTEST/hello_world.py) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST)
+● Read(C:/Projects/AsterimTEST/hello_world.py) (ctrl+o to expand)
 
   The hello_world.py file contains the following code:
 

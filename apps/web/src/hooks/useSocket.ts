@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AgentDeckEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, QuestionRequestPayload } from '@agentdeck/shared';
-import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@agentdeck/shared';
+import { AsterimEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, QuestionRequestPayload } from '@asterim/shared';
+import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@asterim/shared';
 
 export interface ChatMessage {
   id: string;
@@ -13,7 +13,7 @@ export interface ChatMessage {
 export function useSocket(projectId: string | null, threadId: string | null, activeBackendUrl?: string, relayUrl?: string) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [events, setEvents] = useState<AgentDeckEvent<any>[]>([]);
+  const [events, setEvents] = useState<AsterimEvent<any>[]>([]);
 
   const [agentStatus, setAgentStatus] = useState<AgentStatusPayload>({ status: 'idle' });
   const [approvalRequest, setApprovalRequest] = useState<(ApprovalRequestPayload & { timestamp?: number }) | null>(null);
@@ -29,14 +29,14 @@ export function useSocket(projectId: string | null, threadId: string | null, act
   const connectedRef = useRef(false);
 
   // We keep the raw history from the server to re-filter when threadId changes without reconnecting
-  const rawHistoryRef = useRef<AgentDeckEvent<any>[]>([]);
+  const rawHistoryRef = useRef<AsterimEvent<any>[]>([]);
 
   const threadIdRef = useRef(threadId);
   useEffect(() => {
     threadIdRef.current = threadId;
   }, [threadId]);
 
-  const applyHistory = (historyEvents: AgentDeckEvent<any>[], currentThreadId: string | null) => {
+  const applyHistory = (historyEvents: AsterimEvent<any>[], currentThreadId: string | null) => {
     // file changes are global to project
     const fileEvents = historyEvents.filter(e => e.type === 'file.changed');
     const latestFiles = new Map<string, FileChangedPayload>();
@@ -85,7 +85,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     let newSocket: Socket;
     let localKeyPair: CryptoKeyPair | null = null;
 
-    const getStorageKey = () => activeBackendUrl ? `agentdeck_token_${activeBackendUrl}` : 'agentdeck_token';
+    const getStorageKey = () => activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
     const tokenKey = getStorageKey();
     const token = localStorage.getItem(tokenKey);
 
@@ -135,7 +135,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
           }
         });
         
-        const pin = localStorage.getItem('agentdeck_remote_pin') || token;
+        const pin = localStorage.getItem('asterim_remote_pin') || token;
         if (pin) {
           const authEvent = {
             id: crypto.randomUUID(),
@@ -166,7 +166,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       }
     });
 
-    const handleInternalEvent = (event: AgentDeckEvent<any>) => {
+    const handleInternalEvent = (event: AsterimEvent<any>) => {
       if (event.type === 'server.system_status') {
         setSystemStatus(event.payload);
         return;
@@ -183,7 +183,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       }
 
       if (event.type === 'session.history') {
-        const historyEvents = event.payload as AgentDeckEvent<any>[];
+        const historyEvents = event.payload as AsterimEvent<any>[];
         rawHistoryRef.current = historyEvents;
         applyHistory(historyEvents, threadId);
         return;

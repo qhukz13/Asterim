@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { AgentDeckEvent } from '@agentdeck/shared';
+import { AsterimEvent } from '@asterim/shared';
 
 export class EventBus {
   private static instance: EventBus;
@@ -21,7 +21,7 @@ export class EventBus {
   /**
    * Publishes an event to the bus.
    */
-  public publish<T>(event: AgentDeckEvent<T>): void {
+  public publish<T>(event: AsterimEvent<T>): void {
     this.emitter.emit(event.type, event);
     // Emit a catch-all for system-wide logging if necessary
     this.emitter.emit('*', event);
@@ -32,7 +32,7 @@ export class EventBus {
    */
   public subscribe<T = any>(
     eventType: string, 
-    callback: (event: AgentDeckEvent<T>) => void
+    callback: (event: AsterimEvent<T>) => void
   ): void {
     this.emitter.on(eventType, callback);
   }
@@ -42,7 +42,7 @@ export class EventBus {
    */
   public unsubscribe<T = any>(
     eventType: string, 
-    callback: (event: AgentDeckEvent<T>) => void
+    callback: (event: AsterimEvent<T>) => void
   ): void {
     this.emitter.off(eventType, callback);
   }

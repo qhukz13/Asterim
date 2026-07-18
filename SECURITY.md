@@ -2,7 +2,7 @@
 
 ## Security Model
 
-AgentDeck is designed as a **local-first** control plane. It runs locally on your workstation and communicates with your web browser or mobile devices over the local network (LAN) or a secure end-to-end encrypted cloud relay.
+Asterim is designed as a **local-first** control plane. It runs locally on your workstation and communicates with your web browser or mobile devices over the local network (LAN) or a secure end-to-end encrypted cloud relay.
 
 ### Authentication & Authorization
 * **Console pairing PIN**: On the first start or fresh installation, the server outputs a random 6-digit PIN in the terminal and generates a pairing QR code. You must enter this PIN in the UI or scan the QR code to pair your device.
@@ -12,7 +12,7 @@ AgentDeck is designed as a **local-first** control plane. It runs locally on you
 ## Local Network & Public Deployment Warnings
 
 > [!WARNING]
-> **Do NOT expose your local AgentDeck server directly to the public internet** (e.g., via DMZ or open port forwarding) without additional security layers (such as a reverse proxy with TLS/HTTPS and Basic Auth/OAuth). 
+> **Do NOT expose your local Asterim server directly to the public internet** (e.g., via DMZ or open port forwarding) without additional security layers (such as a reverse proxy with TLS/HTTPS and Basic Auth/OAuth). 
 > While the pairing system protects endpoints, running Fastify directly exposed to the internet increases your attack surface.
 
 * **Same-Origin Protection (CORS)**: Server CORS configurations strictly restrict access to loopback (`localhost`, `127.0.0.1`, `[::1]`) and private local networks (`192.168.x.x`, `10.x.x.x`, `172.16.x.x-172.31.x.x`, `169.254.x.x`) to prevent cross-origin site hijacking.
@@ -24,8 +24,8 @@ AgentDeck is designed as a **local-first** control plane. It runs locally on you
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in AgentDeck, please report it privately. Do **NOT** create a public issue on GitHub.
+If you discover a security vulnerability in Asterim, please report it privately. Do **NOT** create a public issue on GitHub.
 
-Email your reports to: **security@agentdeck.dev** (or contact the lead engineer directly).
+Email your reports to: **security@asterim.dev** (or contact the lead engineer directly).
 
 We aim to acknowledge receipt of your report within 24 hours and provide a detailed response and plan for resolution within 3 days.
