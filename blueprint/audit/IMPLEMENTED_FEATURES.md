@@ -4,7 +4,7 @@ This document catalogs all features currently verifiable in the `/Asterim` codeb
 
 ## Core Runtime
 - **Fastify API**: Handles REST requests and static file serving.
-- **SQLite Database**: Embedded local storage (`~/.agentdeck/asterim.db`) tracking projects, events, settings, and sessions.
+- **SQLite Database**: Embedded local storage (`~/.asterim/asterim.db`) tracking projects, events, settings, and sessions.
 - **Event Bus**: Centralized pub/sub mechanism (`EventEmitter`).
 - **Pruning Service**: Automatically prunes DB events older than 7 days or beyond a 50,000 capacity.
 

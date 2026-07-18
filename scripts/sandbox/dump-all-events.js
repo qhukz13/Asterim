@@ -2,7 +2,7 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const os = require('os');
 
-const dbPath = path.join(os.homedir(), '.agentdeck', 'asterim.db');
+const dbPath = path.join(os.homedir(), '.asterim', 'asterim.db');
 const db = new DatabaseSync(dbPath);
 
 console.log('--- All Events (Last 50) ---');

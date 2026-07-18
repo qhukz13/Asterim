@@ -17,8 +17,7 @@ A project-wide text replacement script was executed, modifying **87 files**, inc
 
 ## Files Intentionally Left Unchanged
 - The physical root workspace folder `/home/qhukz/Documents/Projects/AgentDeck` was left as `AgentDeck` to prevent breaking the IDE workspace.
-- We deliberately retained variables with the `AGENTDECK_` prefix if any were strictly environment variables (using negative lookahead logic), to ensure runtime backwards compatibility for user setups.
-- Any legacy database migration schemas or identifiers matching `.agentdeck` paths were excluded to maintain safe backward compatibility for local installations.
+- **Update (Phase 2)**: `AGENTDECK_` prefixed environment variables and `.agentdeck` directory paths were subsequently migrated to `ASTERIM_` and `.asterim` respectively to ensure absolute brand consistency.
 
 ## Compatibility Notes
 - **Packages**: Internal monorepo package names have been updated from `@agentdeck/*` to `@asterim/*`. A `pnpm install` was run to update `pnpm-lock.yaml`.

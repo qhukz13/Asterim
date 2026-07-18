@@ -47,9 +47,7 @@ This document outlines the brand identity, positioning, and terminology for Aste
 ## 6. What MUST Never Be Renamed
 
 For backward compatibility and system stability, the following legacy identifiers remain unchanged unless explicitly migrated in a breaking release:
-- `.agentdeck` (if used as a user-level configuration directory)
-- `AGENTDECK_` prefixed environment variables that are critical for backward compatibility.
-- Legacy database migration histories.
+- The project IDE root folder name (`AgentDeck`) may be retained if manually renaming it would break the user's local IDE workspace session.
 
 ## 7. Future Branding Guidelines
 

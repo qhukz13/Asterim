@@ -20,7 +20,7 @@ export class RelayClient {
     // Generate a secure 6-character hex string for the tunnel pairing code
     this.tunnelId = crypto.randomBytes(3).toString('hex').toUpperCase();
     // P0-008: Read relay URL from env var so it can point to a real cloud relay
-    this.relayUrl = process.env.AGENTDECK_RELAY_URL || 'http://localhost:4000';
+    this.relayUrl = process.env.ASTERIM_RELAY_URL || 'http://localhost:4000';
     this.init();
   }
 

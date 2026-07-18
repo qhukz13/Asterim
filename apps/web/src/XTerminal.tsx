@@ -4,7 +4,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { Socket } from 'socket.io-client';
 
-export function XTerminal({ socket, projectId }: { socket: Socket | null, projectId: string }) {
+export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: Socket | null, projectId: string, sendInternalEvent?: (type: string, payload: any) => void }) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -31,11 +31,15 @@ export function XTerminal({ socket, projectId }: { socket: Socket | null, projec
 
       // Send input to the server
       term.onData(data => {
-        socket.emit('client_event', {
-          source: 'client',
-          type: 'client.terminal_input',
-          payload: { projectId, data }
-        });
+        if (sendInternalEvent) {
+          sendInternalEvent('client.terminal_input', { data, projectId });
+        } else {
+          socket.emit('client_event', {
+            source: 'client',
+            type: 'client.terminal_input',
+            payload: { projectId, data }
+          });
+        }
       });
 
       termInstance.current = term;
@@ -46,21 +50,29 @@ export function XTerminal({ socket, projectId }: { socket: Socket | null, projec
 
       const handleResize = () => {
         fit.fit();
-        socket.emit('client_event', {
-          source: 'client',
-          type: 'client.terminal_resize',
-          payload: { projectId, cols: term.cols, rows: term.rows }
-        });
+        if (sendInternalEvent) {
+          sendInternalEvent('client.terminal_resize', { cols: term.cols, rows: term.rows, projectId });
+        } else {
+          socket.emit('client_event', {
+            source: 'client',
+            type: 'client.terminal_resize',
+            payload: { projectId, cols: term.cols, rows: term.rows }
+          });
+        }
       };
       
       window.addEventListener('resize', handleResize);
       
       // Spawn terminal
-      socket.emit('client_event', {
-        source: 'client',
-        type: 'client.terminal_spawn',
-        payload: { projectId, cols: term.cols, rows: term.rows }
-      });
+      if (sendInternalEvent) {
+        sendInternalEvent('client.terminal_spawn', { cols: term.cols, rows: term.rows, projectId });
+      } else {
+        socket.emit('client_event', {
+          source: 'client',
+          type: 'client.terminal_spawn',
+          payload: { projectId, cols: term.cols, rows: term.rows }
+        });
+      }
 
       return () => {
         window.removeEventListener('resize', handleResize);

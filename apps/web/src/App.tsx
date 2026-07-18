@@ -346,7 +346,7 @@ function ProjectWorkspace({
   overlays?: React.ReactNode
 }) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendChatMessage, clearMessages, systemStatus } = useSocket(project.id, activeThreadId, activeBackendUrl, project.relayUrl);
+  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendChatMessage, clearMessages, systemStatus, sendInternalEvent } = useSocket(project.id, activeThreadId, activeBackendUrl, project.relayUrl);
   const [agentType, setAgentType] = useState<'aider' | 'claude' | 'antigravity'>(
     (localStorage.getItem('asterim_default_agent') as 'aider' | 'claude' | 'antigravity') || 'claude'
   );
@@ -487,7 +487,7 @@ function ProjectWorkspace({
       ) : activeTab === 'terminal' ? (
         <>
           <div className="terminal-view" style={{ flex: 1, minHeight: 0, position: 'relative', border: 'none', borderRadius: 0 }}>
-            <XTerminal socket={socket} projectId={project.id} />
+            <XTerminal socket={socket} projectId={project.id} sendInternalEvent={sendInternalEvent} />
           </div>
         </>
       ) : activeTab === 'files' ? (

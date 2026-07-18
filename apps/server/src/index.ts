@@ -17,7 +17,7 @@ import { authMiddleware } from './middleware/authMiddleware';
 // Crash Reporting (Phase 6)
 const logCrash = (error: Error, type: string) => {
   try {
-    const crashDir = path.join(os.homedir(), '.agentdeck');
+    const crashDir = path.join(os.homedir(), '.asterim');
     if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
     const logPath = path.join(crashDir, 'crash.log');
     const msg = `\n[${new Date().toISOString()}] ${type}: ${error.stack || error.message}\n`;
@@ -55,7 +55,7 @@ const isLocalOrigin = (origin: string): boolean => {
 };
 
 // P0-002: Restrict CORS
-const relayUrl = process.env.AGENTDECK_RELAY_URL || 'http://localhost:4000';
+const relayUrl = process.env.ASTERIM_RELAY_URL || 'http://localhost:4000';
 fastify.register(cors, {
   origin: (origin, cb) => {
     // Allow direct access (no origin), local dev, and the relay URL

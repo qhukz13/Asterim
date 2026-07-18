@@ -27,7 +27,10 @@ export function SessionSidebar({
 
   useEffect(() => {
     const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
-    fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, { headers: localStorage.getItem("asterim_token") ? { "Authorization": `Bearer ${localStorage.getItem("asterim_token")}` } : {} })
+    const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+    const token = localStorage.getItem(tokenKey) || '';
+    
+    fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, { headers: token ? { "Authorization": `Bearer ${token}` } : {} })
       .then(res => res.json())
       .then(data => {
         if (data.threads) {
@@ -48,9 +51,12 @@ export function SessionSidebar({
     setShowNewAgentModal(false);
     try {
       const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+      
       const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, {
         method: 'POST',
-        headers: { "Content-Type": "application/json", "Authorization": localStorage.getItem("asterim_token") ? `Bearer ${localStorage.getItem("asterim_token")}` : "" },
+        headers: { "Content-Type": "application/json", "Authorization": token ? `Bearer ${token}` : "" },
         body: JSON.stringify({ name })
       });
       const data = await res.json();

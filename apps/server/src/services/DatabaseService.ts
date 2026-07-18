@@ -8,14 +8,14 @@ import fs from 'fs';
 
 /**
  * Resolves the Asterim data directory.
- * Priority: AGENTDECK_DATA_DIR env var → ~/.agentdeck
+ * Priority: ASTERIM_DATA_DIR env var → ~/.asterim
  */
 function resolveDataDir(): string {
-  const envDir = process.env.AGENTDECK_DATA_DIR;
+  const envDir = process.env.ASTERIM_DATA_DIR;
   if (envDir) {
     return path.resolve(envDir);
   }
-  return path.join(os.homedir(), '.agentdeck');
+  return path.join(os.homedir(), '.asterim');
 }
 
 export class DatabaseService {

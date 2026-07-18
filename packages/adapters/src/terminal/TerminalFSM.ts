@@ -218,7 +218,7 @@ export class AntigravityFSM extends TerminalFSM {
 
     // 3. Check for Menus (Approval or Question)
     const hasYn = fullText.includes('(y/n)');
-    const hasProceed = fullText.includes('Do you want to proceed?');
+    const hasProceed = fullText.includes('Do you want to proceed?') || fullText.includes('Yes, allow');
     
     if (hasYn || hasProceed) {
       if (this.state !== AgentState.WaitingApproval) {
@@ -226,12 +226,12 @@ export class AntigravityFSM extends TerminalFSM {
         const reqPermMatch = fullText.match(/Requesting permission for:\s*\n\s*(.*?)(?:\n|$)/);
         if (reqPermMatch) {
           cmdToApprove = reqPermMatch[1].trim();
-        } else if (hasYn) {
+        } else {
           for (let i = curr.lines.length - 1; i >= 0; i--) {
-            if (curr.lines[i].includes('y/n')) {
+            if (curr.lines[i].includes('y/n') || curr.lines[i].includes('Allow ') || curr.lines[i].includes('Do you want to proceed')) {
               for (let j = Math.max(0, i - 10); j <= i; j++) {
-                if (curr.lines[j].match(/Execute|Run|bash|cmd/i)) {
-                  cmdToApprove = curr.lines.slice(j, i).join('\n').trim();
+                if (curr.lines[j].match(/Execute|Run|bash|cmd|Allow /i)) {
+                  cmdToApprove = curr.lines.slice(j, i + 1).join('\n').trim();
                   break;
                 }
               }
@@ -240,7 +240,7 @@ export class AntigravityFSM extends TerminalFSM {
           }
         }
         this.setState(AgentState.WaitingApproval, 'Antigravity needs approval');
-        this.onApprovalRequired('Antigravity wants to run a command', cmdToApprove);
+        this.onApprovalRequired('Antigravity wants to perform an action', cmdToApprove);
       }
       return;
     }
@@ -329,6 +329,8 @@ export class AntigravityFSM extends TerminalFSM {
       .replace(/^[^\w\s]*\s*Tip:.*$/gim, '')
       // Remove ● lines (tools, thoughts, meta info)
       .replace(/●[^\n]*\n?/g, '')
+      // Remove ▸ Thought blocks (title and summary)
+      .replace(/▸\s*Thought[^\n]*\n[^\n]*\n?/g, '')
       .trim();
   }
 }

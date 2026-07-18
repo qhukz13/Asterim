@@ -5,7 +5,7 @@ import os from 'os';
 let originalStdoutWrite: any = null;
 
 export function initLogger() {
-  const logDir = path.join(os.homedir(), '.agentdeck');
+  const logDir = path.join(os.homedir(), '.asterim');
   if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
   }

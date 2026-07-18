@@ -336,5 +336,5 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     sendInternalEvent('client.chat_message', { content: message, projectId });
   };
 
-  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus };
+  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus, sendInternalEvent };
 }

@@ -19,6 +19,13 @@ export function useProjects(activeBackendUrl?: string) {
       setError(null);
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
+      
+      if (!token) {
+        setProjects([]);
+        setLoading(false);
+        return;
+      }
+      
       const headers = { 'Authorization': `Bearer ${token}` };
       const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
       if (res.status === 401) {
