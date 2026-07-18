@@ -76,14 +76,33 @@ class TerminalService {
     }
 
     try {
+      const isWindows = os.platform() === 'win32';
+      const hasSpaces = project.path.includes(' ');
+      
+      // winpty struggles with spaces in cwd, use a safe default and cd later
+      const safeCwd = (isWindows && hasSpaces) ? (process.env.USERPROFILE || 'C:\\') : project.path;
+
+      // Sanitize environment variables
+      const env = { ...process.env } as any;
+      if (isWindows) {
+        // winpty crashes if PATH contains quotes
+        if (env.PATH) env.PATH = env.PATH.replace(/"/g, '');
+        if (env.Path) env.Path = env.Path.replace(/"/g, '');
+      }
+
       const ptyProcess = pty.spawn(shell, [], {
         name: 'xterm-color',
         cols: cols,
         rows: rows,
-        cwd: project.path,
-        env: process.env as any,
+        cwd: safeCwd,
+        env: env,
         useConpty: false // Force winpty to avoid AttachConsole errors in tsx
       });
+
+      if (isWindows && hasSpaces) {
+        ptyProcess.write(`cd "${project.path}"\r`);
+        ptyProcess.write(`clear\r`);
+      }
 
       ptyProcess.onData((data: string) => {
         eventBus.publish({

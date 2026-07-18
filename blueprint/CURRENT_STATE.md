@@ -10,18 +10,26 @@ This document records the current snapshot of development, recent achievements, 
 - **Implementation:** Built dynamic WebSocket and API connection logic (`useSocket` and `useAuth`) that can connect to arbitrary `activeBackendUrl`s instead of just `localhost`.
 - **Auth Separation:** Updated the token management to save access tokens keyed by the specific workstation URL (`asterim_token_<url>`) to prevent cross-contamination or looping login prompts when switching between local and remote machines.
 
-### 2. Terminal State Machine Stability (TerminalFSM)
+### 2. Product Rebranding
 
-- **Bug Fixed:** "Stuck in working mode" / "Repeating previous messages".
-- **Root Cause:** The `TerminalFSM` was prematurely concluding that the agent was `Idle` due to slow start times from `Antigravity` CLI, and extracting the previous response from the terminal scrollback buffer. Furthermore, the FSM failed to detect the `❯ ` prompt because the Antigravity TUI prints a fixed horizontal divider and a Gemini status footer that blocked the FSM's bottom-up scan.
-- **Resolution:**
-  - Implemented `hasSeenWorkingIndicator` to strictly enforce that the agent must enter a working state before it is allowed to become idle.
-  - Rewrote the idle prompt scanner to search upwards through the last 10 non-empty lines, successfully bypassing the TUI dividers and footer.
+- **Achievement:** Successfully migrated the product identity from "AgentDeck" to **Asterim**.
+- **Details:** Refactored package names to `@asterim/*`, updated the database directories, renamed environment variables, and aligned the core components to the new brand identity while maintaining stability.
 
-### 3. Session Isolation
+### 3. ESLint & Prettier Standardization
 
-- **Bug Fixed:** Clearing the chat did not clear the underlying PTY terminal buffer, causing old scrollback to confuse the FSM on the next interaction.
-- **Resolution:** Modified `client.clear_chat` in `AgentService.ts` to actively kill and rebuild the adapter, ensuring a 100% clean terminal session.
+- **Achievement:** Established a global linting and formatting pipeline across the monorepo.
+- **Details:** Created a shared `@asterim/eslint-config` Flat Config. Ensured that builds only fail on strict errors and ignore legacy warnings or unused service worker scripts in `dev-dist` and `public`, giving developers an unobstructed CI workflow.
+
+### 4. Terminal Fixes (Interactivity & Windows Support)
+
+- **Interactivity Bug:** Fixed an issue where the TerminalFSM became stuck in a `WAITING_QUESTION` lock state upon receiving unhandled output, allowing developers to type and interact with the terminal manually again.
+- **Windows PTY Paths & Spaces:** Addressed severe node-pty `winpty` crashes on Windows by conditionally launching terminals in safe directories (e.g. `USERPROFILE`) with stripped `PATH` quotes and subsequently navigating to project folders via a `cd` command.
+- **Session Isolation:** Clearing the chat actively rebuilds the PTY adapter, guaranteeing a clean scrollback buffer.
+
+### 5. Repository Cleanup
+
+- **Achievement:** Cleaned up the root directory of the monorepo.
+- **Details:** Moved scattered test scripts and scratch files into `scripts/sandbox/` to improve project organization and maintain a tidy root space.
 
 ## Known Issues & Deferred Tasks
 
@@ -37,4 +45,4 @@ This document records the current snapshot of development, recent achievements, 
 
 ## Next Steps
 
-- Consult the user or Product Roadmap for the next feature priority, given that Workstation improvements are currently paused.
+- Proceed with remaining tasks on the ROADMAP (e.g., Agent Auto-Restart, Hardened Approval Regex, or CI Pipeline setup).

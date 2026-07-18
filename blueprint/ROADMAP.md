@@ -21,12 +21,12 @@ To build the definitive control plane for autonomous AI coding agents, providing
 | ID     | Priority | Description                                     | Dependencies | Status  |
 | :----- | :------- | :---------------------------------------------- | :----------- | :------ |
 | P1-001 | High     | Push Notification Reliability (HTTPS required)  | None         | Planned |
-| P1-003 | Medium   | Agent Binary Detection at Startup               | None         | Planned |
+| P1-003 | Medium   | Agent Binary Detection at Startup               | None         | Done    |
 | P1-004 | High     | Hardened Approval Regex                         | None         | Planned |
 | P1-007 | Medium   | Agent Auto-Restart                              | None         | Planned |
-| P1-008 | Low      | ESLint + Prettier Configuration across all apps | None         | Planned |
+| P1-008 | Low      | ESLint + Prettier Configuration across all apps | None         | Done    |
 | P1-009 | High     | CI Pipeline for automated PR checks             | None         | Planned |
-| P1-010 | High     | Windows PATH and Spaces Fix for PTY             | None         | Bug     |
+| P1-010 | High     | Windows PATH and Spaces Fix for PTY             | None         | Done    |
 
 ## Next Milestones
 
