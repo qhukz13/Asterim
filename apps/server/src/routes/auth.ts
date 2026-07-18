@@ -3,19 +3,19 @@ import { pairingService } from '../services/PairingService';
 
 export default async function authRoutes(fastify: FastifyInstance) {
   // Simple rate limiting state (in-memory, resets on restart)
-  const attempts = new Map<string, { count: number, timestamp: number }>();
-  
+  const attempts = new Map<string, { count: number; timestamp: number }>();
+
   fastify.post('/api/v1/auth/pair', async (request, reply) => {
     const ip = request.ip;
     const now = Date.now();
-    
+
     // Rate limit: 10 attempts per 15 minutes per IP
     const record = attempts.get(ip) || { count: 0, timestamp: now };
     if (now - record.timestamp > 15 * 60 * 1000) {
       record.count = 0;
       record.timestamp = now;
     }
-    
+
     if (record.count >= 10) {
       console.warn(`[Auth] Pair attempt blocked due to rate limit from IP: ${ip}`);
       reply.status(429).send({ error: 'Too many attempts. Please try again later.' });

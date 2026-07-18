@@ -16,18 +16,18 @@ export async function subscribeToPushNotifications(token: string) {
 
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    
+
     // Fetch VAPID public key
     const vapidRes = await fetch(`${protocol}//${hostname}:3000/api/v1/system/vapid`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`
       }
     });
     const vapidData = await vapidRes.json();
     const publicVapidKey = vapidData.publicKey;
 
     // Convert VAPID key to Uint8Array
-    const padding = '='.repeat((4 - publicVapidKey.length % 4) % 4);
+    const padding = '='.repeat((4 - (publicVapidKey.length % 4)) % 4);
     const base64 = (publicVapidKey + padding).replace(/\-/g, '+').replace(/_/g, '/');
     const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
@@ -45,7 +45,7 @@ export async function subscribeToPushNotifications(token: string) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`
       },
       body: JSON.stringify(subscription)
     });

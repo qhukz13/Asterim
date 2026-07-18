@@ -9,7 +9,7 @@
   color: var(--color-text-primary);
   font-family: var(--font-family-sans);
   overflow: hidden;
-  background-image: 
+  background-image:
     radial-gradient(circle at top right, rgba(59, 130, 246, 0.05), transparent 40%),
     radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.03), transparent 40%);
 }

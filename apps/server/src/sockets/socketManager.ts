@@ -75,15 +75,19 @@ export class SocketManager {
     try {
       const db = dbService.getDb();
       // Fetch the last 1000 events
-      const query = db.prepare('SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT 1000');
+      const query = db.prepare(
+        'SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT 1000'
+      );
       const rows = query.all(projectId) as { payload_json: string }[];
-      
+
       // Rows are descending, we need ascending for correct playback
       const historyEvents = rows.reverse().map(row => JSON.parse(row.payload_json));
-      
+
       const recentLogs = this.recentLogs.get(projectId) || [];
-      const combinedHistory = [...historyEvents, ...recentLogs].sort((a, b) => a.timestamp - b.timestamp);
-      
+      const combinedHistory = [...historyEvents, ...recentLogs].sort(
+        (a, b) => a.timestamp - b.timestamp
+      );
+
       socket.emit('session.history', combinedHistory);
     } catch (err) {
       console.error('[Socket.IO] Failed to sync history:', err);
@@ -98,7 +102,7 @@ export class SocketManager {
     // we listen to the catch-all and route based on payload properties.
     eventBus.subscribe('*', (event: AsterimEvent<any>) => {
       const projectId = (event.payload as any)?.projectId;
-      
+
       if (projectId) {
         // Route strictly to the project room
         this.io.to(projectId).emit(event.type, event);
@@ -116,7 +120,9 @@ export class SocketManager {
         try {
           const db = dbService.getDb();
           const threadId = (event.payload as any)?.threadId || null;
-          const insert = db.prepare('INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
+          const insert = db.prepare(
+            'INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          );
           insert.run(
             crypto.randomUUID(),
             projectId,
@@ -129,7 +135,6 @@ export class SocketManager {
         } catch (err) {
           console.error('[Database] Failed to persist event:', err);
         }
-
       } else {
         // Broadcast system-wide events
         this.io.emit(event.type, event);

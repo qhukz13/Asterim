@@ -21,7 +21,9 @@ export function TopBar({ activeWorkstationName, onConnectWorkstation }: TopBarPr
       </div>
       <div className="topbar-right">
         <button className="workstation-status-btn" onClick={onConnectWorkstation}>
-          <span className={`status-dot ${activeWorkstationName ? 'connected' : 'disconnected'}`}></span>
+          <span
+            className={`status-dot ${activeWorkstationName ? 'connected' : 'disconnected'}`}
+          ></span>
           <span className="workstation-name">{activeWorkstationName || 'Local Machine'}</span>
         </button>
         <div className="user-profile">

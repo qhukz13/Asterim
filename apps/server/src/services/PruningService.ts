@@ -45,26 +45,30 @@ export class PruningService {
 
     try {
       // ── Step 1: Time-based prune (all projects) ──────────────────────────
-      const timeResult = db.prepare(
-        'DELETE FROM events WHERE timestamp < ?'
-      ).run(cutoff) as { changes: number };
-      
+      const timeResult = db.prepare('DELETE FROM events WHERE timestamp < ?').run(cutoff) as {
+        changes: number;
+      };
+
       if (timeResult.changes > 0) {
-        console.log(`[PruningService] Time prune: removed ${timeResult.changes} events older than 7 days`);
+        console.log(
+          `[PruningService] Time prune: removed ${timeResult.changes} events older than 7 days`
+        );
       }
 
       // ── Step 2: Per-project cap prune ────────────────────────────────────
       const projects = db.prepare('SELECT id FROM projects').all() as { id: string }[];
 
       for (const { id: projectId } of projects) {
-        const countRow = db.prepare(
-          'SELECT COUNT(*) as count FROM events WHERE project_id = ?'
-        ).get(projectId) as { count: number };
+        const countRow = db
+          .prepare('SELECT COUNT(*) as count FROM events WHERE project_id = ?')
+          .get(projectId) as { count: number };
 
         if (countRow.count > MAX_EVENTS_PER_PROJECT) {
           const excess = countRow.count - TRIM_TO_PER_PROJECT;
           // Delete the OLDEST `excess` events for this project
-          const capResult = db.prepare(`
+          const capResult = db
+            .prepare(
+              `
             DELETE FROM events
             WHERE id IN (
               SELECT id FROM events
@@ -72,11 +76,13 @@ export class PruningService {
               ORDER BY timestamp ASC
               LIMIT ?
             )
-          `).run(projectId, excess) as { changes: number };
+          `
+            )
+            .run(projectId, excess) as { changes: number };
 
           console.log(
             `[PruningService] Cap prune project ${projectId}: removed ${capResult.changes} events ` +
-            `(was ${countRow.count}, now ~${TRIM_TO_PER_PROJECT})`
+              `(was ${countRow.count}, now ~${TRIM_TO_PER_PROJECT})`
           );
         }
       }

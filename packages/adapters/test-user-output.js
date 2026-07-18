@@ -14,11 +14,14 @@ const text = `> whats in the hello_world.py file?
 ? for shortcuts                                                                                Gemini 3.5 Flash (Medium)`;
 
 const matches = [...text.matchAll(/(?:^|\n)[❯>](?:\s*\n|$)/g)];
-console.log("MATCHES:", matches.map(m => m[0]));
+console.log(
+  'MATCHES:',
+  matches.map(m => m[0])
+);
 if (matches.length > 0) {
   const match = matches[matches.length - 1];
-  console.log("MATCH INDEX:", match.index);
-  console.log("MATCH VALUE:", JSON.stringify(match[0]));
+  console.log('MATCH INDEX:', match.index);
+  console.log('MATCH VALUE:', JSON.stringify(match[0]));
 } else {
-  console.log("NO MATCH");
+  console.log('NO MATCH');
 }

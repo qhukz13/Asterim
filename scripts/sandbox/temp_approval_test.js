@@ -9,7 +9,7 @@ const ptyProcess = pty.spawn('C:/Projects/AsterimTEST/agy.exe', [], {
 });
 
 let output = '';
-ptyProcess.onData((data) => {
+ptyProcess.onData(data => {
   output += data;
   process.stdout.write(data);
 });

@@ -20,6 +20,6 @@ export default defineConfig({
     'bonjour-service'
   ],
   banner: {
-    js: '#!/usr/bin/env node',
-  },
+    js: '#!/usr/bin/env node'
+  }
 });

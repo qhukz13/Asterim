@@ -8,7 +8,7 @@ class TerminalService {
 
   constructor() {
     // Listen for terminal spawn requests
-    eventBus.subscribe<any>('client.terminal_spawn', (event) => {
+    eventBus.subscribe<any>('client.terminal_spawn', event => {
       const { projectId, cols, rows } = event.payload;
       if (!projectId) return;
 
@@ -16,7 +16,7 @@ class TerminalService {
     });
 
     // Listen for terminal input
-    eventBus.subscribe<any>('client.terminal_input', (event) => {
+    eventBus.subscribe<any>('client.terminal_input', event => {
       const { projectId, data } = event.payload;
       if (!projectId || !data) return;
 
@@ -27,7 +27,7 @@ class TerminalService {
     });
 
     // Listen for terminal resize
-    eventBus.subscribe<any>('client.terminal_resize', (event) => {
+    eventBus.subscribe<any>('client.terminal_resize', event => {
       const { projectId, cols, rows } = event.payload;
       if (!projectId || !cols || !rows) return;
 
@@ -45,8 +45,9 @@ class TerminalService {
     }
 
     const db = dbService.getDb();
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
-    
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as
+      { path: string } | undefined;
+
     if (!project) return;
 
     let pty: any;
@@ -58,7 +59,7 @@ class TerminalService {
     }
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-    
+
     const fs = require('fs');
     if (!fs.existsSync(project.path)) {
       eventBus.publish({
@@ -66,7 +67,10 @@ class TerminalService {
         timestamp: Date.now(),
         source: 'terminal',
         type: 'terminal.data',
-        payload: { projectId, data: `\x1b[31mError: Workspace directory does not exist:\x1b[0m ${project.path}\r\n` }
+        payload: {
+          projectId,
+          data: `\x1b[31mError: Workspace directory does not exist:\x1b[0m ${project.path}\r\n`
+        }
       });
       return;
     }

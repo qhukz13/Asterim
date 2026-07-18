@@ -5,6 +5,6 @@ const ptyProcess = pty.spawn('cmd.exe', ['/c', 'echo привет'], {
   rows: 24,
   useConpty: true
 });
-ptyProcess.onData((data) => {
+ptyProcess.onData(data => {
   console.log('OUTPUT:', Buffer.from(data).toString());
 });

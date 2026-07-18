@@ -44,7 +44,7 @@ io.on('connection', (socket: Socket) => {
     }
     socket.join(`tunnel_${tunnelId}`);
     console.log(`[Relay] Mobile client ${socket.id} joined tunnel ${tunnelId}`);
-    
+
     // Notify local server that a client joined
     const serverSocketId = tunnelMap.get(tunnelId);
     if (serverSocketId) {
@@ -54,14 +54,14 @@ io.on('connection', (socket: Socket) => {
 
   // Generic message forwarder within a tunnel
   // Both local server and mobile client use this to exchange E2E encrypted payloads
-  socket.on('tunnel_message', ({ tunnelId, payload }: { tunnelId: string, payload: any }) => {
+  socket.on('tunnel_message', ({ tunnelId, payload }: { tunnelId: string; payload: any }) => {
     // Broadcast to everyone else in the tunnel
     socket.to(`tunnel_${tunnelId}`).emit('tunnel_message', payload);
   });
 
   socket.on('disconnect', () => {
     console.log(`[Relay] Client disconnected: ${socket.id}`);
-    
+
     // Clean up tunnel if it was a local server
     for (const [tunnelId, serverSocketId] of tunnelMap.entries()) {
       if (serverSocketId === socket.id) {

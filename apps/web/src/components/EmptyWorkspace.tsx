@@ -6,9 +6,21 @@ interface EmptyWorkspaceProps {
   activeWorkstationName?: string;
 }
 
-export function EmptyWorkspace({ onAddProject, onConnectWorkstation, activeWorkstationName }: EmptyWorkspaceProps) {
+export function EmptyWorkspace({
+  onAddProject,
+  onConnectWorkstation,
+  activeWorkstationName
+}: EmptyWorkspaceProps) {
   return (
-    <div className="workspace-main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+    <div
+      className="workspace-main-content"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column'
+      }}
+    >
       <div style={{ maxWidth: '400px', textAlign: 'center' }}>
         <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-4)' }}>🚀</div>
         <h2 style={{ marginBottom: 'var(--spacing-3)' }}>Welcome to Asterim</h2>
@@ -20,13 +32,13 @@ export function EmptyWorkspace({ onAddProject, onConnectWorkstation, activeWorks
             + Add Project
           </button>
           {!activeWorkstationName && (
-            <button 
-              onClick={onConnectWorkstation} 
-              style={{ 
-                background: 'var(--color-bg-glass)', 
-                border: '1px solid var(--color-border-default)', 
-                padding: 'var(--spacing-3)', 
-                borderRadius: 'var(--radius-md)', 
+            <button
+              onClick={onConnectWorkstation}
+              style={{
+                background: 'var(--color-bg-glass)',
+                border: '1px solid var(--color-border-default)',
+                padding: 'var(--spacing-3)',
+                borderRadius: 'var(--radius-md)',
                 color: 'var(--color-text-primary)',
                 cursor: 'pointer',
                 fontWeight: 600

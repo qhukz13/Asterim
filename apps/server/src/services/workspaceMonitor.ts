@@ -18,7 +18,9 @@ export class WorkspaceMonitor {
     // Check if workspace is a git repo
     const isRepo = await this.git.checkIsRepo();
     if (!isRepo) {
-      console.warn(`[WorkspaceMonitor] Workspace ${this.workspacePath} is not a git repository. Diff tracking will be disabled.`);
+      console.warn(
+        `[WorkspaceMonitor] Workspace ${this.workspacePath} is not a git repository. Diff tracking will be disabled.`
+      );
     }
 
     this.watcher = chokidar.watch(this.workspacePath, {

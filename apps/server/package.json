@@ -29,6 +29,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@asterim/eslint-config": "workspace:^",
     "@types/node": "^26.0.0",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/web-push": "^3.6.4",

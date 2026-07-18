@@ -7,9 +7,13 @@
     "release": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "eslint": "^10.3.0",
+    "prettier": "^3.9.5",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
   },

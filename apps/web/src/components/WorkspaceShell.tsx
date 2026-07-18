@@ -8,10 +8,10 @@ interface WorkspaceShellProps {
   overlays?: ReactNode;
 }
 
-export function WorkspaceShell({ 
-  topBar, 
-  navigationSidebar, 
-  sessionSidebar, 
+export function WorkspaceShell({
+  topBar,
+  navigationSidebar,
+  sessionSidebar,
   mainWorkspace,
   overlays
 }: WorkspaceShellProps) {

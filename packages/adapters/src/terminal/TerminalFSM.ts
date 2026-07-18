@@ -65,21 +65,21 @@ export class AntigravityFSM extends TerminalFSM {
 
   /**
    * Extract the last agent response from the TUI screen.
-   * 
+   *
    * The Antigravity TUI has this pattern:
    *   ❯ <user prompt>
-   *   
+   *
    *   ● Thought for Xs, N tokens
    *     <thought title>
-   *   
+   *
    *   ● Create(...) / Read(...) / etc
-   *   
+   *
    *   <agent response text>
-   *   
+   *
    *   ❯   (idle prompt, empty or with text)
-   *   
+   *
    *   ? for shortcuts ...
-   * 
+   *
    * We find the LAST pair of ❯-blocks and extract the response between them.
    */
   private extractLastResponse(curr: TerminalSnapshot): string {
@@ -93,7 +93,7 @@ export class AntigravityFSM extends TerminalFSM {
       // Look for the empty idle prompt (just > or ❯)
       if (idlePromptIdx === -1 && (trimmed === '>' || trimmed === '❯')) {
         idlePromptIdx = i;
-      } 
+      }
       // Once we found the idle prompt, the next line going backwards that starts with > is the user prompt
       else if (idlePromptIdx !== -1 && (trimmed.startsWith('>') || trimmed.startsWith('❯'))) {
         userPromptIdx = i;
@@ -122,7 +122,10 @@ export class AntigravityFSM extends TerminalFSM {
     const fullText = curr.lines.join('\n');
 
     // 1. Check for interactive workspace trust prompt
-    if (fullText.includes('Do you trust the contents of this project?') && fullText.includes('Yes, I trust this folder')) {
+    if (
+      fullText.includes('Do you trust the contents of this project?') &&
+      fullText.includes('Yes, I trust this folder')
+    ) {
       if (this.state !== AgentState.WaitingApproval) {
         this.setState(AgentState.WaitingApproval, 'Trust Required');
         this.onTrustRequired();
@@ -132,15 +135,25 @@ export class AntigravityFSM extends TerminalFSM {
 
     // Update TUI mode if we see known TUI elements
     const bottomLines = curr.lines.slice(Math.max(0, curr.lines.length - 5)).join('\n');
-    if (bottomLines.includes('? for shortcuts') || bottomLines.includes('esc to cancel') || bottomLines.toLowerCase().includes('navigate') || bottomLines.includes('Gemini')) {
+    if (
+      bottomLines.includes('? for shortcuts') ||
+      bottomLines.includes('esc to cancel') ||
+      bottomLines.toLowerCase().includes('navigate') ||
+      bottomLines.includes('Gemini')
+    ) {
       this.isTuiMode = true;
     }
 
     if (this.state === AgentState.Working) {
-      if (bottomLines.includes('esc to cancel') || diff.appendedText.includes('●') || diff.appendedText.includes('Thought') || diff.appendedText.includes('Working')) {
+      if (
+        bottomLines.includes('esc to cancel') ||
+        diff.appendedText.includes('●') ||
+        diff.appendedText.includes('Thought') ||
+        diff.appendedText.includes('Working')
+      ) {
         this.hasSeenWorkingIndicator = true;
       }
-      
+
       // If a new empty prompt appears in the appended text, the agent must have finished processing (even if it was so fast we didn't see an indicator).
       if (diff.appendedText.match(/(?:^|\n)\s*[❯>]\s*(?:\n|$)/)) {
         this.hasSeenWorkingIndicator = true;
@@ -149,12 +162,12 @@ export class AntigravityFSM extends TerminalFSM {
 
     // 2. Check for Idle State FIRST
     let isIdle = false;
-    
+
     if (this.isTuiMode) {
       const hasGemini = bottomLines.includes('Gemini');
       const hasEscToCancel = bottomLines.includes('esc to cancel');
       const hasShortcuts = bottomLines.includes('? for shortcuts');
-      
+
       if (hasShortcuts) {
         isIdle = true;
       } else if (hasGemini && !hasEscToCancel) {
@@ -185,8 +198,12 @@ export class AntigravityFSM extends TerminalFSM {
           break;
         }
       }
-      
-      if (lastNonEmpty.match(/^\s*[❯>]$/) || lastNonEmpty.match(/^\s*antigravity>$/) || lastNonEmpty.match(/^[A-Z]:\\.*?>\s*$/)) {
+
+      if (
+        lastNonEmpty.match(/^\s*[❯>]$/) ||
+        lastNonEmpty.match(/^\s*antigravity>$/) ||
+        lastNonEmpty.match(/^[A-Z]:\\.*?>\s*$/)
+      ) {
         this.isTuiMode = false;
         isIdle = true;
       }
@@ -195,21 +212,19 @@ export class AntigravityFSM extends TerminalFSM {
     if (isIdle) {
       if (this.state === AgentState.Startup) {
         this.setState(AgentState.Idle, 'Ready');
-      } else if (this.state === AgentState.Working || this.state === AgentState.WaitingApproval || this.state === AgentState.WaitingQuestion) {
-        let message = '';
-        
-        if (this.isTuiMode) {
-          // In TUI mode, extract the last response directly from the screen
-          message = this.cleanMessage(this.extractLastResponse(curr));
-        } else {
-          // In non-TUI mode, use the accumulated diff text
-          message = this.cleanMessage(this.accumulatedText);
-        }
-        
+      } else if (
+        this.state === AgentState.Working ||
+        this.state === AgentState.WaitingApproval ||
+        this.state === AgentState.WaitingQuestion
+      ) {
+        const message = this.isTuiMode
+          ? this.cleanMessage(this.extractLastResponse(curr)) // In TUI mode, extract the last response directly from the screen
+          : this.cleanMessage(this.accumulatedText); // In non-TUI mode, use the accumulated diff text
+
         if (message.length > 0) {
           this.onMessageComplete(message);
         }
-        
+
         this.accumulatedText = '';
         this.setState(AgentState.Idle, 'Ready');
       }
@@ -218,8 +233,9 @@ export class AntigravityFSM extends TerminalFSM {
 
     // 3. Check for Menus (Approval or Question)
     const hasYn = fullText.includes('(y/n)');
-    const hasProceed = fullText.includes('Do you want to proceed?') || fullText.includes('Yes, allow');
-    
+    const hasProceed =
+      fullText.includes('Do you want to proceed?') || fullText.includes('Yes, allow');
+
     if (hasYn || hasProceed) {
       if (this.state !== AgentState.WaitingApproval) {
         let cmdToApprove = 'Unknown action';
@@ -228,10 +244,17 @@ export class AntigravityFSM extends TerminalFSM {
           cmdToApprove = reqPermMatch[1].trim();
         } else {
           for (let i = curr.lines.length - 1; i >= 0; i--) {
-            if (curr.lines[i].includes('y/n') || curr.lines[i].includes('Allow ') || curr.lines[i].includes('Do you want to proceed')) {
+            if (
+              curr.lines[i].includes('y/n') ||
+              curr.lines[i].includes('Allow ') ||
+              curr.lines[i].includes('Do you want to proceed')
+            ) {
               for (let j = Math.max(0, i - 10); j <= i; j++) {
                 if (curr.lines[j].match(/Execute|Run|bash|cmd|Allow /i)) {
-                  cmdToApprove = curr.lines.slice(j, i + 1).join('\n').trim();
+                  cmdToApprove = curr.lines
+                    .slice(j, i + 1)
+                    .join('\n')
+                    .trim();
                   break;
                 }
               }
@@ -244,15 +267,17 @@ export class AntigravityFSM extends TerminalFSM {
       }
       return;
     }
-    
+
     // Check for multiple choice questions
-    const isMultipleChoice = (bottomLines.toLowerCase().includes('navigate') || bottomLines.includes('esc ')) && (fullText.match(/>\s*1\.\s+/) || fullText.match(/Question \d+\/\d+:/));
+    const isMultipleChoice =
+      (bottomLines.toLowerCase().includes('navigate') || bottomLines.includes('esc ')) &&
+      (fullText.match(/>\s*1\.\s+/) || fullText.match(/Question \d+\/\d+:/));
     if (this.state !== AgentState.WaitingQuestion && isMultipleChoice) {
       let questionTitle = 'Action Required';
       const options: string[] = [];
       const lines = fullText.split('\n');
       let inOptions = false;
-      
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!inOptions && (line.match(/>\s*1\.\s+/) || line.match(/Question \d+\/\d+:/))) {
@@ -272,7 +297,7 @@ export class AntigravityFSM extends TerminalFSM {
           }
         }
       }
-      
+
       if (options.length > 0) {
         this.setState(AgentState.WaitingQuestion, 'Action Required');
         if (this.onQuestionRequired) {
@@ -284,22 +309,32 @@ export class AntigravityFSM extends TerminalFSM {
 
     // If it was in a menu but the menu disappeared, go back to working
     const currentlyHasMenu = hasYn || hasProceed || isMultipleChoice;
-    if (!currentlyHasMenu && (this.state === AgentState.WaitingApproval || this.state === AgentState.WaitingQuestion)) {
+    if (
+      !currentlyHasMenu &&
+      (this.state === AgentState.WaitingApproval || this.state === AgentState.WaitingQuestion)
+    ) {
       this.setState(AgentState.Working, 'Working...');
     }
-
-
 
     // If we are idle but the idle state ended, transition to working
     if (this.state === AgentState.Idle) {
       let startedWorking = false;
-      
+
       if (this.isTuiMode) {
-        if (bottomLines.includes('esc to cancel') || diff.appendedText.includes('●') || diff.appendedText.includes('Thought') || diff.appendedText.includes('Working')) {
+        if (
+          bottomLines.includes('esc to cancel') ||
+          diff.appendedText.includes('●') ||
+          diff.appendedText.includes('Thought') ||
+          diff.appendedText.includes('Working')
+        ) {
           startedWorking = true;
         }
       } else {
-        if (diff.appendedText.includes('▸ Thought') || diff.appendedText.includes('●') || diff.appendedText.trim().length > 0) {
+        if (
+          diff.appendedText.includes('▸ Thought') ||
+          diff.appendedText.includes('●') ||
+          diff.appendedText.trim().length > 0
+        ) {
           startedWorking = true;
         }
       }
@@ -312,25 +347,27 @@ export class AntigravityFSM extends TerminalFSM {
   }
 
   private cleanMessage(message: string): string {
-    return message
-      .replace(/Gemini \d+\.\d+ Flash(?: \(Medium\))?/gi, '')
-      .replace(/\? for shortcuts/g, '')
-      .replace(/esc to cancel/gi, '')
-      .replace(/─{10,}/g, '')
-      .replace(/v\.onashchuk@gmail\.com/g, '')
-      .replace(/Antigravity CLI \d+\.\d+\.\d+/g, '')
-      .replace(/^[A-Z]:\\.*?>\s*$/gm, '')
-      .replace(/Accessing workspace:/g, '')
-      .replace(/[❯>]\s*$/g, '')
-      .replace(/.*?Navigate.*?enter Select.*?esc Skip/gi, '')
-      // Remove spinner lines
-      .replace(/^[^\w\s]*\s*(Working|Generating|Running|Thinking)(\.+|…)/gim, '')
-      // Remove Tip lines
-      .replace(/^[^\w\s]*\s*Tip:.*$/gim, '')
-      // Remove ● lines (tools, thoughts, meta info)
-      .replace(/●[^\n]*\n?/g, '')
-      // Remove ▸ Thought blocks (title and summary)
-      .replace(/▸\s*Thought[^\n]*\n[^\n]*\n?/g, '')
-      .trim();
+    return (
+      message
+        .replace(/Gemini \d+\.\d+ Flash(?: \(Medium\))?/gi, '')
+        .replace(/\? for shortcuts/g, '')
+        .replace(/esc to cancel/gi, '')
+        .replace(/─{10,}/g, '')
+        .replace(/v\.onashchuk@gmail\.com/g, '')
+        .replace(/Antigravity CLI \d+\.\d+\.\d+/g, '')
+        .replace(/^[A-Z]:\\.*?>\s*$/gm, '')
+        .replace(/Accessing workspace:/g, '')
+        .replace(/[❯>]\s*$/g, '')
+        .replace(/.*?Navigate.*?enter Select.*?esc Skip/gi, '')
+        // Remove spinner lines
+        .replace(/^[^\w\s]*\s*(Working|Generating|Running|Thinking)(\.+|…)/gim, '')
+        // Remove Tip lines
+        .replace(/^[^\w\s]*\s*Tip:.*$/gim, '')
+        // Remove ● lines (tools, thoughts, meta info)
+        .replace(/●[^\n]*\n?/g, '')
+        // Remove ▸ Thought blocks (title and summary)
+        .replace(/▸\s*Thought[^\n]*\n[^\n]*\n?/g, '')
+        .trim()
+    );
   }
 }

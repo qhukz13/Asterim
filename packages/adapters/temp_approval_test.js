@@ -9,7 +9,7 @@ const ptyProcess = pty.spawn('cmd.exe', ['/c', 'agy'], {
 });
 
 let output = '';
-ptyProcess.onData((data) => {
+ptyProcess.onData(data => {
   output += data;
   process.stdout.write(data);
 });

@@ -18,7 +18,9 @@ export interface ThreadConfig {
 export class ProjectManager {
   public getProjects(): ProjectConfig[] {
     const db = dbService.getDb();
-    const query = db.prepare('SELECT id, name, path, created_at FROM projects ORDER BY created_at DESC');
+    const query = db.prepare(
+      'SELECT id, name, path, created_at FROM projects ORDER BY created_at DESC'
+    );
     return query.all() as unknown as ProjectConfig[];
   }
 
@@ -35,10 +37,10 @@ export class ProjectManager {
       name,
       path: projectPath
     };
-    
+
     const insert = db.prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)');
     insert.run(newProject.id, newProject.name, newProject.path);
-    
+
     // Automatically create a default thread
     this.createThread(newProject.id, 'Main Session');
 
@@ -53,7 +55,9 @@ export class ProjectManager {
 
   public getThreads(projectId: string): ThreadConfig[] {
     const db = dbService.getDb();
-    const query = db.prepare('SELECT id, project_id, name, created_at FROM threads WHERE project_id = ? ORDER BY created_at ASC');
+    const query = db.prepare(
+      'SELECT id, project_id, name, created_at FROM threads WHERE project_id = ? ORDER BY created_at ASC'
+    );
     return query.all(projectId) as unknown as ThreadConfig[];
   }
 

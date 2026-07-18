@@ -36,7 +36,7 @@ I will recreate the hello_world.py file as requested.`;
   for (let k = oldLines.length; k > 0; k--) {
     const searchBlock = oldLines.slice(oldLines.length - k);
     const blockText = searchBlock.join('').trim();
-    
+
     // Only accept substantial matches unless it's the exact full history
     if (k < oldLines.length && blockText.length < 15) {
       continue;
@@ -64,9 +64,9 @@ I will recreate the hello_world.py file as requested.`;
     result = newLines.slice(matchEndIndexInNew).join('\n').trim();
   }
 
-  console.log("BEST K:", bestK);
-  console.log("MATCH END INDEX:", matchEndIndexInNew);
-  console.log("=== NEW RESULT ===");
+  console.log('BEST K:', bestK);
+  console.log('MATCH END INDEX:', matchEndIndexInNew);
+  console.log('=== NEW RESULT ===');
   console.log(result);
 }
 

@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      eslint:
+        specifier: ^10.3.0
+        version: 10.5.0
+      prettier:
+        specifier: ^3.9.5
+        version: 3.9.5
       turbo:
         specifier: ^2.0.0
         version: 2.9.18
@@ -24,6 +30,9 @@ importers:
         specifier: ^19.2.6
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../../packages/config-eslint
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.5.0)
@@ -73,6 +82,9 @@ importers:
         specifier: ^4.7.5
         version: 4.8.3
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../../packages/config-eslint
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.21
@@ -128,6 +140,9 @@ importers:
         specifier: ^3.6.7
         version: 3.6.7
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../../packages/config-eslint
       '@types/node':
         specifier: ^26.0.0
         version: 26.0.0
@@ -186,6 +201,9 @@ importers:
         specifier: ^0.8.0
         version: 0.8.0(xterm@5.3.0)
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../../packages/config-eslint
       '@types/react':
         specifier: ^18.2.0
         version: 18.3.31
@@ -217,6 +235,9 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../config-eslint
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.43
@@ -224,8 +245,36 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/config-eslint:
+    dependencies:
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.5.0)
+      eslint:
+        specifier: ^10.3.0
+        version: 10.5.0
+      eslint-plugin-react-hooks:
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@10.5.0)
+      eslint-plugin-react-refresh:
+        specifier: ^0.5.2
+        version: 0.5.3(eslint@10.5.0)
+      globals:
+        specifier: ^17.6.0
+        version: 17.6.0
+      typescript-eslint:
+        specifier: ^8.59.2
+        version: 8.61.1(eslint@10.5.0)(typescript@6.0.3)
+    devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: 'link:'
+
   packages/shared:
     devDependencies:
+      '@asterim/eslint-config':
+        specifier: workspace:^
+        version: link:../config-eslint
       '@types/node':
         specifier: ^26.0.0
         version: 26.0.0
@@ -3237,6 +3286,11 @@ packages:
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
+
+  prettier@3.9.5:
+    resolution: {integrity: sha512-/FVl766LpUfB5vXgCYOYa0MeV/441Ia99AeICQIQFTY/Nw0roZwULcXpku5i1/m5kt/baz+s4Zogspd839HSMg==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   pretty-bytes@5.6.0:
     resolution: {integrity: sha512-FFw039TmrBqFK8ma/7OL3sDz/VytdtJr044/QUJtH0wK9lb9jLq9tJyIxUwtQJHwar2BqtiA4iCWSwo9JLkzFg==}
@@ -7299,6 +7353,8 @@ snapshots:
       source-map-js: 1.2.1
 
   prelude-ls@1.2.1: {}
+
+  prettier@3.9.5: {}
 
   pretty-bytes@5.6.0: {}
 

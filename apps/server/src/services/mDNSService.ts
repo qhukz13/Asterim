@@ -26,12 +26,13 @@ export class MDNSService {
 
   private startDiscovery() {
     if (!this.bonjour) return;
-    
+
     const browser = this.bonjour.find({ type: 'asterim' });
-    
+
     browser.on('up', (service: Service) => {
-      const ip = service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
-        const id = `${ip}:${service.port}`;
+      const ip =
+        service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
+      const id = `${ip}:${service.port}`;
       this.discoveredWorkstations[id] = {
         id,
         name: service.name,
@@ -44,7 +45,8 @@ export class MDNSService {
     });
 
     browser.on('down', (service: Service) => {
-      const ip = service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
+      const ip =
+        service.addresses?.find(a => a.includes('.')) || service.addresses?.[0] || service.host;
       const id = `${ip}:${service.port}`;
       if (this.discoveredWorkstations[id]) {
         this.discoveredWorkstations[id].isOnline = false;

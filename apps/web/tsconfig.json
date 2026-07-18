@@ -16,8 +16,5 @@
     "types": ["vite/client", "vite-plugin-pwa/client"]
   },
   "include": ["src"],
-  "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "../../packages/shared" }
-  ]
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "../../packages/shared" }]
 }

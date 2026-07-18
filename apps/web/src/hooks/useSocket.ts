@@ -1,7 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AsterimEvent, AgentStatusPayload, FileChangedPayload, ApprovalRequestPayload, QuestionRequestPayload } from '@asterim/shared';
-import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@asterim/shared';
+import {
+  AsterimEvent,
+  AgentStatusPayload,
+  FileChangedPayload,
+  ApprovalRequestPayload,
+  QuestionRequestPayload
+} from '@asterim/shared';
+import {
+  generateECDHKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  deriveSharedSecret,
+  encryptPayload,
+  decryptPayload
+} from '@asterim/shared';
 
 export interface ChatMessage {
   id: string;
@@ -10,16 +23,27 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export function useSocket(projectId: string | null, threadId: string | null, activeBackendUrl?: string, relayUrl?: string) {
+export function useSocket(
+  projectId: string | null,
+  threadId: string | null,
+  activeBackendUrl?: string,
+  relayUrl?: string
+) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<AsterimEvent<any>[]>([]);
 
   const [agentStatus, setAgentStatus] = useState<AgentStatusPayload>({ status: 'idle' });
-  const [approvalRequest, setApprovalRequest] = useState<(ApprovalRequestPayload & { timestamp?: number }) | null>(null);
-  const [questionRequest, setQuestionRequest] = useState<(QuestionRequestPayload & { timestamp?: number }) | null>(null);
+  const [approvalRequest, setApprovalRequest] = useState<
+    (ApprovalRequestPayload & { timestamp?: number }) | null
+  >(null);
+  const [questionRequest, setQuestionRequest] = useState<
+    (QuestionRequestPayload & { timestamp?: number }) | null
+  >(null);
   const [fileChanges, setFileChanges] = useState<FileChangedPayload[]>([]);
-  const [systemStatus, setSystemStatus] = useState<{ binaries: { claude: boolean; aider: boolean; antigravity: boolean } } | null>(null);
+  const [systemStatus, setSystemStatus] = useState<{
+    binaries: { claude: boolean; aider: boolean; antigravity: boolean };
+  } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const sharedSecretRef = useRef<CryptoKey | null>(null);
@@ -46,8 +70,10 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     setFileChanges(Array.from(latestFiles.values()));
 
     // Filter others by threadId
-    const threadEvents = historyEvents.filter(e => !e.payload?.threadId || e.payload.threadId === currentThreadId);
-    
+    const threadEvents = historyEvents.filter(
+      e => !e.payload?.threadId || e.payload.threadId === currentThreadId
+    );
+
     const logs = threadEvents.filter(e => e.type === 'agent.log');
     setEvents(logs.slice(-1000));
 
@@ -66,7 +92,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       timestamp: e.timestamp || Date.now()
     }));
     setMessages(loadedMessages);
-    
+
     // Clear transient states
     setApprovalRequest(null);
     setQuestionRequest(null);
@@ -85,7 +111,8 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     let newSocket: Socket;
     let localKeyPair: CryptoKeyPair | null = null;
 
-    const getStorageKey = () => activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+    const getStorageKey = () =>
+      activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
     const tokenKey = getStorageKey();
     const token = localStorage.getItem(tokenKey);
 
@@ -109,7 +136,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       }
     });
 
-    newSocket.on('connect_error', (err) => {
+    newSocket.on('connect_error', err => {
       console.error('[Socket] Connection error:', err.message);
       if (err.message === 'unauthorized') {
         localStorage.removeItem(tokenKey);
@@ -134,7 +161,7 @@ export function useSocket(projectId: string | null, threadId: string | null, act
             publicKey: myJwk
           }
         });
-        
+
         const pin = localStorage.getItem('asterim_remote_pin') || token;
         if (pin) {
           const authEvent = {
@@ -175,7 +202,10 @@ export function useSocket(projectId: string | null, threadId: string | null, act
         if (event.payload.success) {
           if (event.payload.token) localStorage.setItem(tokenKey, event.payload.token);
         } else {
-          setAgentStatus({ status: 'error', message: event.payload.error || 'Authentication Failed' });
+          setAgentStatus({
+            status: 'error',
+            message: event.payload.error || 'Authentication Failed'
+          });
           localStorage.removeItem(tokenKey);
           window.location.reload();
         }
@@ -215,21 +245,27 @@ export function useSocket(projectId: string | null, threadId: string | null, act
         setEvents(prev => [...prev, event].slice(-1000));
       } else if (event.type === 'chat.message') {
         const payload = event.payload as any;
-        setMessages(prev => [...prev, {
-          id: event.id,
-          role: payload.role,
-          content: payload.content,
-          timestamp: event.timestamp
-        }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: event.id,
+            role: payload.role,
+            content: payload.content,
+            timestamp: event.timestamp
+          }
+        ]);
       } else if (event.type === 'agent.status') {
         setAgentStatus(event.payload);
         if (event.payload.status === 'error' && event.payload.message) {
-          setMessages(prev => [...prev, {
-            id: event.id || Date.now().toString(),
-            role: 'system',
-            content: `⚠️ **System Error**: ${event.payload.message}`,
-            timestamp: event.timestamp || Date.now()
-          }]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: event.id || Date.now().toString(),
+              role: 'system',
+              content: `⚠️ **System Error**: ${event.payload.message}`,
+              timestamp: event.timestamp || Date.now()
+            }
+          ]);
         }
         if (event.payload.status !== 'waiting_approval') {
           setApprovalRequest(null);
@@ -251,7 +287,9 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       setIsE2EReady(false);
     });
 
-    newSocket.on('session.history', (history: any) => handleInternalEvent({ type: 'session.history', payload: history } as any));
+    newSocket.on('session.history', (history: any) =>
+      handleInternalEvent({ type: 'session.history', payload: history } as any)
+    );
     newSocket.on('agent.log', handleInternalEvent);
     newSocket.on('chat.message', handleInternalEvent);
     newSocket.on('agent.status', handleInternalEvent);
@@ -278,9 +316,9 @@ export function useSocket(projectId: string | null, threadId: string | null, act
       if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
       }
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
     };
@@ -315,8 +353,17 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     setApprovalRequest(null);
   };
 
-  const sendQuestionResponse = (questionId: string, selectedIndex: number, selectedText?: string) => {
-    sendInternalEvent('client.question_response', { questionId, selectedIndex, selectedText, projectId });
+  const sendQuestionResponse = (
+    questionId: string,
+    selectedIndex: number,
+    selectedText?: string
+  ) => {
+    sendInternalEvent('client.question_response', {
+      questionId,
+      selectedIndex,
+      selectedText,
+      projectId
+    });
     setQuestionRequest(null);
   };
 
@@ -336,5 +383,23 @@ export function useSocket(projectId: string | null, threadId: string | null, act
     sendInternalEvent('client.chat_message', { content: message, projectId });
   };
 
-  return { socket, connected, isE2EReady, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendStdin, sendChatMessage, clearMessages, systemStatus, sendInternalEvent };
+  return {
+    socket,
+    connected,
+    isE2EReady,
+    events,
+    messages,
+    agentStatus,
+    approvalRequest,
+    questionRequest,
+    fileChanges,
+    sendCommand,
+    sendApproval,
+    sendQuestionResponse,
+    sendStdin,
+    sendChatMessage,
+    clearMessages,
+    systemStatus,
+    sendInternalEvent
+  };
 }

@@ -12,7 +12,7 @@ export function PinScreen({ activeBackendUrl }: { activeBackendUrl?: string }) {
     const urlPin = params.get('pin');
     if (urlPin && urlPin.length === 6) {
       setPin(urlPin);
-      
+
       const autoPair = async () => {
         setLoading(true);
         setError('');
@@ -46,19 +46,25 @@ export function PinScreen({ activeBackendUrl }: { activeBackendUrl?: string }) {
 
   return (
     <div className="project-selector-container">
-      <div className="glass-panel project-selector-panel" style={{ maxWidth: '400px', textAlign: 'center' }}>
+      <div
+        className="glass-panel project-selector-panel"
+        style={{ maxWidth: '400px', textAlign: 'center' }}
+      >
         <h1 style={{ marginBottom: '8px' }}>Device Pairing</h1>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
           Enter the 6-digit PIN displayed in your Asterim server console to authorize this device.
         </p>
-        
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+        >
           <input
             type="text"
             className="input-box"
             placeholder="Enter PIN"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={e => setPin(e.target.value)}
             style={{ fontSize: '1.5rem', textAlign: 'center', letterSpacing: '4px' }}
             maxLength={6}
             autoFocus

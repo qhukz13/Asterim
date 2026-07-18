@@ -41,7 +41,7 @@ Here is the answer to your second hi!`;
   for (let k = oldLines.length; k > 0; k--) {
     const searchBlock = oldLines.slice(oldLines.length - k);
     const blockText = searchBlock.join('').trim();
-    
+
     if (k < oldLines.length && blockText.length < 15) {
       continue;
     }
@@ -69,9 +69,9 @@ Here is the answer to your second hi!`;
     result = newLines.slice(matchEndIndexInNew).join('\n').trim();
   }
 
-  console.log("BEST K:", bestK);
-  console.log("MATCH END INDEX:", matchEndIndexInNew);
-  console.log("=== NEW RESULT ===");
+  console.log('BEST K:', bestK);
+  console.log('MATCH END INDEX:', matchEndIndexInNew);
+  console.log('=== NEW RESULT ===');
   console.log(result);
 }
 

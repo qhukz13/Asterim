@@ -11,7 +11,7 @@ export function useWorkstations() {
     const stored = localStorage.getItem('asterim_workstation_config');
     return stored ? JSON.parse(stored) : DEFAULT_CONFIG;
   });
-  
+
   const [discovered, setDiscovered] = useState<Workstation[]>([]);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function useWorkstations() {
       if (res.ok) {
         const data = await res.json();
         setDiscovered(data.workstations || []);
-        
+
         // Auto-update known workstations
         if (data.workstations && data.workstations.length > 0) {
           setConfig((prev: WorkstationConfig) => {
@@ -50,11 +50,12 @@ export function useWorkstations() {
     return () => clearInterval(interval);
   }, []);
 
-  const activeWorkstation = config.preferredWorkstationId 
-    ? config.knownWorkstations[config.preferredWorkstationId] || discovered.find(w => w.id === config.preferredWorkstationId)
+  const activeWorkstation = config.preferredWorkstationId
+    ? config.knownWorkstations[config.preferredWorkstationId] ||
+      discovered.find(w => w.id === config.preferredWorkstationId)
     : null;
 
-  const activeBackendUrl = activeWorkstation 
+  const activeBackendUrl = activeWorkstation
     ? `http://${activeWorkstation.ip}:${activeWorkstation.port}`
     : `http://${window.location.hostname}:3000`; // fallback to current host
 
@@ -65,15 +66,16 @@ export function useWorkstations() {
   const setDeveloperMode = (enabled: boolean) => {
     setConfig((prev: WorkstationConfig) => ({ ...prev, developerMode: enabled }));
   };
-  
+
   const forgetWorkstation = (id: string) => {
     setConfig((prev: WorkstationConfig) => {
       const newKnown = { ...prev.knownWorkstations };
       delete newKnown[id];
-      return { 
-        ...prev, 
+      return {
+        ...prev,
         knownWorkstations: newKnown,
-        preferredWorkstationId: prev.preferredWorkstationId === id ? undefined : prev.preferredWorkstationId
+        preferredWorkstationId:
+          prev.preferredWorkstationId === id ? undefined : prev.preferredWorkstationId
       };
     });
   };

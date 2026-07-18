@@ -45,14 +45,14 @@ export function diffScreens(prev: TerminalSnapshot, curr: TerminalSnapshot): Dif
       let matchCount = 1;
       let p = prevClean.length - 2;
       let tempC = c - 1;
-      
+
       // Verify backwards
       while (p >= 0 && tempC >= 0 && prevClean[p] === currClean[tempC]) {
         matchCount++;
         p--;
         tempC--;
       }
-      
+
       if (matchCount > bestMatchCount) {
         bestMatchCount = matchCount;
         bestC = c;

@@ -16,7 +16,7 @@ export class QuestionManager {
   }
 
   private listenForResponses() {
-    eventBus.subscribe<ClientQuestionResponsePayload>('client.question_response', (event) => {
+    eventBus.subscribe<ClientQuestionResponsePayload>('client.question_response', event => {
       const { questionId, selectedIndex, selectedText } = event.payload;
 
       const pending = this.pendingQuestions.get(questionId);
@@ -25,9 +25,13 @@ export class QuestionManager {
         clearTimeout(pending.timeoutId);
         pending.resolve(selectedText || selectedIndex);
         this.pendingQuestions.delete(questionId);
-        console.log(`[QuestionManager] Question ${questionId} resolved with index ${selectedIndex}`);
+        console.log(
+          `[QuestionManager] Question ${questionId} resolved with index ${selectedIndex}`
+        );
       } else {
-        console.log(`[QuestionManager] Question ${questionId} resolved via EventBus with index ${selectedIndex} (no active process resolver)`);
+        console.log(
+          `[QuestionManager] Question ${questionId} resolved via EventBus with index ${selectedIndex} (no active process resolver)`
+        );
       }
     });
   }

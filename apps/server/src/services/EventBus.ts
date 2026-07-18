@@ -30,20 +30,14 @@ export class EventBus {
   /**
    * Subscribes to a specific event type.
    */
-  public subscribe<T = any>(
-    eventType: string, 
-    callback: (event: AsterimEvent<T>) => void
-  ): void {
+  public subscribe<T = any>(eventType: string, callback: (event: AsterimEvent<T>) => void): void {
     this.emitter.on(eventType, callback);
   }
 
   /**
    * Unsubscribes from a specific event type.
    */
-  public unsubscribe<T = any>(
-    eventType: string, 
-    callback: (event: AsterimEvent<T>) => void
-  ): void {
+  public unsubscribe<T = any>(eventType: string, callback: (event: AsterimEvent<T>) => void): void {
     this.emitter.off(eventType, callback);
   }
 }

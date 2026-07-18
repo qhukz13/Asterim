@@ -95,13 +95,19 @@ export class DatabaseService {
     // Add thread_id to existing tables if they were created before this update
     try {
       this.db.exec('ALTER TABLE events ADD COLUMN thread_id TEXT;');
-    } catch (e) { /* ignore if exists */ }
+    } catch (e) {
+      /* ignore if exists */
+    }
     try {
       this.db.exec('ALTER TABLE sessions ADD COLUMN thread_id TEXT;');
-    } catch (e) { /* ignore if exists */ }
+    } catch (e) {
+      /* ignore if exists */
+    }
     try {
       this.db.exec('ALTER TABLE approvals ADD COLUMN thread_id TEXT;');
-    } catch (e) { /* ignore if exists */ }
+    } catch (e) {
+      /* ignore if exists */
+    }
 
     // Index for quick history retrieval
     this.db.exec(`

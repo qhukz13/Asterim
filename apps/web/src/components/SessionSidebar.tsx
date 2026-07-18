@@ -26,11 +26,14 @@ export function SessionSidebar({
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
 
   useEffect(() => {
-    const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+    const baseUrl =
+      activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
     const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
     const token = localStorage.getItem(tokenKey) || '';
-    
-    fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, { headers: token ? { "Authorization": `Bearer ${token}` } : {} })
+
+    fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
       .then(res => res.json())
       .then(data => {
         if (data.threads) {
@@ -50,13 +53,17 @@ export function SessionSidebar({
   const handleCreateThreadSubmit = async (name: string) => {
     setShowNewAgentModal(false);
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl =
+        activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
-      
+
       const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, {
         method: 'POST',
-        headers: { "Content-Type": "application/json", "Authorization": token ? `Bearer ${token}` : "" },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({ name })
       });
       const data = await res.json();
@@ -71,11 +78,19 @@ export function SessionSidebar({
 
   return (
     <div className="workspace-session-sidebar">
-      <div style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <button 
-          onClick={onBackToProjects} 
-          style={{ 
-            padding: '6px 12px', 
+      <div
+        style={{
+          padding: '16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '1px solid rgba(255,255,255,0.05)'
+        }}
+      >
+        <button
+          onClick={onBackToProjects}
+          style={{
+            padding: '6px 12px',
             fontSize: '0.85rem',
             background: 'rgba(255, 255, 255, 0.05)',
             border: '1px solid var(--panel-border)',
@@ -87,31 +102,47 @@ export function SessionSidebar({
             alignItems: 'center',
             gap: '6px'
           }}
-          onMouseOver={(e) => {
+          onMouseOver={e => {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
             e.currentTarget.style.color = 'var(--text-primary)';
           }}
-          onMouseOut={(e) => {
+          onMouseOut={e => {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
             e.currentTarget.style.color = 'var(--text-secondary)';
           }}
         >
           ← Back
         </button>
-        <button className="btn-primary" onClick={() => setShowNewAgentModal(true)} style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px' }}>
+        <button
+          className="btn-primary"
+          onClick={() => setShowNewAgentModal(true)}
+          style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px' }}
+        >
           + New Agent
         </button>
       </div>
-      
+
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.05em' }}>
+        <div
+          style={{
+            fontSize: '0.75rem',
+            color: 'var(--text-secondary)',
+            textTransform: 'uppercase',
+            marginBottom: '12px',
+            letterSpacing: '0.05em'
+          }}
+        >
           Parallel Agents
         </div>
-        
+
         {loading ? (
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Loading agents...</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            Loading agents...
+          </div>
         ) : threads.length === 0 ? (
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No agents started yet.</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            No agents started yet.
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {threads.map(thread => (
@@ -125,16 +156,19 @@ export function SessionSidebar({
                   fontSize: '0.9rem',
                   display: 'flex',
                   alignItems: 'center',
-                  background: activeThreadId === thread.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                  background:
+                    activeThreadId === thread.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
                   color: activeThreadId === thread.id ? '#60a5fa' : 'var(--text-primary)',
                   transition: 'background 0.2s',
                   border: `1px solid ${activeThreadId === thread.id ? 'rgba(59, 130, 246, 0.3)' : 'transparent'}`
                 }}
-                onMouseOver={(e) => {
-                  if (activeThreadId !== thread.id) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                onMouseOver={e => {
+                  if (activeThreadId !== thread.id)
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
                 }}
-                onMouseOut={(e) => {
-                  if (activeThreadId !== thread.id) e.currentTarget.style.background = 'transparent';
+                onMouseOut={e => {
+                  if (activeThreadId !== thread.id)
+                    e.currentTarget.style.background = 'transparent';
                 }}
               >
                 <div style={{ marginRight: '8px', opacity: 0.7 }}>🤖</div>
@@ -147,12 +181,19 @@ export function SessionSidebar({
         )}
       </div>
 
-      <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+      <div
+        style={{
+          padding: '16px',
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          fontSize: '0.8rem',
+          color: 'var(--text-secondary)'
+        }}
+      >
         Asterim Workspace
       </div>
 
       {showNewAgentModal && (
-        <NewAgentModal 
+        <NewAgentModal
           onClose={() => setShowNewAgentModal(false)}
           onSubmit={handleCreateThreadSubmit}
         />

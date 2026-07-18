@@ -12,7 +12,7 @@ export class StartupService {
       const db = dbService.getDb();
       const query = db.prepare("SELECT value FROM settings WHERE key = 'first_run_completed'");
       const row = query.get() as { value: string } | undefined;
-      
+
       const isFirstRun = !row || row.value !== 'true';
       if (!isFirstRun) {
         // Still print the connection info even if it's not the first run
@@ -56,7 +56,6 @@ export class StartupService {
       printToConsole('Scan this QR code with your mobile device to pair automatically:');
       qrcode.generate(pairingUrl, { small: true });
       printToConsole(`Pairing URL: ${pairingUrl}\n`);
-
     } catch (err) {
       console.error('[StartupService] Error executing first-run onboarding checks:', err);
     }
@@ -147,4 +146,3 @@ export class StartupService {
 }
 
 export const startupService = new StartupService();
-

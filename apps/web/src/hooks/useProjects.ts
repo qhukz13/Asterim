@@ -12,21 +12,22 @@ export function useProjects(activeBackendUrl?: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+  const baseUrl =
+    activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
 
   const fetchProjects = async () => {
     try {
       setError(null);
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
-      
+
       if (!token) {
         setProjects([]);
         setLoading(false);
         return;
       }
-      
-      const headers = { 'Authorization': `Bearer ${token}` };
+
+      const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
       if (res.status === 401) {
         localStorage.removeItem(tokenKey);

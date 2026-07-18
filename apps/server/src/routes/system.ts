@@ -30,7 +30,9 @@ export default async function systemRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/system/first-run-complete', async (request, reply) => {
     try {
       const db = dbService.getDb();
-      const insert = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('first_run_completed', 'true')");
+      const insert = db.prepare(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('first_run_completed', 'true')"
+      );
       insert.run();
       return { success: true };
     } catch (dbErr) {

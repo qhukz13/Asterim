@@ -1,7 +1,14 @@
 import { io, Socket } from 'socket.io-client';
 import { eventBus } from './EventBus';
 import { AsterimEvent } from '@asterim/shared';
-import { generateECDHKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptPayload, decryptPayload } from '@asterim/shared';
+import {
+  generateECDHKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  deriveSharedSecret,
+  encryptPayload,
+  decryptPayload
+} from '@asterim/shared';
 import crypto from 'crypto';
 import { pairingService } from './PairingService';
 
@@ -29,7 +36,6 @@ export class RelayClient {
 
     console.log(`[RelayClient] Connecting to relay: ${this.relayUrl}`);
     this.socket = io(this.relayUrl);
-
 
     this.socket.on('connect', () => {
       console.log(`[RelayClient] Connected to Cloud Relay. Tunnel ID: ${this.tunnelId}`);
@@ -69,7 +75,7 @@ export class RelayClient {
         if (sharedKey) {
           try {
             const decryptedEvent = await decryptPayload(sharedKey, message.encrypted);
-            
+
             const isAuthenticated = this.authenticatedClients.has(sourceClient);
 
             if (!isAuthenticated) {
@@ -78,7 +84,7 @@ export class RelayClient {
                 if (pairingService.validatePin(pin) || pairingService.validateToken(pin)) {
                   this.authenticatedClients.add(sourceClient);
                   const token = pairingService.generateToken();
-                  
+
                   const authResultEvent = {
                     id: crypto.randomUUID(),
                     timestamp: Date.now(),
@@ -105,7 +111,11 @@ export class RelayClient {
                   const encryptedStatus = await encryptPayload(sharedKey, systemStatusEvent);
                   this.socket?.emit('tunnel_message', {
                     tunnelId: this.tunnelId,
-                    payload: { type: 'encrypted_payload', targetClient: sourceClient, encrypted: encryptedStatus }
+                    payload: {
+                      type: 'encrypted_payload',
+                      targetClient: sourceClient,
+                      encrypted: encryptedStatus
+                    }
                   });
                 } else {
                   const authResultEvent = {
@@ -123,7 +133,9 @@ export class RelayClient {
                   console.warn(`[RelayClient] Client ${sourceClient} failed authentication.`);
                 }
               } else {
-                console.warn(`[RelayClient] Dropping unauthenticated message type ${decryptedEvent.type} from ${sourceClient}`);
+                console.warn(
+                  `[RelayClient] Dropping unauthenticated message type ${decryptedEvent.type} from ${sourceClient}`
+                );
               }
               return;
             }
@@ -145,7 +157,7 @@ export class RelayClient {
       // Encrypt and send to all established remote clients
       for (const [clientId, sharedKey] of this.clientKeys.entries()) {
         if (!this.authenticatedClients.has(clientId)) continue;
-        
+
         try {
           const encrypted = await encryptPayload(sharedKey, event);
           this.socket?.emit('tunnel_message', {

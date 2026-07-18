@@ -13,7 +13,7 @@ export class PairingService {
   private init() {
     // Generate a fresh PIN on startup
     this.currentPin = this.generatePin();
-    
+
     // Load or generate HMAC secret for session tokens
     const db = dbService.getDb();
     const query = db.prepare("SELECT value FROM settings WHERE key = 'hmac_secret'");
@@ -32,7 +32,11 @@ export class PairingService {
     printToConsole(`[PIN] PIN: ${this.currentPin}`);
     printToConsole('=======================================\n');
     try {
-      require('fs').writeFileSync(require('path').join(process.cwd(), 'pairing_pin.txt'), this.currentPin, 'utf8');
+      require('fs').writeFileSync(
+        require('path').join(process.cwd(), 'pairing_pin.txt'),
+        this.currentPin,
+        'utf8'
+      );
     } catch (e) {
       console.error('[AUTH] Failed to write pairing_pin.txt', e);
     }
@@ -57,7 +61,10 @@ export class PairingService {
       nonce: crypto.randomBytes(16).toString('hex')
     };
     const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = crypto.createHmac('sha256', this.hmacSecret).update(payloadB64).digest('base64url');
+    const signature = crypto
+      .createHmac('sha256', this.hmacSecret)
+      .update(payloadB64)
+      .digest('base64url');
     return `${payloadB64}.${signature}`;
   }
 
@@ -67,7 +74,10 @@ export class PairingService {
       if (parts.length !== 2) return false;
       const [payloadB64, signature] = parts;
 
-      const expectedSignature = crypto.createHmac('sha256', this.hmacSecret).update(payloadB64).digest('base64url');
+      const expectedSignature = crypto
+        .createHmac('sha256', this.hmacSecret)
+        .update(payloadB64)
+        .digest('base64url');
       if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
         const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8'));
         // 30 day expiration

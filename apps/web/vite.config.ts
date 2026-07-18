@@ -1,6 +1,6 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
@@ -33,7 +33,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         navigateFallback: '/index.html',
-        cleanupOutdatedCaches: true,
+        cleanupOutdatedCaches: true
       }
     })
   ],
@@ -41,4 +41,4 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0'
   }
-})
+});

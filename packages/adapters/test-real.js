@@ -14,7 +14,7 @@ const term = new Terminal({
 
 let prev = null;
 const fsm = new AntigravityFSM(
-  (msg) => console.log('✅ MSG:', msg),
+  msg => console.log('✅ MSG:', msg),
   (state, reason) => console.log(`🔄 STATE: ${state} (${reason})`),
   (desc, cmd) => console.log(`✋ APPROVAL REQUIRED: ${cmd}`),
   () => console.log('✋ TRUST REQUIRED')
@@ -30,7 +30,7 @@ const p = pty.spawn(agyPath, ['-c'], {
   useConpty: true
 });
 
-p.onData((data) => {
+p.onData(data => {
   term.write(data, () => {
     const curr = takeSnapshot(term);
     let diff = { newLines: [], modifiedLines: [], appendedText: '' };
@@ -39,10 +39,13 @@ p.onData((data) => {
     }
     prev = curr;
     fsm.process(diff, curr);
-    
+
     const cursorLine = curr.lines[curr.baseY + curr.cursorY] || '';
-    if (diff.appendedText || true) { // Always log
-       console.log(`[TICK] cursorY=${curr.cursorY} line="${cursorLine.trimEnd()}" appended="${diff.appendedText.replace(/\n/g, '\\n')}"`);
+    if (diff.appendedText || true) {
+      // Always log
+      console.log(
+        `[TICK] cursorY=${curr.cursorY} line="${cursorLine.trimEnd()}" appended="${diff.appendedText.replace(/\n/g, '\\n')}"`
+      );
     }
   });
 });

@@ -9,31 +9,38 @@
 ## Features
 
 ### AI Workspace
+
 A beautifully designed, premium workspace to house all your projects and manage intelligent agents.
 
 ### Multi-agent Orchestration
+
 Coordinate multiple specialized AI agents, allowing them to collaborate seamlessly on complex tasks.
 
 ### Local-first Architecture
+
 Your code, your data, your machine. Asterim is built to operate locally, ensuring maximum privacy and speed.
 
 ### Human Approvals
+
 Engineers maintain ultimate control. Autonomous actions can be gated by human-in-the-loop approvals, ensuring nothing executes without your say-so.
 
 ### Cloud Relay
+
 Connect your local Workstations to external or cloud resources securely via the Cloud Relay service.
 
 ### Development Workstations
+
 Dedicated, isolated environments where your agents operate, preserving your host system's integrity.
 
 ### Real-time Dashboard
+
 Monitor your agents, view logs, and intervene at any time through our responsive, intuitive real-time dashboard.
 
 ---
 
 ## Screenshots
 
-> *Coming soon.*
+> _Coming soon._
 >
 > ![Dashboard Placeholder](./assets/asterim_dashboard_mockup.png)
 
@@ -68,6 +75,7 @@ Visit `http://localhost:5173` to access your Asterim dashboard.
 ## Architecture Overview
 
 Asterim is composed of three primary components:
+
 1. **Web Client**: A modern, responsive React UI.
 2. **Server (Control Plane)**: A Fastify-based backend that manages orchestration, event buses, and mDNS discovery.
 3. **Adapters**: Connectors that interface with different AI models (e.g., Claude, Antigravity) to act as specialized agents.

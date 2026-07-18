@@ -13,5 +13,5 @@ db.prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)').run(
   'C:\\Projects\\AsterimTEST'
 );
 
-console.log("Projects cleared, inserted 1 test project.");
+console.log('Projects cleared, inserted 1 test project.');
 db.close();

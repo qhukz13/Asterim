@@ -4,7 +4,15 @@ import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { Socket } from 'socket.io-client';
 
-export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: Socket | null, projectId: string, sendInternalEvent?: (type: string, payload: any) => void }) {
+export function XTerminal({
+  socket,
+  projectId,
+  sendInternalEvent
+}: {
+  socket: Socket | null;
+  projectId: string;
+  sendInternalEvent?: (type: string, payload: any) => void;
+}) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -25,7 +33,7 @@ export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: So
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
-      
+
       term.open(terminalRef.current);
       fit.fit();
 
@@ -44,14 +52,18 @@ export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: So
 
       termInstance.current = term;
       fitAddon.current = fit;
-      
+
       // Auto-focus
       setTimeout(() => term.focus(), 100);
 
       const handleResize = () => {
         fit.fit();
         if (sendInternalEvent) {
-          sendInternalEvent('client.terminal_resize', { cols: term.cols, rows: term.rows, projectId });
+          sendInternalEvent('client.terminal_resize', {
+            cols: term.cols,
+            rows: term.rows,
+            projectId
+          });
         } else {
           socket.emit('client_event', {
             source: 'client',
@@ -60,9 +72,9 @@ export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: So
           });
         }
       };
-      
+
       window.addEventListener('resize', handleResize);
-      
+
       // Spawn terminal
       if (sendInternalEvent) {
         sendInternalEvent('client.terminal_spawn', { cols: term.cols, rows: term.rows, projectId });
@@ -122,5 +134,10 @@ export function XTerminal({ socket, projectId, sendInternalEvent }: { socket: So
     };
   }, [socket, projectId]);
 
-  return <div ref={terminalRef} style={{ width: '100%', height: '100%', overflow: 'hidden', padding: '10px' }} />;
+  return (
+    <div
+      ref={terminalRef}
+      style={{ width: '100%', height: '100%', overflow: 'hidden', padding: '10px' }}
+    />
+  );
 }

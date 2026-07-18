@@ -16,7 +16,21 @@ import { useProjects, Project } from './hooks/useProjects';
 import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
 
-function CustomDropdown({ value, onChange, options, style = {}, disabled = false, dropup = false }: { value: string, onChange: (val: string) => void, options: {value: string, label: string}[], style?: React.CSSProperties, disabled?: boolean, dropup?: boolean }) {
+function CustomDropdown({
+  value,
+  onChange,
+  options,
+  style = {},
+  disabled = false,
+  dropup = false
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  options: { value: string; label: string }[];
+  style?: React.CSSProperties;
+  disabled?: boolean;
+  dropup?: boolean;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -33,15 +47,18 @@ function CustomDropdown({ value, onChange, options, style = {}, disabled = false
   const selected = options.find(o => o.value === value) || options[0];
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'block', zIndex: isOpen ? 1000 : 1, ...style }}>
-      <div 
+    <div
+      ref={ref}
+      style={{ position: 'relative', display: 'block', zIndex: isOpen ? 1000 : 1, ...style }}
+    >
+      <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
         className="glass-panel"
-        style={{ 
+        style={{
           width: '100%',
-          padding: '6px 12px', 
-          background: disabled ? 'rgba(0,0,0,0.1)' : 'transparent', 
-          border: '1px solid transparent', 
+          padding: '6px 12px',
+          background: disabled ? 'rgba(0,0,0,0.1)' : 'transparent',
+          border: '1px solid transparent',
           borderRadius: '8px',
           cursor: disabled ? 'not-allowed' : 'pointer',
           color: disabled ? 'rgba(255,255,255,0.4)' : 'var(--color-text-secondary)',
@@ -51,15 +68,15 @@ function CustomDropdown({ value, onChange, options, style = {}, disabled = false
           gap: '8px',
           fontSize: '0.8rem',
           opacity: disabled ? 0.6 : 1,
-          transition: 'all 0.2s ease',
+          transition: 'all 0.2s ease'
         }}
-        onMouseOver={(e) => {
+        onMouseOver={e => {
           if (!disabled) {
             e.currentTarget.style.color = '#fff';
             e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
           }
         }}
-        onMouseOut={(e) => {
+        onMouseOut={e => {
           if (!disabled) {
             e.currentTarget.style.color = 'var(--color-text-secondary)';
             e.currentTarget.style.background = 'transparent';
@@ -69,26 +86,28 @@ function CustomDropdown({ value, onChange, options, style = {}, disabled = false
         <span>{selected.label}</span>
         <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>▼</span>
       </div>
-      
+
       {isOpen && !disabled && (
-        <div style={{
-          position: 'absolute',
-          ...(dropup ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
-          left: 0,
-          right: 0,
-          background: '#1e293b',
-          border: '1px solid var(--color-border-default)',
-          borderRadius: '8px',
-          padding: '4px',
-          minWidth: '100%',
-          zIndex: 1000,
-          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2px'
-        }}>
+        <div
+          style={{
+            position: 'absolute',
+            ...(dropup ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+            left: 0,
+            right: 0,
+            background: '#1e293b',
+            border: '1px solid var(--color-border-default)',
+            borderRadius: '8px',
+            padding: '4px',
+            minWidth: '100%',
+            zIndex: 1000,
+            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px'
+          }}
+        >
           {options.map(opt => (
-            <div 
+            <div
               key={opt.value}
               onClick={() => {
                 onChange(opt.value);
@@ -103,10 +122,11 @@ function CustomDropdown({ value, onChange, options, style = {}, disabled = false
                 fontSize: '0.85rem',
                 transition: 'background 0.2s'
               }}
-              onMouseOver={(e) => {
-                if (value !== opt.value) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+              onMouseOver={e => {
+                if (value !== opt.value)
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
               }}
-              onMouseOut={(e) => {
+              onMouseOut={e => {
                 if (value !== opt.value) e.currentTarget.style.background = 'transparent';
               }}
             >
@@ -119,10 +139,20 @@ function CustomDropdown({ value, onChange, options, style = {}, disabled = false
   );
 }
 
-function ChatInput({ onSend, disabled, autoApproval, setAutoApproval }: { onSend: (text: string) => void, disabled: boolean, autoApproval: 'ask' | 'approve' | 'deny', setAutoApproval: (val: any) => void }) {
+function ChatInput({
+  onSend,
+  disabled,
+  autoApproval,
+  setAutoApproval
+}: {
+  onSend: (text: string) => void;
+  disabled: boolean;
+  autoApproval: 'ask' | 'approve' | 'deny';
+  setAutoApproval: (val: any) => void;
+}) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
+
   const handleSend = () => {
     if (input.trim()) {
       onSend(input.trim());
@@ -136,7 +166,7 @@ function ChatInput({ onSend, disabled, autoApproval, setAutoApproval }: { onSend
   return (
     <>
       <div className="approval-dropdown-container">
-        <CustomDropdown 
+        <CustomDropdown
           value={autoApproval}
           onChange={setAutoApproval}
           options={[
@@ -148,17 +178,17 @@ function ChatInput({ onSend, disabled, autoApproval, setAutoApproval }: { onSend
         />
       </div>
       <div className="input-container">
-        <textarea 
+        <textarea
           ref={textareaRef}
-          className="input-box" 
-          placeholder="Ask the agent to do something..." 
+          className="input-box"
+          placeholder="Ask the agent to do something..."
           value={input}
-          onChange={(e) => {
-             setInput(e.target.value);
-             e.target.style.height = 'auto';
-             e.target.style.height = `${e.target.scrollHeight}px`;
+          onChange={e => {
+            setInput(e.target.value);
+            e.target.style.height = 'auto';
+            e.target.style.height = `${e.target.scrollHeight}px`;
           }}
-          onKeyDown={(e) => {
+          onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSend();
@@ -167,7 +197,9 @@ function ChatInput({ onSend, disabled, autoApproval, setAutoApproval }: { onSend
           disabled={disabled}
           rows={1}
         />
-        <button className="btn-primary" onClick={handleSend} disabled={disabled}>Send</button>
+        <button className="btn-primary" onClick={handleSend} disabled={disabled}>
+          Send
+        </button>
       </div>
     </>
   );
@@ -185,7 +217,12 @@ interface ApprovalOverlayProps {
   onSwitchToTerminal?: (actionId: string) => void;
 }
 
-function ApprovalOverlay({ approvalRequest, onApprove, onDeny, onSwitchToTerminal }: ApprovalOverlayProps) {
+function ApprovalOverlay({
+  approvalRequest,
+  onApprove,
+  onDeny,
+  onSwitchToTerminal
+}: ApprovalOverlayProps) {
   const [timeLeft, setTimeLeft] = useState<number>(300);
 
   useEffect(() => {
@@ -211,9 +248,23 @@ function ApprovalOverlay({ approvalRequest, onApprove, onDeny, onSwitchToTermina
   return (
     <div className="dialog-overlay">
       <div className="dialog-box glass-panel">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-warning-primary)' }}>⚠️ Action Required</h3>
-          <div 
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px'
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-warning-primary)'
+            }}
+          >
+            ⚠️ Action Required
+          </h3>
+          <div
             className={isUrgent ? 'pulse-timer urgent' : 'pulse-timer'}
             style={{
               padding: '6px 12px',
@@ -229,28 +280,71 @@ function ApprovalOverlay({ approvalRequest, onApprove, onDeny, onSwitchToTermina
             ⏱️ {timerText}
           </div>
         </div>
-        
+
         <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginTop: 0 }}>
           The agent needs your permission to proceed.
         </p>
-        
-        <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', border: '1px solid var(--color-border-default)', marginBottom: '16px' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>Description</div>
+
+        <div
+          style={{
+            background: 'rgba(0,0,0,0.3)',
+            padding: '12px',
+            borderRadius: '8px',
+            border: '1px solid var(--color-border-default)',
+            marginBottom: '16px'
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--color-text-secondary)',
+              marginBottom: '4px'
+            }}
+          >
+            Description
+          </div>
           <div style={{ fontWeight: 500 }}>{approvalRequest.description}</div>
-          
-          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '12px', marginBottom: '4px' }}>Command</div>
-          <div style={{ fontFamily: 'monospace', color: 'var(--color-accent-hover)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{approvalRequest.command}</div>
+
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--color-text-secondary)',
+              marginTop: '12px',
+              marginBottom: '4px'
+            }}
+          >
+            Command
+          </div>
+          <div
+            style={{
+              fontFamily: 'monospace',
+              color: 'var(--color-accent-hover)',
+              overflowX: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all'
+            }}
+          >
+            {approvalRequest.command}
+          </div>
         </div>
 
         <div className="dialog-actions">
           {approvalRequest.command === 'TERMINAL_ACTION_REQUIRED' && onSwitchToTerminal ? (
-            <button className="btn-approve" style={{ width: '100%', padding: '14px' }} onClick={() => onSwitchToTerminal(approvalRequest.actionId)}>
+            <button
+              className="btn-approve"
+              style={{ width: '100%', padding: '14px' }}
+              onClick={() => onSwitchToTerminal(approvalRequest.actionId)}
+            >
               Switch to Terminal Tab
             </button>
           ) : (
             <>
-              <button className="btn-deny" onClick={() => onDeny(approvalRequest.actionId)}>Deny</button>
-              <button className="btn-approve" onClick={() => onApprove(approvalRequest.actionId)}>Approve</button>
+              <button className="btn-deny" onClick={() => onDeny(approvalRequest.actionId)}>
+                Deny
+              </button>
+              <button className="btn-approve" onClick={() => onApprove(approvalRequest.actionId)}>
+                Approve
+              </button>
             </>
           )}
         </div>
@@ -276,18 +370,28 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ margin: 0, color: 'var(--color-accent-hover)' }}>❓ Question from Agent</h3>
         </div>
-        
+
         <p style={{ fontSize: '1.05rem', fontWeight: 500, marginTop: 0, marginBottom: '20px' }}>
           {questionRequest.question}
         </p>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', maxHeight: '50vh', overflowY: 'auto', paddingRight: '8px' }}>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            marginBottom: '16px',
+            maxHeight: '50vh',
+            overflowY: 'auto',
+            paddingRight: '8px'
+          }}
+        >
           {questionRequest.options.map((opt, idx) => {
             const isRecommended = opt.includes('(Recommended)');
             const cleanOpt = opt.replace('(Recommended)', '').trim();
-            
+
             return (
-              <button 
+              <button
                 key={idx}
                 onClick={() => onSelect(questionRequest.questionId, idx + 1, opt)}
                 style={{
@@ -296,30 +400,53 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
                   textAlign: 'left',
                   padding: '12px 16px',
                   background: isRecommended ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0,0,0,0.3)',
-                  border: isRecommended ? '1px solid var(--color-accent-hover)' : '1px solid var(--color-border-default)',
+                  border: isRecommended
+                    ? '1px solid var(--color-accent-hover)'
+                    : '1px solid var(--color-border-default)',
                   borderRadius: '8px',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   color: 'var(--color-text-primary)'
                 }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.background = isRecommended ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255,255,255,0.05)';
+                onMouseOver={e => {
+                  e.currentTarget.style.background = isRecommended
+                    ? 'rgba(59, 130, 246, 0.25)'
+                    : 'rgba(255,255,255,0.05)';
                   e.currentTarget.style.transform = 'translateY(-1px)';
                 }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.background = isRecommended ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0,0,0,0.3)';
+                onMouseOut={e => {
+                  e.currentTarget.style.background = isRecommended
+                    ? 'rgba(59, 130, 246, 0.15)'
+                    : 'rgba(0,0,0,0.3)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
-                <span style={{ 
-                  marginRight: '12px', 
-                  color: isRecommended ? 'var(--color-accent-hover)' : 'var(--color-text-secondary)', 
-                  fontWeight: 'bold',
-                  minWidth: '24px'
-                }}>{idx + 1}.</span>
+                <span
+                  style={{
+                    marginRight: '12px',
+                    color: isRecommended
+                      ? 'var(--color-accent-hover)'
+                      : 'var(--color-text-secondary)',
+                    fontWeight: 'bold',
+                    minWidth: '24px'
+                  }}
+                >
+                  {idx + 1}.
+                </span>
                 <div>
                   <span style={{ display: 'block', lineHeight: 1.4 }}>{cleanOpt}</span>
-                  {isRecommended && <span style={{ fontSize: '0.75rem', color: 'var(--color-accent-hover)', display: 'block', marginTop: '4px' }}>Recommended</span>}
+                  {isRecommended && (
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        color: 'var(--color-accent-hover)',
+                        display: 'block',
+                        marginTop: '4px'
+                      }}
+                    >
+                      Recommended
+                    </span>
+                  )}
                 </div>
               </button>
             );
@@ -330,27 +457,45 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
   );
 }
 
-function ProjectWorkspace({ 
-  project, 
-  onBack, 
-  activeBackendUrl, 
-  topBar, 
+function ProjectWorkspace({
+  project,
+  onBack,
+  activeBackendUrl,
+  topBar,
   navigationSidebar,
   overlays
-}: { 
-  project: Project, 
-  onBack: () => void, 
-  activeBackendUrl: string,
-  topBar: React.ReactNode,
-  navigationSidebar: React.ReactNode,
-  overlays?: React.ReactNode
+}: {
+  project: Project;
+  onBack: () => void;
+  activeBackendUrl: string;
+  topBar: React.ReactNode;
+  navigationSidebar: React.ReactNode;
+  overlays?: React.ReactNode;
 }) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const { socket, connected, events, messages, agentStatus, approvalRequest, questionRequest, fileChanges, sendCommand, sendApproval, sendQuestionResponse, sendChatMessage, clearMessages, systemStatus, sendInternalEvent } = useSocket(project.id, activeThreadId, activeBackendUrl, project.relayUrl);
+  const {
+    socket,
+    connected,
+    events,
+    messages,
+    agentStatus,
+    approvalRequest,
+    questionRequest,
+    fileChanges,
+    sendCommand,
+    sendApproval,
+    sendQuestionResponse,
+    sendChatMessage,
+    clearMessages,
+    systemStatus,
+    sendInternalEvent
+  } = useSocket(project.id, activeThreadId, activeBackendUrl, project.relayUrl);
   const [agentType, setAgentType] = useState<'aider' | 'claude' | 'antigravity'>(
-    (localStorage.getItem('asterim_default_agent') as 'aider' | 'claude' | 'antigravity') || 'claude'
+    (localStorage.getItem('asterim_default_agent') as 'aider' | 'claude' | 'antigravity') ||
+      'claude'
   );
-  const isBinaryMissing = systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
+  const isBinaryMissing =
+    systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
   const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'settings'>('chat');
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
@@ -390,24 +535,62 @@ function ProjectWorkspace({
 
   const mainContent = (
     <main className="workspace-main-content">
-      <div className="top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        className="top-bar"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '8px' }}>
-            <button className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'chat' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'chat' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('chat')}>
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              background: 'rgba(0,0,0,0.3)',
+              padding: '4px',
+              borderRadius: '8px'
+            }}
+          >
+            <button
+              className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`}
+              style={{
+                padding: '6px 12px',
+                minWidth: 'auto',
+                background: activeTab === 'chat' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'chat' ? '#60a5fa' : 'inherit'
+              }}
+              onClick={() => setActiveTab('chat')}
+            >
               💬 Chat
             </button>
-            <button className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'terminal' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'terminal' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('terminal')}>
+            <button
+              className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`}
+              style={{
+                padding: '6px 12px',
+                minWidth: 'auto',
+                background: activeTab === 'terminal' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'terminal' ? '#60a5fa' : 'inherit'
+              }}
+              onClick={() => setActiveTab('terminal')}
+            >
               ⌨️ Terminal
             </button>
-            <button className={`nav-btn ${activeTab === 'files' ? 'active' : ''}`} style={{ padding: '6px 12px', minWidth: 'auto', background: activeTab === 'files' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'files' ? '#60a5fa' : 'inherit' }} onClick={() => setActiveTab('files')}>
+            <button
+              className={`nav-btn ${activeTab === 'files' ? 'active' : ''}`}
+              style={{
+                padding: '6px 12px',
+                minWidth: 'auto',
+                background: activeTab === 'files' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'files' ? '#60a5fa' : 'inherit'
+              }}
+              onClick={() => setActiveTab('files')}
+            >
               📁 Files {fileChanges.length > 0 && `(${fileChanges.length})`}
             </button>
           </div>
-          
+
           <div style={{ display: 'flex', gap: '8px' }}>
             <div style={{ width: '220px' }}>
-              <CustomDropdown 
-                value={agentType} 
+              <CustomDropdown
+                value={agentType}
                 onChange={(val: any) => setAgentType(val)}
                 options={[
                   { value: 'claude', label: 'Claude (Anthropic)' },
@@ -417,7 +600,7 @@ function ProjectWorkspace({
                 disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
               />
             </div>
-            <button 
+            <button
               onClick={() => {
                 sendCommand('stop', agentType);
                 setTimeout(() => sendCommand('start', agentType), 500);
@@ -434,21 +617,29 @@ function ProjectWorkspace({
                 transition: 'all 0.2s'
               }}
               title="Restart Agent"
-              onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--color-text-secondary)'; }}
+              onMouseOver={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                e.currentTarget.style.color = 'var(--color-text-primary)';
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                e.currentTarget.style.color = 'var(--color-text-secondary)';
+              }}
             >
               🔄
             </button>
           </div>
         </div>
-        
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {activeTab === 'chat' && messages.length > 0 && (
             <button className="clear-chat-btn" onClick={clearMessages} title="Clear Chat History">
               🧹 Clear Chat
             </button>
           )}
-          <div className={`status-badge ${agentStatus.status === 'waiting_approval' ? 'waiting' : agentStatus.status === 'working' ? 'working' : 'idle'}`}>
+          <div
+            className={`status-badge ${agentStatus.status === 'waiting_approval' ? 'waiting' : agentStatus.status === 'working' ? 'working' : 'idle'}`}
+          >
             <div className="status-dot"></div>
             {agentStatus.status === 'waiting_approval' ? 'Needs Approval' : agentStatus.status}
           </div>
@@ -456,18 +647,20 @@ function ProjectWorkspace({
       </div>
 
       {!connected && (
-        <div style={{
-          background: 'var(--color-error-primary)',
-          color: '#fff',
-          padding: '8px 16px',
-          textAlign: 'center',
-          fontSize: '0.9rem',
-          fontWeight: 'bold',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: '8px'
-        }}>
+        <div
+          style={{
+            background: 'var(--color-error-primary)',
+            color: '#fff',
+            padding: '8px 16px',
+            textAlign: 'center',
+            fontSize: '0.9rem',
+            fontWeight: 'bold',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
           <span>⚠️ Disconnected from Workstation. Operating in offline mode.</span>
         </div>
       )}
@@ -475,53 +668,94 @@ function ProjectWorkspace({
       {activeTab === 'chat' ? (
         <>
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-            <ChatView messages={messages} isWorking={agentStatus.status === 'working'} onClearChat={clearMessages} />
+            <ChatView
+              messages={messages}
+              isWorking={agentStatus.status === 'working'}
+              onClearChat={clearMessages}
+            />
           </div>
-          <ChatInput 
-            onSend={handleSend} 
-            disabled={agentStatus.status === 'waiting_approval' || agentStatus.status === 'working' || agentStatus.status === 'startup'}
-            autoApproval={autoApproval} 
-            setAutoApproval={setAutoApproval} 
+          <ChatInput
+            onSend={handleSend}
+            disabled={
+              agentStatus.status === 'waiting_approval' ||
+              agentStatus.status === 'working' ||
+              agentStatus.status === 'startup'
+            }
+            autoApproval={autoApproval}
+            setAutoApproval={setAutoApproval}
           />
         </>
       ) : activeTab === 'terminal' ? (
         <>
-          <div className="terminal-view" style={{ flex: 1, minHeight: 0, position: 'relative', border: 'none', borderRadius: 0 }}>
-            <XTerminal socket={socket} projectId={project.id} sendInternalEvent={sendInternalEvent} />
+          <div
+            className="terminal-view"
+            style={{ flex: 1, minHeight: 0, position: 'relative', border: 'none', borderRadius: 0 }}
+          >
+            <XTerminal
+              socket={socket}
+              projectId={project.id}
+              sendInternalEvent={sendInternalEvent}
+            />
           </div>
         </>
       ) : activeTab === 'files' ? (
         <div className="file-list" style={{ padding: '0 20px 20px 20px' }}>
           {fileChanges.length === 0 ? (
-            <div style={{ opacity: 0.5, textAlign: 'center', marginTop: '40px', color: 'var(--color-text-secondary)' }}>No file changes detected yet.</div>
+            <div
+              style={{
+                opacity: 0.5,
+                textAlign: 'center',
+                marginTop: '40px',
+                color: 'var(--color-text-secondary)'
+              }}
+            >
+              No file changes detected yet.
+            </div>
           ) : (
             fileChanges.map((fc, idx) => (
               <div key={idx} className="file-item">
                 <div className="file-item-header">
                   <span>{fc.filePath}</span>
-                  <span style={{ 
-                    color: fc.changeType === 'added' ? 'var(--color-success-primary)' : 
-                           fc.changeType === 'deleted' ? 'var(--color-error-primary)' : 'var(--color-warning-primary)',
-                    textTransform: 'uppercase',
-                    fontSize: '0.75rem',
-                    fontWeight: 'bold'
-                  }}>{fc.changeType}</span>
+                  <span
+                    style={{
+                      color:
+                        fc.changeType === 'added'
+                          ? 'var(--color-success-primary)'
+                          : fc.changeType === 'deleted'
+                            ? 'var(--color-error-primary)'
+                            : 'var(--color-warning-primary)',
+                      textTransform: 'uppercase',
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {fc.changeType}
+                  </span>
                 </div>
-                {fc.diff && (
-                  <div className="diff-content">{fc.diff}</div>
-                )}
+                {fc.diff && <div className="diff-content">{fc.diff}</div>}
               </div>
             ))
           )}
         </div>
       ) : activeTab === 'settings' ? (
-        <div className="settings-view" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div
+          className="settings-view"
+          style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}
+        >
           <div className="settings-card glass-panel" style={{ padding: '20px' }}>
             <h3 style={{ marginBottom: '16px' }}>Agent Engine</h3>
-            <select 
-              value={agentType} 
-              onChange={(e) => setAgentType(e.target.value as any)}
-              style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--color-border-default)', color: '#fff', fontSize: '1rem' }}
+            <select
+              value={agentType}
+              onChange={e => setAgentType(e.target.value as any)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid var(--color-border-default)',
+                color: '#fff',
+                fontSize: '1rem'
+              }}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             >
               <option value="claude">Claude Code (Anthropic)</option>
@@ -529,26 +763,49 @@ function ProjectWorkspace({
               <option value="antigravity">Antigravity (Google)</option>
             </select>
             {isBinaryMissing && (
-              <div style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--color-error-primary)', fontSize: '0.85rem', color: 'var(--color-error-primary)' }}>
-                ⚠️ Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting this agent will fail.
+              <div
+                style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid var(--color-error-primary)',
+                  fontSize: '0.85rem',
+                  color: 'var(--color-error-primary)'
+                }}
+              >
+                ⚠️ Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting
+                this agent will fail.
               </div>
             )}
           </div>
         </div>
       ) : null}
-      
+
       {/* Mobile Bottom Navigation */}
       <nav className="bottom-nav">
-        <div className={`nav-item ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
+        <div
+          className={`nav-item ${activeTab === 'chat' ? 'active' : ''}`}
+          onClick={() => setActiveTab('chat')}
+        >
           Chat
         </div>
-        <div className={`nav-item ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>
+        <div
+          className={`nav-item ${activeTab === 'terminal' ? 'active' : ''}`}
+          onClick={() => setActiveTab('terminal')}
+        >
           Terminal
         </div>
-        <div className={`nav-item ${activeTab === 'files' ? 'active' : ''}`} onClick={() => setActiveTab('files')}>
+        <div
+          className={`nav-item ${activeTab === 'files' ? 'active' : ''}`}
+          onClick={() => setActiveTab('files')}
+        >
           Files {fileChanges.length > 0 && `(${fileChanges.length})`}
         </div>
-        <div className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+        <div
+          className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => setActiveTab('settings')}
+        >
           Settings
         </div>
       </nav>
@@ -560,10 +817,10 @@ function ProjectWorkspace({
       topBar={topBar}
       navigationSidebar={navigationSidebar}
       sessionSidebar={
-        <SessionSidebar 
-          projectId={project.id} 
-          activeThreadId={activeThreadId} 
-          onSelectThread={setActiveThreadId} 
+        <SessionSidebar
+          projectId={project.id}
+          activeThreadId={activeThreadId}
+          onSelectThread={setActiveThreadId}
           onBackToProjects={onBack}
           activeBackendUrl={activeBackendUrl}
         />
@@ -573,18 +830,18 @@ function ProjectWorkspace({
         <>
           {overlays}
           {approvalRequest && autoApproval === 'ask' && (
-            <ApprovalOverlay 
-              approvalRequest={approvalRequest} 
-              onApprove={(id) => sendApproval(id, true)}
-              onDeny={(id) => sendApproval(id, false)}
-              onSwitchToTerminal={(id) => {
+            <ApprovalOverlay
+              approvalRequest={approvalRequest}
+              onApprove={id => sendApproval(id, true)}
+              onDeny={id => sendApproval(id, false)}
+              onSwitchToTerminal={id => {
                 setActiveTab('terminal');
                 sendApproval(id, true);
               }}
             />
           )}
           {questionRequest && (
-            <QuestionOverlay 
+            <QuestionOverlay
               questionRequest={questionRequest}
               onSelect={(id, index, text) => sendQuestionResponse(id, index, text)}
             />
@@ -599,7 +856,7 @@ export default function App() {
   const workstations = useWorkstations();
   const { isAuthenticated } = useAuth(workstations.activeBackendUrl);
   const { projects, refreshProjects } = useProjects(workstations.activeBackendUrl);
-  
+
   const [selectedProject, setSelectedProject] = useState<Project | null>(() => {
     const saved = localStorage.getItem('asterim_active_project');
     return saved ? JSON.parse(saved) : null;
@@ -626,14 +883,14 @@ export default function App() {
   }
 
   const topBar = (
-    <TopBar 
+    <TopBar
       activeWorkstationName={workstations.activeWorkstation?.name}
       onConnectWorkstation={() => setShowConnect(true)}
     />
   );
 
   const navigationSidebar = (
-    <NavigationSidebar 
+    <NavigationSidebar
       projects={projects}
       activeProjectId={selectedProject?.id}
       onSelectProject={setSelectedProject}
@@ -646,10 +903,14 @@ export default function App() {
 
   useEffect(() => {
     // Fetch system info to get relay url
-    const baseUrl = workstations.activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
-    const tokenKey = workstations.activeBackendUrl ? `asterim_token_${workstations.activeBackendUrl}` : 'asterim_token';
+    const baseUrl =
+      workstations.activeBackendUrl ||
+      `${window.location.protocol}//${window.location.hostname}:3000`;
+    const tokenKey = workstations.activeBackendUrl
+      ? `asterim_token_${workstations.activeBackendUrl}`
+      : 'asterim_token';
     const token = localStorage.getItem(tokenKey) || '';
-    fetch(`${baseUrl}/api/v1/system`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${baseUrl}/api/v1/system`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.json())
       .then(data => {
         if (data.relayUrl) setServerRelayUrl(data.relayUrl);
@@ -666,7 +927,7 @@ export default function App() {
       id: tunnelId,
       name: 'Remote Session',
       path: 'Cloud Relay',
-      relayUrl: serverRelayUrl,
+      relayUrl: serverRelayUrl
     };
     setSelectedProject(remoteProject);
     setShowConnect(false);
@@ -675,16 +936,16 @@ export default function App() {
   const overlays = (
     <>
       {isFirstRun && (
-        <FirstRunWizard 
+        <FirstRunWizard
           activeBackendUrl={workstations.activeBackendUrl}
           onComplete={() => setIsFirstRun(false)}
         />
       )}
       {showAddProject && (
-        <AddProjectModal 
+        <AddProjectModal
           activeBackendUrl={workstations.activeBackendUrl}
           onClose={() => setShowAddProject(false)}
-          onSuccess={(project) => {
+          onSuccess={project => {
             refreshProjects();
             setSelectedProject(project);
             setShowAddProject(false);
@@ -692,7 +953,7 @@ export default function App() {
         />
       )}
       {showConnect && (
-        <ConnectWorkstationModal 
+        <ConnectWorkstationModal
           workstations={workstations}
           onClose={() => setShowConnect(false)}
           onConnectRemote={handleConnectRemote}
@@ -704,9 +965,9 @@ export default function App() {
   return (
     <>
       {selectedProject ? (
-        <ProjectWorkspace 
-          project={selectedProject} 
-          onBack={() => setSelectedProject(null)} 
+        <ProjectWorkspace
+          project={selectedProject}
+          onBack={() => setSelectedProject(null)}
           activeBackendUrl={workstations.activeBackendUrl}
           topBar={topBar}
           navigationSidebar={navigationSidebar}
@@ -717,7 +978,7 @@ export default function App() {
           topBar={topBar}
           navigationSidebar={navigationSidebar}
           mainWorkspace={
-            <EmptyWorkspace 
+            <EmptyWorkspace
               onAddProject={() => setShowAddProject(true)}
               onConnectWorkstation={() => setShowConnect(true)}
               activeWorkstationName={workstations.activeWorkstation?.name}

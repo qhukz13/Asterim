@@ -28,8 +28,13 @@ const logCrash = (error: Error, type: string) => {
   }
 };
 
-process.on('uncaughtException', (err) => { logCrash(err, 'uncaughtException'); process.exit(1); });
-process.on('unhandledRejection', (err: any) => { logCrash(err, 'unhandledRejection'); });
+process.on('uncaughtException', err => {
+  logCrash(err, 'uncaughtException');
+  process.exit(1);
+});
+process.on('unhandledRejection', (err: any) => {
+  logCrash(err, 'unhandledRejection');
+});
 
 const fastify = Fastify({ logger: true });
 
@@ -59,12 +64,7 @@ const relayUrl = process.env.ASTERIM_RELAY_URL || 'http://localhost:4000';
 fastify.register(cors, {
   origin: (origin, cb) => {
     // Allow direct access (no origin), local dev, and the relay URL
-    if (
-      !origin ||
-      origin === 'null' ||
-      isLocalOrigin(origin) ||
-      origin.startsWith(relayUrl)
-    ) {
+    if (!origin || origin === 'null' || isLocalOrigin(origin) || origin.startsWith(relayUrl)) {
       cb(null, true);
       return;
     }
@@ -85,9 +85,9 @@ if (!fs.existsSync(webDistPath)) {
 if (fs.existsSync(webDistPath)) {
   fastify.register(fastifyStatic, {
     root: webDistPath,
-    prefix: '/',
+    prefix: '/'
   });
-  
+
   // Catch-all to serve index.html for frontend routing (if not an API route)
   fastify.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api')) {

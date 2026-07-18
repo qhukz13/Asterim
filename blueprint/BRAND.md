@@ -15,6 +15,7 @@ This document outlines the brand identity, positioning, and terminology for Aste
 "Asterim is an AI-native workspace for orchestrating autonomous software engineering agents."
 
 **Core Ideas**:
+
 - **Local-first**: Data and code stay secure on the user's machine.
 - **Human-in-the-loop**: Engineers maintain ultimate control and approval over autonomous actions.
 - **Multi-agent orchestration**: Coordinating multiple specialized AI agents to solve complex problems.
@@ -30,13 +31,13 @@ This document outlines the brand identity, positioning, and terminology for Aste
 
 ## 4. Product Terminology
 
-| Term | Definition |
-|------|------------|
-| **Workspace** | The root environment where a project lives. |
-| **Agent** | An autonomous or semi-autonomous AI entity capable of executing software engineering tasks. |
-| **Orchestration** | The act of coordinating multiple agents and tasks. |
-| **Cloud Relay** | The service that connects local Workstations to external or cloud resources. |
-| **Workstation** | A local environment where agents operate. |
+| Term              | Definition                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| **Workspace**     | The root environment where a project lives.                                                 |
+| **Agent**         | An autonomous or semi-autonomous AI entity capable of executing software engineering tasks. |
+| **Orchestration** | The act of coordinating multiple agents and tasks.                                          |
+| **Cloud Relay**   | The service that connects local Workstations to external or cloud resources.                |
+| **Workstation**   | A local environment where agents operate.                                                   |
 
 ## 5. Branding Rules
 
@@ -47,6 +48,7 @@ This document outlines the brand identity, positioning, and terminology for Aste
 ## 6. What MUST Never Be Renamed
 
 For backward compatibility and system stability, the following legacy identifiers remain unchanged unless explicitly migrated in a breaking release:
+
 - The project IDE root folder name (`AgentDeck`) may be retained if manually renaming it would break the user's local IDE workspace session.
 
 ## 7. Future Branding Guidelines

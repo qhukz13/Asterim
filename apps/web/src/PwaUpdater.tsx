@@ -5,7 +5,7 @@ export function PwaUpdater() {
   const {
     offlineReady: [offlineReady, setOfflineReady],
     needRefresh: [needRefresh, setNeedRefresh],
-    updateServiceWorker,
+    updateServiceWorker
   } = useRegisterSW({
     onRegistered(r: any) {
       // eslint-disable-next-line prefer-template
@@ -13,7 +13,7 @@ export function PwaUpdater() {
     },
     onRegisterError(error: any) {
       console.log('SW registration error', error);
-    },
+    }
   });
 
   const close = () => {
@@ -61,15 +61,15 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '8px',
-    maxWidth: '300px',
+    maxWidth: '300px'
   },
   message: {
-    fontSize: '14px',
+    fontSize: '14px'
   },
   buttons: {
     display: 'flex',
     gap: '8px',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-end'
   },
   btn: {
     padding: '6px 12px',
@@ -79,7 +79,7 @@ const styles = {
     borderRadius: '4px',
     cursor: 'pointer',
     fontSize: '13px',
-    fontWeight: 'bold',
+    fontWeight: 'bold'
   },
   btnAlt: {
     padding: '6px 12px',
@@ -88,6 +88,6 @@ const styles = {
     border: '1px solid #334155',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '13px',
+    fontSize: '13px'
   }
 };

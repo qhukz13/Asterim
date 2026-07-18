@@ -1,5 +1,10 @@
 import * as pty from 'node-pty';
-import { IAgentAdapter, AgentConfig, AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
+import {
+  IAgentAdapter,
+  AgentConfig,
+  AsterimEvent,
+  ClientApprovalResponsePayload
+} from '@asterim/shared';
 import crypto from 'crypto';
 import os from 'os';
 
@@ -31,7 +36,7 @@ export class AiderAdapter implements IAgentAdapter {
       env: { ...process.env, FORCE_COLOR: '1' } as any
     });
 
-    this.ptyProcess.onData((data) => {
+    this.ptyProcess.onData(data => {
       this.emitLog('info', data);
       this.parseOutputForApprovals(data);
     });
@@ -75,7 +80,10 @@ export class AiderAdapter implements IAgentAdapter {
   }
 
   public getLastOutput(): string {
-    const lines = this.dataBuffer.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0);
+    const lines = this.dataBuffer
+      .split('\n')
+      .map(l => l.trimEnd())
+      .filter(l => l.length > 0);
     return lines.slice(-10).join('\n');
   }
 
@@ -86,7 +94,7 @@ export class AiderAdapter implements IAgentAdapter {
   private async parseOutputForApprovals(data: string) {
     // Basic heuristic for Aider approval prompts, e.g. "Allow creation of new file? (y/N)"
     this.dataBuffer += data;
-    
+
     // Keep buffer manageable
     if (this.dataBuffer.length > 1000) {
       this.dataBuffer = this.dataBuffer.slice(-1000);
@@ -98,7 +106,7 @@ export class AiderAdapter implements IAgentAdapter {
     if (match && !this.pendingApproval && this.requestApprovalCallback) {
       this.pendingApproval = true;
       this.emitStatus('waiting_approval', 'Aider needs approval');
-      
+
       const desc = match[1].trim();
       const cmd = match[0].trim();
       this.dataBuffer = ''; // Clear buffer after match
@@ -135,7 +143,10 @@ export class AiderAdapter implements IAgentAdapter {
     });
   }
 
-  private emitStatus(status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup', message: string) {
+  private emitStatus(
+    status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup',
+    message: string
+  ) {
     if (!this.eventCallback) return;
     this.eventCallback({
       id: crypto.randomUUID(),

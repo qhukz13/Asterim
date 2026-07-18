@@ -15,7 +15,7 @@ const ptyProcess = pty.spawn('C:\\Users\\qhukz\\AppData\\Local\\agy\\bin\\agy.ex
   env: { ...process.env, FORCE_COLOR: '1' } as any
 });
 
-ptyProcess.onData((data) => {
+ptyProcess.onData(data => {
   xterm.write(data, () => {
     let screenText = '';
     const buffer = xterm.buffer.active;
@@ -27,7 +27,7 @@ ptyProcess.onData((data) => {
     }
     const lines = screenText.trimEnd().split('\n');
     const lastLines = lines.slice(-3);
-    
+
     console.log('--- LAST 3 LINES ---');
     console.log(lastLines);
   });

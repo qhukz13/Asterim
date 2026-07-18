@@ -18,7 +18,7 @@ export class GitMonitor {
     this.stopWatching();
     this.activeProjectId = projectId;
     this.activeProjectPath = projectPath;
-    
+
     // Poll every 3 seconds for the MVP
     this.pollingInterval = setInterval(() => this.poll(), 3000);
     this.poll(); // Trigger initial poll
@@ -44,11 +44,11 @@ export class GitMonitor {
       // Execute git diff to get unstaged changes.
       // In a more robust version, we would also check git status for untracked files.
       const { stdout } = await execAsync('git diff', { cwd: this.activeProjectPath });
-      
+
       // Simple string comparison to prevent spamming the EventBus if the diff hasn't changed
       if (stdout !== this.lastDiffHash) {
         this.lastDiffHash = stdout;
-        
+
         eventBus.publish({
           id: crypto.randomUUID(),
           timestamp: Date.now(),
