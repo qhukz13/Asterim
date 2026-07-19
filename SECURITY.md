@@ -1,5 +1,14 @@
 # Security Policy
 
+## Supported Versions
+
+We currently only provide security updates for the latest major version.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.x.x   | :white_check_mark: |
+| < 1.0   | :x:                |
+
 ## Security Model
 
 Asterim is designed as a **local-first** control plane. It runs locally on your workstation and communicates with your web browser or mobile devices over the local network (LAN) or a secure end-to-end encrypted cloud relay.

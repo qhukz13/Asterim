@@ -46,6 +46,7 @@ export class AgentService {
             console.error(`[AgentService] Project ${projectId} not found`);
             return;
           }
+          this.crashCounts.delete(threadId);
           const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
           this.pendingStarts.set(threadId, startPromise);
           try {

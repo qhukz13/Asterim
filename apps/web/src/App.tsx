@@ -499,6 +499,20 @@ function ProjectWorkspace({
   const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'settings'>('chat');
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+
+  useEffect(() => {
+    setHasAutoStarted(false);
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (activeThreadId && connected && !hasAutoStarted) {
+      if (agentStatus.status === 'idle' || agentStatus.status === 'error') {
+        sendCommand('start', agentType);
+        setHasAutoStarted(true);
+      }
+    }
+  }, [activeThreadId, connected, agentStatus.status, hasAutoStarted, agentType, sendCommand]);
 
   useEffect(() => {
     if (approvalRequest && autoApproval !== 'ask') {

@@ -171,18 +171,12 @@ export class AntigravityFSM extends TerminalFSM {
       if (hasShortcuts) {
         isIdle = true;
       } else if (hasGemini && !hasEscToCancel) {
-        let promptFound = false;
-        let nonEmptiesChecked = 0;
-        for (let i = curr.lines.length - 1; i >= 0 && nonEmptiesChecked < 10; i--) {
-          if (curr.lines[i].trim().length > 0) {
-            nonEmptiesChecked++;
-            if (curr.lines[i].trimEnd().match(/^\s*[❯>]$/)) {
-              promptFound = true;
-              break;
-            }
-          }
-        }
-        if (promptFound) {
+        // If the bottom bar is drawn but incomplete (e.g. due to chunking),
+        // we verify if we are truly idle by checking the cursor position.
+        // When the TUI is idle, the cursor rests exactly on the empty prompt line.
+        const cursorLineIndex = curr.baseY + curr.cursorY;
+        const cursorLine = curr.lines[cursorLineIndex];
+        if (cursorLine && cursorLine.trimEnd().match(/^\s*[❯>]$/)) {
           isIdle = true;
         }
       }

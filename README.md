@@ -125,11 +125,17 @@ The definitive requirements and documentation for Asterim live in the `blueprint
 - **[Brand Guidelines](./blueprint/BRAND.md)**: Voice, tone, and brand rules.
 - **[AI Context](./blueprint/AI_CONTEXT.md)**: Context tailored specifically for AI agents.
 
+## Community & Support
+
+- **[Support](./SUPPORT.md)**: Need help? Find out where to ask questions and report issues.
+- **[Security](./SECURITY.md)**: Review our security model and report vulnerabilities securely.
+- **[Code of Conduct](./CODE_OF_CONDUCT.md)**: We expect all community members to adhere to our code of conduct.
+
 ---
 
 ## Contributing
 
-We welcome contributions! Please review our [Governance](./blueprint/GOVERNANCE.md) and development guides before submitting a pull request.
+We welcome contributions! Please review our [Contributing Guide](./CONTRIBUTING.md) and development guides before submitting a pull request. Asterim is an Architecture-First project; please refer to the `blueprint/` for the ultimate source of truth.
 
 ---
 
