@@ -20,7 +20,7 @@ To build the definitive control plane for autonomous AI coding agents, providing
 
 | ID     | Priority | Description                                     | Dependencies | Status  |
 | :----- | :------- | :---------------------------------------------- | :----------- | :------ |
-| P1-001 | High     | Push Notification Reliability (HTTPS required)  | None         | Planned |
+| P1-001 | High     | Push Notification Reliability (HTTPS required)  | None         | Done    |
 | P1-003 | Medium   | Agent Binary Detection at Startup               | None         | Done    |
 | P1-004 | High     | Hardened Approval Regex                         | None         | Done    |
 | P1-007 | Medium   | Agent Auto-Restart                              | None         | Done    |
@@ -31,6 +31,7 @@ To build the definitive control plane for autonomous AI coding agents, providing
 ## Next Milestones
 
 1. **Phase 5: Cloud Features**: Cloud relay server implementation, E2E encryption, global remote push notifications.
+   - *Note on Push Notifications*: Local LAN access (e.g. `192.168.x.x`) currently does not support Push Notifications due to browser secure-context (HTTPS) requirements. We rely on `localhost` exception for local dev. Remote Push via LAN will be unlocked when the Cloud Relay is implemented in this phase.
 2. **Phase 6: Commercial Release**: Standalone binaries, marketing site, telemetry, public beta.
 3. **Phase 7: SaaS Platform**: Subscriptions, multi-thread chat, advanced diff viewer.
 

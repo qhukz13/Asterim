@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useWorkstations } from '../hooks/useWorkstations';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 export function DeveloperSettings() {
   const {
@@ -11,6 +12,8 @@ export function DeveloperSettings() {
     forgetWorkstation,
     addManualWorkstation
   } = useWorkstations();
+
+  const { isSupported, isSubscribed, permission, subscribe } = usePushNotifications();
 
   const connectWorkstation = (id: string) => {
     setActiveWorkstation(id);
@@ -37,7 +40,28 @@ export function DeveloperSettings() {
         🛠️ Developer Settings
       </h3>
 
-      <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {isSupported && (
+          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={isSubscribed || permission === 'granted'}
+              onChange={(e) => {
+                if (e.target.checked && !isSubscribed) {
+                  subscribe();
+                }
+              }}
+              disabled={isSubscribed || permission === 'denied'}
+              style={{ width: '18px', height: '18px' }}
+            />
+            <span style={{ fontWeight: 500 }}>
+              Enable Push Notifications 
+              {permission === 'denied' && ' (Blocked by browser)'}
+              {isSubscribed && ' (Enabled)'}
+            </span>
+          </label>
+        )}
+
         <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
           <input
             type="checkbox"
