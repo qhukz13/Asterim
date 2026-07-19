@@ -226,14 +226,22 @@ export class AntigravityFSM extends TerminalFSM {
     }
 
     // 3. Check for Menus (Approval or Question)
-    const hasYn = fullText.includes('(y/n)');
+    // We only search the bottom portion of the screen to avoid false positives in code blocks
+    const searchArea = curr.lines.slice(Math.max(0, curr.lines.length - 15)).join('\n');
+    const lastNonEmpty = curr.lines.filter(l => l.trim().length > 0).pop() || '';
+
+    const hasYn =
+      /Requesting permission for:[\s\S]*?\(y\/n\)/i.test(searchArea) ||
+      /^\s*(?:Allow|Execute|Run|Proceed|Approve).*?\?\s*\(y\/n\)/im.test(searchArea) ||
+      /\(y\/n\)\s*[>❯_]?\s*$/i.test(lastNonEmpty);
+
     const hasProceed =
-      fullText.includes('Do you want to proceed?') || fullText.includes('Yes, allow');
+      /^\s*Do you want to proceed\?/im.test(searchArea) || /^\s*[>❯*-]?\s*Yes, allow/im.test(searchArea);
 
     if (hasYn || hasProceed) {
       if (this.state !== AgentState.WaitingApproval) {
         let cmdToApprove = 'Unknown action';
-        const reqPermMatch = fullText.match(/Requesting permission for:\s*\n\s*(.*?)(?:\n|$)/);
+        const reqPermMatch = searchArea.match(/Requesting permission for:\s*\n\s*(.*?)(?:\n|$)/);
         if (reqPermMatch) {
           cmdToApprove = reqPermMatch[1].trim();
         } else {
