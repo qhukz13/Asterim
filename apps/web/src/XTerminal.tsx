@@ -99,26 +99,32 @@ export function XTerminal({
     if (!socket || !termInstance.current) return;
 
     let writeBuffer = '';
-    let rafId: number | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const THROTTLE_MS = 50; // 20 FPS throttle
+
+    const flushBuffer = () => {
+      if (writeBuffer && termInstance.current) {
+        termInstance.current.write(writeBuffer);
+      }
+      writeBuffer = '';
+      timeoutId = null;
+    };
 
     const handleData = (event: any) => {
       if (event.payload?.projectId === projectId && event.payload?.data) {
         writeBuffer += event.payload.data;
-        if (rafId === null) {
-          rafId = requestAnimationFrame(() => {
-            if (writeBuffer && termInstance.current) {
-              termInstance.current.write(writeBuffer);
-            }
-            writeBuffer = '';
-            rafId = null;
-          });
+        if (timeoutId === null) {
+          timeoutId = setTimeout(flushBuffer, THROTTLE_MS);
         }
       }
     };
 
     const handleLog = (event: any) => {
       if (event.payload?.message) {
-        termInstance.current?.write(event.payload.message);
+        writeBuffer += event.payload.message;
+        if (timeoutId === null) {
+          timeoutId = setTimeout(flushBuffer, THROTTLE_MS);
+        }
       }
     };
 
@@ -128,8 +134,8 @@ export function XTerminal({
     return () => {
       socket.off('terminal.data', handleData);
       socket.off('agent.log', handleLog);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
       }
     };
   }, [socket, projectId]);

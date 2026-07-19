@@ -20,7 +20,7 @@ export function usePushNotifications() {
 
   const checkSubscription = async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       setIsSubscribed(!!subscription);
     } catch (e) {
@@ -48,8 +48,8 @@ export function usePushNotifications() {
         return;
       }
 
-      // 2. Register Service Worker
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      // 2. Wait for Service Worker
+      const registration = await navigator.serviceWorker.ready;
 
       // 3. Fetch VAPID Key from Backend
       const response = await fetch('/api/v1/system/vapid');
