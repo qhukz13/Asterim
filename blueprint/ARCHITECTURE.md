@@ -19,6 +19,8 @@ graph TD
     API <--> Bus[Event Bus]
     Bus <--> State[State Manager]
     Bus <--> AdapterManager[Adapter Manager]
+    Bus <--> GitService[Git Subsystem]
+    GitService <--> GitCLI[Local git binary]
     AdapterManager <--> Aider[Aider Process]
     AdapterManager <--> Claude[Claude Process]
     State <--> DB[(Embedded Storage)]
@@ -31,7 +33,7 @@ graph TD
 
 The central orchestrator that manages state and communication.
 
-- **Responsibilities**: The Core MUST initialize the Database, start the Event Bus, and mount the API.
+- **Responsibilities**: The Core MUST initialize the Database, start the Event Bus, mount the API, and initialize the Git Subsystem.
 - **Level 4 Current Implementation**: Node.js, Fastify.
 - **Alternatives Considered**: Go (compiled binary), Rust (high performance).
 - **Trade-offs**: Node.js allows maximum code sharing with the React frontend and fast prototyping, but suffers from higher memory usage and single-threaded performance bottlenecks.

@@ -40,6 +40,7 @@ When tasked with a modification, identify the domain and consult the correspondi
 | UI/UX & Aesthetics               | `DESIGN_SYSTEM.md` |
 | Roadmap & Planning               | `DEVELOPMENT.md`   |
 | Launch & Readiness               | `RELEASE.md`       |
+| Source Control & Versioning      | `GIT.md`           |
 | AI Operating Rules               | `MASTER_PROMPT.md` |
 
 ## Document Map

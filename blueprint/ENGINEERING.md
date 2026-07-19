@@ -30,6 +30,12 @@ Defines the non-negotiable coding standards, CI/CD pipelines, and testing philos
 - **Requirement**: The Core MUST have integration tests covering the Adapter lifecycle.
 - **Trade-offs**: Unit testing every function is time-consuming. We prioritize Integration tests for the "Golden Loop".
 
+## 5. Version Control Integration
+
+- **Requirement**: The Git subsystem MUST execute commands against the local `git` CLI.
+- **Anti-pattern**: Relying on GitHub/GitLab REST APIs for routine repository operations like branching or committing.
+
 ## Related Documents
 
 - `ARCHITECTURE.md`
+- `GIT.md`

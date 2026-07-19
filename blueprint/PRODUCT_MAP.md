@@ -16,7 +16,7 @@ Product boundaries.
 
 The local Node.js runtime executing on the developer's machine.
 
-- **Subsystems**: State Manager, Event Bus, Database (SQLite), WebSocket Server, Adapter Manager, Workstation Discovery Service.
+- **Subsystems**: State Manager, Event Bus, Database (SQLite), WebSocket Server, Adapter Manager, Workstation Discovery Service, Git Subsystem.
 
 ## 2. Agent Adapters (The Plugins)
 

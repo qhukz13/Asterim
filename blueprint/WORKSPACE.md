@@ -46,7 +46,8 @@ The context-aware session manager for the selected project.
 
 The primary work area for the selected session.
 
-- **Tabs**: Chat, Terminal, Files, Diff, Logs.
+- **Tabs**: Chat, Terminal, Files, Changes, Logs.
+- **Git/Changes**: The Changes tab is the exclusive location for all version control operations (Status, Diff, Stage, Commit, Push/Pull). Sidebars MUST NOT contain Git controls.
 - **BottomPrompt**: Persistent input area.
 
 ### 5. Overlay System

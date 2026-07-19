@@ -15,6 +15,7 @@ import { FirstRunWizard } from './components/overlays/FirstRunWizard';
 import { useProjects, Project } from './hooks/useProjects';
 import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
+import { ChangesView } from './components/git/ChangesView';
 
 function CustomDropdown({
   value,
@@ -496,7 +497,7 @@ function ProjectWorkspace({
   );
   const isBinaryMissing =
     systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
-  const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'changes' | 'settings'>('chat');
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
@@ -598,6 +599,18 @@ function ProjectWorkspace({
               onClick={() => setActiveTab('files')}
             >
               📁 Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+            </button>
+            <button
+              className={`nav-btn ${activeTab === 'changes' ? 'active' : ''}`}
+              style={{
+                padding: '6px 12px',
+                minWidth: 'auto',
+                background: activeTab === 'changes' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'changes' ? '#60a5fa' : 'inherit'
+              }}
+              onClick={() => setActiveTab('changes')}
+            >
+              🔄 Changes
             </button>
           </div>
 
@@ -751,6 +764,10 @@ function ProjectWorkspace({
             ))
           )}
         </div>
+      ) : activeTab === 'changes' ? (
+        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+          <ChangesView socket={socket} projectId={project.id} />
+        </div>
       ) : activeTab === 'settings' ? (
         <div
           className="settings-view"
@@ -815,6 +832,12 @@ function ProjectWorkspace({
           onClick={() => setActiveTab('files')}
         >
           Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+        </div>
+        <div
+          className={`nav-item ${activeTab === 'changes' ? 'active' : ''}`}
+          onClick={() => setActiveTab('changes')}
+        >
+          Changes
         </div>
         <div
           className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}

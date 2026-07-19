@@ -41,7 +41,7 @@ export class SocketManager {
       console.log(`[Socket.IO] Client connected: ${socket.id}`);
 
       // Client joins a specific project room to get its isolated telemetry
-      socket.on('join_project', (projectId: string) => {
+      socket.on('join_project', async (projectId: string) => {
         socket.join(projectId);
         console.log(`[Socket.IO] Client ${socket.id} joined project: ${projectId}`);
 
@@ -57,6 +57,14 @@ export class SocketManager {
           type: 'server.system_status',
           payload: { binaries: startupService.getAgentBinariesStatus() }
         });
+
+        // Start Git watching
+        const { projectManager } = await import('../services/ProjectManager');
+        const project = projectManager.getProject(projectId);
+        if (project) {
+          const { gitService } = await import('../services/git/GitService');
+          gitService.startWatching(project.id, project.path);
+        }
       });
 
       // Forward client commands and approvals to the internal EventBus
