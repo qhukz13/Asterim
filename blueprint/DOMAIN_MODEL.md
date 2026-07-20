@@ -158,7 +158,7 @@ Context MUST support:
 - **Restoration:** On reconnect or app restart, the exact Context state is restored from the database.
 - **Future History/Versioning:** The schema should be designed to support snapshotting Context at key moments (e.g., before/after an AgentExecution) for future rollback and audit capabilities.
 #### Current State
-**Missing.** Currently inferred from UI state and recent events. No backend table or API exists. This is the highest-priority architectural gap.
+Fully implemented in the backend via `contexts` and `context_entries` tables, managed by `ContextRepository` and `ContextService`. The frontend consumes this state via the `useThreadContext` hook.
 
 ### Event
 #### Purpose
@@ -220,7 +220,7 @@ During the domain discovery process, the following structural misalignments betw
    - **Problem:** The Context (pinned files, working set) is vital to the domain model but lacks a dedicated table or backend state manager. It exists only as transient frontend state.
    - **Impact:** Makes persistence, cross-device syncing, state restoration, and future versioning impossible.
    - **Decision:** Formalize `Context` in `DatabaseService.ts` as a first-class child of Thread with persistence, synchronization, restoration, and future versioning support.
-   - **Status:** Highest priority. Phase 1.
+   - **Status:** Done (Phase 1 complete).
 
 3. **EventBus Wildcard Fragility (ADR-008)**
    - **Problem:** As noted in `ARCHITECTURE.md`, the Node `EventEmitter` is using a hacky literal `'*'` string convention for global logging.
@@ -239,11 +239,11 @@ During the domain discovery process, the following structural misalignments betw
 
 The following phased approach establishes the correct architecture before performing mechanical migrations.
 
-### Phase 1: Formalize Context as a First-Class Domain Entity
-- Design and create the `context_items` table in SQLite, linked to Threads.
-- Implement a `ContextService` on the backend that manages persistence and broadcasts changes via EventBus.
-- Expose REST/WebSocket APIs for Context CRUD operations.
-- Design the schema with future history/versioning in mind (e.g., snapshot timestamps, version counters).
+### Phase 1: Formalize Context as a First-Class Domain Entity (DONE)
+- ~~Design and create the `context_items` table in SQLite, linked to Threads.~~
+- ~~Implement a `ContextService` on the backend that manages persistence and broadcasts changes via EventBus.~~
+- ~~Expose REST/WebSocket APIs for Context CRUD operations.~~
+- ~~Design the schema with future history/versioning in mind (e.g., snapshot timestamps, version counters).~~
 
 ### Phase 2: Align Frontend State Ownership
 - Refactor the frontend stores to strictly match the domain hierarchy:
