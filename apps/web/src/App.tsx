@@ -18,6 +18,7 @@ import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
 import { ContextView } from './components/workspace/ContextView';
 import { AISettings } from './components/AISettings';
+import { useThreadContext } from './hooks/useThreadContext';
 
 function CustomDropdown({
   value,
@@ -499,6 +500,21 @@ function ProjectWorkspace({
   );
   const isBinaryMissing =
     systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
+
+  // Context domain aggregate (server-backed)
+  const {
+    entries: contextEntries,
+    isLoading: contextLoading,
+    error: contextError,
+    addEntry: addContextEntry,
+    removeEntry: removeContextEntry,
+    clearEntries: clearContextEntries
+  } = useThreadContext({
+    socket,
+    threadId: activeThreadId,
+    projectId: project.id,
+    activeBackendUrl
+  });
   const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'context' | 'changes' | 'settings'>('chat');
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
@@ -740,7 +756,18 @@ function ProjectWorkspace({
           </div>
         </>
       ) : activeTab === 'context' ? (
-        <ContextView projectId={project.id} activeBackendUrl={activeBackendUrl} messages={messages} />
+        <ContextView
+          projectId={project.id}
+          threadId={activeThreadId}
+          activeBackendUrl={activeBackendUrl}
+          messages={messages}
+          contextEntries={contextEntries}
+          contextLoading={contextLoading}
+          contextError={contextError}
+          onAddEntry={addContextEntry}
+          onRemoveEntry={removeContextEntry}
+          onClearEntries={clearContextEntries}
+        />
       ) : activeTab === 'settings' ? (
         <div
           className="settings-view"

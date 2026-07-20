@@ -73,6 +73,61 @@ export interface ServerAuthResultPayload {
   error?: string;
 }
 
+// --- Context Domain Types ---
+
+/** The kind of information a context entry represents. */
+export type ContextEntryType =
+  | 'file'
+  | 'knowledge'
+  | 'bookmark'
+  | 'suggestion'
+  | 'artifact';
+
+/** Who or what created a context entry. */
+export type ContextEntryCreator =
+  | 'user'
+  | 'agent'
+  | 'ai'
+  | 'system'
+  | 'plugin';
+
+/** A single entry within a Thread's Context aggregate. */
+export interface ContextEntry {
+  id: string;
+  threadId: string;
+  projectId: string;
+  entryType: ContextEntryType;
+  /** File path or resource URI (for file/bookmark/artifact types). */
+  path?: string;
+  /** Display label when path alone is insufficient. */
+  label?: string;
+  /** Freeform text content (for knowledge type). */
+  content?: string;
+  /** Entry status within the context. */
+  status: 'pinned' | 'active' | 'suggestion';
+  /** Who or what created this entry. */
+  createdBy: ContextEntryCreator;
+  /** Explicit ordering position within the context. */
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+  /** Monotonically increasing version for optimistic concurrency. */
+  version: number;
+}
+
+/** Payload broadcast when a thread's context is modified. */
+export interface ContextUpdatedPayload {
+  threadId: string;
+  projectId: string;
+  entries: ContextEntry[];
+}
+
+/** Payload broadcast when a thread's context is fully cleared. */
+export interface ContextClearedPayload {
+  threadId: string;
+  projectId: string;
+}
+
 // Helper types for specific events
 export type AgentLogEvent = AsterimEvent<AgentLogPayload>;
 export type AgentStatusEvent = AsterimEvent<AgentStatusPayload>;

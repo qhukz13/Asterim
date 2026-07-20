@@ -114,6 +114,41 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_events_project_timestamp 
       ON events(project_id, timestamp DESC);
     `);
+
+    // Context aggregate: one context per thread
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS contexts (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS context_entries (
+        id TEXT PRIMARY KEY,
+        context_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        entry_type TEXT NOT NULL,
+        path TEXT,
+        label TEXT,
+        content TEXT,
+        status TEXT NOT NULL DEFAULT 'pinned',
+        created_by TEXT NOT NULL DEFAULT 'user',
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(context_id) REFERENCES contexts(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_context_entries_context
+        ON context_entries(context_id);
+      CREATE INDEX IF NOT EXISTS idx_context_entries_thread
+        ON context_entries(thread_id);
+    `);
   }
 
   public getDb(): DatabaseSync {

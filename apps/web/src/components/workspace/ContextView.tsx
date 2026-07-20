@@ -1,28 +1,56 @@
 import React, { useState } from 'react';
+import type { ContextEntry } from '@asterim/shared';
 
 interface ContextViewProps {
   projectId: string;
+  threadId: string | null;
   activeBackendUrl?: string;
   messages?: any[];
+  /** Context entries from useThreadContext hook. */
+  contextEntries: ContextEntry[];
+  /** Whether the initial context fetch is loading. */
+  contextLoading: boolean;
+  /** Last error from a context operation. */
+  contextError: string | null;
+  /** Add an entry to the backend context. */
+  onAddEntry: (input: {
+    entryType: 'file' | 'knowledge' | 'bookmark' | 'suggestion' | 'artifact';
+    path?: string;
+    label?: string;
+    content?: string;
+    status?: 'pinned' | 'active' | 'suggestion';
+    createdBy?: 'user' | 'agent' | 'ai' | 'system' | 'plugin';
+  }) => Promise<any>;
+  /** Remove an entry by ID. */
+  onRemoveEntry: (entryId: string) => Promise<boolean>;
+  /** Clear all context entries. */
+  onClearEntries: () => Promise<void>;
 }
 
-interface ContextFile {
-  path: string;
-  type: 'modified' | 'read-only' | 'suggestion';
-}
-
-export function ContextView({ projectId, activeBackendUrl, messages = [] }: ContextViewProps) {
-  const [activeTask, setActiveTask] = useState('');
+export function ContextView({
+  projectId,
+  threadId,
+  activeBackendUrl,
+  messages = [],
+  contextEntries,
+  contextLoading,
+  contextError,
+  onAddEntry,
+  onRemoveEntry,
+  onClearEntries
+}: ContextViewProps) {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [contextFiles, setContextFiles] = useState<ContextFile[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [missionInput, setMissionInput] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const displayError = contextError || localError;
 
   const handleSuggestFiles = async () => {
-    if (!activeTask.trim()) return;
+    if (!missionInput.trim()) return;
     setIsSuggesting(true);
-    setError(null);
+    setLocalError(null);
     try {
       const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
@@ -34,16 +62,16 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ projectId, task: activeTask })
+        body: JSON.stringify({ projectId, task: missionInput })
       });
       const data = await res.json();
       if (res.ok) {
         setSuggestions(data.suggestions || []);
       } else {
-        setError(data.error || 'Failed to suggest files');
+        setLocalError(data.error || 'Failed to suggest files');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to suggest files');
+      setLocalError(err.message || 'Failed to suggest files');
     } finally {
       setIsSuggesting(false);
     }
@@ -51,12 +79,12 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
 
   const handleExtractMission = async () => {
     if (messages.length === 0) {
-      setError('No chat history available to extract a mission from.');
+      setLocalError('No chat history available to extract a mission from.');
       return;
     }
     
     setIsExtracting(true);
-    setError(null);
+    setLocalError(null);
     try {
       const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
@@ -72,27 +100,28 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
       });
       const data = await res.json();
       if (res.ok && data.mission) {
-        setActiveTask(data.mission);
+        setMissionInput(data.mission);
       } else {
-        setError(data.error || 'Failed to extract mission');
+        setLocalError(data.error || 'Failed to extract mission');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to extract mission');
+      setLocalError(err.message || 'Failed to extract mission');
     } finally {
       setIsExtracting(false);
     }
   };
 
-  const handleAddContext = (file: string) => {
-    if (!contextFiles.find(c => c.path === file)) {
-      setContextFiles([...contextFiles, { path: file, type: 'suggestion' }]);
-    }
-    setSuggestions(suggestions.filter(s => s !== file));
+  const handleAddContext = async (file: string) => {
+    await onAddEntry({ entryType: 'file', path: file, createdBy: 'ai' });
+    setSuggestions(prev => prev.filter(s => s !== file));
   };
 
-  const handleRemoveContext = (file: string) => {
-    setContextFiles(contextFiles.filter(c => c.path !== file));
+  const handleRemoveContext = async (entryId: string) => {
+    await onRemoveEntry(entryId);
   };
+
+  // Derive file entries from the full context
+  const fileEntries = contextEntries.filter(e => e.entryType === 'file');
 
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
@@ -105,8 +134,8 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
             <span>✨</span>
             <input 
               style={{ fontWeight: 500, background: 'transparent', border: 'none', color: 'inherit', width: '100%', outline: 'none' }} 
-              value={activeTask}
-              onChange={(e) => setActiveTask(e.target.value)}
+              value={missionInput}
+              onChange={(e) => setMissionInput(e.target.value)}
               placeholder="What are you currently working on?"
             />
             <button 
@@ -129,18 +158,28 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
               <h3 style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
                 Pinned & Active Context
               </h3>
-              <button 
-                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.8rem', color: '#60a5fa', opacity: isSuggesting ? 0.6 : 1 }}
-                onClick={handleSuggestFiles}
-                disabled={isSuggesting}
-              >
-                {isSuggesting ? '✨ Suggesting...' : '✨ Suggest Files'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.8rem', color: '#60a5fa', opacity: isSuggesting ? 0.6 : 1 }}
+                  onClick={handleSuggestFiles}
+                  disabled={isSuggesting}
+                >
+                  {isSuggesting ? '✨ Suggesting...' : '✨ Suggest Files'}
+                </button>
+                {contextEntries.length > 0 && (
+                  <button 
+                    style={{ background: 'transparent', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.8rem', color: 'var(--color-error-primary)' }}
+                    onClick={onClearEntries}
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
             </div>
             
-            {error && (
+            {displayError && (
               <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
-                {error}
+                {displayError}
               </div>
             )}
 
@@ -159,28 +198,38 @@ export function ContextView({ projectId, activeBackendUrl, messages = [] }: Cont
                 </div>
               )}
 
-              {contextFiles.length === 0 && (
+              {contextLoading && (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '8px', textAlign: 'center' }}>
+                  Loading context...
+                </div>
+              )}
+
+              {!contextLoading && fileEntries.length === 0 && suggestions.length === 0 && (
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '8px', textAlign: 'center' }}>
                   No files added to context yet.
                 </div>
               )}
 
-              {contextFiles.map((file) => {
-                const parts = file.path.split('/');
+              {fileEntries.map((entry) => {
+                const displayPath = entry.path || entry.label || 'Unknown';
+                const parts = displayPath.split('/');
                 const filename = parts.pop();
                 const folder = parts.length > 0 ? parts.join('/') + '/' : '';
                 return (
-                  <div key={file.path} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
+                  <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
                     <span style={{ fontSize: '1.1rem' }}>📄</span>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>{filename}</span>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{folder}</span>
                     </div>
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                      {file.type === 'modified' && <span style={{ fontSize: '0.75rem', color: 'var(--warning-color)', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px' }}>Modified</span>}
-                      {file.type === 'suggestion' && <span style={{ fontSize: '0.75rem', color: '#60a5fa', padding: '2px 6px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px' }}>Suggestion</span>}
-                      {file.type === 'read-only' && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>Read-only</span>}
-                      <button onClick={() => handleRemoveContext(file.path)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>×</button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', opacity: 0.6 }}>
+                        {entry.createdBy}
+                      </span>
+                      {entry.status === 'pinned' && <span style={{ fontSize: '0.75rem', color: '#60a5fa', padding: '2px 6px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px' }}>Pinned</span>}
+                      {entry.status === 'active' && <span style={{ fontSize: '0.75rem', color: 'var(--warning-color)', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px' }}>Active</span>}
+                      {entry.status === 'suggestion' && <span style={{ fontSize: '0.75rem', color: '#60a5fa', padding: '2px 6px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px' }}>Suggestion</span>}
+                      <button onClick={() => handleRemoveContext(entry.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>×</button>
                     </div>
                   </div>
                 );
