@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Socket } from 'socket.io-client';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export interface FileStatus {
   file: string;
@@ -18,9 +22,10 @@ export interface RepoStatus {
 interface ChangesViewProps {
   socket: Socket | null;
   projectId: string;
+  activeBackendUrl?: string;
 }
 
-export function ChangesView({ socket, projectId }: ChangesViewProps) {
+export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesViewProps) {
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [isRepo, setIsRepo] = useState<boolean | null>(null);
   const [commitMessage, setCommitMessage] = useState('');
@@ -28,6 +33,10 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
   
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
+  
+  const [isGeneratingCommit, setIsGeneratingCommit] = useState(false);
+  const [isExplainingDiff, setIsExplainingDiff] = useState(false);
+  const [diffExplanation, setDiffExplanation] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
@@ -49,6 +58,7 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
     const onGitDiff = (event: any) => {
       if (event.payload?.projectId === projectId && event.payload?.file === selectedFile) {
         setDiff(event.payload.diff);
+        setDiffExplanation(null);
       }
     };
 
@@ -71,9 +81,25 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
     });
   };
 
+  useEffect(() => {
+    if (!socket) return;
+    
+    const onConnect = () => sendAction('get_status');
+    socket.on('connect', onConnect);
+    
+    if (socket.connected) {
+      sendAction('get_status');
+    }
+
+    return () => {
+      socket.off('connect', onConnect);
+    };
+  }, [socket, projectId]);
+
   const handleInit = () => sendAction('init');
   const handleStage = (file: string) => sendAction('stage', { file });
   const handleUnstage = (file: string) => sendAction('unstage', { file });
+  const handleStageAll = () => sendAction('stage_all');
   const handleToggleStage = (f: FileStatus) => {
     if (f.staged) handleUnstage(f.file);
     else handleStage(f.file);
@@ -89,7 +115,69 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
   const handleSelectFile = (f: FileStatus) => {
     setSelectedFile(f.file);
     setDiff('Loading diff...');
+    setDiffExplanation(null);
     sendAction('get_diff', { file: f.file, staged: f.staged });
+  };
+
+  const handleGenerateCommit = async () => {
+    const stagedFiles = status?.files.filter(f => f.staged) || [];
+    if (stagedFiles.length === 0) return;
+
+    setIsGeneratingCommit(true);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+
+      const res = await fetch(`${baseUrl}/api/v1/ai/generate-commit`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ projectId, stagedFiles: stagedFiles.map(f => f.file) })
+      });
+      const data = await res.json();
+      if (res.ok && data.commitMessage) {
+        setCommitMessage(data.commitMessage);
+      } else {
+        setError(data.error || 'Failed to generate commit message');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate commit message');
+    } finally {
+      setIsGeneratingCommit(false);
+    }
+  };
+
+  const handleExplainDiff = async () => {
+    if (!diff || diff === 'Loading diff...') return;
+
+    setIsExplainingDiff(true);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+
+      const res = await fetch(`${baseUrl}/api/v1/ai/explain-diff`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ diff, projectId })
+      });
+      const data = await res.json();
+      if (res.ok && data.explanation) {
+        setDiffExplanation(data.explanation);
+      } else {
+        setError(data.error || 'Failed to explain diff');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to explain diff');
+    } finally {
+      setIsExplainingDiff(false);
+    }
   };
 
   if (isRepo === false) {
@@ -152,9 +240,19 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
         
         {/* LEFT COLUMN: Changed Files (30%) */}
         <div style={{ flex: '0 0 32%', display: 'flex', flexDirection: 'column', overflowY: 'auto', borderRight: '1px solid var(--panel-border)', paddingRight: '16px' }}>
-          <h3 style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-            Changed Files
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+              Changed Files
+            </h3>
+            {unstagedFiles.length > 0 && (
+              <button 
+                onClick={handleStageAll}
+                style={{ background: 'transparent', border: '1px solid var(--panel-border)', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}
+              >
+                Select All
+              </button>
+            )}
+          </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {status.files.length === 0 && (
@@ -238,16 +336,63 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
                     {selectedFile.split('/').pop()}
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} onClick={() => alert("AI Diff Explanation will be available soon.")}>
-                      ✨ Explain Diff
+                    <button 
+                      style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} 
+                      onClick={handleExplainDiff}
+                      disabled={isExplainingDiff || !diff || diff === 'Loading diff...'}
+                    >
+                      {isExplainingDiff ? '✨ Explaining...' : '✨ Explain Diff'}
                     </button>
                     <button style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} onClick={() => alert("AI Code Review will be available soon.")}>
                       ✨ Review Changes
                     </button>
                   </div>
                 </div>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', fontFamily: 'monospace', fontSize: '0.85rem', whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
-                  {diff || 'No diff available.'}
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                  {diffExplanation && (
+                    <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.1)', borderBottom: '1px solid rgba(59, 130, 246, 0.3)', color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>✨</span> AI Explanation:
+                      </strong>
+                      <div style={{ marginTop: '8px' }} className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {diffExplanation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ flex: 1, overflow: 'auto', background: 'var(--panel-bg)' }}>
+                    {diff === 'Loading diff...' ? (
+                      <div style={{ padding: '16px', color: 'var(--text-secondary)' }}>Loading diff...</div>
+                    ) : diff ? (
+                      <SyntaxHighlighter
+                        language={selectedFile.split('.').pop() || 'typescript'}
+                        style={vscDarkPlus}
+                        showLineNumbers={true}
+                        wrapLines={true}
+                        customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem' }}
+                        lineProps={(lineNumber: number) => {
+                          const lineStr = diff.split('\n')[lineNumber - 1] || '';
+                          let style: React.CSSProperties = { display: 'block', padding: '0 4px' };
+                          
+                          if (lineStr.startsWith('+')) {
+                            style.backgroundColor = 'rgba(46, 160, 67, 0.2)';
+                          } else if (lineStr.startsWith('-')) {
+                            style.backgroundColor = 'rgba(248, 81, 73, 0.2)';
+                          } else if (lineStr.startsWith('@@')) {
+                            style.color = '#3b82f6';
+                            style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                          }
+                          
+                          return { style };
+                        }}
+                      >
+                        {diff}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <div style={{ padding: '16px', color: 'var(--text-secondary)' }}>No diff available.</div>
+                    )}
+                  </div>
                 </div>
               </>
             )}
@@ -274,10 +419,11 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
             />
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between' }}>
               <button 
-                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '8px 16px', fontSize: '0.85rem', color: '#60a5fa' }}
-                onClick={() => setCommitMessage('Update ' + stagedFiles.map(f => f.file.split('/').pop()).join(', '))}
+                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '8px 16px', fontSize: '0.85rem', color: '#60a5fa', opacity: isGeneratingCommit ? 0.6 : 1 }}
+                onClick={handleGenerateCommit}
+                disabled={isGeneratingCommit || stagedFiles.length === 0}
               >
-                ✨ Generate Commit Message
+                {isGeneratingCommit ? '✨ Generating...' : '✨ Generate Commit Message'}
               </button>
               <button 
                 className="btn-primary" 

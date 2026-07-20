@@ -17,6 +17,7 @@ import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
 import { ContextView } from './components/workspace/ContextView';
+import { AISettings } from './components/AISettings';
 
 function CustomDropdown({
   value,
@@ -613,6 +614,18 @@ function ProjectWorkspace({
             >
               🔄 Changes
             </button>
+            <button
+              className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
+              style={{
+                padding: '6px 12px',
+                minWidth: 'auto',
+                background: activeTab === 'settings' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'settings' ? '#60a5fa' : 'inherit'
+              }}
+              onClick={() => setActiveTab('settings')}
+            >
+              ⚙️ Settings
+            </button>
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -727,11 +740,11 @@ function ProjectWorkspace({
           </div>
         </>
       ) : activeTab === 'context' ? (
-        <ContextView />
+        <ContextView projectId={project.id} activeBackendUrl={activeBackendUrl} messages={messages} />
       ) : activeTab === 'settings' ? (
         <div
           className="settings-view"
-          style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}
+          style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px', flex: 1, minHeight: 0, overflowY: 'auto' }}
         >
           <div className="settings-card glass-panel" style={{ padding: '20px' }}>
             <h3 style={{ marginBottom: '16px' }}>Agent Engine</h3>
@@ -770,12 +783,13 @@ function ProjectWorkspace({
               </div>
             )}
           </div>
+          <AISettings activeBackendUrl={activeBackendUrl} />
         </div>
       ) : null}
 
       {/* Persistent Views (Mounted constantly to preserve local state like inputs) */}
       <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flex: 1, minHeight: 0, position: 'relative', width: '100%', height: '100%' }}>
-        <ChangesView socket={socket} projectId={project.id} />
+        <ChangesView socket={socket} projectId={project.id} activeBackendUrl={activeBackendUrl} />
       </div>
 
       {/* Mobile Bottom Navigation */}

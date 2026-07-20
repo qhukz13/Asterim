@@ -1,6 +1,99 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-export function ContextView() {
+interface ContextViewProps {
+  projectId: string;
+  activeBackendUrl?: string;
+  messages?: any[];
+}
+
+interface ContextFile {
+  path: string;
+  type: 'modified' | 'read-only' | 'suggestion';
+}
+
+export function ContextView({ projectId, activeBackendUrl, messages = [] }: ContextViewProps) {
+  const [activeTask, setActiveTask] = useState('');
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [contextFiles, setContextFiles] = useState<ContextFile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSuggestFiles = async () => {
+    if (!activeTask.trim()) return;
+    setIsSuggesting(true);
+    setError(null);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+      
+      const res = await fetch(`${baseUrl}/api/v1/ai/suggest-files`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ projectId, task: activeTask })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuggestions(data.suggestions || []);
+      } else {
+        setError(data.error || 'Failed to suggest files');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to suggest files');
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  const handleExtractMission = async () => {
+    if (messages.length === 0) {
+      setError('No chat history available to extract a mission from.');
+      return;
+    }
+    
+    setIsExtracting(true);
+    setError(null);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+      
+      const res = await fetch(`${baseUrl}/api/v1/ai/extract-mission`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ projectId, history: messages.slice(-10) })
+      });
+      const data = await res.json();
+      if (res.ok && data.mission) {
+        setActiveTask(data.mission);
+      } else {
+        setError(data.error || 'Failed to extract mission');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to extract mission');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleAddContext = (file: string) => {
+    if (!contextFiles.find(c => c.path === file)) {
+      setContextFiles([...contextFiles, { path: file, type: 'suggestion' }]);
+    }
+    setSuggestions(suggestions.filter(s => s !== file));
+  };
+
+  const handleRemoveContext = (file: string) => {
+    setContextFiles(contextFiles.filter(c => c.path !== file));
+  };
+
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
       
@@ -10,7 +103,19 @@ export function ContextView() {
         <div className="glass-panel" style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '6px' }}>
           <div style={{ color: '#60a5fa', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>✨</span>
-            <span style={{ fontWeight: 500 }}>Active task: Implement Git subsystem and redesign Context/Changes UI.</span>
+            <input 
+              style={{ fontWeight: 500, background: 'transparent', border: 'none', color: 'inherit', width: '100%', outline: 'none' }} 
+              value={activeTask}
+              onChange={(e) => setActiveTask(e.target.value)}
+              placeholder="What are you currently working on?"
+            />
+            <button 
+              onClick={handleExtractMission} 
+              disabled={isExtracting}
+              style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.8rem' }}
+            >
+              {isExtracting ? 'Extracting...' : '✨ Auto-extract'}
+            </button>
           </div>
         </div>
       </div>
@@ -25,37 +130,61 @@ export function ContextView() {
                 Pinned & Active Context
               </h3>
               <button 
-                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.8rem', color: '#60a5fa' }}
-                onClick={() => alert("AI Context Suggestion will be available soon.")}
+                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.8rem', color: '#60a5fa', opacity: isSuggesting ? 0.6 : 1 }}
+                onClick={handleSuggestFiles}
+                disabled={isSuggesting}
               >
-                ✨ Suggest Files
+                {isSuggesting ? '✨ Suggesting...' : '✨ Suggest Files'}
               </button>
             </div>
             
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
-                <span style={{ fontSize: '1.1rem' }}>📄</span>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>App.tsx</span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>apps/web/src/</span>
-                </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--warning-color)', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px' }}>Modified</span>
-                  <button style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>×</button>
-                </div>
+            {error && (
+              <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
+                {error}
               </div>
+            )}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', borderRadius: '4px' }}>
-                <span style={{ fontSize: '1.1rem' }}>📄</span>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>WORKSPACE.md</span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>blueprint/</span>
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px' }}>
+              
+              {suggestions.length > 0 && (
+                <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#60a5fa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Suggestions</div>
+                  {suggestions.map(file => (
+                    <div key={file} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ fontSize: '1rem' }}>✨</span>
+                      <span style={{ color: 'var(--text-primary)' }}>{file}</span>
+                      <button onClick={() => handleAddContext(file)} style={{ marginLeft: 'auto', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', cursor: 'pointer', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>Add</button>
+                    </div>
+                  ))}
                 </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>Read-only</span>
-                  <button style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>×</button>
+              )}
+
+              {contextFiles.length === 0 && (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '8px', textAlign: 'center' }}>
+                  No files added to context yet.
                 </div>
-              </div>
+              )}
+
+              {contextFiles.map((file) => {
+                const parts = file.path.split('/');
+                const filename = parts.pop();
+                const folder = parts.length > 0 ? parts.join('/') + '/' : '';
+                return (
+                  <div key={file.path} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '1.1rem' }}>📄</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>{filename}</span>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{folder}</span>
+                    </div>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                      {file.type === 'modified' && <span style={{ fontSize: '0.75rem', color: 'var(--warning-color)', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px' }}>Modified</span>}
+                      {file.type === 'suggestion' && <span style={{ fontSize: '0.75rem', color: '#60a5fa', padding: '2px 6px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px' }}>Suggestion</span>}
+                      {file.type === 'read-only' && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>Read-only</span>}
+                      <button onClick={() => handleRemoveContext(file.path)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>×</button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           

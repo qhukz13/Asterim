@@ -7,6 +7,10 @@ export class CommitManager {
     await this.provider.exec(`git add "${file}"`, projectPath);
   }
 
+  public async stageAll(projectPath: string): Promise<void> {
+    await this.provider.exec(`git add -A`, projectPath);
+  }
+
   public async unstageFile(projectPath: string, file: string): Promise<void> {
     await this.provider.exec(`git restore --staged "${file}"`, projectPath);
   }

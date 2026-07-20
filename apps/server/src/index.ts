@@ -116,12 +116,14 @@ fastify.get('/health', async () => {
 
 import systemRoutes from './routes/system';
 import authRoutes from './routes/auth';
+import aiRoutes from './routes/ai';
 
 const start = async () => {
   try {
     await fastify.register(authRoutes);
     await fastify.register(projectRoutes);
     await fastify.register(systemRoutes);
+    await fastify.register(aiRoutes);
 
     const port = parseInt(process.env.PORT || '3000', 10);
     await fastify.listen({ port, host: '::' });

@@ -67,6 +67,9 @@ export class GitService {
           case 'stage':
             await this.commit.stageFile(path, payload.file);
             break;
+          case 'stage_all':
+            await this.commit.stageAll(path);
+            break;
           case 'unstage':
             await this.commit.unstageFile(path, payload.file);
             break;
@@ -84,6 +87,9 @@ export class GitService {
             break;
           case 'create_branch':
             await this.branch.createBranch(path, payload.branch);
+            break;
+          case 'get_status':
+            this.lastStatusHash = ''; // Force next poll to emit
             break;
         }
         // Force an immediate poll to update UI

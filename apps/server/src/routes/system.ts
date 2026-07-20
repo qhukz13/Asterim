@@ -41,6 +41,48 @@ export default async function systemRoutes(fastify: FastifyInstance) {
     }
   });
 
+  fastify.get('/api/v1/system/settings', async (request, reply) => {
+    try {
+      const db = dbService.getDb();
+      const query = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'ai_%'");
+      const rows = query.all() as { key: string; value: string }[];
+      const settings = rows.reduce((acc, row) => {
+        acc[row.key] = row.value;
+        return acc;
+      }, {} as Record<string, string>);
+      return { settings };
+    } catch (dbErr) {
+      console.error('[SystemRoute] Failed to fetch settings:', dbErr);
+      reply.status(500).send({ error: 'Failed to fetch settings' });
+    }
+  });
+
+  fastify.post('/api/v1/system/settings', async (request: any, reply) => {
+    try {
+      const { settings } = request.body;
+      const db = dbService.getDb();
+      const insert = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+      
+      db.exec('BEGIN');
+      try {
+        for (const [key, value] of Object.entries(settings)) {
+          if (typeof value === 'string') {
+            insert.run(key, value);
+          }
+        }
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      
+      return { success: true };
+    } catch (dbErr) {
+      console.error('[SystemRoute] Failed to update settings:', dbErr);
+      reply.status(500).send({ error: 'Failed to update settings' });
+    }
+  });
+
   fastify.get('/api/v1/system/vapid', async (request, reply) => {
     return { publicKey: pushService.getPublicKey() };
   });
