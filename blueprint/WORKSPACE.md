@@ -1,8 +1,9 @@
-# Workspace Architecture
+# Asterim Workspace Architecture
 
-## Level 2: Product Requirements
+Asterim is an AI-native Workspace, NOT just another IDE. Traditional IDEs are organized around files. Asterim is organized around developer intent. The user does not think "I need App.tsx", the user thinks "I'm implementing Git". Everything in the UI reinforces this mental model.
 
-- The UI MUST be organized around a persistent Workspace, not temporary pages.
+The Workspace is the primary interface where a user and an AI agent collaborate on a Project.
+It is a layout designed for concurrent AI tasks, minimal UI friction, and deep context management.
 - Every screen MUST reinforce the hierarchy: Workspace -> Projects -> Sessions -> Agent.
 
 ## Purpose
@@ -46,8 +47,27 @@ The context-aware session manager for the selected project.
 
 The primary work area for the selected session.
 
-- **Tabs**: Chat, Terminal, Files, Changes, Logs.
-- **Git/Changes**: The Changes tab is the exclusive location for all version control operations (Status, Diff, Stage, Commit, Push/Pull). Sidebars MUST NOT contain Git controls.
+- **Tabs**: Chat, Terminal, Context, Changes, Logs.
+
+### 3. Context Tab
+Answers the question: "What is the agent currently working with?"
+This replaces the traditional IDE file explorer with an AI-focused context view.
+- **Mission Area**: Explicitly states the active task or goal.
+- **Pinned / Active Context**: A list of files currently being read or modified by the agent, keeping the working set small and focused.
+- **Related Files**: Suggestions or related knowledge bases.
+- **AI Placeholders**: Features like `✨ Suggest Files` or context summarization.
+- **Future Ready**: Built to support Context sharing, Session snapshots, and Knowledge Context without restructuring.
+
+### 4. Changes Tab
+Version control is exposed as a seamless project capability rather than a standalone Git client.
+- **Top Summary Card**: A compact overview showing repository name, current branch, ahead/behind sync status, file counts, and the last commit.
+- **Changed Files List (Left Column, 30%)**: A unified list of all changed files. Each row features a checkbox for staging/unstaging, relative path grouping, and a status badge (M, A, D, R).
+- **Diff Viewer (Right Column, 70%)**: Selecting a file in the left column displays its raw diff here, preparing the DOM for future syntax highlighting.
+- **Commit Panel**: Situated beneath the diff viewer, prioritizing the commit action. Includes a multiline textarea and a "Generate Commit Message" AI action.
+- **Toolbar**: A compact, minimal action bar in the upper right containing Pull, Push, Sync, and Fetch commands.
+
+*Design Principle*: The Changes tab must be calm, minimal, information-dense, and highly readable, avoiding large empty cards and relying on spacing and typography for structure.
+
 - **BottomPrompt**: Persistent input area.
 
 ### 5. Overlay System

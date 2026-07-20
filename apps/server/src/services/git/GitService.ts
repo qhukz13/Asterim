@@ -47,6 +47,23 @@ export class GitService {
 
       try {
         switch (action) {
+          case 'init':
+            await this.repository.initRepository(path);
+            break;
+          case 'get_diff':
+            const diff = await this.diff.getDiff(path, payload.file, payload.staged);
+            eventBus.publish({
+              id: crypto.randomUUID(),
+              timestamp: Date.now(),
+              source: 'system:git',
+              type: 'git.diff',
+              payload: {
+                projectId: this.activeProjectId!,
+                file: payload.file,
+                diff
+              }
+            });
+            break;
           case 'stage':
             await this.commit.stageFile(path, payload.file);
             break;
@@ -108,6 +125,22 @@ export class GitService {
     try {
       const isRepo = await this.repository.isRepository(this.activeProjectPath);
       if (!isRepo) {
+        // Emit special non-repo status so frontend can offer initialization
+        const statusHash = 'not-a-repo';
+        if (statusHash !== this.lastStatusHash) {
+          this.lastStatusHash = statusHash;
+          eventBus.publish({
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+            source: 'system:git',
+            type: 'git.status',
+            payload: {
+              projectId: this.activeProjectId,
+              isRepo: false,
+              status: null
+            }
+          });
+        }
         return;
       }
 
@@ -124,6 +157,7 @@ export class GitService {
           type: 'git.status',
           payload: {
             projectId: this.activeProjectId,
+            isRepo: true,
             status
           }
         });

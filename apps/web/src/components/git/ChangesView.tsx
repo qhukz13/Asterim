@@ -11,6 +11,8 @@ export interface FileStatus {
 export interface RepoStatus {
   branch: string;
   files: FileStatus[];
+  syncStatus?: string;
+  lastCommit?: string;
 }
 
 interface ChangesViewProps {
@@ -20,14 +22,19 @@ interface ChangesViewProps {
 
 export function ChangesView({ socket, projectId }: ChangesViewProps) {
   const [status, setStatus] = useState<RepoStatus | null>(null);
+  const [isRepo, setIsRepo] = useState<boolean | null>(null);
   const [commitMessage, setCommitMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
+  
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [diff, setDiff] = useState<string>('');
 
   useEffect(() => {
     if (!socket) return;
 
     const onGitStatus = (event: any) => {
       if (event.payload?.projectId === projectId) {
+        setIsRepo(event.payload.isRepo);
         setStatus(event.payload.status);
         setError(null);
       }
@@ -38,17 +45,25 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
         setError(event.payload.error);
       }
     };
+    
+    const onGitDiff = (event: any) => {
+      if (event.payload?.projectId === projectId && event.payload?.file === selectedFile) {
+        setDiff(event.payload.diff);
+      }
+    };
 
     socket.on('git.status', onGitStatus);
     socket.on('git.error', onGitError);
+    socket.on('git.diff', onGitDiff);
 
     return () => {
       socket.off('git.status', onGitStatus);
       socket.off('git.error', onGitError);
+      socket.off('git.diff', onGitDiff);
     };
-  }, [socket, projectId]);
+  }, [socket, projectId, selectedFile]);
 
-  const sendAction = (action: string, payload: any) => {
+  const sendAction = (action: string, payload: any = {}) => {
     if (!socket) return;
     socket.emit('client_event', {
       type: 'git.action',
@@ -56,19 +71,42 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
     });
   };
 
+  const handleInit = () => sendAction('init');
   const handleStage = (file: string) => sendAction('stage', { file });
   const handleUnstage = (file: string) => sendAction('unstage', { file });
+  const handleToggleStage = (f: FileStatus) => {
+    if (f.staged) handleUnstage(f.file);
+    else handleStage(f.file);
+  };
   const handleCommit = () => {
     if (!commitMessage.trim()) return;
     sendAction('commit', { message: commitMessage });
     setCommitMessage('');
   };
-  const handlePush = () => sendAction('push', {});
-  const handlePull = () => sendAction('pull', {});
+  const handlePush = () => sendAction('push');
+  const handlePull = () => sendAction('pull');
+  
+  const handleSelectFile = (f: FileStatus) => {
+    setSelectedFile(f.file);
+    setDiff('Loading diff...');
+    sendAction('get_diff', { file: f.file, staged: f.staged });
+  };
+
+  if (isRepo === false) {
+    return (
+      <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-secondary)' }}>
+        <h2 style={{ marginBottom: '16px', color: 'var(--text-primary)' }}>Not a Git Repository</h2>
+        <p style={{ marginBottom: '24px' }}>This project is not currently tracked by version control.</p>
+        <button className="btn-primary" style={{ padding: '8px 16px' }} onClick={handleInit}>
+          Initialize Repository
+        </button>
+      </div>
+    );
+  }
 
   if (!status) {
     return (
-      <div style={{ padding: '20px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+      <div style={{ padding: '40px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
         Loading repository status...
       </div>
     );
@@ -76,81 +114,182 @@ export function ChangesView({ socket, projectId }: ChangesViewProps) {
 
   const stagedFiles = status.files.filter(f => f.staged);
   const unstagedFiles = status.files.filter(f => !f.staged);
+  
+  // Repo Name logic (fallback to project id if path not available easily)
+  const repoName = projectId.split('/').pop() || projectId;
 
   return (
-    <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%' }}>
-      <div className="glass-panel" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <strong>Current Branch:</strong> <span style={{ marginLeft: '8px', color: '#60a5fa' }}>{status.branch}</span>
+    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+      
+      {/* Top Summary Card & Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{repoName}</h2>
+          <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <span style={{ color: 'var(--accent-hover)' }}>{status.branch}</span>
+            {status.syncStatus && <span>{status.syncStatus}</span>}
+            <span>{status.files.length} changed ({stagedFiles.length} staged, {unstagedFiles.length} unstaged)</span>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            <span style={{ opacity: 0.7 }}>Last commit:</span> {status.lastCommit || 'No commits yet'}
+          </div>
         </div>
+        
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn-secondary" onClick={handlePull}>Pull</button>
-          <button className="btn-primary" onClick={handlePush}>Push</button>
+          <button style={{ background: 'transparent', border: '1px solid var(--panel-border)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--text-secondary)' }} onClick={handlePull}>Pull</button>
+          <button style={{ background: 'transparent', border: '1px solid var(--panel-border)', borderRadius: '4px', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--text-secondary)' }} onClick={handlePush}>Push</button>
         </div>
       </div>
 
       {error && (
-        <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--color-error-primary)', borderRadius: '8px' }}>
+        <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: '6px', fontSize: '0.9rem' }}>
           {error}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '20px', flex: 1, minHeight: 0 }}>
-        {/* Left Column: Files */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
-          <div className="glass-panel" style={{ padding: '16px' }}>
-            <h3 style={{ marginBottom: '12px' }}>Staged Changes ({stagedFiles.length})</h3>
-            {stagedFiles.length === 0 && <div style={{ opacity: 0.5 }}>No staged changes</div>}
-            {stagedFiles.map(f => (
-              <div key={f.file} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span>{f.file}</span>
-                <button className="btn-secondary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => handleUnstage(f.file)}>Unstage</button>
+      {/* Two-Column Layout */}
+      <div style={{ display: 'flex', gap: '24px', flex: 1, minHeight: 0 }}>
+        
+        {/* LEFT COLUMN: Changed Files (30%) */}
+        <div style={{ flex: '0 0 32%', display: 'flex', flexDirection: 'column', overflowY: 'auto', borderRight: '1px solid var(--panel-border)', paddingRight: '16px' }}>
+          <h3 style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+            Changed Files
+          </h3>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {status.files.length === 0 && (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '8px 0' }}>
+                No working tree changes
               </div>
-            ))}
-          </div>
+            )}
+            {status.files.map(f => {
+              const isSelected = selectedFile === f.file;
+              
+              // Simple change badge logic
+              let badge = 'M';
+              let badgeColor = 'var(--accent-hover)';
+              if (f.untracked) {
+                badge = 'A';
+                badgeColor = 'var(--success-color)';
+              }
+              // You can expand this logic for D (deleted), R (renamed), etc.
+              
+              const parts = f.file.split('/');
+              const filename = parts.pop();
+              const folder = parts.length > 0 ? parts.join('/') + '/' : '';
 
-          <div className="glass-panel" style={{ padding: '16px' }}>
-            <h3 style={{ marginBottom: '12px' }}>Unstaged Changes ({unstagedFiles.length})</h3>
-            {unstagedFiles.length === 0 && <div style={{ opacity: 0.5 }}>No unstaged changes</div>}
-            {unstagedFiles.map(f => (
-              <div key={f.file} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ color: f.untracked ? 'var(--color-warning-primary)' : 'inherit' }}>
-                  {f.untracked ? '[NEW] ' : ''}{f.file}
-                </span>
-                <button className="btn-secondary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => handleStage(f.file)}>Stage</button>
-              </div>
-            ))}
+              return (
+                <div 
+                  key={f.file} 
+                  onClick={() => handleSelectFile(f)}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '6px 8px', 
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    background: isSelected ? 'rgba(255,255,255,0.06)' : 'transparent',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  <div 
+                    onClick={(e) => { e.stopPropagation(); handleToggleStage(f); }}
+                    style={{ 
+                      width: '16px', height: '16px', 
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: '1px solid var(--text-secondary)', borderRadius: '3px',
+                      cursor: 'pointer',
+                      color: f.staged ? 'var(--accent-hover)' : 'transparent',
+                      background: f.staged ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
+                    }}
+                  >
+                    {f.staged && '✓'}
+                  </div>
+                  
+                  <div style={{ fontWeight: 600, color: badgeColor, fontSize: '0.75rem', width: '12px', textAlign: 'center' }}>
+                    {badge}
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    <span style={{ color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden' }}>{filename}</span>
+                    {folder && <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', textOverflow: 'ellipsis', overflow: 'hidden' }}>{folder}</span>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Right Column: Commit Box */}
-        <div className="glass-panel" style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ marginBottom: '12px' }}>Commit</h3>
-          <textarea 
-            style={{ 
-              flex: 1, 
-              width: '100%', 
-              background: 'rgba(0,0,0,0.3)', 
-              color: 'white', 
-              border: '1px solid var(--color-border-default)', 
-              borderRadius: '8px',
-              padding: '12px',
-              resize: 'none',
-              marginBottom: '16px',
-              fontFamily: 'inherit'
-            }}
-            placeholder="Commit message..."
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-          />
-          <button 
-            className="btn-primary" 
-            style={{ padding: '12px', fontWeight: 'bold', width: '100%' }} 
-            onClick={handleCommit}
-            disabled={stagedFiles.length === 0 || commitMessage.trim() === ''}
-          >
-            Commit Staged
-          </button>
+        {/* RIGHT COLUMN: Diff Viewer & Commit Panel (68%) */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+          
+          {/* Diff Viewer */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel-bg)', borderRadius: '6px', border: '1px solid var(--panel-border)' }}>
+            {!selectedFile ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Select a file to view its diff
+              </div>
+            ) : (
+              <>
+                {/* Diff Header with AI Actions */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--panel-border)', background: 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {selectedFile.split('/').pop()}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} onClick={() => alert("AI Diff Explanation will be available soon.")}>
+                      ✨ Explain Diff
+                    </button>
+                    <button style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} onClick={() => alert("AI Code Review will be available soon.")}>
+                      ✨ Review Changes
+                    </button>
+                  </div>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', fontFamily: 'monospace', fontSize: '0.85rem', whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
+                  {diff || 'No diff available.'}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Commit Panel */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <textarea 
+              style={{ 
+                width: '100%', 
+                height: '80px',
+                background: 'var(--panel-bg)', 
+                color: 'var(--text-primary)', 
+                border: '1px solid var(--panel-border)', 
+                borderRadius: '6px',
+                padding: '12px',
+                resize: 'none',
+                fontFamily: 'inherit',
+                fontSize: '0.9rem'
+              }}
+              placeholder="Commit message..."
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between' }}>
+              <button 
+                style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '8px 16px', fontSize: '0.85rem', color: '#60a5fa' }}
+                onClick={() => setCommitMessage('Update ' + stagedFiles.map(f => f.file.split('/').pop()).join(', '))}
+              >
+                ✨ Generate Commit Message
+              </button>
+              <button 
+                className="btn-primary" 
+                style={{ padding: '8px 24px', fontWeight: 600 }} 
+                onClick={handleCommit}
+                disabled={stagedFiles.length === 0 || commitMessage.trim() === ''}
+              >
+                Commit Staged
+              </button>
+            </div>
+          </div>
+          
         </div>
       </div>
     </div>

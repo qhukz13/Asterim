@@ -16,6 +16,7 @@ import { useProjects, Project } from './hooks/useProjects';
 import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
+import { ContextView } from './components/workspace/ContextView';
 
 function CustomDropdown({
   value,
@@ -497,7 +498,7 @@ function ProjectWorkspace({
   );
   const isBinaryMissing =
     systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
-  const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'files' | 'changes' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'terminal' | 'context' | 'changes' | 'settings'>('chat');
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
@@ -589,16 +590,16 @@ function ProjectWorkspace({
               ⌨️ Terminal
             </button>
             <button
-              className={`nav-btn ${activeTab === 'files' ? 'active' : ''}`}
+              className={`nav-btn ${activeTab === 'context' ? 'active' : ''}`}
               style={{
                 padding: '6px 12px',
                 minWidth: 'auto',
-                background: activeTab === 'files' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                color: activeTab === 'files' ? '#60a5fa' : 'inherit'
+                background: activeTab === 'context' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                color: activeTab === 'context' ? '#60a5fa' : 'inherit'
               }}
-              onClick={() => setActiveTab('files')}
+              onClick={() => setActiveTab('context')}
             >
-              📁 Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+              🧠 Context {fileChanges.length > 0 && `(${fileChanges.length})`}
             </button>
             <button
               className={`nav-btn ${activeTab === 'changes' ? 'active' : ''}`}
@@ -725,45 +726,8 @@ function ProjectWorkspace({
             />
           </div>
         </>
-      ) : activeTab === 'files' ? (
-        <div className="file-list" style={{ padding: '0 20px 20px 20px' }}>
-          {fileChanges.length === 0 ? (
-            <div
-              style={{
-                opacity: 0.5,
-                textAlign: 'center',
-                marginTop: '40px',
-                color: 'var(--color-text-secondary)'
-              }}
-            >
-              No file changes detected yet.
-            </div>
-          ) : (
-            fileChanges.map((fc, idx) => (
-              <div key={idx} className="file-item">
-                <div className="file-item-header">
-                  <span>{fc.filePath}</span>
-                  <span
-                    style={{
-                      color:
-                        fc.changeType === 'added'
-                          ? 'var(--color-success-primary)'
-                          : fc.changeType === 'deleted'
-                            ? 'var(--color-error-primary)'
-                            : 'var(--color-warning-primary)',
-                      textTransform: 'uppercase',
-                      fontSize: '0.75rem',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    {fc.changeType}
-                  </span>
-                </div>
-                {fc.diff && <div className="diff-content">{fc.diff}</div>}
-              </div>
-            ))
-          )}
-        </div>
+      ) : activeTab === 'context' ? (
+        <ContextView />
       ) : activeTab === 'changes' ? (
         <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
           <ChangesView socket={socket} projectId={project.id} />
@@ -828,10 +792,10 @@ function ProjectWorkspace({
           Terminal
         </div>
         <div
-          className={`nav-item ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => setActiveTab('files')}
+          className={`nav-item ${activeTab === 'context' ? 'active' : ''}`}
+          onClick={() => setActiveTab('context')}
         >
-          Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+          Context {fileChanges.length > 0 && `(${fileChanges.length})`}
         </div>
         <div
           className={`nav-item ${activeTab === 'changes' ? 'active' : ''}`}
