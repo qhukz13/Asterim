@@ -27,10 +27,12 @@ To build the definitive control plane for autonomous AI coding agents, providing
 | P1-008 | Low      | ESLint + Prettier Configuration across all apps | None         | Done    |
 | P1-009 | High     | CI Pipeline for automated PR checks             | None         | Done    |
 | P1-010 | High     | Windows PATH and Spaces Fix for PTY             | None         | Done    |
+| P1-011 | High     | AI Backend Logic for Context & Changes Buttons  | None         | Todo    |
 
 ## Next Milestones
 
-1. **Phase 5: Cloud Features**: Cloud relay server implementation, E2E encryption, global remote push notifications.
+1. **AI Integration Phase**: Implement backend logic (LLM integration, FileService tracking) to power the Context and Changes UI placeholders (`✨ Generate Commit`, `✨ Explain Diff`, `✨ Suggest Files`).
+2. **Phase 5: Cloud Features**: Cloud relay server implementation, E2E encryption, global remote push notifications.
    - *Note on Push Notifications*: Local LAN access (e.g. `192.168.x.x`) currently does not support Push Notifications due to browser secure-context (HTTPS) requirements. We rely on `localhost` exception for local dev. Remote Push via LAN will be unlocked when the Cloud Relay is implemented in this phase.
 2. **Phase 6: Commercial Release**: Standalone binaries, marketing site, telemetry, public beta.
 3. **Phase 7: SaaS Platform**: Subscriptions, multi-thread chat, advanced diff viewer.
