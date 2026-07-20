@@ -728,10 +728,6 @@ function ProjectWorkspace({
         </>
       ) : activeTab === 'context' ? (
         <ContextView />
-      ) : activeTab === 'changes' ? (
-        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-          <ChangesView socket={socket} projectId={project.id} />
-        </div>
       ) : activeTab === 'settings' ? (
         <div
           className="settings-view"
@@ -776,6 +772,11 @@ function ProjectWorkspace({
           </div>
         </div>
       ) : null}
+
+      {/* Persistent Views (Mounted constantly to preserve local state like inputs) */}
+      <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flex: 1, minHeight: 0, position: 'relative', width: '100%', height: '100%' }}>
+        <ChangesView socket={socket} projectId={project.id} />
+      </div>
 
       {/* Mobile Bottom Navigation */}
       <nav className="bottom-nav">
