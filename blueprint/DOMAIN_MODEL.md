@@ -15,9 +15,9 @@ The fundamental concepts of Asterim follow this hierarchy:
   - **Projects**
     - **Git Subsystem**
     - **Threads**
-      - **Sessions**
-        - **Agent**
       - **Context**
+      - **AgentExecution**
+        - **Agent**
       - **Events** (Timeline/History)
       - **Terminal**
       - **Approvals**
@@ -63,7 +63,7 @@ Implemented via `WorkstationConfig` and `mDNSService.ts`. Currently primarily us
 Bounds the context of an agent's work to a specific software repository or directory.
 #### Responsibilities
 - **Owns:** The absolute path on the Workstation, the Git Subsystem, and Threads.
-- **Never owns:** Agent configuration (owned by Workspace/Thread) or actual agent processes (owned by Session).
+- **Never owns:** Agent configuration (owned by Workspace/Thread) or actual agent processes (owned by AgentExecution).
 #### Lifecycle
 - **Created:** By the user adding a local folder.
 - **Changed:** When renamed or relocated.
@@ -92,25 +92,25 @@ Implemented in `GitService.ts` and related managers.
 
 ### Thread
 #### Purpose
-Represents a persistent conversation and goal-oriented timeline within a Project.
+Represents a persistent, long-lived conversation and goal-oriented mission within a Project. A Thread may live for days or weeks, representing an ongoing line of work. It is the primary unit of continuity in Asterim.
 #### Responsibilities
 - **Owns:** The logical continuity of work, Events (history), Context, Terminals, and Approvals.
-- **Never owns:** The physical AI process (owned by Session).
+- **Never owns:** The physical AI process (owned by AgentExecution).
 #### Lifecycle
-- **Created:** Automatically created on Project creation (Main Session), or explicitly by the user for parallel tasks.
-- **Changed:** When new events (messages, actions) are appended.
+- **Created:** Automatically created on Project creation (Main Thread), or explicitly by the user for parallel tasks.
+- **Changed:** When new events (messages, actions) are appended, or when Context is updated.
 - **Destroyed:** When deleted by the user.
 #### Relationships
 - **Parent:** Project.
-- **Children:** Sessions, Context, Events, Terminal, Approvals.
+- **Children:** Context, AgentExecutions, Events, Terminal, Approvals.
 #### Current State
-Implemented in `DatabaseService` (as `threads` table). *Note: The UI often refers to this concept as "Session", creating a naming collision with the backend's "Session" entity.*
+Implemented in `DatabaseService` (as `threads` table). The UI currently refers to Threads as "Sessions" in some places — this will be aligned during the terminology migration phase.
 
-### Session
+### AgentExecution
 #### Purpose
-Represents the transient, active execution of an AI agent process within a Thread.
+Represents a single, transient execution of an AI agent process within a Thread. Multiple AgentExecutions may belong to the same Thread over time (e.g., after crashes, restarts, or new prompts following idle periods).
 #### Responsibilities
-- **Owns:** The process ID (PID), startup time, and execution status (running, stopped, crashed).
+- **Owns:** The process ID (PID), startup time, execution status (running, stopped, crashed), and the agent type used.
 - **Never owns:** The chat history or project state (owned by Thread and Project).
 #### Lifecycle
 - **Created:** When the user starts the agent in a Thread.
@@ -120,7 +120,7 @@ Represents the transient, active execution of an AI agent process within a Threa
 - **Parent:** Thread.
 - **Children:** Agent.
 #### Current State
-Implemented in `AgentService.ts` and the `sessions` table.
+Implemented in `AgentService.ts` and the `sessions` table (to be renamed to `agent_executions` during terminology migration).
 
 ### Agent
 #### Purpose
@@ -131,27 +131,34 @@ The active AI engine executing the work (e.g., Aider, Claude, Antigravity).
 #### Lifecycle
 - **Created:** Instantiated by the `SessionManager` via an adapter.
 - **Changed:** Receives stdin and configuration changes.
-- **Destroyed:** When the Session stops.
+- **Destroyed:** When the AgentExecution stops.
 #### Relationships
-- **Parent:** Session.
+- **Parent:** AgentExecution.
 - **Children:** None.
 #### Current State
 Implemented via `IAgentAdapter` in `packages/shared/src/adapters.ts`.
 
 ### Context
 #### Purpose
-Tracks what the agent is currently working with, replacing the traditional IDE file explorer.
+The first-class entity that tracks what the agent is currently working with, replacing the traditional IDE file explorer. Context is the bridge between the user's intent and the agent's execution — it defines the "working set" for a Thread.
 #### Responsibilities
-- **Owns:** The active mission description, pinned files, and the working set of files being read/modified.
-- **Never owns:** The files themselves.
+- **Owns:** The active mission description, pinned files, the working set of files being read/modified, and related knowledge references.
+- **Never owns:** The files themselves (only references to them).
 #### Lifecycle
-- **Created:** Implicitly exists within a Thread.
-- **Changed:** By the Agent reading files or the user pinning context.
-- **Destroyed:** Cleared when the task is complete or the thread is reset.
+- **Created:** Explicitly initialized when a Thread is created. Starts empty.
+- **Changed:** By the Agent reading/modifying files, by the user pinning/unpinning items, or by AI-suggested context additions.
+- **Destroyed:** Cleared when the thread is reset. Historical context states are preserved for versioning.
 #### Relationships
 - **Parent:** Thread.
+- **Children:** None (contains data, not child entities).
+#### Design Requirements
+Context MUST support:
+- **Persistence:** Stored in the backend database, not derived from transient frontend state.
+- **Synchronization:** Changes are broadcast to all connected clients via the EventBus.
+- **Restoration:** On reconnect or app restart, the exact Context state is restored from the database.
+- **Future History/Versioning:** The schema should be designed to support snapshotting Context at key moments (e.g., before/after an AgentExecution) for future rollback and audit capabilities.
 #### Current State
-Partially implemented. Currently inferred from UI state and recent events, but lacks a strict backend model.
+**Missing.** Currently inferred from UI state and recent events. No backend table or API exists. This is the highest-priority architectural gap.
 
 ### Event
 #### Purpose
@@ -192,8 +199,8 @@ If Context belonged to the Project, multiple concurrent agents (parallel tasks) 
 ### Why does Git belong to Project instead of Workspace?
 Git tracks the state of a specific repository. A Workspace can contain multiple independent repositories (Projects), each with its own branch, commit history, and remote.
 
-### Why do Sessions belong to Threads?
-A Thread represents the persistent, logical intent (the "chat history" and "goal"). A Session represents the physical execution of the AI tool trying to achieve that goal. If an agent crashes, a new Session is created within the same Thread to resume work, preserving the context and history.
+### Why do AgentExecutions belong to Threads?
+A Thread represents the persistent, long-lived mission (the "conversation" and "goal"). An AgentExecution represents a single physical execution of the AI tool trying to achieve that goal. If an agent crashes, a new AgentExecution is created within the same Thread to resume work. Multiple executions naturally accumulate over the lifetime of a Thread — this is the correct model because the Thread's identity and history survive any individual process.
 
 ### Why do Approvals belong to Threads?
 Approvals are blocking requests made by an agent during its execution to achieve a specific thread's goal. They are part of the timeline of events for that task.
@@ -204,20 +211,54 @@ Approvals are blocking requests made by an agent during its execution to achieve
 
 During the domain discovery process, the following structural misalignments between the current implementation and the ideal domain model were identified:
 
-1. **Duplicated / Conflicting Concepts (`Thread` vs `Session`)**
-   - **Problem:** The UI Blueprint (`WORKSPACE.md`) refers to "Sessions" (Main Session vs Parallel Sessions) as the persistent container for work. However, the Backend Database uses `Thread` for the persistent container and `Session` for transient process execution. 
-   - **Impact:** Cognitive overload and naming collisions. The UI is coupled to a different semantic meaning than the backend.
-   - **Recommendation:** Rename the backend `Thread` to `Session`, and rename the backend `Session` to `Execution` or `ProcessRun` to align with the UI semantics.
+1. **Terminology Misalignment (`Session` table → `AgentExecution`)**
+   - **Problem:** The backend `sessions` table currently represents transient process executions, but the name "session" collides with the UI terminology where "Session" sometimes refers to the long-lived Thread concept.
+   - **Decision:** The backend `sessions` table will be renamed to `agent_executions` to clearly distinguish it from the persistent Thread. This is mechanical work to be performed after the architecture stabilizes.
+   - **Status:** Deferred to Phase 4.
 
 2. **Context is Not a First-Class Backend Entity**
-   - **Problem:** The Context (pinned files, working set) is vital to the UI design but lacks a dedicated table or strict backend state manager. It is currently implicitly derived or handled purely in the frontend.
-   - **Impact:** Makes cross-device syncing or deep-linking to an exact context state difficult.
-   - **Recommendation:** Formalize `Context` in `DatabaseService.ts` as a child of the Thread/Session.
+   - **Problem:** The Context (pinned files, working set) is vital to the domain model but lacks a dedicated table or backend state manager. It exists only as transient frontend state.
+   - **Impact:** Makes persistence, cross-device syncing, state restoration, and future versioning impossible.
+   - **Decision:** Formalize `Context` in `DatabaseService.ts` as a first-class child of Thread with persistence, synchronization, restoration, and future versioning support.
+   - **Status:** Highest priority. Phase 1.
 
 3. **EventBus Wildcard Fragility (ADR-008)**
    - **Problem:** As noted in `ARCHITECTURE.md`, the Node `EventEmitter` is using a hacky literal `'*'` string convention for global logging.
    - **Impact:** Brittle architecture that will fail as event complexity scales.
+   - **Decision:** Replace with a lightweight typed event bus or simple pub/sub solution. Avoid heavy dependencies like RxJS unless strongly justified.
+   - **Status:** To be evaluated. Not blocking Phase 1.
 
 4. **Terminal UI Coupling**
    - **Problem:** The frontend Terminal implementation is currently tightly coupled to `node-pty` payloads (`client.terminal_input`, `terminal.data`).
    - **Impact:** Leaks backend implementation details into the frontend, making it harder to swap the agent's CLI runner or support different terminal models.
+   - **Status:** To be addressed during Phase 3 (component refactoring).
+
+---
+
+## Implementation Roadmap
+
+The following phased approach establishes the correct architecture before performing mechanical migrations.
+
+### Phase 1: Formalize Context as a First-Class Domain Entity
+- Design and create the `context_items` table in SQLite, linked to Threads.
+- Implement a `ContextService` on the backend that manages persistence and broadcasts changes via EventBus.
+- Expose REST/WebSocket APIs for Context CRUD operations.
+- Design the schema with future history/versioning in mind (e.g., snapshot timestamps, version counters).
+
+### Phase 2: Align Frontend State Ownership
+- Refactor the frontend stores to strictly match the domain hierarchy:
+  - `WorkspaceStore` → owns Projects and Workstations.
+  - `ProjectStore` → owns Threads and Git Subsystem state.
+  - `ThreadStore` → owns Context, Events, AgentExecution state, and Approvals.
+- Ensure Context state is driven by the backend, not derived from transient UI state.
+
+### Phase 3: Refactor Components to Follow the Domain Hierarchy
+- Decouple the Terminal UI from `node-pty` specifics.
+- Ensure each UI panel maps to exactly one domain level (Left Sidebar = Workspace, Center Sidebar = Project, Main Area = Thread).
+- Eliminate any component that reaches across domain boundaries.
+
+### Phase 4: Terminology & Database Migrations
+- Rename the `sessions` table to `agent_executions`.
+- Update all backend service references (`SessionManager` → `ExecutionManager`, etc.).
+- Align the UI copy to use "Thread" consistently for the long-lived concept.
+- Update API routes and WebSocket event types to match the new terminology.

@@ -5,7 +5,7 @@ This document describes how the UI layout and interaction model of Asterim natur
 ## The Core Principle
 
 The Asterim Workspace UI is a direct, visual projection of the Domain Model hierarchy:
-**Workspace → Projects → Threads (UI: "Sessions")**
+**Workspace → Projects → Threads**
 
 Navigation must always flow from the broadest domain context (left) to the most specific execution context (right).
 
@@ -22,7 +22,7 @@ The Left Sidebar is the entry point for the **Workspace** entity.
 ### Center Sidebar: The Project Level
 The Center Sidebar represents the currently selected **Project** entity.
 - **Content:** Displays the collection of **Threads** (children of the Project), as well as project-level services like the **Git Subsystem** summary.
-- **Responsibility:** Allows the user to select the active Thread (e.g., Main Session vs Parallel Task) or view high-level project status.
+- **Responsibility:** Allows the user to select the active Thread (e.g., Main Thread vs Parallel Threads) or view high-level project status.
 - **Emergence:** Because a Project owns its Threads and Git state, this panel scopes all actions to the repository selected in the Left Sidebar.
 
 ### Main Workspace: The Thread Level
@@ -45,7 +45,7 @@ State management MUST strictly follow the domain hierarchy to prevent data leaka
 
 - **Global Store (Workspace Context):** Owns the list of known Workstations and Projects. Fetched on application load.
 - **Project Store (Project Context):** Initialized when a Project is selected. Owns the Git Subsystem state (current branch, uncommitted changes) and the list of Threads.
-- **Thread Store (Thread Context):** Initialized when a Thread is selected. Owns the Event timeline, the active Context (pinned files), and the state of the active Session (the running agent process).
+- **Thread Store (Thread Context):** Initialized when a Thread is selected. Owns the Event timeline, the active Context (pinned files), and the state of the active AgentExecution (the running agent process).
 
 *Crucial Rule:* A Thread Store must never mutate the Project Store's Git state directly; it must emit a command that the Project-level Git Subsystem handles.
 
