@@ -5,13 +5,13 @@ import {
   ClientCommandPayload,
   ClientApprovalResponsePayload
 } from '@asterim/shared';
-import { AiderAdapter, ClaudeAdapter, AntigravityAdapter } from '@asterim/adapters';
+import { SessionManager, globalProviderRegistry } from '@asterim/adapters';
 import { WorkspaceMonitor } from './workspaceMonitor';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 
 export class AgentService {
-  private activeAdapters = new Map<string, IAgentAdapter>(); // Keyed by threadId
+  private sessionManager = new SessionManager();
   private workspaceMonitors = new Map<string, WorkspaceMonitor>(); // Keyed by projectId
   private activeSessions = new Map<string, string>(); // threadId -> sessionId
   private crashCounts = new Map<string, { count: number; lastCrash: number }>(); // threadId
@@ -82,10 +82,7 @@ export class AgentService {
       try {
         const { data, threadId } = event.payload;
         if (!threadId) return;
-        const adapter = this.activeAdapters.get(threadId);
-        if (adapter && adapter.writeStdin) {
-          adapter.writeStdin(data);
-        }
+        this.sessionManager.writeStdin(threadId, data);
       } catch (err) {
         console.error('[AgentService] Error processing stdin:', err);
       }
@@ -114,10 +111,7 @@ export class AgentService {
           await this.pendingStarts.get(threadId);
         }
 
-        const adapter = this.activeAdapters.get(threadId);
-        if (adapter && adapter.sendCommand) {
-          await adapter.sendCommand(content);
-        }
+        await this.sessionManager.sendCommand(threadId, content);
       } catch (err) {
         console.error('[AgentService] Error processing chat message:', err);
       }
@@ -130,9 +124,9 @@ export class AgentService {
         const db = dbService.getDb();
         db.prepare('DELETE FROM events WHERE thread_id = ?').run(threadId);
 
-        const adapter = this.activeAdapters.get(threadId);
+        const adapter = this.sessionManager.getSessionAdapter(threadId);
         if (adapter) {
-          adapter.sendCommand('/clear');
+          this.sessionManager.sendCommand(threadId, '/clear');
           // We do not stop the adapter here, because we want it to stay alive
           // with a clean history.
           eventBus.publish({
@@ -155,7 +149,7 @@ export class AgentService {
     workspace: string,
     agentType: 'aider' | 'claude' | 'antigravity'
   ) {
-    if (this.activeAdapters.has(threadId)) {
+    if (this.sessionManager.getSessionAdapter(threadId)) {
       console.log(`[AgentService] Agent already running for thread ${threadId}`);
       return;
     }
@@ -181,38 +175,24 @@ export class AgentService {
       return;
     }
 
-    const adapter =
-      agentType === 'claude'
-        ? new ClaudeAdapter()
-        : agentType === 'antigravity'
-          ? new AntigravityAdapter()
-          : new AiderAdapter();
-
-    this.activeAdapters.set(threadId, adapter);
-
-    adapter.onEvent((event: AsterimEvent) => {
-      event.payload = { ...event.payload, projectId, threadId };
-      eventBus.publish(event);
-    });
-
     try {
       const { approvalManager } = await import('./ApprovalManager');
       const { questionManager } = await import('./QuestionManager');
-      await adapter.start({
-        workspace,
-        requestApproval: (desc, cmd) => approvalManager.requestApproval(projectId, desc, cmd),
-        requestQuestion: (q, opts) => questionManager.requestQuestion(projectId, q, opts),
-        onExit: async exitCode => {
-          if (this.activeAdapters.has(threadId) && this.activeAdapters.get(threadId) !== adapter) {
-            // A new adapter has already been started for this thread, ignore this old adapter's exit.
-            return;
-          }
-
+      await this.sessionManager.startSession(
+        agentType,
+        threadId,
+        { workspace },
+        (event: AsterimEvent) => {
+          event.payload = { ...event.payload, projectId, threadId };
+          eventBus.publish(event);
+        },
+        async (exitCode) => {
+          // If the session manager no longer tracks it, it means it was stopped
+          // or a new one started. But we can check userStopped.
           const wasUserStopped = this.userStopped.has(threadId);
           if (wasUserStopped) {
             this.userStopped.delete(threadId);
             this.activeSessions.delete(threadId);
-            this.activeAdapters.delete(threadId);
             return;
           }
 
@@ -231,7 +211,6 @@ export class AgentService {
             this.activeSessions.delete(threadId);
           }
 
-          this.activeAdapters.delete(threadId);
           const monitor = this.workspaceMonitors.get(projectId);
           if (monitor) {
             await monitor.stop();
@@ -247,9 +226,6 @@ export class AgentService {
               this.crashCounts.set(threadId, { count: nextCount, lastCrash: Date.now() });
               const delay = nextCount * 2000;
 
-              const lastOutput = adapter.getLastOutput ? adapter.getLastOutput() : '';
-              const outputMsg = lastOutput ? `\n\nLast Output:\n\`\`\`\n${lastOutput}\n\`\`\`` : '';
-
               eventBus.publish({
                 id: crypto.randomUUID(),
                 timestamp: Date.now(),
@@ -257,7 +233,7 @@ export class AgentService {
                 type: 'agent.status',
                 payload: {
                   status: 'error',
-                  message: `⚠️ **System Error**: Agent crashed. Auto-restarting (attempt ${nextCount}/3) in ${delay / 1000}s...${outputMsg}`,
+                  message: `⚠️ **System Error**: Agent crashed. Auto-restarting (attempt ${nextCount}/3) in ${delay / 1000}s...`,
                   projectId,
                   threadId
                 }
@@ -274,9 +250,6 @@ export class AgentService {
               this.crashCounts.delete(threadId);
               this.adapterConfigs.delete(threadId);
 
-              const lastOutput = adapter.getLastOutput ? adapter.getLastOutput() : '';
-              const outputMsg = lastOutput ? `\n\nLast Output:\n\`\`\`\n${lastOutput}\n\`\`\`` : '';
-
               eventBus.publish({
                 id: crypto.randomUUID(),
                 timestamp: Date.now(),
@@ -284,7 +257,7 @@ export class AgentService {
                 type: 'agent.status',
                 payload: {
                   status: 'error',
-                  message: `⚠️ **System Error**: Agent crashed repeatedly and cannot be restarted. Please verify that the agent CLI is installed and available in your PATH.${outputMsg}`,
+                  message: `⚠️ **System Error**: Agent crashed repeatedly and cannot be restarted. Please verify that the agent CLI is installed and available in your PATH.`,
                   projectId,
                   threadId
                 }
@@ -294,10 +267,11 @@ export class AgentService {
 
           this.stopAgent(threadId);
         }
-      });
+      );
 
       const sessionId = crypto.randomUUID();
-      const pid = typeof adapter.getPid === 'function' ? adapter.getPid() : null;
+      const currentAdapter = this.sessionManager.getSessionAdapter(threadId);
+      const pid = currentAdapter && typeof currentAdapter.getPid === 'function' ? currentAdapter.getPid() : null;
 
       try {
         const db = dbService.getDb();
@@ -322,7 +296,7 @@ export class AgentService {
       // Reset crash count on stable run of 10s
       if (pid) {
         setTimeout(() => {
-          const currentAdapter = this.activeAdapters.get(threadId);
+          const currentAdapter = this.sessionManager.getSessionAdapter(threadId);
           if (
             currentAdapter &&
             typeof currentAdapter.getPid === 'function' &&
@@ -349,9 +323,6 @@ export class AgentService {
 
       console.log(`[AgentService] Started ${agentType} for thread ${threadId}`);
     } catch (err: any) {
-      if (this.activeAdapters.get(threadId) === adapter) {
-        this.activeAdapters.delete(threadId);
-      }
       console.error(`[AgentService] Failed to start agent for thread ${threadId}:`, err);
       eventBus.publish({
         id: crypto.randomUUID(),
@@ -403,11 +374,7 @@ export class AgentService {
       this.activeSessions.delete(threadId);
     }
 
-    const adapter = this.activeAdapters.get(threadId);
-    if (adapter) {
-      await adapter.stop();
-      this.activeAdapters.delete(threadId);
-    }
+    await this.sessionManager.stopSession(threadId);
 
     eventBus.publish({
       id: crypto.randomUUID(),
@@ -426,12 +393,7 @@ export class AgentService {
   }
 
   private async sendCommand(threadId: string, command: string) {
-    const adapter = this.activeAdapters.get(threadId);
-    if (adapter) {
-      await adapter.sendCommand(command);
-    } else {
-      console.log(`[AgentService] No active agent for thread ${threadId} to receive command`);
-    }
+    await this.sessionManager.sendCommand(threadId, command);
   }
 
   public recoverSessions() {

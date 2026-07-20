@@ -20,6 +20,9 @@ export interface AgentConfig {
   onExit?: (exitCode: number) => void;
 }
 
+/**
+ * @deprecated Use `IAgentProvider` from `@asterim/adapters` instead.
+ */
 export interface IAgentAdapter {
   /**
    * Initializes and starts the agent process.
