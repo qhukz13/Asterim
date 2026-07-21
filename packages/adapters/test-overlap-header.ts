@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 
 function testOverlap() {
-  const oldText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AgentDeckTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
+  const oldText = `▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AsterimTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
 
 hi
 
@@ -9,9 +9,9 @@ I will start by listing the contents of the workspace directory to
 understand the project structure and see if there are any existing files we
 are working with.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
-Hello! I see we are in a fresh workspace at AgentDeckTEST.
+Hello! I see we are in a fresh workspace at AsterimTEST.
 
 How can I help you today? Let me know if you would like to start a new
 project, write some code, or if you have any questions!
@@ -21,7 +21,7 @@ create a file hello_world.py
 I will create the hello_world.py file in the workspace with a simple hello
 world script.
 
-● Create(C:/Projects/AgentDeckTEST/hello_world.py) (ctrl+o to expand)
+● Create(C:/Projects/AsterimTEST/hello_world.py) (ctrl+o to expand)
 
 I will run the script to verify that it executes correctly.
 
@@ -38,7 +38,7 @@ Hello, World!`;
 
   const newText = `hi
 
-▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AgentDeckTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
+▄▀▀▄ Antigravity CLI 1.0.11 ▀▀▀▀▀▀ v.onashchuk@gmail.com ▀▀▀▀▀▀▀▀ C:/Projects/AsterimTEST ▄▀▀ ▀▀▄ ▄▀▀ ▀▀▄
 
 hi
 
@@ -46,9 +46,9 @@ I will start by listing the contents of the workspace directory to
 understand the project structure and see if there are any existing files we
 are working with.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
-Hello! I see we are in a fresh workspace at AgentDeckTEST.
+Hello! I see we are in a fresh workspace at AsterimTEST.
 
 How can I help you today? Let me know if you would like to start a new
 project, write some code, or if you have any questions!
@@ -58,7 +58,7 @@ create a file hello_world.py
 I will create the hello_world.py file in the workspace with a simple hello
 world script.
 
-● Create(C:/Projects/AgentDeckTEST/hello_world.py) (ctrl+o to expand)
+● Create(C:/Projects/AsterimTEST/hello_world.py) (ctrl+o to expand)
 
 I will run the script to verify that it executes correctly.
 
@@ -78,12 +78,12 @@ hi
 I will list the workspace directory contents to see if there have been any
 changes since our last interaction.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
 I will check the contents of the newly created test_out.txt to see what
 it contains.
 
-● Read(C:/Projects/AgentDeckTEST/test_out.txt) (ctrl+o to expand)
+● Read(C:/Projects/AsterimTEST/test_out.txt) (ctrl+o to expand)
 
 Hello! I see we currently have the following files in the workspace:
 
@@ -101,7 +101,7 @@ What would you like to build or work on next?`;
   for (let k = oldLines.length; k > 0; k--) {
     const searchBlock = oldLines.slice(oldLines.length - k);
     const blockText = searchBlock.join('').trim();
-    
+
     // Only accept substantial matches unless it's the exact full history
     if (k < oldLines.length && blockText.length < 15) {
       continue;
@@ -129,9 +129,9 @@ What would you like to build or work on next?`;
     result = newLines.slice(matchEndIndexInNew).join('\n').trim();
   }
 
-  console.log("BEST K:", bestK);
-  console.log("MATCH END INDEX:", matchEndIndexInNew);
-  console.log("=== NEW RESULT ===");
+  console.log('BEST K:', bestK);
+  console.log('MATCH END INDEX:', matchEndIndexInNew);
+  console.log('=== NEW RESULT ===');
   console.log(result);
 }
 

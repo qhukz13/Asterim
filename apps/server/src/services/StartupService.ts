@@ -12,7 +12,7 @@ export class StartupService {
       const db = dbService.getDb();
       const query = db.prepare("SELECT value FROM settings WHERE key = 'first_run_completed'");
       const row = query.get() as { value: string } | undefined;
-      
+
       const isFirstRun = !row || row.value !== 'true';
       if (!isFirstRun) {
         // Still print the connection info even if it's not the first run
@@ -37,7 +37,7 @@ export class StartupService {
 
       // 2. Draw welcome console frame
       printToConsole('\n==================================================');
-      printToConsole('           WELCOME TO AGENTDECK v0.1');
+      printToConsole('           WELCOME TO ASTERIM v0.1');
       printToConsole('      AI Agent Control Plane is Initialized');
       printToConsole('==================================================');
       printToConsole(`  Local URL    : http://localhost:${port}`);
@@ -56,11 +56,12 @@ export class StartupService {
       printToConsole('Scan this QR code with your mobile device to pair automatically:');
       qrcode.generate(pairingUrl, { small: true });
       printToConsole(`Pairing URL: ${pairingUrl}\n`);
-
     } catch (err) {
       console.error('[StartupService] Error executing first-run onboarding checks:', err);
     }
   }
+
+  private binaryCache: { claude: boolean; aider: boolean; antigravity: boolean } | null = null;
 
   public getAntigravityBinaryPath(): string | null {
     if (this.isBinaryOnPath('agy')) {
@@ -85,6 +86,13 @@ export class StartupService {
     const hasClaude = this.isBinaryOnPath('claude');
     const hasAider = this.isBinaryOnPath('aider');
     const antigravityPath = this.getAntigravityBinaryPath();
+    const hasAntigravity = antigravityPath !== null;
+
+    this.binaryCache = {
+      claude: hasClaude,
+      aider: hasAider,
+      antigravity: hasAntigravity || true // fallback to true to prevent UI error because we use mock
+    };
 
     if (!hasClaude) {
       console.warn(`\x1b[33m⚠️  Warning: 'claude' CLI binary was not found on your PATH.
@@ -96,21 +104,20 @@ export class StartupService {
    Aider is required for the Aider Agent.
    Install via: pip install aider-chat\x1b[0m\n`);
     }
-    if (antigravityPath) {
+    if (hasAntigravity) {
       console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary found at ${antigravityPath}.
-   AgentDeck will run the real Antigravity agent process.\x1b[0m\n`);
+   Asterim will run the real Antigravity agent process.\x1b[0m\n`);
     } else {
       console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary was not found on your PATH or default location.
-   AgentDeck will run in simulated mode using 'mock-antigravity.js'.\x1b[0m\n`);
+   Asterim will run in simulated mode using 'mock-antigravity.js'.\x1b[0m\n`);
     }
   }
 
   public getAgentBinariesStatus() {
-    return {
-      claude: this.isBinaryOnPath('claude'),
-      aider: this.isBinaryOnPath('aider'),
-      antigravity: this.getAntigravityBinaryPath() !== null || true
-    };
+    if (!this.binaryCache) {
+      this.checkBinaries();
+    }
+    return this.binaryCache!;
   }
 
   private getLocalIpAddress(): string | null {
@@ -139,4 +146,3 @@ export class StartupService {
 }
 
 export const startupService = new StartupService();
-

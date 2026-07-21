@@ -17,19 +17,24 @@ import { authMiddleware } from './middleware/authMiddleware';
 // Crash Reporting (Phase 6)
 const logCrash = (error: Error, type: string) => {
   try {
-    const crashDir = path.join(os.homedir(), '.agentdeck');
+    const crashDir = path.join(os.homedir(), '.asterim');
     if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
     const logPath = path.join(crashDir, 'crash.log');
     const msg = `\n[${new Date().toISOString()}] ${type}: ${error.stack || error.message}\n`;
     fs.appendFileSync(logPath, msg);
-    console.error(`[AgentDeck] ${type}:`, error);
+    console.error(`[Asterim] ${type}:`, error);
   } catch (e) {
     console.error('Failed to write crash log', e);
   }
 };
 
-process.on('uncaughtException', (err) => { logCrash(err, 'uncaughtException'); process.exit(1); });
-process.on('unhandledRejection', (err: any) => { logCrash(err, 'unhandledRejection'); });
+process.on('uncaughtException', err => {
+  logCrash(err, 'uncaughtException');
+  process.exit(1);
+});
+process.on('unhandledRejection', (err: any) => {
+  logCrash(err, 'unhandledRejection');
+});
 
 const fastify = Fastify({ logger: true });
 
@@ -55,16 +60,11 @@ const isLocalOrigin = (origin: string): boolean => {
 };
 
 // P0-002: Restrict CORS
-const relayUrl = process.env.AGENTDECK_RELAY_URL || 'http://localhost:4000';
+const relayUrl = process.env.ASTERIM_RELAY_URL || 'http://localhost:4000';
 fastify.register(cors, {
   origin: (origin, cb) => {
     // Allow direct access (no origin), local dev, and the relay URL
-    if (
-      !origin ||
-      origin === 'null' ||
-      isLocalOrigin(origin) ||
-      origin.startsWith(relayUrl)
-    ) {
+    if (!origin || origin === 'null' || isLocalOrigin(origin) || origin.startsWith(relayUrl)) {
       cb(null, true);
       return;
     }
@@ -85,9 +85,9 @@ if (!fs.existsSync(webDistPath)) {
 if (fs.existsSync(webDistPath)) {
   fastify.register(fastifyStatic, {
     root: webDistPath,
-    prefix: '/',
+    prefix: '/'
   });
-  
+
   // Catch-all to serve index.html for frontend routing (if not an API route)
   fastify.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api')) {
@@ -109,23 +109,27 @@ fastify.get('/health', async () => {
   const { startupService } = await import('./services/StartupService');
   return {
     status: 'ok',
-    service: 'agentdeck-server',
+    service: 'asterim-server',
     binaries: startupService.getAgentBinariesStatus()
   };
 });
 
 import systemRoutes from './routes/system';
 import authRoutes from './routes/auth';
+import aiRoutes from './routes/ai';
+import contextRoutes from './routes/context';
 
 const start = async () => {
   try {
     await fastify.register(authRoutes);
     await fastify.register(projectRoutes);
     await fastify.register(systemRoutes);
+    await fastify.register(aiRoutes);
+    await fastify.register(contextRoutes);
 
     const port = parseInt(process.env.PORT || '3000', 10);
     await fastify.listen({ port, host: '::' });
-    console.log(`[Server] AgentDeck server listening on port ${port}`);
+    console.log(`[Server] Asterim server listening on port ${port}`);
 
     // Session and Approval Recovery (P0-004)
     const { agentService } = await import('./services/AgentService');
@@ -137,7 +141,7 @@ const start = async () => {
     pruningService.start();
 
     // Telemetry ping
-    console.log('[Telemetry] Anonymous ping: AgentDeck Started');
+    console.log('[Telemetry] Anonymous ping: Asterim Started');
 
     const { mdnsService } = await import('./services/mDNSService');
     mdnsService.start(port);

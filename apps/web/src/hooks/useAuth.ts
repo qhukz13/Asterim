@@ -1,25 +1,38 @@
 import { useState, useEffect } from 'react';
 
-export function useAuth() {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('agentdeck_token'));
+export function useAuth(activeBackendUrl?: string) {
+  const getStorageKey = () =>
+    activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+  const [token, setToken] = useState<string | null>(localStorage.getItem(getStorageKey()));
+
+  useEffect(() => {
+    const key = getStorageKey();
+    const stored = localStorage.getItem(key);
+    setToken(stored);
+  }, [activeBackendUrl]);
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!token);
 
   useEffect(() => {
+    const key = getStorageKey();
     if (token) {
-      localStorage.setItem('agentdeck_token', token);
+      localStorage.setItem(key, token);
       setIsAuthenticated(true);
     } else {
-      localStorage.removeItem('agentdeck_token');
+      localStorage.removeItem(key);
       setIsAuthenticated(false);
     }
-  }, [token]);
+  }, [token, activeBackendUrl]);
 
-  const login = async (pin: string, hostUrl?: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (
+    pin: string,
+    hostUrl?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
       const protocol = window.location.protocol;
       const hostname = window.location.hostname;
       const url = hostUrl || `${protocol}//${hostname}:3000`;
-      
+
       const res = await fetch(`${url}/api/v1/auth/pair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -27,10 +40,12 @@ export function useAuth() {
       });
       if (res.ok) {
         const data = await res.json();
+        localStorage.setItem(getStorageKey(), data.token);
         setToken(data.token);
+        setIsAuthenticated(true);
         return { success: true };
       }
-      
+
       let errorMsg = 'Invalid PIN. Check the server console.';
       try {
         const data = await res.json();
@@ -38,22 +53,24 @@ export function useAuth() {
           errorMsg = data.error;
         }
       } catch (jsonErr) {
-        // Ignore JSON parsing errors
+        // Ignore
       }
-      
+
       return { success: false, error: errorMsg };
     } catch (err: any) {
       console.error('Login failed', err);
       const isNetworkError = err instanceof TypeError;
-      const errorMsg = isNetworkError 
+      const errorMsg = isNetworkError
         ? 'Network/CORS error. Check server status and console logs.'
-        : (err.message || 'Login failed. Check server console.');
+        : err.message || 'Login failed. Check server console.';
       return { success: false, error: errorMsg };
     }
   };
 
   const logout = () => {
+    localStorage.removeItem(getStorageKey());
     setToken(null);
+    setIsAuthenticated(false);
   };
 
   return { token, isAuthenticated, login, logout, setToken };

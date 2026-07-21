@@ -1,4 +1,4 @@
-export interface AgentDeckEvent<T = any> {
+export interface AsterimEvent<T = any> {
   id: string;
   timestamp: number;
   source: string; // e.g., 'adapter:aider', 'client:web-123'
@@ -12,7 +12,7 @@ export interface AgentLogPayload {
 }
 
 export interface AgentStatusPayload {
-  status: 'idle' | 'working' | 'waiting_approval' | 'error';
+  status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup';
   message?: string;
 }
 
@@ -73,17 +73,72 @@ export interface ServerAuthResultPayload {
   error?: string;
 }
 
+// --- Context Domain Types ---
+
+/** The kind of information a context entry represents. */
+export type ContextEntryType =
+  | 'file'
+  | 'knowledge'
+  | 'bookmark'
+  | 'suggestion'
+  | 'artifact';
+
+/** Who or what created a context entry. */
+export type ContextEntryCreator =
+  | 'user'
+  | 'agent'
+  | 'ai'
+  | 'system'
+  | 'plugin';
+
+/** A single entry within a Thread's Context aggregate. */
+export interface ContextEntry {
+  id: string;
+  threadId: string;
+  projectId: string;
+  entryType: ContextEntryType;
+  /** File path or resource URI (for file/bookmark/artifact types). */
+  path?: string;
+  /** Display label when path alone is insufficient. */
+  label?: string;
+  /** Freeform text content (for knowledge type). */
+  content?: string;
+  /** Entry status within the context. */
+  status: 'pinned' | 'active' | 'suggestion';
+  /** Who or what created this entry. */
+  createdBy: ContextEntryCreator;
+  /** Explicit ordering position within the context. */
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+  /** Monotonically increasing version for optimistic concurrency. */
+  version: number;
+}
+
+/** Payload broadcast when a thread's context is modified. */
+export interface ContextUpdatedPayload {
+  threadId: string;
+  projectId: string;
+  entries: ContextEntry[];
+}
+
+/** Payload broadcast when a thread's context is fully cleared. */
+export interface ContextClearedPayload {
+  threadId: string;
+  projectId: string;
+}
+
 // Helper types for specific events
-export type AgentLogEvent = AgentDeckEvent<AgentLogPayload>;
-export type AgentStatusEvent = AgentDeckEvent<AgentStatusPayload>;
-export type ApprovalRequestEvent = AgentDeckEvent<ApprovalRequestPayload>;
-export type ClientCommandEvent = AgentDeckEvent<ClientCommandPayload>;
-export type ClientStdinEvent = AgentDeckEvent<ClientStdinPayload>;
-export type ClientApprovalResponseEvent = AgentDeckEvent<ClientApprovalResponsePayload>;
-export type QuestionRequestEvent = AgentDeckEvent<QuestionRequestPayload>;
-export type ClientQuestionResponseEvent = AgentDeckEvent<ClientQuestionResponsePayload>;
-export type FileChangedEvent = AgentDeckEvent<FileChangedPayload>;
-export type ClientPairEvent = AgentDeckEvent<ClientPairPayload>;
-export type ServerAuthResultEvent = AgentDeckEvent<ServerAuthResultPayload>;
-export type ChatMessageEvent = AgentDeckEvent<ChatMessagePayload>;
-export type ClientChatMessageEvent = AgentDeckEvent<ClientChatMessagePayload>;
+export type AgentLogEvent = AsterimEvent<AgentLogPayload>;
+export type AgentStatusEvent = AsterimEvent<AgentStatusPayload>;
+export type ApprovalRequestEvent = AsterimEvent<ApprovalRequestPayload>;
+export type ClientCommandEvent = AsterimEvent<ClientCommandPayload>;
+export type ClientStdinEvent = AsterimEvent<ClientStdinPayload>;
+export type ClientApprovalResponseEvent = AsterimEvent<ClientApprovalResponsePayload>;
+export type QuestionRequestEvent = AsterimEvent<QuestionRequestPayload>;
+export type ClientQuestionResponseEvent = AsterimEvent<ClientQuestionResponsePayload>;
+export type FileChangedEvent = AsterimEvent<FileChangedPayload>;
+export type ClientPairEvent = AsterimEvent<ClientPairPayload>;
+export type ServerAuthResultEvent = AsterimEvent<ServerAuthResultPayload>;
+export type ChatMessageEvent = AsterimEvent<ChatMessagePayload>;
+export type ClientChatMessageEvent = AsterimEvent<ClientChatMessagePayload>;

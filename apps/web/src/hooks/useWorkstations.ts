@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Workstation, WorkstationConfig } from '@agentdeck/shared';
+import { Workstation, WorkstationConfig } from '@asterim/shared';
 
 const DEFAULT_CONFIG: WorkstationConfig = {
   developerMode: false,
@@ -8,14 +8,14 @@ const DEFAULT_CONFIG: WorkstationConfig = {
 
 export function useWorkstations() {
   const [config, setConfig] = useState<WorkstationConfig>(() => {
-    const stored = localStorage.getItem('agentdeck_workstation_config');
+    const stored = localStorage.getItem('asterim_workstation_config');
     return stored ? JSON.parse(stored) : DEFAULT_CONFIG;
   });
-  
+
   const [discovered, setDiscovered] = useState<Workstation[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('agentdeck_workstation_config', JSON.stringify(config));
+    localStorage.setItem('asterim_workstation_config', JSON.stringify(config));
   }, [config]);
 
   const fetchDiscovered = async () => {
@@ -27,7 +27,7 @@ export function useWorkstations() {
       if (res.ok) {
         const data = await res.json();
         setDiscovered(data.workstations || []);
-        
+
         // Auto-update known workstations
         if (data.workstations && data.workstations.length > 0) {
           setConfig((prev: WorkstationConfig) => {
@@ -45,18 +45,17 @@ export function useWorkstations() {
   };
 
   useEffect(() => {
-    if (config.developerMode) {
-      fetchDiscovered();
-      const interval = setInterval(fetchDiscovered, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [config.developerMode]);
+    fetchDiscovered();
+    const interval = setInterval(fetchDiscovered, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const activeWorkstation = config.preferredWorkstationId 
-    ? config.knownWorkstations[config.preferredWorkstationId] || discovered.find(w => w.id === config.preferredWorkstationId)
+  const activeWorkstation = config.preferredWorkstationId
+    ? config.knownWorkstations[config.preferredWorkstationId] ||
+      discovered.find(w => w.id === config.preferredWorkstationId)
     : null;
 
-  const activeBackendUrl = activeWorkstation 
+  const activeBackendUrl = activeWorkstation
     ? `http://${activeWorkstation.ip}:${activeWorkstation.port}`
     : `http://${window.location.hostname}:3000`; // fallback to current host
 
@@ -67,15 +66,16 @@ export function useWorkstations() {
   const setDeveloperMode = (enabled: boolean) => {
     setConfig((prev: WorkstationConfig) => ({ ...prev, developerMode: enabled }));
   };
-  
+
   const forgetWorkstation = (id: string) => {
     setConfig((prev: WorkstationConfig) => {
       const newKnown = { ...prev.knownWorkstations };
       delete newKnown[id];
-      return { 
-        ...prev, 
+      return {
+        ...prev,
         knownWorkstations: newKnown,
-        preferredWorkstationId: prev.preferredWorkstationId === id ? undefined : prev.preferredWorkstationId
+        preferredWorkstationId:
+          prev.preferredWorkstationId === id ? undefined : prev.preferredWorkstationId
       };
     });
   };

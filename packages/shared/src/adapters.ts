@@ -1,4 +1,4 @@
-import { AgentDeckEvent } from './events';
+import { AsterimEvent } from './events';
 
 export interface AgentConfig {
   workspace: string;
@@ -20,6 +20,9 @@ export interface AgentConfig {
   onExit?: (exitCode: number) => void;
 }
 
+/**
+ * @deprecated Use `IAgentProvider` from `@asterim/adapters` instead.
+ */
 export interface IAgentAdapter {
   /**
    * Initializes and starts the agent process.
@@ -44,7 +47,7 @@ export interface IAgentAdapter {
   /**
    * Registers a callback to receive events (logs, status, approvals) from the agent.
    */
-  onEvent(callback: (event: AgentDeckEvent) => void): void;
+  onEvent(callback: (event: AsterimEvent) => void): void;
 
   /**
    * Returns the PID of the running process, if applicable.

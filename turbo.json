@@ -5,12 +5,15 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!-next/cache/**"]
     },
-    "agentdeck#build": {
-      "dependsOn": ["^build", "@agentdeck/web#build"],
+    "asterim#build": {
+      "dependsOn": ["^build", "@asterim/web#build"],
       "outputs": ["dist/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
+    },
+    "format": {
+      "dependsOn": ["^format"]
     },
     "dev": {
       "cache": false,

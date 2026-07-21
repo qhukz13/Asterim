@@ -12,12 +12,12 @@ And here is the actual prompt:
 const matches = [...text.matchAll(/(?:^|\n)[❯>](?:\s*\n|$)/g)];
 if (matches.length > 0) {
   const match = matches[matches.length - 1];
-  console.log("MATCH INDEX:", match.index);
-  console.log("MATCH VALUE:", JSON.stringify(match[0]));
-  
+  console.log('MATCH INDEX:', match.index);
+  console.log('MATCH VALUE:', JSON.stringify(match[0]));
+
   const message = text.substring(0, match.index);
-  console.log("MESSAGE:");
+  console.log('MESSAGE:');
   console.log(message);
 } else {
-  console.log("NO MATCH");
+  console.log('NO MATCH');
 }

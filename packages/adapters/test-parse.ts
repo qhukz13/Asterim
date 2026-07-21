@@ -28,15 +28,15 @@ function testPrompt(filename: string) {
 
   const promptRegex = /(?:^|\n)>\s*\n─{10,}\n\? for shortcuts/i;
   console.log(`[${filename}] MATCH:`, promptRegex.test(cleanedBuffer));
-  
+
   if (promptRegex.test(cleanedBuffer)) {
-      const match = cleanedBuffer.match(promptRegex);
-      if (match) {
-          const msg = cleanedBuffer.substring(0, match.index);
-          console.log("EXTRACTED MSG LENGTH:", msg.length);
-          console.log("EXTRACTED MSG ENDS WITH:");
-          console.log(JSON.stringify(msg.substring(msg.length - 200)));
-      }
+    const match = cleanedBuffer.match(promptRegex);
+    if (match) {
+      const msg = cleanedBuffer.substring(0, match.index);
+      console.log('EXTRACTED MSG LENGTH:', msg.length);
+      console.log('EXTRACTED MSG ENDS WITH:');
+      console.log(JSON.stringify(msg.substring(msg.length - 200)));
+    }
   }
 }
 

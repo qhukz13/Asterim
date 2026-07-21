@@ -5,7 +5,7 @@ export default defineConfig({
   format: ['cjs'],
   target: 'node22',
   clean: true,
-  noExternal: ['@agentdeck/shared', '@agentdeck/adapters'],
+  noExternal: ['@asterim/shared', '@asterim/adapters'],
   external: [
     'node:sqlite',
     'node-pty',
@@ -20,6 +20,6 @@ export default defineConfig({
     'bonjour-service'
   ],
   banner: {
-    js: '#!/usr/bin/env node',
-  },
+    js: '#!/usr/bin/env node'
+  }
 });

@@ -1,18 +1,24 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+      },
       devOptions: {
-        enabled: true
+        enabled: true,
+        type: 'module'
       },
       manifest: {
-        name: 'AgentDeck',
-        short_name: 'AgentDeck',
+        name: 'Asterim',
+        short_name: 'Asterim',
         description: 'Local Web Dashboard for AI Coding Agents',
         theme_color: '#0f1115',
         background_color: '#0f1115',
@@ -36,4 +42,4 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0'
   }
-})
+});

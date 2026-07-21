@@ -1,8 +1,8 @@
-# AgentDeck Governance
+# Asterim Governance
 
 ## Source of Truth
 
-The Product Specification is the authoritative definition of AgentDeck.
+The Product Specification is the authoritative definition of Asterim.
 
 Code is an implementation of the Specification.
 

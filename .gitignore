@@ -15,7 +15,7 @@ out/
 # TypeScript build info
 *.tsbuildinfo
 
-# Database files — AgentDeck data lives in ~/.agentdeck/, never in the repo
+# Database files — Asterim data lives in ~/.agentdeck/, never in the repo
 *.db
 *.db-shm
 *.db-wal

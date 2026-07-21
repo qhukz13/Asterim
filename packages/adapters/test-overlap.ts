@@ -4,7 +4,7 @@ function testOverlap() {
   const oldText = `I will check the workspace directory to see if there have been any changes
 or updates over the last few days.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
 Hello! I see the workspace hasn't changed since our last session.
 
@@ -13,7 +13,7 @@ What would you like to work on today?`;
   const newText = `create file hello_world.pyI will check the workspace directory to see if there have been any changes
 or updates over the last few days.
 
-● ListDir(C:/Projects/AgentDeckTEST) (ctrl+o to expand)
+● ListDir(C:/Projects/AsterimTEST) (ctrl+o to expand)
 
 Hello! I see the workspace hasn't changed since our last session.
 
@@ -36,7 +36,7 @@ I will recreate the hello_world.py file as requested.`;
   for (let k = oldLines.length; k > 0; k--) {
     const searchBlock = oldLines.slice(oldLines.length - k);
     const blockText = searchBlock.join('').trim();
-    
+
     // Only accept substantial matches unless it's the exact full history
     if (k < oldLines.length && blockText.length < 15) {
       continue;
@@ -64,9 +64,9 @@ I will recreate the hello_world.py file as requested.`;
     result = newLines.slice(matchEndIndexInNew).join('\n').trim();
   }
 
-  console.log("BEST K:", bestK);
-  console.log("MATCH END INDEX:", matchEndIndexInNew);
-  console.log("=== NEW RESULT ===");
+  console.log('BEST K:', bestK);
+  console.log('MATCH END INDEX:', matchEndIndexInNew);
+  console.log('=== NEW RESULT ===');
   console.log(result);
 }
 

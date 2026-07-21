@@ -1,14 +1,14 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { FastifyInstance } from 'fastify';
 import { eventBus } from '../services/EventBus';
-import { AgentDeckEvent } from '@agentdeck/shared';
+import { AsterimEvent } from '@asterim/shared';
 import { dbService } from '../services/DatabaseService';
 import { pairingService } from '../services/PairingService';
 import crypto from 'crypto';
 
 export class SocketManager {
   private io: SocketIOServer;
-  private recentLogs = new Map<string, AgentDeckEvent<any>[]>();
+  private recentLogs = new Map<string, AsterimEvent<any>[]>();
 
   constructor(fastify: FastifyInstance) {
     this.io = new SocketIOServer(fastify.server, {
@@ -41,7 +41,7 @@ export class SocketManager {
       console.log(`[Socket.IO] Client connected: ${socket.id}`);
 
       // Client joins a specific project room to get its isolated telemetry
-      socket.on('join_project', (projectId: string) => {
+      socket.on('join_project', async (projectId: string) => {
         socket.join(projectId);
         console.log(`[Socket.IO] Client ${socket.id} joined project: ${projectId}`);
 
@@ -57,10 +57,18 @@ export class SocketManager {
           type: 'server.system_status',
           payload: { binaries: startupService.getAgentBinariesStatus() }
         });
+
+        // Start Git watching
+        const { projectManager } = await import('../services/ProjectManager');
+        const project = projectManager.getProject(projectId);
+        if (project) {
+          const { gitService } = await import('../services/git/GitService');
+          gitService.startWatching(project.id, project.path);
+        }
       });
 
       // Forward client commands and approvals to the internal EventBus
-      socket.on('client_event', (event: AgentDeckEvent<any>) => {
+      socket.on('client_event', (event: AsterimEvent<any>) => {
         event.source = event.source || `client:${socket.id}`;
         eventBus.publish(event);
       });
@@ -75,15 +83,19 @@ export class SocketManager {
     try {
       const db = dbService.getDb();
       // Fetch the last 1000 events
-      const query = db.prepare('SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 1000');
+      const query = db.prepare(
+        'SELECT payload_json FROM events WHERE project_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT 1000'
+      );
       const rows = query.all(projectId) as { payload_json: string }[];
-      
+
       // Rows are descending, we need ascending for correct playback
       const historyEvents = rows.reverse().map(row => JSON.parse(row.payload_json));
-      
+
       const recentLogs = this.recentLogs.get(projectId) || [];
-      const combinedHistory = [...historyEvents, ...recentLogs].sort((a, b) => a.timestamp - b.timestamp);
-      
+      const combinedHistory = [...historyEvents, ...recentLogs].sort(
+        (a, b) => a.timestamp - b.timestamp
+      );
+
       socket.emit('session.history', combinedHistory);
     } catch (err) {
       console.error('[Socket.IO] Failed to sync history:', err);
@@ -96,9 +108,9 @@ export class SocketManager {
   private setupEventBusBridge() {
     // In a real system, we'd subscribe to specific topics. For the MVP,
     // we listen to the catch-all and route based on payload properties.
-    eventBus.subscribe('*', (event: AgentDeckEvent<any>) => {
+    eventBus.subscribe('*', (event: AsterimEvent<any>) => {
       const projectId = (event.payload as any)?.projectId;
-      
+
       if (projectId) {
         // Route strictly to the project room
         this.io.to(projectId).emit(event.type, event);
@@ -116,7 +128,9 @@ export class SocketManager {
         try {
           const db = dbService.getDb();
           const threadId = (event.payload as any)?.threadId || null;
-          const insert = db.prepare('INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
+          const insert = db.prepare(
+            'INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          );
           insert.run(
             crypto.randomUUID(),
             projectId,
@@ -129,7 +143,6 @@ export class SocketManager {
         } catch (err) {
           console.error('[Database] Failed to persist event:', err);
         }
-
       } else {
         // Broadcast system-wide events
         this.io.emit(event.type, event);

@@ -6,7 +6,7 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
   fastify.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
     // Only protect API routes
     if (!request.url.startsWith('/api/v1/')) return;
-    
+
     // The auth endpoint must be public
     if (request.url.startsWith('/api/v1/auth/pair')) return;
 

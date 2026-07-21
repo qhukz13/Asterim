@@ -4,49 +4,55 @@
  */
 
 // In Node.js 18+, globalThis.crypto is available natively.
-const cryptoProvider = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : require('crypto').webcrypto;
+/* eslint-disable @typescript-eslint/no-require-imports */
+const cryptoProvider =
+  typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : require('crypto').webcrypto;
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 export async function generateECDHKeyPair(): Promise<CryptoKeyPair> {
   return await cryptoProvider.subtle.generateKey(
     {
-      name: "ECDH",
-      namedCurve: "P-256",
+      name: 'ECDH',
+      namedCurve: 'P-256'
     },
     true,
-    ["deriveKey", "deriveBits"]
+    ['deriveKey', 'deriveBits']
   );
 }
 
 export async function exportPublicKey(key: CryptoKey): Promise<JsonWebKey> {
-  return await cryptoProvider.subtle.exportKey("jwk", key);
+  return await cryptoProvider.subtle.exportKey('jwk', key);
 }
 
 export async function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
   return await cryptoProvider.subtle.importKey(
-    "jwk",
+    'jwk',
     jwk,
     {
-      name: "ECDH",
-      namedCurve: "P-256",
+      name: 'ECDH',
+      namedCurve: 'P-256'
     },
     true,
     []
   );
 }
 
-export async function deriveSharedSecret(privateKey: CryptoKey, publicKey: CryptoKey): Promise<CryptoKey> {
+export async function deriveSharedSecret(
+  privateKey: CryptoKey,
+  publicKey: CryptoKey
+): Promise<CryptoKey> {
   return await cryptoProvider.subtle.deriveKey(
     {
-      name: "ECDH",
+      name: 'ECDH',
       public: publicKey
     },
     privateKey,
     {
-      name: "AES-GCM",
+      name: 'AES-GCM',
       length: 256
     },
     true,
-    ["encrypt", "decrypt"]
+    ['encrypt', 'decrypt']
   );
 }
 
@@ -77,19 +83,19 @@ export interface EncryptedPayload {
 export async function encryptPayload(key: CryptoKey, payload: any): Promise<EncryptedPayload> {
   const enc = new TextEncoder();
   const encodedPayload = enc.encode(JSON.stringify(payload));
-  
+
   // AES-GCM requires a 12-byte IV
   const iv = cryptoProvider.getRandomValues(new Uint8Array(12));
-  
+
   const ciphertext = await cryptoProvider.subtle.encrypt(
     {
-      name: "AES-GCM",
+      name: 'AES-GCM',
       iv: iv
     },
     key,
     encodedPayload
   );
-  
+
   return {
     iv: arrayBufferToBase64(iv.buffer),
     ciphertext: arrayBufferToBase64(ciphertext)
@@ -99,16 +105,16 @@ export async function encryptPayload(key: CryptoKey, payload: any): Promise<Encr
 export async function decryptPayload(key: CryptoKey, encrypted: EncryptedPayload): Promise<any> {
   const ivBuffer = base64ToArrayBuffer(encrypted.iv);
   const ciphertextBuffer = base64ToArrayBuffer(encrypted.ciphertext);
-  
+
   const decrypted = await cryptoProvider.subtle.decrypt(
     {
-      name: "AES-GCM",
+      name: 'AES-GCM',
       iv: new Uint8Array(ivBuffer)
     },
     key,
     ciphertextBuffer
   );
-  
+
   const dec = new TextDecoder();
   const jsonStr = dec.decode(decrypted);
   return JSON.parse(jsonStr);
