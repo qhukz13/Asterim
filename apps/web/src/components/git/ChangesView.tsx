@@ -4,6 +4,9 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useDebugLifecycle } from '../../utils/debug';
+
+const SyntaxHighlighterComp = SyntaxHighlighter as any;
 
 export interface FileStatus {
   file: string;
@@ -23,9 +26,12 @@ interface ChangesViewProps {
   socket: Socket | null;
   projectId: string;
   activeBackendUrl?: string;
+  agentStatus?: { status: string; message?: string };
+  sendCommand?: (cmd: string, ...args: any[]) => void;
 }
 
-export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesViewProps) {
+export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, sendCommand }: ChangesViewProps) {
+  useDebugLifecycle('ChangesView', { projectId });
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [isRepo, setIsRepo] = useState<boolean | null>(null);
   const [commitMessage, setCommitMessage] = useState('');
@@ -37,6 +43,8 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
   const [isGeneratingCommit, setIsGeneratingCommit] = useState(false);
   const [isExplainingDiff, setIsExplainingDiff] = useState(false);
   const [diffExplanation, setDiffExplanation] = useState<string | null>(null);
+  const [isReviewingChanges, setIsReviewingChanges] = useState(false);
+  const [diffReview, setDiffReview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
@@ -59,6 +67,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
       if (event.payload?.projectId === projectId && event.payload?.file === selectedFile) {
         setDiff(event.payload.diff);
         setDiffExplanation(null);
+        setDiffReview(null);
       }
     };
 
@@ -116,6 +125,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
     setSelectedFile(f.file);
     setDiff('Loading diff...');
     setDiffExplanation(null);
+    setDiffReview(null);
     sendAction('get_diff', { file: f.file, staged: f.staged });
   };
 
@@ -180,6 +190,36 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
     }
   };
 
+  const handleReviewChanges = async () => {
+    if (!diff || diff === 'Loading diff...') return;
+
+    setIsReviewingChanges(true);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+
+      const res = await fetch(`${baseUrl}/api/v1/ai/review-changes`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ diff, projectId })
+      });
+      const data = await res.json();
+      if (res.ok && data.review) {
+        setDiffReview(data.review);
+      } else {
+        setError(data.error || 'Failed to review changes');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to review changes');
+    } finally {
+      setIsReviewingChanges(false);
+    }
+  };
+
   if (isRepo === false) {
     return (
       <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-secondary)' }}>
@@ -212,11 +252,10 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
       {/* Top Summary Card & Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{repoName}</h2>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Review Changes</h2>
           <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            <span style={{ color: 'var(--accent-hover)' }}>{status.branch}</span>
-            {status.syncStatus && <span>{status.syncStatus}</span>}
             <span>{status.files.length} changed ({stagedFiles.length} staged, {unstagedFiles.length} unstaged)</span>
+            <span style={{ color: 'var(--accent-hover)' }}>{status.branch}</span>
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
             <span style={{ opacity: 0.7 }}>Last commit:</span> {status.lastCommit || 'No commits yet'}
@@ -242,7 +281,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
         <div style={{ flex: '0 0 32%', display: 'flex', flexDirection: 'column', overflowY: 'auto', borderRight: '1px solid var(--panel-border)', paddingRight: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
-              Changed Files
+              Review Changes
             </h3>
             {unstagedFiles.length > 0 && (
               <button 
@@ -341,10 +380,14 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
                       onClick={handleExplainDiff}
                       disabled={isExplainingDiff || !diff || diff === 'Loading diff...'}
                     >
-                      {isExplainingDiff ? '✨ Explaining...' : '✨ Explain Diff'}
+                      {isExplainingDiff ? '✨ Explaining...' : '✨ Explain Intent'}
                     </button>
-                    <button style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} onClick={() => alert("AI Code Review will be available soon.")}>
-                      ✨ Review Changes
+                    <button 
+                      style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: '#60a5fa' }} 
+                      onClick={handleReviewChanges}
+                      disabled={isReviewingChanges || !diff || diff === 'Loading diff...'}
+                    >
+                      {isReviewingChanges ? '✨ Reviewing...' : '✨ AI Code Review'}
                     </button>
                   </div>
                 </div>
@@ -361,11 +404,23 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
                       </div>
                     </div>
                   )}
+                  {diffReview && (
+                    <div style={{ padding: '16px', background: 'rgba(16, 185, 129, 0.08)', borderBottom: '1px solid rgba(16, 185, 129, 0.3)', color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34d399' }}>
+                        <span>🔍</span> AI Code Review:
+                      </strong>
+                      <div style={{ marginTop: '8px' }} className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {diffReview}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ flex: 1, overflow: 'auto', background: 'var(--panel-bg)' }}>
                     {diff === 'Loading diff...' ? (
                       <div style={{ padding: '16px', color: 'var(--text-secondary)' }}>Loading diff...</div>
                     ) : diff ? (
-                      <SyntaxHighlighter
+                      <SyntaxHighlighterComp
                         language={selectedFile.split('.').pop() || 'typescript'}
                         style={vscDarkPlus}
                         showLineNumbers={true}
@@ -388,7 +443,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
                         }}
                       >
                         {diff}
-                      </SyntaxHighlighter>
+                      </SyntaxHighlighterComp>
                     ) : (
                       <div style={{ padding: '16px', color: 'var(--text-secondary)' }}>No diff available.</div>
                     )}
@@ -398,8 +453,41 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
             )}
           </div>
 
-          {/* Commit Panel */}
+          {/* Review & Approval Action Panel */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            {/* Future Approval System Placeholder */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+               <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-secondary)', marginRight: 'auto' }}>Execution Approval</span>
+               <button 
+                 disabled={agentStatus?.status !== 'waiting_approval'} 
+                 onClick={() => sendCommand?.('approve')}
+                 style={{ opacity: agentStatus?.status === 'waiting_approval' ? 1 : 0.4, cursor: agentStatus?.status === 'waiting_approval' ? 'pointer' : 'not-allowed', fontSize: '0.8rem', padding: '4px 12px', background: 'var(--success-color)', color: '#fff', border: 'none', borderRadius: '4px' }}>
+                 Approve
+               </button>
+               <button 
+                 disabled={agentStatus?.status !== 'waiting_approval'} 
+                 onClick={() => {
+                   const feedback = prompt("What changes are requested?");
+                   if (feedback) sendCommand?.('input', feedback);
+                 }}
+                 style={{ opacity: agentStatus?.status === 'waiting_approval' ? 1 : 0.4, cursor: agentStatus?.status === 'waiting_approval' ? 'pointer' : 'not-allowed', fontSize: '0.8rem', padding: '4px 12px', background: 'transparent', border: '1px solid var(--panel-border)', color: 'var(--text-primary)', borderRadius: '4px' }}>
+                 Request Changes
+               </button>
+               <button 
+                 disabled={agentStatus?.status !== 'waiting_approval'} 
+                 onClick={() => sendCommand?.('reject')}
+                 style={{ opacity: agentStatus?.status === 'waiting_approval' ? 1 : 0.4, cursor: agentStatus?.status === 'waiting_approval' ? 'pointer' : 'not-allowed', fontSize: '0.8rem', padding: '4px 12px', background: 'transparent', border: '1px solid var(--panel-border)', color: 'var(--error-color)', borderRadius: '4px' }}>
+                 Reject
+               </button>
+               <button 
+                 disabled={agentStatus?.status !== 'idle' && agentStatus?.status !== 'error'} 
+                 onClick={() => sendCommand?.('start')}
+                 style={{ opacity: (agentStatus?.status === 'idle' || agentStatus?.status === 'error') ? 1 : 0.4, cursor: (agentStatus?.status === 'idle' || agentStatus?.status === 'error') ? 'pointer' : 'not-allowed', fontSize: '0.8rem', padding: '4px 12px', background: 'transparent', border: '1px solid var(--panel-border)', color: 'var(--text-primary)', borderRadius: '4px' }}>
+                 Continue Execution
+               </button>
+            </div>
+
             <textarea 
               style={{ 
                 width: '100%', 
@@ -413,26 +501,29 @@ export function ChangesView({ socket, projectId, activeBackendUrl }: ChangesView
                 fontFamily: 'inherit',
                 fontSize: '0.9rem'
               }}
-              placeholder="Commit message..."
+              placeholder="Commit message (describing the agent's work)..."
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
             />
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', alignItems: 'center' }}>
               <button 
                 style={{ background: 'transparent', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', padding: '8px 16px', fontSize: '0.85rem', color: '#60a5fa', opacity: isGeneratingCommit ? 0.6 : 1 }}
                 onClick={handleGenerateCommit}
                 disabled={isGeneratingCommit || stagedFiles.length === 0}
               >
-                {isGeneratingCommit ? '✨ Generating...' : '✨ Generate Commit Message'}
+                {isGeneratingCommit ? '✨ Generating...' : '✨ Auto-Generate Message'}
               </button>
-              <button 
-                className="btn-primary" 
-                style={{ padding: '8px 24px', fontWeight: 600 }} 
-                onClick={handleCommit}
-                disabled={stagedFiles.length === 0 || commitMessage.trim() === ''}
-              >
-                Commit Staged
-              </button>
+              
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  className="btn-primary" 
+                  style={{ padding: '8px 24px', fontWeight: 600, background: 'var(--success-color)' }} 
+                  onClick={handleCommit}
+                  disabled={stagedFiles.length === 0 || commitMessage.trim() === ''}
+                >
+                  Approve & Commit Work
+                </button>
+              </div>
             </div>
           </div>
           

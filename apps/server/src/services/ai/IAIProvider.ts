@@ -20,6 +20,11 @@ export interface IAIProvider {
   explainDiff(diff: string, projectId?: string): Promise<string>;
 
   /**
+   * Performs an AI code review on the provided diff, highlighting issues and suggestions
+   */
+  reviewChanges(diff: string, projectId?: string): Promise<string>;
+
+  /**
    * Suggests up to 5 relevant files for a given task, based on the file tree
    */
   suggestFiles(task: string, fileTree: string[], projectId?: string): Promise<string[]>;

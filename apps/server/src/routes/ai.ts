@@ -52,6 +52,20 @@ export default async function aiRoutes(fastify: FastifyInstance) {
     }
   });
 
+  fastify.post('/api/v1/ai/review-changes', async (request: any, reply) => {
+    try {
+      const { diff, projectId } = request.body;
+      if (!diff) return reply.code(400).send({ error: 'Diff is required' });
+
+      const provider = aiService.getProvider();
+      const review = await provider.reviewChanges(diff, projectId);
+      return { review };
+    } catch (err: any) {
+      console.error('[AIRoute] Failed to review changes:', err);
+      reply.code(500).send({ error: err.message || 'Failed to review changes' });
+    }
+  });
+
   fastify.post('/api/v1/ai/suggest-files', async (request: any, reply) => {
     try {
       const { projectId, task } = request.body;

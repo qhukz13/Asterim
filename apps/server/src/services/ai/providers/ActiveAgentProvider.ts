@@ -95,6 +95,23 @@ export class ActiveAgentProvider implements IAIProvider {
     return output || 'No explanation generated.';
   }
 
+  async reviewChanges(diff: string, projectId?: string): Promise<string> {
+    const prompt = `You are an expert lead software engineer performing a thorough Code Review on the following git diff.
+Identify potential bugs, edge cases, security vulnerabilities, performance bottlenecks, and code quality improvements.
+Structure your review with the following sections in Markdown:
+- **Summary**: Brief assessment of the changes.
+- **Potential Issues**: Bugs, logic errors, or unhandled edge cases (if any).
+- **Security & Performance**: Potential security flaws or performance bottlenecks (if any).
+- **Suggestions**: Recommended improvements or best practices.
+
+If the changes look great with no obvious issues, say so clearly in the summary.
+
+Diff:
+${diff}`;
+    const output = await this.runAgentHeadless(prompt, projectId);
+    return output || 'No review generated.';
+  }
+
   async suggestFiles(task: string, fileTree: string[], projectId?: string): Promise<string[]> {
     const prompt = `You are an AI assistant helping a developer navigate a codebase. Given the following active task and the project's file tree, suggest up to 5 most relevant files that the developer should look at to accomplish the task. Respond ONLY with a JSON array of strings representing the file paths. Do not include any other text or markdown block formatting.\n\nActive Task:\n${task}\n\nFile Tree:\n${fileTree.join('\n')}`;
     const output = await this.runAgentHeadless(prompt, projectId);

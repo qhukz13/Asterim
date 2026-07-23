@@ -15,6 +15,7 @@ import {
   encryptPayload,
   decryptPayload
 } from '@asterim/shared';
+import { useTerminalStore } from '../stores/useTerminalStore';
 
 export interface ChatMessage {
   id: string;
@@ -276,6 +277,11 @@ export function useSocket(
       } else if (event.type === 'agent.question_request') {
         if (!event.payload) return;
         setQuestionRequest({ ...event.payload, timestamp: event.timestamp || Date.now() });
+      } else if (event.type === 'terminal.data') {
+        const thread = event.payload?.threadId || threadIdRef.current;
+        if (thread && event.payload?.data) {
+          useTerminalStore.getState().appendBuffer(thread, event.payload.data);
+        }
       }
     };
 
@@ -296,6 +302,7 @@ export function useSocket(
     newSocket.on('agent.approval_request', handleInternalEvent);
     newSocket.on('file.changed', handleInternalEvent);
     newSocket.on('server.system_status', handleInternalEvent);
+    newSocket.on('terminal.data', handleInternalEvent);
 
     socketRef.current = newSocket;
     setSocket(newSocket);

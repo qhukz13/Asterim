@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useDebugLifecycle } from './utils/debug';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -133,8 +134,10 @@ const renderMessageContent = (content: string) => {
   );
 };
 
-export function ChatView({ messages, isWorking, onClearChat }: ChatViewProps) {
+export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking, onClearChat }) => {
   const endRef = useRef<HTMLDivElement>(null);
+  
+  useDebugLifecycle('ChatView', { messagesCount: messages.length, isWorking });
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });

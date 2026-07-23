@@ -1,4 +1,5 @@
 import React from 'react';
+import { useDebugLifecycle } from '../utils/debug';
 
 interface TopBarProps {
   activeWorkstationName?: string;
@@ -6,6 +7,8 @@ interface TopBarProps {
 }
 
 export function TopBar({ activeWorkstationName, onConnectWorkstation }: TopBarProps) {
+  useDebugLifecycle('TopBar', { activeWorkstationName });
+
   return (
     <header className="workspace-topbar">
       <div className="topbar-left">

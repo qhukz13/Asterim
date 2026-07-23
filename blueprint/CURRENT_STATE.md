@@ -2,6 +2,15 @@
 
 This document records the current snapshot of development, recent achievements, and known issues that have been deferred for later. It acts as a bridge between active tasks and the high-level roadmap.
 
+## 🚨 CRITICAL BUGS (High Priority for Tomorrow)
+
+### 1. Project Switching Regression (P0)
+
+- **Status:** **ACTIVE / BLOCKING**
+- **Symptom:** Switching between tabs (threads) works perfectly following the URL-as-single-source-of-truth refactor. However, switching between *projects* now fails. The UI flashes the new project with an error and then immediately returns/bounces back to the original project.
+- **Context:** This is a direct regression caused by recent `RouterSync` and navigational changes. The URL-to-State synchronization is likely conflicting with how projects are loaded or how `App.tsx` handles `selectedProject` validation.
+- **Directive for Next Session:** DO NOT begin new feature work. The first task of the next session must be to investigate the project switching logic (likely in `App.tsx`, `Router.tsx`, or `SessionSidebar`) and fix the bounce-back issue.
+
 ## Recent Work & Achievements
 
 ### 1. Developer Workstation Mode (LAN Connectivity)

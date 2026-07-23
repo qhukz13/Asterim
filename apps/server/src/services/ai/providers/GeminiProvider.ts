@@ -58,6 +58,29 @@ ${diff}
     return response.text || 'No explanation generated.';
   }
 
+  async reviewChanges(diff: string, projectId?: string): Promise<string> {
+    const client = this.ensureClient();
+    const prompt = `
+You are an expert lead software engineer performing a thorough Code Review on the following git diff.
+Identify potential bugs, edge cases, security vulnerabilities, performance bottlenecks, and code quality improvements.
+Structure your review with the following sections in Markdown:
+- **Summary**: Brief assessment of the changes.
+- **Potential Issues**: Bugs, logic errors, or unhandled edge cases (if any).
+- **Security & Performance**: Potential security flaws or performance bottlenecks (if any).
+- **Suggestions**: Recommended improvements or best practices.
+
+If the changes look great with no obvious issues, say so clearly in the summary.
+
+Diff:
+${diff}
+`;
+    const response = await client.models.generateContent({
+      model: this.model,
+      contents: prompt,
+    });
+    return response.text || 'No review generated.';
+  }
+
   async suggestFiles(task: string, fileTree: string[], projectId?: string): Promise<string[]> {
     const client = this.ensureClient();
     const prompt = `

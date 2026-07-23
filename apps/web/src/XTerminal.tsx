@@ -3,22 +3,29 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { Socket } from 'socket.io-client';
+import { useTerminalStore } from './stores/useTerminalStore';
+import { useDebugLifecycle } from './utils/debug';
 
 export function XTerminal({
   socket,
   projectId,
-  sendInternalEvent
+  sendInternalEvent,
+  threadId
 }: {
   socket: Socket | null;
   projectId: string;
   sendInternalEvent?: (type: string, payload: any) => void;
+  threadId?: string;
 }) {
+  useDebugLifecycle('XTerminal', { projectId, threadId });
+
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
-
   useEffect(() => {
     if (!terminalRef.current || !socket) return;
+    
+    let focusTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     if (!termInstance.current) {
       const term = new Terminal({
@@ -37,6 +44,33 @@ export function XTerminal({
       term.open(terminalRef.current);
       fit.fit();
 
+      // Write existing buffer from store
+      const existingBuffer = useTerminalStore.getState().getBuffer(threadId || projectId);
+      if (existingBuffer) {
+        term.write(existingBuffer);
+        // Backend PTY is likely alive, just resize
+        if (sendInternalEvent) {
+          sendInternalEvent('client.terminal_resize', { cols: term.cols, rows: term.rows, projectId });
+        } else {
+          socket.emit('client_event', {
+            source: 'client',
+            type: 'client.terminal_resize',
+            payload: { projectId, cols: term.cols, rows: term.rows }
+          });
+        }
+      } else {
+        // Spawn terminal
+        if (sendInternalEvent) {
+          sendInternalEvent('client.terminal_spawn', { cols: term.cols, rows: term.rows, projectId });
+        } else {
+          socket.emit('client_event', {
+            source: 'client',
+            type: 'client.terminal_spawn',
+            payload: { projectId, cols: term.cols, rows: term.rows }
+          });
+        }
+      }
+
       // Send input to the server
       term.onData(data => {
         if (sendInternalEvent) {
@@ -54,7 +88,9 @@ export function XTerminal({
       fitAddon.current = fit;
 
       // Auto-focus
-      setTimeout(() => term.focus(), 100);
+      focusTimeoutId = setTimeout(() => {
+        term.focus();
+      }, 100);
 
       const handleResize = () => {
         fit.fit();
@@ -75,24 +111,14 @@ export function XTerminal({
 
       window.addEventListener('resize', handleResize);
 
-      // Spawn terminal
-      if (sendInternalEvent) {
-        sendInternalEvent('client.terminal_spawn', { cols: term.cols, rows: term.rows, projectId });
-      } else {
-        socket.emit('client_event', {
-          source: 'client',
-          type: 'client.terminal_spawn',
-          payload: { projectId, cols: term.cols, rows: term.rows }
-        });
-      }
-
       return () => {
+        if (focusTimeoutId !== null) clearTimeout(focusTimeoutId);
         window.removeEventListener('resize', handleResize);
         term.dispose();
         termInstance.current = null;
       };
     }
-  }, [socket, projectId]);
+  }, [socket, projectId, threadId]);
 
   // Handle incoming data
   useEffect(() => {
@@ -111,7 +137,12 @@ export function XTerminal({
     };
 
     const handleData = (event: any) => {
-      if (event.payload?.projectId === projectId && event.payload?.data) {
+      // Check if it's the right thread/project
+      const isTarget = threadId 
+        ? event.payload?.threadId === threadId 
+        : event.payload?.projectId === projectId;
+        
+      if (isTarget && event.payload?.data) {
         writeBuffer += event.payload.data;
         if (timeoutId === null) {
           timeoutId = setTimeout(flushBuffer, THROTTLE_MS);
@@ -138,7 +169,7 @@ export function XTerminal({
         clearTimeout(timeoutId);
       }
     };
-  }, [socket, projectId]);
+  }, [socket, projectId, threadId]);
 
   return (
     <div

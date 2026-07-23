@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { NewAgentModal } from './overlays/NewAgentModal';
+import { useProjectStore } from '../stores/useProjectStore';
+import { useThreadStore } from '../stores/useThreadStore';
+import { usePanelStore } from '../stores/usePanelStore';
+import { useDebugLifecycle } from '../utils/debug';
+import { useViewStore } from '../stores/useViewStore';
+import { useLocation } from 'wouter';
 
 export interface Thread {
   id: string;
@@ -10,20 +16,51 @@ export interface Thread {
 
 export function SessionSidebar({
   projectId,
-  activeThreadId,
-  onSelectThread,
   onBackToProjects,
   activeBackendUrl
 }: {
   projectId: string;
-  activeThreadId: string | null;
-  onSelectThread: (threadId: string) => void;
   onBackToProjects: () => void;
   activeBackendUrl?: string;
 }) {
-  const [threads, setThreads] = useState<Thread[]>([]);
+  useDebugLifecycle('SessionSidebar', { projectId, activeBackendUrl });
+
+  const threads = useProjectStore(s => s.threads);
+  const setThreads = useProjectStore(s => s.setThreads);
+  const activeThreadId = useThreadStore(s => s.activeThreadId);
+  const perThreadViewState = useViewStore(s => s.perThreadViewState);
+  const [, setLocation] = useLocation();
+
+  const handleSelectThread = (threadId: string) => {
+    const lastView = perThreadViewState[threadId] || 'chat';
+    setLocation(`/workspace/project/${projectId}/thread/${threadId}/view/${lastView}`);
+  };
   const [loading, setLoading] = useState(true);
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
+
+  const isCollapsed = usePanelStore(s => s.isCenterSidebarCollapsed);
+  const width = usePanelStore(s => s.centerSidebarWidth);
+  const setWidth = usePanelStore(s => s.setPanelWidth);
+
+  const handleDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(200, Math.min(500, startWidth + delta));
+      setWidth('center', newWidth);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   useEffect(() => {
     const baseUrl =
@@ -39,7 +76,7 @@ export function SessionSidebar({
         if (data.threads) {
           setThreads(data.threads);
           if (!activeThreadId && data.threads.length > 0) {
-            onSelectThread(data.threads[0].id);
+            handleSelectThread(data.threads[0].id);
           }
         }
         setLoading(false);
@@ -68,16 +105,33 @@ export function SessionSidebar({
       });
       const data = await res.json();
       if (data.thread) {
-        setThreads(prev => [...prev, data.thread]);
-        onSelectThread(data.thread.id);
+        setThreads([...threads, data.thread]);
+        handleSelectThread(data.thread.id);
       }
     } catch (err) {
       console.error('Failed to create thread', err);
     }
   };
 
+  if (isCollapsed) return null;
+
   return (
-    <div className="workspace-session-sidebar">
+    <div className="workspace-session-sidebar" style={{ width: `${width}px`, position: 'relative' }}>
+      <div 
+        onMouseDown={handleDrag}
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: '4px',
+          cursor: 'col-resize',
+          zIndex: 10,
+          background: 'transparent'
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      />
       <div
         style={{
           padding: '16px',
@@ -148,7 +202,7 @@ export function SessionSidebar({
             {threads.map(thread => (
               <div
                 key={thread.id}
-                onClick={() => onSelectThread(thread.id)}
+                onClick={() => handleSelectThread(thread.id)}
                 style={{
                   padding: '10px 12px',
                   borderRadius: '6px',
