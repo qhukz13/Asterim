@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface NewAgentModalProps {
   onClose: () => void;
@@ -15,7 +16,7 @@ export function NewAgentModal({ onClose, onSubmit }: NewAgentModalProps) {
     }
   };
 
-  return (
+  return createPortal(
     <div className="dialog-overlay" onClick={onClose}>
       <div
         className="dialog-box glass-panel"
@@ -101,6 +102,7 @@ export function NewAgentModal({ onClose, onSubmit }: NewAgentModalProps) {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useDebugLifecycle } from '../utils/debug';
 import { usePanelStore } from '../stores/usePanelStore';
+import { useLocation } from 'wouter';
 
 interface NavigationSidebarProps {
   onAddProject: () => void;
@@ -13,7 +14,7 @@ export function NavigationSidebar({
 }: NavigationSidebarProps) {
   const projects = useWorkspaceStore(s => s.projects);
   const activeProjectId = useProjectStore(s => s.activeProjectId);
-  const setActiveProject = useProjectStore(s => s.setActiveProject);
+  const [, setLocation] = useLocation();
   
   useDebugLifecycle('NavigationSidebar', { activeProjectId });
   
@@ -116,7 +117,7 @@ export function NavigationSidebar({
           projects.map(p => (
             <div
               key={p.id}
-              onClick={() => setActiveProject(p.id)}
+              onClick={() => setLocation(`/workspace/project/${p.id}`)}
               style={{
                 padding: 'var(--spacing-3) var(--spacing-4)',
                 cursor: 'pointer',

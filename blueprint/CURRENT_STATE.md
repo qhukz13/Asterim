@@ -6,10 +6,9 @@ This document records the current snapshot of development, recent achievements, 
 
 ### 1. Project Switching Regression (P0)
 
-- **Status:** **ACTIVE / BLOCKING**
-- **Symptom:** Switching between tabs (threads) works perfectly following the URL-as-single-source-of-truth refactor. However, switching between *projects* now fails. The UI flashes the new project with an error and then immediately returns/bounces back to the original project.
-- **Context:** This is a direct regression caused by recent `RouterSync` and navigational changes. The URL-to-State synchronization is likely conflicting with how projects are loaded or how `App.tsx` handles `selectedProject` validation.
-- **Directive for Next Session:** DO NOT begin new feature work. The first task of the next session must be to investigate the project switching logic (likely in `App.tsx`, `Router.tsx`, or `SessionSidebar`) and fix the bounce-back issue.
+- **Status:** **FIXED** (2026-07-24)
+- **Root Cause:** `NavigationSidebar` and `App.tsx` were calling `setActiveProject()` on Zustand directly without updating the URL. Since `RouterSync` is now URL-first, it immediately overwrote the Zustand state back to the old project from the stale URL params, causing the bounce-back.
+- **Fix:** All project navigation now goes through `setLocation('/workspace/project/{id}')`. `RouterSync` also handles the root route (`/`) by clearing `activeProjectId` when no route matches.
 
 ## Recent Work & Achievements
 

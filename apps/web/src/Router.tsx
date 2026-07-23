@@ -31,14 +31,15 @@ export function RouterSync() {
       if (activeThreadId !== paramsFull.threadId) setActiveThread(paramsFull.threadId);
       if (activeView !== paramsFull.viewId) setActiveView(paramsFull.viewId as ViewType);
     } 
-    // If we only have a project match, clear the thread and view state
+    // If we only have a project match, clear thread state
     else if (matchProject && paramsProject) {
       if (activeProjectId !== paramsProject.projectId) setActiveProject(paramsProject.projectId);
       if (activeThreadId !== null) setActiveThread(null);
-      // We don't clear activeView, it just becomes irrelevant until a thread is selected
-      
-      // Redirect to a complete URL if there's an active thread in state that isn't in the URL?
-      // No, URL is the source of truth. If URL says no thread, state says no thread.
+    }
+    // No route match (e.g., root `/`) — clear all navigational state
+    else {
+      if (activeProjectId !== null) setActiveProject(null);
+      if (activeThreadId !== null) setActiveThread(null);
     }
   }, [matchFull, paramsFull, matchProject, paramsProject]);
 

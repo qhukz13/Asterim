@@ -15,12 +15,15 @@ export function InteractionEngine() {
   const clearSelection = useInspectorStore(s => s.clearSelection);
   const perThreadViewState = useViewStore(s => s.perThreadViewState);
   const setActiveView = useViewStore(s => s.setActiveView);
+  const setThreads = useProjectStore(s => s.setThreads);
 
-  // Rule: Changing project clears thread
+  // Rule: Changing project clears stale thread data
   useEffect(() => {
-    // When project changes, the active thread might become invalid.
-    // In a full implementation, we validate if the thread belongs to the project.
-  }, [activeProjectId]);
+    // Clear the thread list so the previous project's threads
+    // don't bleed into the new project's workspace while
+    // SessionSidebar re-fetches.
+    setThreads([]);
+  }, [activeProjectId, setThreads]);
 
   // Rule: Changing thread clears inspector selection
   useEffect(() => {

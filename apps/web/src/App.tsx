@@ -318,6 +318,7 @@ function ProjectWorkspace({
 }) {
   const activeThreadId = useThreadStore(s => s.activeThreadId);
   const setActiveThreadId = useThreadStore(s => s.setActiveThread);
+  const threads = useProjectStore(s => s.threads);
   const {
     socket,
     connected,
@@ -422,7 +423,9 @@ function ProjectWorkspace({
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-              {activeThreadId ? 'Refactoring Domain Model' : 'No Active Mission'}
+              {activeThreadId 
+                ? (threads.find(t => t.id === activeThreadId)?.name || `Thread ${activeThreadId.slice(0, 8)}`)
+                : 'No Active Mission'}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '4px', display: 'flex', gap: '12px' }}>
               <span>{activeThreadId ? `Thread: ${activeThreadId.slice(0, 8)}` : 'Idle Workspace'}</span>
@@ -762,7 +765,7 @@ export function App() {
   }, [projects, setProjects]);
 
   const activeProjectId = useProjectStore(s => s.activeProjectId);
-  const setActiveProject = useProjectStore(s => s.setActiveProject);
+  const [, setAppLocation] = useLocation();
   
   const selectedProject = projects.find(p => p.id === activeProjectId) || null;
 
@@ -822,7 +825,7 @@ export function App() {
       path: 'Cloud Relay',
       relayUrl: serverRelayUrl
     };
-    setActiveProject(tunnelId);
+    setAppLocation(`/workspace/project/${tunnelId}`);
     setShowConnect(false);
   };
 
@@ -840,7 +843,7 @@ export function App() {
           onClose={() => setShowAddProject(false)}
           onSuccess={project => {
             refreshProjects();
-            setActiveProject(project.id);
+            setAppLocation(`/workspace/project/${project.id}`);
             setShowAddProject(false);
           }}
         />
@@ -863,7 +866,7 @@ export function App() {
       {selectedProject ? (
         <ProjectWorkspace
           project={selectedProject}
-          onBack={() => setActiveProject(null)}
+          onBack={() => setAppLocation('/')}
           activeBackendUrl={workstations.activeBackendUrl}
           topBar={topBar}
           navigationSidebar={navigationSidebar}
