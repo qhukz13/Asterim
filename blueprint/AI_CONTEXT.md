@@ -30,18 +30,19 @@ Agent onboarding and context building.
 
 When tasked with a modification, identify the domain and consult the corresponding document:
 
-| Domain                           | Source of Truth    |
-| :------------------------------- | :----------------- |
-| Core Philosophy & User Personas  | `PRODUCT.md`       |
-| Monorepo Structure & Ecosystem   | `PRODUCT_MAP.md`   |
-| System Architecture & Subsystems | `ARCHITECTURE.md`  |
-| Business Logic & Pricing         | `BUSINESS.md`      |
-| Coding Standards & CI/CD         | `ENGINEERING.md`   |
-| UI/UX & Aesthetics               | `DESIGN_SYSTEM.md` |
-| Roadmap & Planning               | `DEVELOPMENT.md`   |
-| Launch & Readiness               | `RELEASE.md`       |
-| Source Control & Versioning      | `GIT.md`           |
-| AI Operating Rules               | `MASTER_PROMPT.md` |
+| Domain                           | Source of Truth        |
+| :------------------------------- | :--------------------- |
+| Core Vision & Product Pillars    | `PRODUCT_VISION.md`    |
+| Core Philosophy & User Personas  | `PRODUCT.md`           |
+| Monorepo Structure & Ecosystem   | `PRODUCT_MAP.md`       |
+| System Architecture & Subsystems | `ARCHITECTURE.md`      |
+| Business Logic & Pricing         | `BUSINESS.md`          |
+| Coding Standards & CI/CD         | `ENGINEERING.md`       |
+| UI/UX & Aesthetics               | `DESIGN_SYSTEM.md`     |
+| Roadmap & Commercial Launch      | `ROADMAP.md`           |
+| Launch & Readiness               | `RELEASE.md`           |
+| Source Control & Versioning      | `GIT.md`               |
+| AI Operating Rules               | `MASTER_PROMPT.md`     |
 
 ## Document Map
 
