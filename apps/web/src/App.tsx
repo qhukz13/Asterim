@@ -508,11 +508,16 @@ function ProjectWorkspace({
           <button
             className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`}
             style={{
-              padding: '6px 12px',
-              minWidth: 'auto',
-              background: activeTab === 'chat' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              color: activeTab === 'chat' ? '#60a5fa' : 'inherit',
-              transition: 'background 0.2s, color 0.2s'
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'chat' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'chat' ? '#ffffff' : 'var(--color-text-secondary)',
+              borderBottom: activeTab === 'chat' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
             onClick={() => setActiveTab('chat')}
           >
@@ -521,11 +526,16 @@ function ProjectWorkspace({
           <button
             className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`}
             style={{
-              padding: '6px 12px',
-              minWidth: 'auto',
-              background: activeTab === 'terminal' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              color: activeTab === 'terminal' ? '#60a5fa' : 'inherit',
-              transition: 'background 0.2s, color 0.2s'
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'terminal' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'terminal' ? '#ffffff' : 'var(--color-text-secondary)',
+              borderBottom: activeTab === 'terminal' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
             onClick={() => setActiveTab('terminal')}
           >
@@ -535,11 +545,16 @@ function ProjectWorkspace({
           <button
             className={`nav-btn ${activeTab === 'changes' ? 'active' : ''}`}
             style={{
-              padding: '6px 12px',
-              minWidth: 'auto',
-              background: activeTab === 'changes' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              color: activeTab === 'changes' ? '#60a5fa' : 'inherit',
-              transition: 'background 0.2s, color 0.2s'
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'changes' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'changes' ? '#ffffff' : 'var(--color-text-secondary)',
+              borderBottom: activeTab === 'changes' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
             onClick={() => setActiveTab('changes')}
           >
@@ -548,11 +563,16 @@ function ProjectWorkspace({
           <button
             className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
             style={{
-              padding: '6px 12px',
-              minWidth: 'auto',
-              background: activeTab === 'settings' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              color: activeTab === 'settings' ? '#60a5fa' : 'inherit',
-              transition: 'background 0.2s, color 0.2s'
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'settings' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'settings' ? '#ffffff' : 'var(--color-text-secondary)',
+              borderBottom: activeTab === 'settings' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
             onClick={() => setActiveTab('settings')}
           >
@@ -724,7 +744,17 @@ function ProjectWorkspace({
           activeBackendUrl={activeBackendUrl}
         />
       }
-      inspectorPanel={<InspectorPanel socket={socket} activeBackendUrl={activeBackendUrl} projectId={project.id} activeTab={activeTab} />}
+      inspectorPanel={
+        <InspectorPanel
+          socket={socket}
+          activeBackendUrl={activeBackendUrl}
+          projectId={project.id}
+          activeTab={activeTab}
+          agentStatus={agentStatus.status}
+          agentType={agentType}
+          approvalRequest={approvalRequest}
+        />
+      }
       mainWorkspace={mainContent}
       overlays={
         <>
@@ -781,8 +811,14 @@ export function App() {
     );
   }
 
+  const activeThreadId = useThreadStore(s => s.activeThreadId);
+  const threads = useProjectStore(s => s.threads);
+  const activeThread = threads.find(t => t.id === activeThreadId);
+
   const topBar = (
     <TopBar
+      projectName={selectedProject?.name}
+      missionTitle={activeThread?.name}
       activeWorkstationName={workstations.activeWorkstation?.name}
       onConnectWorkstation={() => setShowConnect(true)}
     />

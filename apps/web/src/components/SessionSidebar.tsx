@@ -49,7 +49,7 @@ export function SessionSidebar({
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = moveEvent.clientX - startX;
-      const newWidth = Math.max(200, Math.min(500, startWidth + delta));
+      const newWidth = Math.max(180, Math.min(440, startWidth + delta));
       setWidth('center', newWidth);
     };
 
@@ -117,7 +117,8 @@ export function SessionSidebar({
 
   return (
     <div className="workspace-session-sidebar" style={{ width: `${width}px`, position: 'relative' }}>
-      <div 
+      {/* Resizer Handle */}
+      <div
         onMouseDown={handleDrag}
         style={{
           position: 'absolute',
@@ -126,124 +127,148 @@ export function SessionSidebar({
           bottom: 0,
           width: '4px',
           cursor: 'col-resize',
-          zIndex: 10,
+          zIndex: 100,
           background: 'transparent'
         }}
-        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-border-subtle)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
       />
+
+      {/* Header */}
       <div
         style={{
-          padding: '16px',
+          padding: 'var(--spacing-2) var(--spacing-3)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          borderBottom: '1px solid rgba(255,255,255,0.05)'
+          borderBottom: '1px solid var(--color-border-subtle)',
+          height: 'var(--nav-height)'
         }}
       >
         <button
           onClick={onBackToProjects}
           style={{
-            padding: '6px 12px',
-            fontSize: '0.85rem',
-            background: 'rgba(255, 255, 255, 0.05)',
-            border: '1px solid var(--panel-border)',
-            color: 'var(--text-secondary)',
-            borderRadius: '6px',
+            padding: 'var(--spacing-1) var(--spacing-2)',
+            fontSize: 'var(--font-size-xs)',
+            background: 'var(--color-surface-2)',
+            border: '1px solid var(--color-border-subtle)',
+            color: 'var(--color-text-secondary)',
+            borderRadius: 'var(--radius-sm)',
             cursor: 'pointer',
-            transition: 'all 0.2s ease',
+            transition: 'all 0.15s ease',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px'
+            gap: 'var(--spacing-1)'
           }}
           onMouseOver={e => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--color-surface-3)';
+            e.currentTarget.style.color = 'var(--color-text-primary)';
           }}
           onMouseOut={e => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.background = 'var(--color-surface-2)';
+            e.currentTarget.style.color = 'var(--color-text-secondary)';
           }}
         >
-          ← Back
+          ← Projects
         </button>
         <button
-          className="btn-primary"
           onClick={() => setShowNewAgentModal(true)}
-          style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px' }}
+          style={{
+            width: '100%',
+            height: 'var(--control-height-lg)',
+            padding: '0 var(--spacing-4)',
+            fontSize: 'var(--font-size-lg)',
+            fontWeight: 'var(--font-weight-semibold)',
+            background: 'var(--color-accent-primary)',
+            color: 'var(--color-text-contrast)',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+            transition: 'background 0.15s'
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = 'var(--color-accent-hover)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'var(--color-accent-primary)')}
         >
           + New Agent
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+      {/* Thread List Body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-2)' }}>
         <div
           style={{
-            fontSize: '0.75rem',
-            color: 'var(--text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            color: 'var(--color-text-muted)',
+            fontWeight: 'var(--font-weight-semibold)',
             textTransform: 'uppercase',
-            marginBottom: '12px',
-            letterSpacing: '0.05em'
+            marginBottom: 'var(--spacing-2)',
+            letterSpacing: '0.05em',
+            padding: '0 var(--spacing-1)'
           }}
         >
-          Parallel Agents
+          Active Threads
         </div>
 
         {loading ? (
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Loading agents...
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)', padding: 'var(--spacing-2)' }}>
+            Loading threads...
           </div>
         ) : threads.length === 0 ? (
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            No agents started yet.
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)', padding: 'var(--spacing-2)' }}>
+            No active threads.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {threads.map(thread => (
-              <div
-                key={thread.id}
-                onClick={() => handleSelectThread(thread.id)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  background:
-                    activeThreadId === thread.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                  color: activeThreadId === thread.id ? '#60a5fa' : 'var(--text-primary)',
-                  transition: 'background 0.2s',
-                  border: `1px solid ${activeThreadId === thread.id ? 'rgba(59, 130, 246, 0.3)' : 'transparent'}`
-                }}
-                onMouseOver={e => {
-                  if (activeThreadId !== thread.id)
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                }}
-                onMouseOut={e => {
-                  if (activeThreadId !== thread.id)
-                    e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                <div style={{ marginRight: '8px', opacity: 0.7 }}>🤖</div>
-                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {thread.name}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+            {threads.map(thread => {
+              const isActive = activeThreadId === thread.id;
+              return (
+                <div
+                  key={thread.id}
+                  onClick={() => handleSelectThread(thread.id)}
+                  style={{
+                    padding: 'var(--spacing-2) var(--spacing-3)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    fontSize: 'var(--font-size-lg)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: isActive ? 'var(--color-surface-2)' : 'transparent',
+                    color: isActive ? 'var(--color-accent-hover)' : 'var(--color-text-primary)',
+                    border: `1px solid ${isActive ? 'var(--color-border-default)' : 'transparent'}`,
+                    transition: 'background 0.15s, color 0.15s'
+                  }}
+                  onMouseOver={e => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'var(--color-surface-1)';
+                    }
+                  }}
+                  onMouseOut={e => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  <span style={{ marginRight: 'var(--spacing-2)', opacity: 0.7, fontSize: 'var(--font-size-xs)' }}>🤖</span>
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                    {thread.name}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
+      {/* Footer */}
       <div
         style={{
-          padding: '16px',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          fontSize: '0.8rem',
-          color: 'var(--text-secondary)'
+          padding: 'var(--spacing-2) var(--spacing-3)',
+          borderTop: '1px solid var(--color-border-subtle)',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-muted)'
         }}
       >
-        Asterim Workspace
+        Asterim Session
       </div>
 
       {showNewAgentModal && (

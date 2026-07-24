@@ -5,40 +5,79 @@ import { useThreadStore } from '../stores/useThreadStore';
 import { ContextView } from './workspace/ContextView';
 import { useDebugLifecycle } from '../utils/debug';
 
-function InspectorSection({ title, subtitle, actions, children, defaultOpen = true }: { title: string, subtitle?: React.ReactNode, actions?: React.ReactNode, children: React.ReactNode, defaultOpen?: boolean }) {
+interface InspectorSectionProps {
+  title: string;
+  subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}
+
+function InspectorSection({
+  title,
+  subtitle,
+  actions,
+  children,
+  defaultOpen = true
+}: InspectorSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   return (
-    <div style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-      <div 
+    <div style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+      <div
         style={{
-          padding: '8px 16px',
+          padding: 'var(--spacing-2) var(--spacing-3)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          userSelect: 'none'
+          userSelect: 'none',
+          background: 'var(--color-surface-1)'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setIsOpen(!isOpen)}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', cursor: 'pointer' }}>{title}</span>
-          {subtitle && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{subtitle}</span>}
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', cursor: 'pointer' }}
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          <span
+            style={{
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 'var(--font-weight-semibold)',
+              color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}
+          >
+            {title}
+          </span>
+          {subtitle && (
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              {subtitle}
+            </span>
+          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
           {actions}
-          <span onClick={() => setIsOpen(!isOpen)} style={{ fontSize: '0.65rem', color: 'var(--text-muted)', cursor: 'pointer' }}>{isOpen ? '▼' : '▶'}</span>
+          <span
+            onClick={() => setIsOpen(!isOpen)}
+            style={{ fontSize: '10px', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+          >
+            {isOpen ? '▼' : '▶'}
+          </span>
         </div>
       </div>
-      {isOpen && (
-        <div style={{ padding: '0 16px 16px 16px' }}>
-          {children}
-        </div>
-      )}
+      {isOpen && <div style={{ padding: 'var(--spacing-3)', background: 'var(--color-surface-0)' }}>{children}</div>}
     </div>
   );
 }
 
-export function InspectorPanel({ socket, activeBackendUrl, projectId, activeTab }: any) {
-  useDebugLifecycle('InspectorPanel', { projectId, activeTab });
-  const currentSelection = useInspectorStore(s => s.currentSelection);
+export function InspectorPanel({
+  socket,
+  activeBackendUrl,
+  projectId,
+  agentStatus = 'idle',
+  agentType = 'Claude Code',
+  approvalRequest
+}: any) {
+  useDebugLifecycle('InspectorPanel', { projectId, agentStatus });
   const isCollapsed = usePanelStore(s => s.isInspectorCollapsed);
   const toggleCollapse = () => usePanelStore.getState().togglePanel('inspector');
   const width = usePanelStore(s => s.inspectorWidth);
@@ -52,7 +91,7 @@ export function InspectorPanel({ socket, activeBackendUrl, projectId, activeTab 
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = startX - moveEvent.clientX;
-      const newWidth = Math.max(200, Math.min(600, startWidth + delta));
+      const newWidth = Math.max(200, Math.min(500, startWidth + delta));
       setWidth('inspector', newWidth);
     };
 
@@ -66,21 +105,21 @@ export function InspectorPanel({ socket, activeBackendUrl, projectId, activeTab 
   };
 
   return (
-    <aside 
-      className="workspace-inspector-panel" 
-      style={{ 
-        width: isCollapsed ? '48px' : `${width}px`, 
-        borderLeft: '1px solid rgba(255, 255, 255, 0.05)', 
-        background: 'var(--bg-app)', 
-        display: 'flex', 
+    <aside
+      className="workspace-inspector-panel"
+      style={{
+        width: isCollapsed ? '40px' : `${width}px`,
+        borderLeft: '1px solid var(--color-border-subtle)',
+        background: 'var(--color-surface-0)',
+        display: 'flex',
         flexDirection: 'column',
-        transition: 'width 0.2s ease',
+        transition: 'width 0.15s ease',
         overflow: 'hidden',
         position: 'relative'
       }}
     >
       {!isCollapsed && (
-        <div 
+        <div
           onMouseDown={handleDrag}
           style={{
             position: 'absolute',
@@ -92,130 +131,146 @@ export function InspectorPanel({ socket, activeBackendUrl, projectId, activeTab 
             zIndex: 10,
             background: 'transparent'
           }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-border-subtle)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         />
       )}
-      <div style={{ 
-        padding: '16px', 
-        borderBottom: '1px solid rgba(255, 255, 255, 0.05)', 
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: isCollapsed ? 'center' : 'space-between'
-      }}>
-        {!isCollapsed && <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Inspector</span>}
-        <button 
+
+      {/* Header */}
+      <div
+        style={{
+          padding: 'var(--spacing-2) var(--spacing-3)',
+          borderBottom: '1px solid var(--color-border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isCollapsed ? 'center' : 'space-between',
+          height: 'var(--nav-height)',
+          background: 'var(--color-surface-1)'
+        }}
+      >
+        {!isCollapsed && (
+          <span
+            style={{
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 'var(--font-weight-semibold)',
+              color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}
+          >
+            AI Context & State
+          </span>
+        )}
+        <button
           onClick={toggleCollapse}
-          style={{ 
-            background: 'transparent', 
-            border: 'none', 
-            color: 'var(--text-secondary)', 
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--color-text-muted)',
             cursor: 'pointer',
-            padding: '4px',
-            borderRadius: '4px'
+            padding: '2px 4px',
+            fontSize: 'var(--font-size-xs)',
+            borderRadius: 'var(--radius-sm)'
           }}
-          title={isCollapsed ? "Expand Inspector" : "Collapse Inspector"}
+          title={isCollapsed ? 'Expand Inspector' : 'Collapse Inspector'}
         >
           {isCollapsed ? '◀' : '▶'}
         </button>
       </div>
-      
+
       {!isCollapsed && (
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          
-          {activeTab === 'chat' && (
-            <>
-              <InspectorSection title="Mission" defaultOpen={true}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.4 }}>
-                  No mission extracted yet. Use the Working Set to extract one.
-                </div>
-              </InspectorSection>
+          {/* Section 1: What is the Agent Currently Doing? */}
+          <InspectorSection title="Agent Activity" defaultOpen={true}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Runtime:</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-medium)' }}>
+                  {agentType || 'Claude Code'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Execution State:</span>
+                <span
+                  style={{
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 'var(--font-weight-semibold)',
+                    color:
+                      agentStatus === 'working'
+                        ? 'var(--color-state-working)'
+                        : agentStatus === 'paused' || approvalRequest
+                        ? 'var(--color-state-paused)'
+                        : 'var(--color-state-completed)'
+                  }}
+                >
+                  {approvalRequest
+                    ? '⚠️ Action Required'
+                    : agentStatus === 'working'
+                    ? '⚡ Computing'
+                    : '✓ Ready / Idle'}
+                </span>
+              </div>
+            </div>
+          </InspectorSection>
 
-              <InspectorSection 
-                title="Working Set" 
-                defaultOpen={false}
-                subtitle={activeThreadId ? "(3 files pinned)" : ""}
-                actions={
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem' }} title="Add File">➕</button>
-                    <button style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem' }} title="Suggest Files">✨</button>
-                  </div>
-                }
+          {/* Section 2: Pending Approvals & Mutations (Renders ONLY when active) */}
+          {approvalRequest && (
+            <InspectorSection title="Pending Action Review" defaultOpen={true}>
+              <div
+                style={{
+                  background: 'var(--color-state-paused-bg)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  padding: 'var(--spacing-3)',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-2)'
+                }}
               >
-                {activeThreadId ? (
-                  <div style={{ margin: '0 -16px -16px -16px', maxHeight: '400px', overflowY: 'auto' }}>
-                    <ContextView 
-                      socket={socket}
-                      projectId={projectId} 
-                      threadId={activeThreadId} 
-                      activeBackendUrl={activeBackendUrl} 
-                    />
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    No active thread.
-                  </div>
-                )}
-              </InspectorSection>
-
-              <InspectorSection title="Active Execution" defaultOpen={false}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (Execution status and AI Metadata will be displayed here)
+                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-state-paused)', fontWeight: 'var(--font-weight-semibold)' }}>
+                  ⚠️ {approvalRequest.description || 'Permission requested for shell action'}
                 </div>
-              </InspectorSection>
-            </>
-          )}
-
-          {activeTab === 'changes' && (
-            <>
-              <InspectorSection title="Selected File" defaultOpen={currentSelection.type === 'file'}>
-                {currentSelection.type === 'file' ? (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                    <div style={{ fontFamily: 'monospace' }}>{currentSelection.id}</div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Select a file in the diff viewer.
+                {approvalRequest.command && (
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-family-mono)',
+                      fontSize: 'var(--font-size-xs)',
+                      background: 'var(--color-surface-0)',
+                      padding: 'var(--spacing-2)',
+                      borderRadius: 'var(--radius-xs)',
+                      color: 'var(--color-text-primary)',
+                      overflowX: 'auto',
+                      border: '1px solid var(--color-border-subtle)'
+                    }}
+                  >
+                    {approvalRequest.command}
                   </div>
                 )}
-              </InspectorSection>
-
-              <InspectorSection title="Git Summary" defaultOpen={true}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (Git metadata will be displayed here)
-                </div>
-              </InspectorSection>
-
-              <InspectorSection title="AI Review" defaultOpen={true}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (AI Review feedback will be displayed here)
-                </div>
-              </InspectorSection>
-            </>
+              </div>
+            </InspectorSection>
           )}
 
-          {activeTab === 'terminal' && (
-            <>
-              <InspectorSection title="Active Execution" defaultOpen={true}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (Execution status and AI Metadata will be displayed here)
-                </div>
-              </InspectorSection>
-
-              <InspectorSection title="Process Information" defaultOpen={true}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (Process tree and system resources)
-                </div>
-              </InspectorSection>
-
-              <InspectorSection title="Logs" defaultOpen={false}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  (Background daemon logs)
-                </div>
-              </InspectorSection>
-            </>
-          )}
-
+          {/* Section 3: What does the agent know? (Attached Working Set & Pinned Files) */}
+          <InspectorSection
+            title="Attached Context"
+            defaultOpen={true}
+            subtitle={activeThreadId ? '(Working Set)' : ''}
+          >
+            {activeThreadId ? (
+              <div style={{ margin: 'calc(var(--spacing-3) * -1)' }}>
+                <ContextView
+                  socket={socket}
+                  projectId={projectId}
+                  threadId={activeThreadId}
+                  activeBackendUrl={activeBackendUrl}
+                />
+              </div>
+            ) : (
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                Select an active thread to inspect attached context files and workspace rules.
+              </div>
+            )}
+          </InspectorSection>
         </div>
       )}
     </aside>

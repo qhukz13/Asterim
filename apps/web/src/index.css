@@ -1,15 +1,15 @@
 :root {
-  --bg-color: #0b0d12;
-  --panel-bg: rgba(255, 255, 255, 0.04);
-  --panel-border: rgba(255, 255, 255, 0.08);
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --accent-color: #3b82f6;
-  --accent-hover: #60a5fa;
-  --success-color: #10b981;
-  --warning-color: #f59e0b;
-  --error-color: #ef4444;
-  --nav-height: 64px;
+  --bg-color: var(--color-surface-0);
+  --panel-bg: var(--color-surface-1);
+  --panel-border: var(--color-border-subtle);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --accent-color: var(--color-accent-primary);
+  --accent-hover: var(--color-accent-hover);
+  --success-color: var(--color-state-completed);
+  --warning-color: var(--color-state-paused);
+  --error-color: var(--color-state-error);
+  --nav-height: 48px;
 }
 
 * {
@@ -19,33 +19,39 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-primary);
-  line-height: 1.5;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  background-color: var(--color-surface-0);
+  color: var(--color-text-primary);
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background-image:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.15), transparent 40%),
-    radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.08), transparent 40%);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre, kbd, samp, .monospace {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-code);
 }
 
 .app-container {
   display: flex;
   height: 100vh;
   height: 100dvh;
-  padding: 24px;
-  gap: 24px;
+  padding: 0;
+  gap: 0;
+  background-color: var(--color-surface-0);
 }
 
-/* Glass panel mixin */
+/* High-Density Panel Mixin */
 .glass-panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar {
@@ -124,24 +130,29 @@ body {
 
 .input-box {
   flex: 1;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 14px 20px;
-  color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
-  font-size: 0.95rem;
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-md);
   outline: none;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   resize: none;
-  min-height: 50px;
-  max-height: 150px;
-  line-height: 1.5;
+  min-height: 48px;
+  max-height: 160px;
+  line-height: var(--line-height-normal);
+}
+
+.input-box::placeholder {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
 }
 
 .input-box:focus {
-  border-color: var(--accent-hover);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 2px var(--color-accent-glow);
 }
 
 .input-box::-webkit-scrollbar {
@@ -161,18 +172,20 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: var(--color-accent-primary);
   color: white;
   border: none;
-  border-radius: 12px;
-  padding: 14px 28px;
-  font-family: 'Inter', sans-serif;
+  border-radius: var(--radius-md);
+  height: 42px;
+  min-height: 42px;
+  padding: 0 24px;
+  font-family: var(--font-family-sans);
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--font-size-lg);
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-  display: inline-flex;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  display: flex;
   align-items: center;
   justify-content: center;
 }
