@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useChatStore } from '../stores/useChatStore';
 import { CustomDropdown } from './CustomDropdown';
 
@@ -17,16 +17,21 @@ export function ChatInput({
   setAutoApproval,
   threadId
 }: ChatInputProps) {
-  const getDraft = useChatStore(s => s.getDraft);
+  const drafts = useChatStore(s => s.drafts);
   const setDraft = useChatStore(s => s.setDraft);
-  
-  const input = threadId ? getDraft(threadId) : '';
+  const [fallbackInput, setFallbackInput] = useState('');
+
+  const input = threadId ? (drafts[threadId] ?? '') : fallbackInput;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
     if (input.trim()) {
       onSend(input.trim());
-      if (threadId) setDraft(threadId, '');
+      if (threadId) {
+        setDraft(threadId, '');
+      } else {
+        setFallbackInput('');
+      }
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
@@ -54,7 +59,12 @@ export function ChatInput({
           placeholder="Ask the agent to do something..."
           value={input}
           onChange={e => {
-            if (threadId) setDraft(threadId, e.target.value);
+            const val = e.target.value;
+            if (threadId) {
+              setDraft(threadId, val);
+            } else {
+              setFallbackInput(val);
+            }
             e.target.style.height = 'auto';
             e.target.style.height = `${e.target.scrollHeight}px`;
           }}
