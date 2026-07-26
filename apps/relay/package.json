@@ -9,14 +9,14 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@fastify/cors": "^8.5.0",
-    "fastify": "^4.26.0",
+    "@fastify/cors": "^11.3.0",
+    "fastify": "^5.10.0",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "@asterim/eslint-config": "workspace:^",
-    "@types/node": "^22.0.0",
-    "tsx": "^4.22.4",
-    "typescript": "^5.4.0"
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
   }
 }
