@@ -134,7 +134,15 @@ nav {
 }
 
 .feature-icon {
-  font-size: 2rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
   margin-bottom: 20px;
 }
 

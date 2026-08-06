@@ -68,15 +68,15 @@ export function ConnectWorkstationModal({
               setActiveWorkstation(e.target.value === 'local' ? undefined : e.target.value)
             }
           >
-            <option value="local">💻 Local Machine (Default)</option>
+            <option value="local">Local Machine (Default)</option>
             {discovered.map((w: any) => (
               <option key={w.id} value={w.id}>
-                🔍 Discovered: {w.name} ({w.ip}:{w.port})
+                Discovered: {w.name} ({w.ip}:{w.port})
               </option>
             ))}
             {Object.values(config.knownWorkstations).map((w: any) => (
               <option key={w.id} value={w.id}>
-                💾 Saved: {w.name} ({w.ip}:{w.port})
+                Saved: {w.name} ({w.ip}:{w.port})
               </option>
             ))}
           </select>

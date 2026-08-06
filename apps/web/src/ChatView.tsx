@@ -12,7 +12,8 @@ import {
   IconChevronDown,
   IconTerminal,
   IconFileCode,
-  IconCheck
+  IconCheck,
+  IconZap
 } from './components/icons/Icons';
 
 const SyntaxHighlighter = Prism as any;
@@ -570,10 +571,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                   style={{
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-state-working)',
-                    fontFamily: 'var(--font-family-mono)'
+                    fontFamily: 'var(--font-family-mono)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
                   }}
                 >
-                  ⚡ Agent working...
+                  <IconZap size={13} color="var(--color-state-working)" /> Agent working...
                 </div>
               </div>
             )}

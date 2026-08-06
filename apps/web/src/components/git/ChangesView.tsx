@@ -5,7 +5,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useDebugLifecycle } from '../../utils/debug';
-import { IconFileCode } from '../icons/Icons';
+import { IconFileCode, IconSparkles } from '../icons/Icons';
 
 const SyntaxHighlighterComp = SyntaxHighlighter as any;
 
@@ -414,11 +414,12 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <button 
-                style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '6px 12px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', opacity: isGeneratingCommit ? 0.6 : 1 }}
+                style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '6px 12px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', opacity: isGeneratingCommit ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 onClick={handleGenerateCommit}
                 disabled={isGeneratingCommit || stagedFiles.length === 0}
               >
-                {isGeneratingCommit ? '✨ Generating...' : '✨ Auto-Generate Message'}
+                <IconSparkles size={13} color="var(--color-accent-primary)" />
+                {isGeneratingCommit ? 'Generating...' : 'Auto-Generate Message'}
               </button>
               
               <button 
@@ -487,18 +488,20 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button 
-                      style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: 'var(--color-accent-primary)' }} 
+                      style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '5px' }} 
                       onClick={handleExplainDiff}
                       disabled={isExplainingDiff || !diff || diff === 'Loading diff...'}
                     >
-                      {isExplainingDiff ? '✨ Explaining...' : '✨ Explain Intent'}
+                      <IconSparkles size={12} color="var(--color-accent-primary)" />
+                      {isExplainingDiff ? 'Explaining...' : 'Explain Intent'}
                     </button>
                     <button 
-                      style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: 'var(--color-accent-primary)' }} 
+                      style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 10px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '5px' }} 
                       onClick={handleReviewChanges}
                       disabled={isReviewingChanges || !diff || diff === 'Loading diff...'}
                     >
-                      {isReviewingChanges ? '✨ Reviewing...' : '✨ AI Code Review'}
+                      <IconSparkles size={12} color="var(--color-accent-primary)" />
+                      {isReviewingChanges ? 'Reviewing...' : 'AI Code Review'}
                     </button>
                   </div>
                 </div>
@@ -506,8 +509,8 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                 {/* Collapsible AI Explanation & Review Panels */}
                 {diffExplanation && (
                   <div style={{ padding: '16px', background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)', fontSize: '0.85rem', lineHeight: 1.5, flexShrink: 0, maxHeight: '200px', overflowY: 'auto' }}>
-                    <strong style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-accent-primary)' }}>
-                      <span>✨</span> AI Explanation:
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-accent-primary)' }}>
+                      <IconSparkles size={14} color="var(--color-accent-primary)" /> AI Explanation:
                     </strong>
                     <div style={{ marginTop: '8px' }} className="markdown-body">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -519,7 +522,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                 {diffReview && (
                   <div style={{ padding: '16px', background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)', fontSize: '0.85rem', lineHeight: 1.5, flexShrink: 0, maxHeight: '200px', overflowY: 'auto' }}>
                     <strong style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-state-completed)' }}>
-                      <span>🔍</span> AI Code Review:
+                      <IconSparkles size={14} color="var(--color-state-completed)" /> AI Code Review:
                     </strong>
                     <div style={{ marginTop: '8px' }} className="markdown-body">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

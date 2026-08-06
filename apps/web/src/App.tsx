@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle } from './components/icons/Icons';
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { SessionSidebar } from './components/SessionSidebar';
@@ -101,11 +102,14 @@ function ApprovalOverlay({
         >
           <h3
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               margin: 0,
               color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-warning-primary)'
             }}
           >
-            ⚠️ Action Required
+            <IconAlertTriangle size={18} /> Action Required
           </h3>
           <div
             className={isUrgent ? 'pulse-timer urgent' : 'pulse-timer'}
@@ -516,6 +520,9 @@ function ProjectWorkspace({
               fontWeight: 'var(--font-weight-semibold)',
               background: activeTab === 'chat' ? 'var(--color-surface-2)' : 'transparent',
               color: activeTab === 'chat' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               borderBottom: activeTab === 'chat' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
               borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
               cursor: 'pointer',
@@ -523,7 +530,7 @@ function ProjectWorkspace({
             }}
             onClick={() => setActiveTab('chat')}
           >
-            💬 Chat
+            <IconMessage size={15} /> Chat
           </button>
           <button
             className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`}
@@ -534,6 +541,9 @@ function ProjectWorkspace({
               fontWeight: 'var(--font-weight-semibold)',
               background: activeTab === 'terminal' ? 'var(--color-surface-2)' : 'transparent',
               color: activeTab === 'terminal' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               borderBottom: activeTab === 'terminal' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
               borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
               cursor: 'pointer',
@@ -541,7 +551,7 @@ function ProjectWorkspace({
             }}
             onClick={() => setActiveTab('terminal')}
           >
-            ⌨️ Terminal
+            <IconTerminal size={15} /> Terminal
           </button>
 
           <button
@@ -553,6 +563,9 @@ function ProjectWorkspace({
               fontWeight: 'var(--font-weight-semibold)',
               background: activeTab === 'changes' ? 'var(--color-surface-2)' : 'transparent',
               color: activeTab === 'changes' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               borderBottom: activeTab === 'changes' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
               borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
               cursor: 'pointer',
@@ -560,7 +573,7 @@ function ProjectWorkspace({
             }}
             onClick={() => setActiveTab('changes')}
           >
-            🔄 Changes
+            <IconGitBranch size={15} /> Changes
           </button>
           <button
             className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
@@ -571,6 +584,9 @@ function ProjectWorkspace({
               fontWeight: 'var(--font-weight-semibold)',
               background: activeTab === 'settings' ? 'var(--color-surface-2)' : 'transparent',
               color: activeTab === 'settings' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               borderBottom: activeTab === 'settings' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
               borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
               cursor: 'pointer',
@@ -578,7 +594,7 @@ function ProjectWorkspace({
             }}
             onClick={() => setActiveTab('settings')}
           >
-            ⚙️ Settings
+            <IconSettings size={15} /> Settings
           </button>
         </div>
 
@@ -594,10 +610,10 @@ function ProjectWorkspace({
       {!connected && (
         <div
           style={{
-            background: 'var(--color-error-primary)',
-            color: '#fff',
+            background: 'var(--color-surface-2)',
+            borderBottom: '1px solid var(--color-border-subtle)',
             padding: '8px 16px',
-            textAlign: 'center',
+            color: 'var(--color-warning-primary)',
             fontSize: '0.9rem',
             fontWeight: 'bold',
             display: 'flex',
@@ -606,7 +622,9 @@ function ProjectWorkspace({
             gap: '8px'
           }}
         >
-          <span>⚠️ Disconnected from Workstation. Operating in offline mode.</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <IconAlertTriangle size={16} /> Disconnected from Workstation. Operating in offline mode.
+          </span>
         </div>
       )}
 
@@ -644,10 +662,13 @@ function ProjectWorkspace({
                   background: 'rgba(239, 68, 68, 0.15)',
                   border: '1px solid var(--color-error-primary)',
                   fontSize: '0.85rem',
-                  color: 'var(--color-error-primary)'
+                  color: 'var(--color-error-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
               >
-                ⚠️ Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting
+                <IconAlertTriangle size={16} /> Warning: <strong>{agentType}</strong> binary not found on server PATH. Starting
                 this agent will fail.
               </div>
             )}
