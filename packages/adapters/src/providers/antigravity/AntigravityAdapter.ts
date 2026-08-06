@@ -52,9 +52,15 @@ export class AntigravityAdapter extends BaseAdapter {
   public getLaunchCommand(config: LaunchConfig): { cmd: string; args: string[]; env?: Record<string, string> } {
     const isMock = config.isMock || process.env.MOCK_AGENT === 'true';
 
-    // The mock logic points to a mock script that should be relative to the adapter folder
     let spawnCmd = isMock ? 'node' : 'agy';
-    let spawnArgs = isMock ? [path.join(__dirname, '..', '..', '..', 'mock-antigravity.js')] : ['-c'];
+    let spawnArgs = isMock ? [path.join(__dirname, '..', '..', '..', 'mock-antigravity.js')] : [];
+    if (!isMock) {
+      if (config.hasHistory !== false) {
+        spawnArgs.push('-c');
+      } else {
+        spawnArgs.push('--new-project');
+      }
+    }
 
     if (!isMock) {
       const realPath = this.getRealAgyBinaryPath();
@@ -81,9 +87,10 @@ export class AntigravityAdapter extends BaseAdapter {
   }
 
   public async sendCommand(command: string): Promise<void> {
+    const promise = super.sendCommand(command);
     if (this.parser instanceof AntigravityParser) {
-      this.parser.notifyCommandSent();
+      this.parser.notifyCommandSent(command);
     }
-    return super.sendCommand(command);
+    return promise;
   }
 }

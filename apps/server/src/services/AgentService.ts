@@ -88,6 +88,19 @@ export class AgentService {
       }
     });
 
+    eventBus.subscribe<ClientApprovalResponsePayload>('client.approval_response', async event => {
+      try {
+        const { approved, threadId } = event.payload as any;
+        const targetThreadId = threadId || Array.from(this.activeSessions.keys())[0];
+        if (targetThreadId) {
+          console.log(`[AgentService] Sending approval response '${approved ? 'y' : 'n'}' for thread ${targetThreadId}`);
+          await this.sessionManager.sendCommand(targetThreadId, approved ? 'y' : 'n');
+        }
+      } catch (err) {
+        console.error('[AgentService] Error processing approval response:', err);
+      }
+    });
+
     eventBus.subscribe<any>('client.chat_message', async event => {
       try {
         const { content, projectId, threadId } = event.payload;
@@ -106,8 +119,23 @@ export class AgentService {
           }
         });
 
-        // If the agent is currently starting, wait for it to finish
-        if (this.pendingStarts.has(threadId)) {
+        // Ensure agent session is started if not already active
+        if (!this.sessionManager.getSessionAdapter(threadId)) {
+          console.log(`[AgentService] Agent session not running for thread ${threadId}. Auto-starting agent...`);
+          const { projectManager } = await import('./ProjectManager');
+          const project = projectManager.getProject(projectId);
+          if (project) {
+            const config = this.adapterConfigs.get(threadId);
+            const agentType = config?.agentType || 'antigravity';
+            const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+            this.pendingStarts.set(threadId, startPromise);
+            try {
+              await startPromise;
+            } finally {
+              this.pendingStarts.delete(threadId);
+            }
+          }
+        } else if (this.pendingStarts.has(threadId)) {
           await this.pendingStarts.get(threadId);
         }
 
@@ -120,22 +148,29 @@ export class AgentService {
     eventBus.subscribe<any>('client.clear_chat', async event => {
       try {
         const { projectId, threadId } = event.payload;
-        if (!threadId || !projectId) return;
+        if (!projectId) return;
         const db = dbService.getDb();
-        db.prepare('DELETE FROM events WHERE thread_id = ?').run(threadId);
+        if (threadId) {
+          db.prepare('DELETE FROM events WHERE project_id = ? AND (thread_id = ? OR thread_id IS NULL)').run(projectId, threadId);
+        } else {
+          db.prepare('DELETE FROM events WHERE project_id = ?').run(projectId);
+        }
 
-        const adapter = this.sessionManager.getSessionAdapter(threadId);
-        if (adapter) {
-          this.sessionManager.sendCommand(threadId, '/clear');
-          // We do not stop the adapter here, because we want it to stay alive
-          // with a clean history.
-          eventBus.publish({
-            id: crypto.randomUUID(),
-            timestamp: Date.now(),
-            source: 'server',
-            type: 'agent.status',
-            payload: { status: 'idle', projectId, threadId }
-          });
+        const { socketManager } = await import('../sockets/socketManager');
+        socketManager.clearRecentLogs(projectId);
+
+        if (threadId) {
+          const adapter = this.sessionManager.getSessionAdapter(threadId);
+          if (adapter) {
+            this.sessionManager.sendCommand(threadId, '/clear');
+            eventBus.publish({
+              id: crypto.randomUUID(),
+              timestamp: Date.now(),
+              source: 'server',
+              type: 'agent.status',
+              payload: { status: 'idle', message: 'Chat cleared', projectId, threadId }
+            });
+          }
         }
       } catch (err) {
         console.error('[AgentService] Error clearing chat:', err);
@@ -176,12 +211,16 @@ export class AgentService {
     }
 
     try {
+      const db = dbService.getDb();
+      const eventCount = db.prepare("SELECT COUNT(*) as count FROM events WHERE project_id = ? AND thread_id = ? AND type = 'chat.message'").get(projectId, threadId) as { count: number };
+      const hasHistory = eventCount.count > 0;
+
       const { approvalManager } = await import('./ApprovalManager');
       const { questionManager } = await import('./QuestionManager');
       await this.sessionManager.startSession(
         agentType,
         threadId,
-        { workspace },
+        { workspace, hasHistory },
         (event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId, threadId };
           eventBus.publish(event);

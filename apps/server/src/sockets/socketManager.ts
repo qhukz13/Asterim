@@ -23,6 +23,10 @@ export class SocketManager {
     this.setupEventBusBridge();
   }
 
+  public clearRecentLogs(projectId: string) {
+    this.recentLogs.delete(projectId);
+  }
+
   private setupMiddleware() {
     this.io.use((socket: Socket, next) => {
       const token = socket.handshake.auth?.token;

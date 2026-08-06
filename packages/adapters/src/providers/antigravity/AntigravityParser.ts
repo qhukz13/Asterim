@@ -13,6 +13,7 @@ export class AntigravityParser implements IParser {
   private onEvent: (event: AsterimEvent) => void;
   private lastEmittedMessage: string = '';
   private isStartingUp: boolean = true;
+  private currentMessageId: string | null = null;
 
   constructor(onEvent: (event: AsterimEvent) => void) {
     this.onEvent = onEvent;
@@ -29,20 +30,26 @@ export class AntigravityParser implements IParser {
       (state, reason) => this.handleStateChange(state, reason),
       (desc, command) => this.handleApprovalRequired(desc, command),
       () => this.handleTrustRequired(),
-      (q, opts) => this.handleQuestionRequired(q, opts)
+      (q, opts) => this.handleQuestionRequired(q, opts),
+      (message) => this.handleMessageChunk(message)
     );
   }
 
   public processOutput(chunk: any): void {
-    if (typeof chunk === 'string') {
-      this.term.write(chunk, () => {
-        this.processScreenTick();
-      });
-    }
+    const strData = typeof chunk === 'string' ? chunk : chunk?.toString ? chunk.toString('utf-8') : String(chunk);
+    this.term.write(strData, () => {
+      this.processScreenTick();
+    });
   }
 
-  public notifyCommandSent() {
+  public notifyCommandSent(command?: string) {
+    if (command && command.trim() === '/clear') {
+      this.term.clear();
+      this.term.reset();
+    }
     this.fsm.notifyCommandSent();
+    this.currentMessageId = null;
+    this.lastEmittedMessage = '';
   }
 
   private processScreenTick() {
@@ -74,22 +81,56 @@ export class AntigravityParser implements IParser {
     }
   }
 
-  private handleMessageComplete(message: string) {
+  private isHeaderOrLogo(msg: string): boolean {
+    const trimmed = msg.trim();
+    if (!trimmed) return true;
+    return (
+      trimmed.includes("Hello! I'm Antigravity, your AI coding assistant") ||
+      trimmed.includes("Welcome to Google Antigravity Agent") ||
+      trimmed.includes("What would you like help with?") ||
+      trimmed.includes("Initializing workspace...") ||
+      trimmed.includes("Antigravity CLI") ||
+      trimmed.includes("v.onashchuk@gmail.com") ||
+      trimmed.includes("Claude Sonnet") ||
+      trimmed.includes("Gemini 1.5") ||
+      trimmed.includes("Gemini 2.0") ||
+      trimmed.includes("Gemini 3.6")
+    );
+  }
+
+  private handleMessageChunk(message: string) {
     let cleanMsg = message.trim();
     if (cleanMsg === 'y' || cleanMsg === 'n' || cleanMsg === '') return;
     if (cleanMsg === this.lastEmittedMessage) return;
+
+    if (this.isHeaderOrLogo(cleanMsg)) {
+      return;
+    }
     
     this.lastEmittedMessage = cleanMsg;
-    this.emitLog('agent', cleanMsg);
+    this.emitLog('agent', cleanMsg, true);
+  }
+
+  private handleMessageComplete(message: string) {
+    let cleanMsg = message.trim();
+    if (cleanMsg === 'y' || cleanMsg === 'n' || cleanMsg === '') return;
+
+    if (this.isHeaderOrLogo(cleanMsg)) {
+      return;
+    }
+    
+    this.lastEmittedMessage = cleanMsg;
+    this.emitLog('agent', cleanMsg, false);
+    this.currentMessageId = null;
   }
 
   private handleApprovalRequired(desc: string, command: string) {
     this.onEvent({
       id: randomUUID(),
       timestamp: Date.now(),
-      type: 'agent.approval_required', // Make sure to use the proper string from AsterimEvent definitions, we'll proxy it out
+      type: 'agent.approval_request',
       source: 'agent',
-      payload: { description: desc, command }
+      payload: { actionId: randomUUID(), description: desc, command }
     });
   }
 
@@ -114,9 +155,13 @@ export class AntigravityParser implements IParser {
     });
   }
 
-  private emitLog(role: 'agent' | 'user', content: string) {
+  private emitLog(role: 'agent' | 'user', content: string, isChunk: boolean = false) {
+    if (!this.currentMessageId) {
+      this.currentMessageId = randomUUID();
+    }
+    const eventId = this.currentMessageId;
     this.onEvent({
-      id: randomUUID(),
+      id: eventId,
       timestamp: Date.now(),
       type: 'chat.message',
       source: 'agent',

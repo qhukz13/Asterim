@@ -121,13 +121,19 @@ import contextRoutes from './routes/context';
 
 const start = async () => {
   try {
+    console.log('[DEBUG] Registering authRoutes');
     await fastify.register(authRoutes);
+    console.log('[DEBUG] Registering projectRoutes');
     await fastify.register(projectRoutes);
+    console.log('[DEBUG] Registering systemRoutes');
     await fastify.register(systemRoutes);
+    console.log('[DEBUG] Registering aiRoutes');
     await fastify.register(aiRoutes);
+    console.log('[DEBUG] Registering contextRoutes');
     await fastify.register(contextRoutes);
 
     const port = parseInt(process.env.PORT || '3000', 10);
+    console.log('[DEBUG] fastify.listen...');
     await fastify.listen({ port, host: '::' });
     console.log(`[Server] Asterim server listening on port ${port}`);
 
@@ -152,6 +158,7 @@ const start = async () => {
     const { startupService } = await import('./services/StartupService');
     startupService.checkFirstRun(port, pairingService.getPin(), relayClient.tunnelId);
     startupService.checkBinaries();
+
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

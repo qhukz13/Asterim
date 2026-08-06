@@ -26,6 +26,7 @@ export interface IParser {
 export interface LaunchConfig {
   workspace: string;
   isMock?: boolean;
+  hasHistory?: boolean;
 }
 
 export interface IAgentProvider {

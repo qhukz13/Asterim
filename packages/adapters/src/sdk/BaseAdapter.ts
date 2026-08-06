@@ -34,12 +34,12 @@ export abstract class BaseAdapter implements IAgentProvider {
 
   public async start(config: LaunchConfig & { onExit?: (code: number) => void }): Promise<void> {
     this.parser = this.createParser((event: AsterimEvent) => {
-      // Intercept state changes to manage internal queue if needed
+      // Intercept state changes to manage internal queue
       if (event.type === 'agent.status' && event.payload) {
-        if (event.payload.status === 'idle') {
+        if (event.payload.status === 'idle' || event.payload.status === 'waiting_approval' || event.payload.status === 'waiting_question') {
           this.isBusy = false;
           this.flushQueue();
-        } else if (event.payload.status === 'working' || event.payload.status === 'waiting_approval' || event.payload.status === 'waiting_question') {
+        } else if (event.payload.status === 'working') {
           this.isBusy = true;
         }
       }
@@ -69,7 +69,8 @@ export abstract class BaseAdapter implements IAgentProvider {
   }
 
   public async sendCommand(command: string): Promise<void> {
-    if (this.isBusy) {
+    const isApprovalOrInput = command === 'y' || command === 'n' || command.trim() === 'y' || command.trim() === 'n';
+    if (this.isBusy && !isApprovalOrInput) {
       this.commandQueue.push(command);
     } else {
       this.isBusy = true;

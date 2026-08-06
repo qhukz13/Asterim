@@ -37,12 +37,19 @@ rl.on('line', line => {
     }
   } else {
     if (trimmed) {
-      console.log(`Thinking about: ${trimmed}`);
-      console.log('Analyzing project files...');
-      console.log('Proposed change: Modify packages/core/src/index.ts to add new features');
-      // Output the exact format the adapter expects for approvals
-      process.stdout.write('? Execute action? (y/n) ');
-      waitingForApproval = true;
+      const lower = trimmed.toLowerCase();
+      const requiresAction = lower.includes('refactor') || lower.includes('modify') || lower.includes('delete') || lower.includes('run') || lower.includes('build') || lower.includes('execute') || lower.includes('create');
+      
+      if (requiresAction) {
+        console.log(`Thinking about: ${trimmed}`);
+        console.log('Analyzing project files...');
+        console.log('Proposed change: Modify packages/core/src/index.ts to add new features');
+        process.stdout.write('? Execute action? (y/n) ');
+        waitingForApproval = true;
+      } else {
+        console.log(`Hello! I am Antigravity AI assistant. I received your request: "${trimmed}". I have analyzed the project and everything looks good!`);
+        process.stdout.write('antigravity> ');
+      }
     } else {
       process.stdout.write('antigravity> ');
     }

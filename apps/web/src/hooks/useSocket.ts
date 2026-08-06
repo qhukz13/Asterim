@@ -246,16 +246,25 @@ export function useSocket(
         setEvents(prev => [...prev, event].slice(-1000));
       } else if (event.type === 'chat.message') {
         const payload = event.payload as any;
-        setMessages(prev => [
-          ...prev,
-          {
-            id: event.id,
-            role: payload.role,
-            content: payload.content,
-            timestamp: event.timestamp
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === event.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], content: payload.content };
+            return next;
           }
-        ]);
+          return [
+            ...prev,
+            {
+              id: event.id,
+              role: payload.role,
+              content: payload.content,
+              timestamp: event.timestamp
+            }
+          ];
+        });
       } else if (event.type === 'agent.status') {
+        console.log(`[PIPELINE_DEBUG] [STATUS_CHANGE] ts=${Date.now()} status=${event.payload?.status} message=${event.payload?.message}`);
         setAgentStatus(event.payload);
         if (event.payload.status === 'error' && event.payload.message) {
           setMessages(prev => [
@@ -356,7 +365,7 @@ export function useSocket(
   };
 
   const sendApproval = (actionId: string, approved: boolean) => {
-    sendInternalEvent('client.approval_response', { actionId, approved, projectId });
+    sendInternalEvent('client.approval_response', { actionId, approved, projectId, threadId: threadIdRef.current });
     setApprovalRequest(null);
   };
 
@@ -381,13 +390,14 @@ export function useSocket(
   const clearMessages = () => {
     setMessages([]);
     setEvents([]);
-    sendInternalEvent('client.clear_chat', { projectId });
+    sendInternalEvent('client.clear_chat', { projectId, threadId: threadIdRef.current });
     // Also remove from local raw history
     rawHistoryRef.current = rawHistoryRef.current.filter(e => e.payload?.threadId !== threadId);
   };
 
   const sendChatMessage = (message: string) => {
-    sendInternalEvent('client.chat_message', { content: message, projectId });
+    console.log(`[PIPELINE_DEBUG] [INPUT] ts=${Date.now()} sending chat message`);
+    sendInternalEvent('client.chat_message', { content: message, projectId, threadId: threadIdRef.current });
   };
 
   return {
