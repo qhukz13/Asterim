@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useWorkstations } from '../hooks/useWorkstations';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { IconSettings } from './icons/Icons';
 
 export function DeveloperSettings() {
   const {
@@ -36,8 +37,9 @@ export function DeveloperSettings() {
 
   return (
     <div className="settings-card glass-panel" style={{ padding: '20px', marginTop: '20px' }}>
-      <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        🛠️ Developer Settings
+      <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', fontWeight: 600 }}>
+        <IconSettings size={18} color="var(--color-accent-primary)" />
+        Developer & Remote Settings
       </h3>
 
       <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

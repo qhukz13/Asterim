@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IconBot, IconTerminal, IconSparkles, IconShield } from '../icons/Icons';
 
 interface FirstRunWizardProps {
   activeBackendUrl?: string;
@@ -48,15 +49,15 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
       >
         {wizardStep === 1 && (
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '3.5rem', marginBottom: '16px' }}>🚀</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <IconBot size={48} color="var(--color-accent-primary)" />
+            </div>
             <h1
               style={{
                 marginBottom: '16px',
-                fontSize: '2rem',
-                background:
-                  'linear-gradient(135deg, var(--color-accent-primary), var(--color-accent-hover))',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent'
+                fontSize: '1.75rem',
+                color: 'var(--color-text-primary)',
+                fontWeight: 600
               }}
             >
               Welcome to Asterim
@@ -64,17 +65,17 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
             <p
               style={{
                 color: 'var(--color-text-secondary)',
-                lineHeight: '1.6',
-                marginBottom: '32px'
+                marginBottom: '28px',
+                fontSize: '0.95rem',
+                lineHeight: '1.6'
               }}
             >
-              Your local-first control plane for AI coding agents is ready. Let's customize your
-              environment in just two quick steps.
+              Asterim is a professional Mission Control for Autonomous AI Coding Agents. Let&apos;s configure your workspace defaults in 2 simple steps.
             </p>
             <button
               onClick={() => setWizardStep(2)}
               className="btn-primary"
-              style={{ padding: '14px 28px', width: '100%', fontSize: '1rem' }}
+              style={{ padding: '14px 28px', width: '100%' }}
             >
               Get Started
             </button>
@@ -83,20 +84,12 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
 
         {wizardStep === 2 && (
           <div>
-            <div style={{ fontSize: '3.5rem', marginBottom: '16px', textAlign: 'center' }}>⚙️</div>
-            <h2 style={{ marginBottom: '12px', textAlign: 'center' }}>Choose Default Agent</h2>
-            <p
-              style={{
-                color: 'var(--color-text-secondary)',
-                fontSize: '0.9rem',
-                marginBottom: '24px',
-                textAlign: 'center'
-              }}
-            >
-              Select the AI engine you'd like to use by default. You can change this anytime.
+            <h2 style={{ marginBottom: '8px', fontSize: '1.25rem', fontWeight: 600 }}>Choose Default Agent Engine</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '24px', fontSize: '0.875rem' }}>
+              Select which CLI agent driver will start by default for new sessions.
             </p>
 
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '32px' }}>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
               <div
                 onClick={() => setSelectedDefaultAgent('claude')}
                 style={{
@@ -104,23 +97,25 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
                   padding: '16px 8px',
                   background:
                     selectedDefaultAgent === 'claude'
-                      ? 'var(--color-accent-transparent)'
-                      : 'rgba(0,0,0,0.2)',
+                      ? 'var(--color-surface-2)'
+                      : 'var(--color-surface-1)',
                   border:
                     selectedDefaultAgent === 'claude'
                       ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-default)',
-                  borderRadius: '16px',
+                      : '1px solid var(--color-border-subtle)',
+                  borderRadius: '12px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.15s',
                   textAlign: 'center'
                 }}
               >
-                <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🤖</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                  <IconBot size={28} color={selectedDefaultAgent === 'claude' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
+                </div>
                 <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
                   Claude Code
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
                   Anthropic CLI agent
                 </div>
               </div>
@@ -132,23 +127,25 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
                   padding: '16px 8px',
                   background:
                     selectedDefaultAgent === 'aider'
-                      ? 'var(--color-accent-transparent)'
-                      : 'rgba(0,0,0,0.2)',
+                      ? 'var(--color-surface-2)'
+                      : 'var(--color-surface-1)',
                   border:
                     selectedDefaultAgent === 'aider'
                       ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-default)',
-                  borderRadius: '16px',
+                      : '1px solid var(--color-border-subtle)',
+                  borderRadius: '12px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.15s',
                   textAlign: 'center'
                 }}
               >
-                <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🐍</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                  <IconTerminal size={28} color={selectedDefaultAgent === 'aider' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
+                </div>
                 <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
                   Aider
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
                   Python Git agent
                 </div>
               </div>
@@ -160,23 +157,25 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
                   padding: '16px 8px',
                   background:
                     selectedDefaultAgent === 'antigravity'
-                      ? 'var(--color-accent-transparent)'
-                      : 'rgba(0,0,0,0.2)',
+                      ? 'var(--color-surface-2)'
+                      : 'var(--color-surface-1)',
                   border:
                     selectedDefaultAgent === 'antigravity'
                       ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-default)',
-                  borderRadius: '16px',
+                      : '1px solid var(--color-border-subtle)',
+                  borderRadius: '12px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.15s',
                   textAlign: 'center'
                 }}
               >
-                <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🛸</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                  <IconSparkles size={28} color={selectedDefaultAgent === 'antigravity' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
+                </div>
                 <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
                   Antigravity
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
                   Google AI agent
                 </div>
               </div>
@@ -194,39 +193,48 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
 
         {wizardStep === 3 && (
           <div>
-            <div style={{ fontSize: '3.5rem', marginBottom: '16px', textAlign: 'center' }}>✨</div>
-            <h2 style={{ marginBottom: '16px', textAlign: 'center' }}>Ready to Launch</h2>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <IconSparkles size={40} color="var(--color-accent-primary)" />
+            </div>
+            <h2 style={{ marginBottom: '16px', textAlign: 'center', fontSize: '1.25rem', fontWeight: 600 }}>Ready to Launch</h2>
             <div
               style={{
                 color: 'var(--color-text-secondary)',
-                fontSize: '0.95rem',
+                fontSize: '0.9rem',
                 lineHeight: '1.6',
                 marginBottom: '28px',
                 textAlign: 'left',
-                background: 'rgba(0,0,0,0.2)',
+                background: 'var(--color-surface-2)',
                 padding: '20px',
                 borderRadius: '12px',
-                border: '1px solid var(--color-border-default)'
+                border: '1px solid var(--color-border-subtle)'
               }}
             >
-              Here are a few quick tips to get started:
-              <br />
-              <br />• 💻 <strong>Real-time Telemetry</strong>: Watch command execution streams in
-              the terminal dashboard.
-              <br />
-              <br />• 🛡️ <strong>Interactive Approvals</strong>: Review high-impact commands and
-              local workspace diffs before execution.
-              <br />
-              <br />• 📱 <strong>Mobile Control</strong>: Scan the console QR code to control code
-              edits directly from your phone.
+              <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px' }}>Workspace Tips:</div>
+              
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
+                <IconTerminal size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
+                <span><strong>Real-time Telemetry</strong>: Monitor live execution streams and ANSI output in the terminal panel.</span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
+                <IconShield size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
+                <span><strong>Interactive Approvals</strong>: Review file edits, system commands, and git diffs before execution.</span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <IconBot size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
+                <span><strong>Multi-Device Control</strong>: Connect remote workstations and monitor session progress from any device.</span>
+              </div>
             </div>
 
             {error && (
               <div
                 style={{
-                  color: 'var(--color-error-primary)',
+                  color: 'var(--color-state-error)',
                   marginBottom: '16px',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  fontSize: '0.85rem'
                 }}
               >
                 {error}
@@ -239,8 +247,7 @@ export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardP
               className="btn-primary"
               style={{
                 padding: '14px 28px',
-                width: '100%',
-                background: 'var(--color-success-primary)'
+                width: '100%'
               }}
             >
               {isSaving ? 'Saving...' : 'Go to Dashboard'}

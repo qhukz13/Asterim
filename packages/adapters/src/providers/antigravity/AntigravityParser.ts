@@ -108,7 +108,13 @@ export class AntigravityParser implements IParser {
     }
     
     this.lastEmittedMessage = cleanMsg;
-    this.emitLog('agent', cleanMsg, true);
+    this.onEvent({
+      id: this.currentMessageId || randomUUID(),
+      timestamp: Date.now(),
+      type: 'agent.stream',
+      source: 'agent',
+      payload: { role: 'agent', content: cleanMsg }
+    });
   }
 
   private handleMessageComplete(message: string) {

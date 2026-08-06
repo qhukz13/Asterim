@@ -66,14 +66,16 @@ export function useSocket(
     const fileEvents = historyEvents.filter(e => e.type === 'file.changed');
     const latestFiles = new Map<string, FileChangedPayload>();
     for (const fe of fileEvents) {
-      latestFiles.set(fe.payload.filePath, fe.payload);
+      if (fe.payload?.filePath) {
+        latestFiles.set(fe.payload.filePath, fe.payload);
+      }
     }
     setFileChanges(Array.from(latestFiles.values()));
 
-    // Filter others by threadId
-    const threadEvents = historyEvents.filter(
-      e => !e.payload?.threadId || e.payload.threadId === currentThreadId
-    );
+    // Filter thread-scoped events strictly by threadId
+    const threadEvents = currentThreadId
+      ? historyEvents.filter(e => e.payload?.threadId === currentThreadId)
+      : historyEvents;
 
     const logs = threadEvents.filter(e => e.type === 'agent.log');
     setEvents(logs.slice(-1000));
@@ -86,27 +88,61 @@ export function useSocket(
     }
 
     const chatEvents = threadEvents.filter(e => e.type === 'chat.message');
-    const loadedMessages = chatEvents.map(e => ({
-      id: e.id,
-      role: e.payload.role,
-      content: e.payload.content,
-      timestamp: e.timestamp || Date.now()
-    }));
-    setMessages(loadedMessages);
+    const msgMap = new Map<string, ChatMessage>();
+    for (const e of chatEvents) {
+      if (e.payload?.role && e.payload?.content) {
+        msgMap.set(e.id, {
+          id: e.id,
+          role: e.payload.role,
+          content: e.payload.content,
+          timestamp: e.timestamp || Date.now()
+        });
+      }
+    }
+    setMessages(Array.from(msgMap.values()));
 
-    // Clear transient states
-    setApprovalRequest(null);
-    setQuestionRequest(null);
+    // Restore or clear transient states based on historical status
+    const approvalEvents = threadEvents.filter(e => e.type === 'agent.approval_request');
+    const latestApproval = approvalEvents.length > 0 ? approvalEvents[approvalEvents.length - 1] : null;
+    const currentStatus = statusEvents.length > 0 ? statusEvents[statusEvents.length - 1].payload?.status : 'idle';
+
+    if (currentStatus === 'waiting_approval' && latestApproval?.payload) {
+      setApprovalRequest({ ...latestApproval.payload, timestamp: latestApproval.timestamp || Date.now() });
+    } else {
+      setApprovalRequest(null);
+    }
+
+    const questionEvents = threadEvents.filter(e => e.type === 'agent.question_required');
+    const latestQuestion = questionEvents.length > 0 ? questionEvents[questionEvents.length - 1] : null;
+
+    if (currentStatus === 'waiting_question' && latestQuestion?.payload) {
+      setQuestionRequest({ ...latestQuestion.payload, timestamp: latestQuestion.timestamp || Date.now() });
+    } else {
+      setQuestionRequest(null);
+    }
   };
 
   useEffect(() => {
+    // When threadId changes, re-apply history strictly for the new thread
     if (rawHistoryRef.current.length > 0) {
       applyHistory(rawHistoryRef.current, threadId);
+    } else {
+      setMessages([]);
+      setEvents([]);
+      setApprovalRequest(null);
+      setQuestionRequest(null);
     }
   }, [threadId]);
 
   useEffect(() => {
     if (!projectId) return;
+
+    // Reset history buffer and state when project changes
+    rawHistoryRef.current = [];
+    setMessages([]);
+    setEvents([]);
+    setApprovalRequest(null);
+    setQuestionRequest(null);
 
     const isRelayMode = projectId.length === 6;
     let newSocket: Socket;
@@ -235,8 +271,13 @@ export function useSocket(
       }
 
       // Thread-specific filtering
-      if (event.payload?.threadId && event.payload.threadId !== threadIdRef.current) {
+      if (threadIdRef.current && event.payload?.threadId && event.payload.threadId !== threadIdRef.current) {
         rawHistoryRef.current.push(event); // keep in raw history for switching threads
+        return;
+      }
+
+      if (event.type === 'chat.message' && threadIdRef.current && event.payload?.threadId !== threadIdRef.current) {
+        rawHistoryRef.current.push(event);
         return;
       }
 
@@ -272,7 +313,7 @@ export function useSocket(
             {
               id: event.id || Date.now().toString(),
               role: 'system',
-              content: `⚠️ **System Error**: ${event.payload.message}`,
+              content: `**System Error**: ${event.payload.message}`,
               timestamp: event.timestamp || Date.now()
             }
           ]);
@@ -306,6 +347,7 @@ export function useSocket(
       handleInternalEvent({ type: 'session.history', payload: history } as any)
     );
     newSocket.on('agent.log', handleInternalEvent);
+    newSocket.on('agent.stream', handleInternalEvent);
     newSocket.on('chat.message', handleInternalEvent);
     newSocket.on('agent.status', handleInternalEvent);
     newSocket.on('agent.approval_request', handleInternalEvent);

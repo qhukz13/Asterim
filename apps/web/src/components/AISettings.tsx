@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { IconBot, IconCheck, IconAlert } from './icons/Icons';
+import { CustomDropdown } from './CustomDropdown';
 
 interface AISettingsProps {
   activeBackendUrl?: string;
@@ -9,8 +11,7 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
   const providerOptions = [
     { value: 'agent', label: 'Use Active Coding Agent' },
@@ -43,7 +44,7 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setSaveMessage('');
+    setSaveMessage(null);
 
     try {
       const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -66,97 +67,50 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
       });
 
       if (res.ok) {
-        setSaveMessage('✅ Settings saved successfully');
+        setSaveMessage({ text: 'Settings saved successfully', isError: false });
       } else {
-        setSaveMessage('❌ Failed to save settings');
+        setSaveMessage({ text: 'Failed to save settings', isError: true });
       }
     } catch (err) {
-      setSaveMessage('❌ Error connecting to server');
+      setSaveMessage({ text: 'Error connecting to server', isError: true });
     } finally {
       setIsSaving(false);
-      setTimeout(() => setSaveMessage(''), 3000);
+      setTimeout(() => setSaveMessage(null), 3000);
     }
   };
 
   return (
     <div className="settings-card glass-panel" style={{ padding: '20px' }}>
-      <h3 style={{ marginBottom: '16px' }}>Workspace AI</h3>
-      <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-        Configure the AI provider used for UI features like Generate Commit, Explain Diff, and Suggest Files.
+      <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', fontWeight: 600 }}>
+        <IconBot size={18} color="var(--color-accent-primary)" />
+        Workspace AI Settings
+      </h3>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '20px', lineHeight: 1.5 }}>
+        Configure the AI provider used for UI automation features like Generate Commit, Explain Diff, and Suggest Files.
       </p>
       
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
             AI Provider
           </label>
-          <div style={{ position: 'relative' }}>
-            <div 
-              className="input-box"
-              style={{ width: '100%', padding: '10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            >
-              <span>{providerOptions.find(o => o.value === provider)?.label || 'Select Provider'}</span>
-              <span style={{ opacity: 0.5, fontSize: '0.8rem' }}>▼</span>
-            </div>
-            
-            {isDropdownOpen && (
-              <div style={{ 
-                position: 'absolute', top: '100%', left: 0, right: 0, 
-                backgroundColor: 'var(--bg-secondary, #252526)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                marginTop: '4px',
-                zIndex: 10,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                overflow: 'hidden'
-              }}>
-                {providerOptions.map(option => (
-                  <div 
-                    key={option.value}
-                    style={{ 
-                      padding: '10px', 
-                      cursor: option.disabled ? 'not-allowed' : 'pointer',
-                      opacity: option.disabled ? 0.5 : 1,
-                      backgroundColor: option.value === provider ? 'var(--accent-color)' : 'transparent',
-                      color: option.value === provider ? 'white' : 'inherit',
-                      transition: 'background-color 0.1s'
-                    }}
-                    onClick={() => {
-                      if (!option.disabled) {
-                        setProvider(option.value);
-                        setIsDropdownOpen(false);
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!option.disabled && option.value !== provider) {
-                        e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!option.disabled && option.value !== provider) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }
-                    }}
-                  >
-                    {option.label}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <CustomDropdown
+            value={provider}
+            onChange={setProvider}
+            options={providerOptions}
+          />
         </div>
 
         {provider !== 'agent' && (
           <>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 Model (e.g. gemini-2.0-flash)
               </label>
               <input
                 type="text"
                 className="input-box"
-                style={{ width: '100%', padding: '10px' }}
+                style={{ width: '100%', padding: '10px 12px' }}
                 placeholder="Leave blank for default"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
@@ -164,13 +118,13 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 API Key
               </label>
               <input
                 type="password"
                 className="input-box"
-                style={{ width: '100%', padding: '10px' }}
+                style={{ width: '100%', padding: '10px 12px' }}
                 placeholder="Enter API Key"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -184,8 +138,15 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
             {isSaving ? 'Saving...' : 'Save AI Settings'}
           </button>
           {saveMessage && (
-            <span style={{ fontSize: '0.85rem', color: saveMessage.includes('✅') ? 'var(--success-color)' : 'var(--error-color)' }}>
-              {saveMessage}
+            <span style={{ 
+              fontSize: '0.85rem', 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: saveMessage.isError ? 'var(--color-state-error)' : 'var(--color-state-completed)' 
+            }}>
+              {saveMessage.isError ? <IconAlert size={14} /> : <IconCheck size={14} />}
+              {saveMessage.text}
             </span>
           )}
         </div>

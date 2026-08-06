@@ -52,6 +52,29 @@ export class SocketManager {
         // Sync history for this project
         this.syncHistory(socket, projectId);
 
+        // Re-sync any pending approvals for active threads in this project
+        try {
+          const db = dbService.getDb();
+          const pending = db.prepare("SELECT * FROM approvals WHERE project_id = ? AND status = 'pending'").all(projectId) as any[];
+          for (const app of pending) {
+            socket.emit('agent.approval_request', {
+              id: crypto.randomUUID(),
+              timestamp: app.created_at || Date.now(),
+              source: 'agent',
+              type: 'agent.approval_request',
+              payload: {
+                actionId: app.action_id,
+                description: app.description,
+                command: app.command,
+                projectId: app.project_id,
+                threadId: app.thread_id
+              }
+            });
+          }
+        } catch (err) {
+          console.error('[Socket.IO] Failed to sync pending approvals:', err);
+        }
+
         // Send system status (binaries)
         const { startupService } = require('../services/StartupService');
         socket.emit('server.system_status', {
@@ -119,8 +142,8 @@ export class SocketManager {
         // Route strictly to the project room
         this.io.to(projectId).emit(event.type, event);
 
-        // Buffer agent.log in memory instead of persisting to DB to save space
-        if (event.type === 'agent.log') {
+        // Buffer transient streaming and logging events in memory instead of persisting to DB
+        if (event.type === 'agent.log' || event.type === 'agent.stream') {
           const logs = this.recentLogs.get(projectId) || [];
           logs.push(event);
           if (logs.length > 500) logs.shift();
@@ -128,15 +151,18 @@ export class SocketManager {
           return;
         }
 
-        // Persist event to Database
+        // Persist event to Database with UPSERT on conflict(id)
         try {
           const db = dbService.getDb();
           const threadId = (event.payload as any)?.threadId || null;
-          const insert = db.prepare(
-            'INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          const eventId = event.id || crypto.randomUUID();
+          const stmt = db.prepare(
+            `INSERT INTO events (id, project_id, thread_id, timestamp, source, type, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, timestamp = excluded.timestamp`
           );
-          insert.run(
-            crypto.randomUUID(),
+          stmt.run(
+            eventId,
             projectId,
             threadId,
             event.timestamp || Date.now(),

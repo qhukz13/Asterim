@@ -6,6 +6,7 @@ import { usePanelStore } from '../stores/usePanelStore';
 import { useDebugLifecycle } from '../utils/debug';
 import { useViewStore } from '../stores/useViewStore';
 import { useLocation } from 'wouter';
+import { IconBot, IconPlus, IconArrowLeft } from './icons/Icons';
 
 export interface Thread {
   id: string;
@@ -116,7 +117,7 @@ export function SessionSidebar({
   if (isCollapsed) return null;
 
   return (
-    <div className="workspace-session-sidebar" style={{ width: `${width}px`, position: 'relative' }}>
+    <div className="workspace-session-sidebar" style={{ width: `${width}px`, position: 'relative', display: 'flex', flexDirection: 'column' }}>
       {/* Resizer Handle */}
       <div
         onMouseDown={handleDrag}
@@ -141,6 +142,7 @@ export function SessionSidebar({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: 'var(--spacing-2)',
           borderBottom: '1px solid var(--color-border-subtle)',
           height: 'var(--nav-height)'
         }}
@@ -169,32 +171,38 @@ export function SessionSidebar({
             e.currentTarget.style.color = 'var(--color-text-secondary)';
           }}
         >
-          ← Projects
+          <IconArrowLeft size={12} />
+          <span>Projects</span>
         </button>
         <button
           onClick={() => setShowNewAgentModal(true)}
           style={{
-            width: '100%',
-            height: 'var(--control-height-lg)',
-            padding: '0 var(--spacing-4)',
-            fontSize: 'var(--font-size-lg)',
+            flex: 1,
+            height: '32px',
+            padding: '0 var(--spacing-2)',
+            fontSize: 'var(--font-size-xs)',
             fontWeight: 'var(--font-weight-semibold)',
             background: 'var(--color-accent-primary)',
             color: 'var(--color-text-contrast)',
             border: 'none',
             borderRadius: 'var(--radius-sm)',
             cursor: 'pointer',
-            transition: 'background 0.15s'
+            transition: 'background 0.15s',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 'var(--spacing-1)'
           }}
           onMouseOver={e => (e.currentTarget.style.background = 'var(--color-accent-hover)')}
           onMouseOut={e => (e.currentTarget.style.background = 'var(--color-accent-primary)')}
         >
-          + New Agent
+          <IconPlus size={12} color="#ffffff" />
+          <span>New Agent</span>
         </button>
       </div>
 
       {/* Thread List Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-2)' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-3)' }}>
         <div
           style={{
             fontSize: 'var(--font-size-xs)',
@@ -202,7 +210,7 @@ export function SessionSidebar({
             fontWeight: 'var(--font-weight-semibold)',
             textTransform: 'uppercase',
             marginBottom: 'var(--spacing-2)',
-            letterSpacing: '0.05em',
+            letterSpacing: '0.06em',
             padding: '0 var(--spacing-1)'
           }}
         >
@@ -210,8 +218,10 @@ export function SessionSidebar({
         </div>
 
         {loading ? (
-          <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)', padding: 'var(--spacing-2)' }}>
-            Loading threads...
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 var(--spacing-1)' }}>
+            <div className="skeleton-loader skeleton-card" />
+            <div className="skeleton-loader skeleton-card" />
+            <div className="skeleton-loader skeleton-card" />
           </div>
         ) : threads.length === 0 ? (
           <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)', padding: 'var(--spacing-2)' }}>
@@ -229,12 +239,14 @@ export function SessionSidebar({
                     padding: 'var(--spacing-2) var(--spacing-3)',
                     borderRadius: 'var(--radius-sm)',
                     cursor: 'pointer',
-                    fontSize: 'var(--font-size-lg)',
+                    fontSize: '14px',
+                    lineHeight: '1.4',
                     display: 'flex',
                     alignItems: 'center',
                     background: isActive ? 'var(--color-surface-2)' : 'transparent',
                     color: isActive ? 'var(--color-accent-hover)' : 'var(--color-text-primary)',
                     border: `1px solid ${isActive ? 'var(--color-border-default)' : 'transparent'}`,
+                    borderLeft: isActive ? '2px solid var(--color-accent-primary)' : '1px solid transparent',
                     transition: 'background 0.15s, color 0.15s'
                   }}
                   onMouseOver={e => {
@@ -248,7 +260,7 @@ export function SessionSidebar({
                     }
                   }}
                 >
-                  <span style={{ marginRight: 'var(--spacing-2)', opacity: 0.7, fontSize: 'var(--font-size-xs)' }}>🤖</span>
+                  <IconBot size={14} style={{ marginRight: 'var(--spacing-2)', opacity: isActive ? 1 : 0.6, flexShrink: 0, color: isActive ? 'var(--color-accent-primary)' : 'currentColor' }} />
                   <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
                     {thread.name}
                   </div>
@@ -259,22 +271,10 @@ export function SessionSidebar({
         )}
       </div>
 
-      {/* Footer */}
-      <div
-        style={{
-          padding: 'var(--spacing-2) var(--spacing-3)',
-          borderTop: '1px solid var(--color-border-subtle)',
-          fontSize: 'var(--font-size-xs)',
-          color: 'var(--color-text-muted)'
-        }}
-      >
-        Asterim Session
-      </div>
-
       {showNewAgentModal && (
         <NewAgentModal
-          onClose={() => setShowNewAgentModal(false)}
           onSubmit={handleCreateThreadSubmit}
+          onClose={() => setShowNewAgentModal(false)}
         />
       )}
     </div>

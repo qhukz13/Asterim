@@ -5,6 +5,15 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Prism } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import {
+  IconUser,
+  IconBot,
+  IconChevronRight,
+  IconChevronDown,
+  IconTerminal,
+  IconFileCode,
+  IconCheck
+} from './components/icons/Icons';
 
 const SyntaxHighlighter = Prism as any;
 
@@ -26,15 +35,73 @@ interface ToolAccordionProps {
   children: React.ReactNode;
   defaultOpen?: boolean;
   type?: 'thought' | 'tool' | 'diff';
+  status?: 'success' | 'running' | 'failed';
 }
 
-function ToolAccordion({ title, children, defaultOpen = false, type = 'tool' }: ToolAccordionProps) {
+function ToolAccordion({ title, children, defaultOpen = false, type = 'tool', status = 'success' }: ToolAccordionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
-  const getHeaderIcon = () => {
-    if (type === 'thought') return '▸';
-    if (type === 'diff') return '📝';
-    return '⚡';
+  const renderHeaderIcon = () => {
+    if (type === 'thought') return <IconChevronRight size={12} color="var(--color-text-muted)" />;
+    if (type === 'diff') return <IconFileCode size={12} color="var(--color-accent-primary)" />;
+    return <IconTerminal size={12} color="var(--color-accent-primary)" />;
+  };
+
+  const renderStatusPill = () => {
+    switch (status) {
+      case 'running':
+        return (
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              padding: '1px 6px',
+              borderRadius: 'var(--radius-full)',
+              background: 'rgba(6, 182, 212, 0.15)',
+              color: '#06b6d4',
+              border: '1px solid rgba(6, 182, 212, 0.3)',
+              fontFamily: 'var(--font-family-mono)'
+            }}
+          >
+            Running
+          </span>
+        );
+      case 'failed':
+        return (
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              padding: '1px 6px',
+              borderRadius: 'var(--radius-full)',
+              background: 'rgba(239, 68, 68, 0.15)',
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              fontFamily: 'var(--font-family-mono)'
+            }}
+          >
+            Failed
+          </span>
+        );
+      case 'success':
+      default:
+        return (
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              padding: '1px 6px',
+              borderRadius: 'var(--radius-full)',
+              background: 'rgba(16, 185, 129, 0.15)',
+              color: '#10b981',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              fontFamily: 'var(--font-family-mono)'
+            }}
+          >
+            Success
+          </span>
+        );
+    }
   };
 
   return (
@@ -63,14 +130,16 @@ function ToolAccordion({ title, children, defaultOpen = false, type = 'tool' }: 
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-          <span>{getHeaderIcon()}</span>
+          {renderHeaderIcon()}
           <span style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
             {title}
           </span>
+          {renderStatusPill()}
         </div>
-        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-          {isOpen ? '▼ Collapse' : '▶ Expand Log'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+          {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+          <span>{isOpen ? 'Collapse' : 'Expand Log'}</span>
+        </div>
       </div>
       {isOpen && (
         <div
@@ -78,8 +147,9 @@ function ToolAccordion({ title, children, defaultOpen = false, type = 'tool' }: 
             padding: 'var(--spacing-3)',
             background: 'var(--color-surface-0)',
             fontFamily: 'var(--font-family-mono)',
-            fontSize: 'var(--font-size-xs)',
-            lineHeight: 1.5,
+            fontSize: 'var(--font-size-sm)',
+            lineHeight: 'var(--line-height-code)',
+            fontVariantNumeric: 'tabular-nums',
             color: 'var(--color-text-muted)',
             overflowX: 'auto',
             borderTop: '1px solid var(--color-border-subtle)'
@@ -92,63 +162,169 @@ function ToolAccordion({ title, children, defaultOpen = false, type = 'tool' }: 
   );
 }
 
+function DiffBlock({ code }: { code: string }) {
+  const lines = code.split('\n');
+  return (
+    <div
+      style={{
+        borderRadius: 'var(--radius-sm)',
+        overflow: 'hidden',
+        margin: 'var(--spacing-3) 0',
+        border: '1px solid var(--color-border-subtle)',
+        background: 'var(--color-surface-0)',
+        fontFamily: 'var(--font-family-mono)',
+        fontSize: 'var(--font-size-sm)',
+        lineHeight: 'var(--line-height-code)'
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--color-surface-2)',
+          padding: 'var(--spacing-1) var(--spacing-3)',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-muted)',
+          borderBottom: '1px solid var(--color-border-subtle)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em'
+        }}
+      >
+        <span>DIFF EXCERPT</span>
+      </div>
+      <div style={{ padding: 'var(--spacing-2) 0' }}>
+        {lines.map((line, idx) => {
+          let bg = 'transparent';
+          let color = 'var(--color-text-secondary)';
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            bg = 'rgba(16, 185, 129, 0.12)';
+            color = '#34d399';
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            bg = 'rgba(239, 68, 68, 0.12)';
+            color = '#f87171';
+          } else if (line.startsWith('@@')) {
+            color = '#a78bfa';
+          }
+
+          return (
+            <div
+              key={idx}
+              style={{
+                padding: '0 var(--spacing-3)',
+                background: bg,
+                color: color,
+                whiteSpace: 'pre-wrap',
+                fontVariantNumeric: 'tabular-nums'
+              }}
+            >
+              {line}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CodeBlock({ language, code, ...props }: { language: string; code: string; [key: string]: any }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div
+      style={{
+        borderRadius: 'var(--radius-sm)',
+        overflow: 'hidden',
+        margin: 'var(--spacing-3) 0',
+        border: '1px solid var(--color-border-subtle)'
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--color-surface-2)',
+          padding: 'var(--spacing-1) var(--spacing-3)',
+          fontSize: 'var(--font-size-xs)',
+          fontFamily: 'var(--font-family-mono)',
+          color: 'var(--color-text-muted)',
+          borderBottom: '1px solid var(--color-border-subtle)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em'
+        }}
+      >
+        <span>{language}</span>
+        <button
+          onClick={handleCopy}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: copied ? 'var(--color-state-completed)' : 'var(--color-text-muted)',
+            cursor: 'pointer',
+            fontSize: 'var(--font-size-xs)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '2px 6px',
+            borderRadius: 'var(--radius-xs)',
+            transition: 'color var(--transition-fast), background var(--transition-fast)'
+          }}
+          title="Copy code snippet"
+        >
+          {copied ? <IconCheck size={12} color="var(--color-state-completed)" /> : null}
+          <span>{copied ? 'Copied!' : 'Copy'}</span>
+        </button>
+      </div>
+      <SyntaxHighlighter
+        {...props}
+        children={code}
+        style={vscDarkPlus as any}
+        language={language}
+        PreTag="div"
+        customStyle={{
+          margin: 0,
+          borderRadius: '0',
+          background: 'var(--color-surface-0)',
+          padding: 'var(--spacing-3)',
+          fontSize: 'var(--font-size-sm)',
+          fontFamily: 'var(--font-family-mono)',
+          lineHeight: 'var(--line-height-code)',
+          fontVariantNumeric: 'tabular-nums'
+        }}
+      />
+    </div>
+  );
+}
+
 const markdownComponents = {
   code({ node, className, children, ...props }: any) {
     const match = /language-(\w+)/.exec(className || '');
+    const codeString = String(children).replace(/\n$/, '');
+    if (match && match[1] === 'diff') {
+      return <DiffBlock code={codeString} />;
+    }
     return match ? (
-      <div
-        style={{
-          borderRadius: 'var(--radius-sm)',
-          overflow: 'hidden',
-          margin: 'var(--spacing-3) 0',
-          border: '1px solid var(--color-border-subtle)'
-        }}
-      >
-        <div
-          style={{
-            background: 'var(--color-surface-2)',
-            padding: 'var(--spacing-1) var(--spacing-3)',
-            fontSize: 'var(--font-size-xs)',
-            fontFamily: 'var(--font-family-mono)',
-            color: 'var(--color-text-muted)',
-            borderBottom: '1px solid var(--color-border-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em'
-          }}
-        >
-          <span>{match[1]}</span>
-        </div>
-        <SyntaxHighlighter
-          {...props}
-          children={String(children).replace(/\n$/, '')}
-          style={vscDarkPlus as any}
-          language={match[1]}
-          PreTag="div"
-          customStyle={{
-            margin: 0,
-            borderRadius: '0',
-            background: 'var(--color-surface-0)',
-            padding: 'var(--spacing-3)',
-            fontSize: 'var(--font-size-xs)',
-            fontFamily: 'var(--font-family-mono)'
-          }}
-        />
-      </div>
+      <CodeBlock language={match[1]} code={codeString} {...props} />
     ) : (
       <code
         {...props}
         className={className}
         style={{
           fontFamily: 'var(--font-family-mono)',
-          fontSize: '0.85em',
+          fontSize: '0.875em',
           background: 'var(--color-surface-2)',
-          padding: '1px 5px',
+          padding: '2px 6px',
           borderRadius: 'var(--radius-xs)',
           color: 'var(--color-accent-hover)',
-          border: '1px solid var(--color-border-subtle)'
+          border: '1px solid var(--color-border-subtle)',
+          fontVariantNumeric: 'tabular-nums'
         }}
       >
         {children}
@@ -268,7 +444,22 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
               gap: 'var(--spacing-2)'
             }}
           >
-            <div style={{ fontSize: '1.8rem' }}>💬</div>
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--color-text-muted)',
+                marginBottom: 'var(--spacing-1)'
+              }}
+            >
+              <IconTerminal size={20} color="var(--color-accent-primary)" />
+            </div>
             <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
               No messages in active thread
             </h3>
@@ -294,9 +485,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                     height: '26px',
                     borderRadius: 'var(--radius-xs)',
                     background: msg.role === 'user' ? 'var(--color-surface-3)' : 'var(--color-surface-2)',
-                    color: msg.role === 'user' ? 'var(--color-text-primary)' : 'var(--color-state-working)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 'var(--font-weight-bold)',
+                    color: msg.role === 'user' ? 'var(--color-text-primary)' : 'var(--color-accent-primary)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -304,7 +493,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                     border: '1px solid var(--color-border-subtle)'
                   }}
                 >
-                  {msg.role === 'user' ? 'U' : 'A'}
+                  {msg.role === 'user' ? <IconUser size={14} /> : <IconBot size={14} />}
                 </div>
 
                 {/* Message Bubble Container */}
@@ -336,7 +525,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                     >
                       {msg.role === 'user' ? 'Developer' : 'Agent Assistant'}
                     </span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                       {new Date(msg.timestamp).toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit'

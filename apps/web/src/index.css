@@ -35,6 +35,8 @@ code, pre, kbd, samp, .monospace {
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-code);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
 }
 
 .app-container {
@@ -44,6 +46,66 @@ code, pre, kbd, samp, .monospace {
   padding: 0;
   gap: 0;
   background-color: var(--color-surface-0);
+}
+
+/* Custom Dark-Mode Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-subtle);
+}
+
+/* Skeleton Pulse Loading System */
+@keyframes skeletonPulse {
+  0% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+.skeleton-loader {
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-line {
+  height: 14px;
+  width: 100%;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-line.short {
+  width: 35%;
+}
+
+.skeleton-line.medium {
+  width: 65%;
+}
+
+.skeleton-card {
+  height: 44px;
+  width: 100%;
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
 }
 
 /* High-Density Panel Mixin */
@@ -176,23 +238,53 @@ code, pre, kbd, samp, .monospace {
   color: white;
   border: none;
   border-radius: var(--radius-md);
-  height: 42px;
-  min-height: 42px;
-  padding: 0 24px;
+  height: var(--control-height-lg);
+  min-height: var(--control-height-lg);
+  padding: 0 20px;
   font-family: var(--font-family-sans);
   font-weight: 600;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-md);
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  transition: transform var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.20);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+  background: var(--color-accent-hover);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.30);
+}
+
+.btn-primary:active,
+button:active {
+  transform: var(--active-scale) !important;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes checkmarkPop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Status Badges */

@@ -45,9 +45,9 @@ export function ChatInput({
           value={autoApproval}
           onChange={setAutoApproval}
           options={[
-            { value: 'ask', label: '⚠️ Always Ask for Approval' },
-            { value: 'approve', label: '✅ Auto-Approve Commands' },
-            { value: 'deny', label: '❌ Auto-Deny Commands' }
+            { value: 'ask', label: 'Ask for Approval' },
+            { value: 'approve', label: 'Auto-Approve Commands' },
+            { value: 'deny', label: 'Auto-Deny Commands' }
           ]}
           dropup={true}
         />

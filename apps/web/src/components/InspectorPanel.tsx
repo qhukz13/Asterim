@@ -4,6 +4,7 @@ import { usePanelStore } from '../stores/usePanelStore';
 import { useThreadStore } from '../stores/useThreadStore';
 import { ContextView } from './workspace/ContextView';
 import { useDebugLifecycle } from '../utils/debug';
+import { IconChevronRight, IconChevronLeft, IconChevronDown } from './icons/Icons';
 
 interface InspectorSectionProps {
   title: string;
@@ -58,9 +59,9 @@ function InspectorSection({
           {actions}
           <span
             onClick={() => setIsOpen(!isOpen)}
-            style={{ fontSize: '10px', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+            style={{ fontSize: '10px', color: 'var(--color-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
           >
-            {isOpen ? '▼' : '▶'}
+            {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
           </span>
         </div>
       </div>
@@ -155,7 +156,7 @@ export function InspectorPanel({
               fontWeight: 'var(--font-weight-semibold)',
               color: 'var(--color-text-secondary)',
               textTransform: 'uppercase',
-              letterSpacing: '0.05em'
+              letterSpacing: '0.06em'
             }}
           >
             AI Context & State
@@ -174,7 +175,7 @@ export function InspectorPanel({
           }}
           title={isCollapsed ? 'Expand Inspector' : 'Collapse Inspector'}
         >
-          {isCollapsed ? '◀' : '▶'}
+          {isCollapsed ? <IconChevronLeft size={12} /> : <IconChevronRight size={12} />}
         </button>
       </div>
 
@@ -185,7 +186,7 @@ export function InspectorPanel({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Runtime:</span>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-medium)' }}>
+                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-medium)', fontVariantNumeric: 'tabular-nums' }}>
                   {agentType || 'Claude Code'}
                 </span>
               </div>
@@ -193,8 +194,12 @@ export function InspectorPanel({
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Execution State:</span>
                 <span
                   style={{
-                    fontSize: 'var(--font-size-xs)',
+                    fontSize: 'var(--font-size-sm)',
                     fontWeight: 'var(--font-weight-semibold)',
+                    fontVariantNumeric: 'tabular-nums',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
                     color:
                       agentStatus === 'working'
                         ? 'var(--color-state-working)'
@@ -203,11 +208,19 @@ export function InspectorPanel({
                         : 'var(--color-state-completed)'
                   }}
                 >
+                  <span 
+                    style={{ 
+                      width: '6px', 
+                      height: '6px', 
+                      borderRadius: '50%', 
+                      background: agentStatus === 'working' ? 'var(--color-state-working)' : approvalRequest ? 'var(--color-state-paused)' : 'var(--color-state-completed)' 
+                    }} 
+                  />
                   {approvalRequest
-                    ? '⚠️ Action Required'
+                    ? 'Action Required'
                     : agentStatus === 'working'
-                    ? '⚡ Computing'
-                    : '✓ Ready / Idle'}
+                    ? 'Computing'
+                    : 'Ready / Idle'}
                 </span>
               </div>
             </div>
@@ -228,7 +241,7 @@ export function InspectorPanel({
                 }}
               >
                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-state-paused)', fontWeight: 'var(--font-weight-semibold)' }}>
-                  ⚠️ {approvalRequest.description || 'Permission requested for shell action'}
+                  {approvalRequest.description || 'Permission requested for shell action'}
                 </div>
                 {approvalRequest.command && (
                   <div

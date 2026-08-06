@@ -6,6 +6,7 @@ import { useThreadStore } from '../stores/useThreadStore';
 import { useViewStore } from '../stores/useViewStore';
 import { usePanelStore } from '../stores/usePanelStore';
 import { useLocation } from 'wouter';
+import { IconCommand } from './icons/Icons';
 
 interface Action {
   id: string;
@@ -64,7 +65,7 @@ export function CommandPalette() {
     {
       id: 'view-changes',
       category: 'Views',
-      name: 'Jump to Git Changes View',
+      name: 'Jump to Changes View',
       shortcut: '⌘3',
       perform: () => navigateToView('changes')
     },
@@ -72,45 +73,29 @@ export function CommandPalette() {
       id: 'view-settings',
       category: 'Views',
       name: 'Jump to Settings View',
-      shortcut: '⌘,',
+      shortcut: '⌘4',
       perform: () => navigateToView('settings')
     }
   );
 
-  // Quick Action Commands
-  actions.push(
-    {
-      id: 'toggle-sidebar',
-      category: 'Actions',
-      name: 'Toggle Left Sidebar',
-      shortcut: '⌘B',
-      perform: () => togglePanel('left')
-    },
-    {
-      id: 'toggle-inspector',
-      category: 'Actions',
-      name: 'Toggle Right Inspector',
-      shortcut: '⌘I',
-      perform: () => togglePanel('inspector')
-    }
-  );
-
-  // Dynamic Projects List
+  // Project Actions
   projects.forEach(p => {
     actions.push({
       id: `project-${p.id}`,
       category: 'Projects',
-      name: `Switch to Project: ${p.name}`,
-      perform: () => setLocation(`/workspace/project/${p.id}`)
+      name: `Open Project: ${p.name}`,
+      perform: () => {
+        setLocation(`/workspace/project/${p.id}`);
+      }
     });
   });
 
-  // Dynamic Threads List
+  // Thread Actions
   threads.forEach(t => {
     actions.push({
       id: `thread-${t.id}`,
       category: 'Threads',
-      name: `Switch to Thread: ${t.name}`,
+      name: `Switch Thread: ${t.name}`,
       perform: () => {
         if (activeProjectId) {
           setLocation(`/workspace/project/${activeProjectId}/thread/${t.id}/view/chat`);
@@ -119,59 +104,94 @@ export function CommandPalette() {
     });
   });
 
-  // Filter actions based on search query
-  const filteredActions = actions.filter(a =>
-    a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.category.toLowerCase().includes(searchQuery.toLowerCase())
+  // Panel Toggles
+  actions.push(
+    {
+      id: 'toggle-left-sidebar',
+      category: 'Actions',
+      name: 'Toggle Navigation Sidebar',
+      shortcut: '⌘B',
+      perform: () => togglePanel('left')
+    },
+    {
+      id: 'toggle-center-sidebar',
+      category: 'Actions',
+      name: 'Toggle Threads Sidebar',
+      perform: () => togglePanel('center')
+    },
+    {
+      id: 'toggle-inspector',
+      category: 'Actions',
+      name: 'Toggle Inspector Panel',
+      shortcut: '⌘I',
+      perform: () => togglePanel('inspector')
+    }
   );
 
-  // Global Keyboard Shortcuts (Cmd+K, Esc, Arrow Keys, Enter)
+  // Filter actions based on query
+  const filteredActions = actions.filter(
+    a =>
+      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.category.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         toggle();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === '1') {
+        e.preventDefault();
+        navigateToView('chat');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '2') {
+        e.preventDefault();
+        navigateToView('terminal');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '3') {
+        e.preventDefault();
+        navigateToView('changes');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '4') {
+        e.preventDefault();
+        navigateToView('settings');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        togglePanel('left');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+        e.preventDefault();
+        togglePanel('inspector');
+      }
       if (e.key === 'Escape' && isOpen) {
         setIsOpen(false);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, toggle, setIsOpen]);
+  }, [isOpen, toggle, activeProjectId, activeThreadId]);
 
-  // Reset selection index when query changes
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [searchQuery]);
-
-  // Modal Focus Handling
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    } else if (!isOpen) {
-      setSearchQuery('');
+    if (isOpen) {
       setSelectedIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [isOpen, setSearchQuery]);
+  }, [isOpen]);
 
-  // Arrow & Enter Key Navigation
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
-    if (filteredActions.length === 0) return;
-
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev + 1) % filteredActions.length);
+      setSelectedIndex(prev => (prev + 1) % Math.max(1, filteredActions.length));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev - 1 + filteredActions.length) % filteredActions.length);
-    } else if (e.key === 'Enter') {
+      setSelectedIndex(prev => (prev - 1 + filteredActions.length) % Math.max(1, filteredActions.length));
+    } else if (e.key === 'Enter' && filteredActions[selectedIndex]) {
       e.preventDefault();
-      const action = filteredActions[selectedIndex];
-      if (action) {
-        action.perform();
-        setIsOpen(false);
-      }
+      filteredActions[selectedIndex].perform();
+      setIsOpen(false);
     }
   };
 
@@ -198,7 +218,8 @@ export function CommandPalette() {
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-lg)',
           background: 'var(--color-surface-1)',
-          border: '1px solid var(--color-border-default)'
+          border: '1px solid var(--color-border-default)',
+          animation: 'modalPopIn 180ms var(--ease-out-cubic) forwards'
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -212,7 +233,7 @@ export function CommandPalette() {
             gap: 'var(--spacing-3)'
           }}
         >
-          <span style={{ fontSize: 'var(--font-size-md)', color: 'var(--color-text-muted)' }}>🔍</span>
+          <IconCommand size={16} color="var(--color-text-muted)" />
           <input
             ref={inputRef}
             type="text"

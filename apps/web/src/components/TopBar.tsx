@@ -1,6 +1,7 @@
 import React from 'react';
 import { useDebugLifecycle } from '../utils/debug';
 import { useCommandPaletteStore } from '../stores/useCommandPaletteStore';
+import { IconCheck, IconAlertTriangle, IconTarget, IconTerminal } from './icons/Icons';
 
 export interface TopBarProps {
   projectName?: string;
@@ -35,13 +36,20 @@ export function TopBar({
               fontWeight: 'var(--font-weight-semibold)',
               background: 'var(--color-state-working-bg)',
               color: 'var(--color-state-working)',
-              border: '1px solid rgba(6, 182, 212, 0.25)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--spacing-1)'
             }}
           >
-            <span style={{ fontSize: '10px' }}>⚡</span>
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: 'var(--color-state-working)'
+              }}
+            />
             <span>Working ({agentType})</span>
           </div>
         );
@@ -62,7 +70,7 @@ export function TopBar({
               gap: 'var(--spacing-1)'
             }}
           >
-            <span style={{ fontSize: '10px' }}>⚠️</span>
+            <IconAlertTriangle size={12} color="var(--color-state-paused)" />
             <span>Action Required · Paused for Review</span>
           </div>
         );
@@ -82,7 +90,7 @@ export function TopBar({
               gap: 'var(--spacing-1)'
             }}
           >
-            <span style={{ fontSize: '10px' }}>✓</span>
+            <IconCheck size={12} color="var(--color-state-completed)" />
             <span>Mission Complete</span>
           </div>
         );
@@ -129,13 +137,13 @@ export function TopBar({
             userSelect: 'none'
           }}
         >
-          A
+          <IconTerminal size={12} color="var(--color-accent-primary)" />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)' }}>
           <span
             style={{
               fontWeight: 'var(--font-weight-semibold)',
-              fontSize: 'var(--font-size-sm)',
+              fontSize: 'var(--font-size-md)',
               color: 'var(--color-text-primary)'
             }}
           >
@@ -180,7 +188,8 @@ export function TopBar({
             textOverflow: 'ellipsis'
           }}
         >
-          <span style={{ opacity: 0.8 }}>🎯 Mission:</span>
+          <IconTarget size={12} color="var(--color-accent-primary)" style={{ flexShrink: 0 }} />
+          <span style={{ opacity: 0.8 }}>Mission:</span>
           <span
             style={{
               color: 'var(--color-text-primary)',

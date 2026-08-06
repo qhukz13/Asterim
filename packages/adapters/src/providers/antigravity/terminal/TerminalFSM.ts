@@ -329,42 +329,25 @@ export class AntigravityFSM extends TerminalFSM {
     const promptLastLine = curr.lines.filter(l => l.trim().length > 0).pop() || '';
 
     const hasYn =
-      /Requesting permission for:[\s\S]*?\(y\/n\)/i.test(searchArea) ||
-      /^\s*(?:\?|\*|[❯>])?\s*(?:Allow|Execute|Run|Proceed|Approve).*?\?\s*\(y\/n\)/im.test(searchArea) ||
-      /\(y\/n\)\s*[>❯_\s]*$/i.test(promptLastLine) ||
-      searchArea.includes('(y/n)');
+      /Requesting permission/i.test(searchArea) ||
+      /^\s*(?:\?|\*|[❯>])?\s*(?:Allow|Execute|Run|Proceed|Approve|Create|Edit|Write|Modify)/im.test(searchArea) ||
+      /\([yY]\/[nN]\)/i.test(searchArea) ||
+      /\[[yY]\/[nN]\]/i.test(searchArea) ||
+      /Do you want to/i.test(searchArea) ||
+      /\(y\/n\)/i.test(searchArea) ||
+      /\[y\/n\]/i.test(searchArea);
 
     const hasProceed =
-      /^\s*Do you want to proceed\?/im.test(searchArea) || /^\s*[>❯*-]?\s*Yes, allow/im.test(searchArea);
+      /Do you want to proceed/i.test(searchArea) ||
+      /Yes,\s*(allow|proceed|approve|run|execute)/i.test(searchArea) ||
+      /Allow\s+[^\n]+\?/i.test(searchArea) ||
+      /^\s*>\s*(Yes|Allow|Approve|Proceed)\b/im.test(searchArea);
 
     if (hasYn || hasProceed) {
       if (this.state !== AgentState.WaitingApproval) {
-        let cmdToApprove = 'Unknown action';
-        const reqPermMatch = searchArea.match(/Requesting permission for:\s*\n\s*(.*?)(?:\n|$)/);
-        if (reqPermMatch) {
-          cmdToApprove = reqPermMatch[1].trim();
-        } else {
-          for (let i = curr.lines.length - 1; i >= 0; i--) {
-            if (
-              curr.lines[i].includes('y/n') ||
-              curr.lines[i].includes('Allow ') ||
-              curr.lines[i].includes('Do you want to proceed')
-            ) {
-              for (let j = Math.max(0, i - 10); j <= i; j++) {
-                if (curr.lines[j].match(/Execute|Run|bash|cmd|Allow /i)) {
-                  cmdToApprove = curr.lines
-                    .slice(j, i + 1)
-                    .join('\n')
-                    .trim();
-                  break;
-                }
-              }
-              break;
-            }
-          }
-        }
+        const { description, command } = this.extractActionDetails(curr, searchArea);
         this.setState(AgentState.WaitingApproval, 'Antigravity needs approval');
-        this.onApprovalRequired('Antigravity wants to perform an action', cmdToApprove);
+        this.onApprovalRequired(description, command);
       }
       return;
     }
@@ -463,36 +446,54 @@ export class AntigravityFSM extends TerminalFSM {
   }
 
   private cleanMessage(message: string): string {
-    const cleaned = message
+    let lines = message.split('\n');
+
+    // Filter out raw tool diff lines, file creation headers, and execution protocols
+    lines = lines.filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return true; // keep blank line spacing within markdown
+
+      // Filter CLI headers and banners
+      if (/Gemini \d+\.\d+ Flash/i.test(trimmed)) return false;
+      if (/Claude [^\n]*?\((Thinking|Code)\)?/i.test(trimmed)) return false;
+      if (/\? for shortcuts/i.test(trimmed)) return false;
+      if (/esc to cancel/i.test(trimmed)) return false;
+      if (/─{5,}/.test(trimmed)) return false;
+      if (/v\.onashchuk@gmail\.com/i.test(trimmed)) return false;
+      if (/Antigravity CLI/i.test(trimmed)) return false;
+      if (/^[A-Z]:\\.*?>\s*$/i.test(trimmed)) return false;
+      if (/Accessing workspace:/i.test(trimmed)) return false;
+      if (/^[❯>]\s*$/.test(trimmed)) return false;
+      if (/.*Navigate.*enter Select.*esc Skip/i.test(trimmed)) return false;
+      if (/^[^\w\s]*\s*(Working|Generating|Running|Thinking|Signing in)(\.+|…)?/i.test(trimmed)) return false;
+      if (/^[^\w\s]*\s*Tip:.*$/i.test(trimmed)) return false;
+      if (/Welcome to standard Antigravity/i.test(trimmed)) return false;
+      if (/Welcome to the Antigravity CLI/i.test(trimmed)) return false;
+      if (/You are currently not signed in/i.test(trimmed)) return false;
+      if (/^[▄▀\s]+$/.test(trimmed)) return false;
+
+      // Filter Tool bullet headers
+      if (/^●\s*(Create|Read|Edit|Write|Delete|Grep|Search|Bash|Terminal|Command|Task)/i.test(trimmed)) return false;
+      if (/^●[^\n]*/.test(trimmed)) return false;
+      if (/^▸\s*Thought/i.test(trimmed)) return false;
+
+      // Filter Raw Tool Execution Headers (e.g., "Create file", "Read file", "/path/to/file +388")
+      if (/^(Create|Read|Edit|Write|Delete)\s+file\b/i.test(trimmed)) return false;
+      if (/^\/[^\s]+\s+\+\d+$/i.test(trimmed)) return false;
+      if (/^\/[^\s]+\s+\+\d+\s+-\d+$/i.test(trimmed)) return false;
+
+      // Filter Raw Unified Diff / Code Output Lines (e.g. "1 + <!DOCTYPE html>", "42 - const old = 1;", "10 | code")
+      if (/^\d+\s*[\+\-]\s*/.test(trimmed)) return false;
+      if (/^\d+\s*\|\s*/.test(trimmed)) return false;
+
+      return true;
+    });
+
+    const cleaned = lines
+      .join('\n')
       // Remove braille and unicode spinner characters
       .replace(/[\u2800-\u28FF]/g, '')
       .replace(/[⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, '')
-      // Remove CLI header & model details
-      .replace(/Gemini \d+\.\d+ Flash(?: \(Medium\))?/gi, '')
-      .replace(/Claude [^\n]*?(?:\(Thinking\))?/gi, '')
-      .replace(/\? for shortcuts/g, '')
-      .replace(/esc to cancel/gi, '')
-      .replace(/─{5,}/g, '')
-      .replace(/v\.onashchuk@gmail\.com/g, '')
-      .replace(/Antigravity CLI \d+\.\d+\.\d+/g, '')
-      .replace(/^[A-Z]:\\.*?>\s*$/gm, '')
-      .replace(/Accessing workspace:/g, '')
-      .replace(/[❯>]\s*$/g, '')
-      .replace(/.*?Navigate.*?enter Select.*?esc Skip/gi, '')
-      // Remove spinner lines & status text
-      .replace(/^[^\w\s]*\s*(Working|Generating|Running|Thinking|Signing in)(\.+|…)?/gim, '')
-      // Remove Tip lines
-      .replace(/^[^\w\s]*\s*Tip:.*$/gim, '')
-      // Remove ● lines (tools, thoughts, meta info)
-      .replace(/●[^\n]*\n?/g, '')
-      // Remove ▸ Thought blocks (title and summary)
-      .replace(/▸\s*Thought[^\n]*\n[^\n]*\n?/g, '')
-      // Remove Welcome/Header banner lines
-      .replace(/Welcome to standard Antigravity CLI/gi, '')
-      .replace(/Welcome to the Antigravity CLI[^\n]*/gi, '')
-      .replace(/You are currently not signed in[^\n]*/gi, '')
-      // Remove ASCII art blocks
-      .replace(/^[▄▀\s]+$/gm, '')
       .trim();
 
     const hasMeaningfulText = /[a-zA-Z0-9_\{\}\[\]\(\)<>\$=#`\+\-\*\/]/.test(cleaned);
@@ -501,5 +502,75 @@ export class AntigravityFSM extends TerminalFSM {
     }
 
     return cleaned;
+  }
+
+  private extractActionDetails(curr: TerminalSnapshot, searchArea: string): { description: string; command: string } {
+    let description = '';
+    let command = '';
+
+    // Check for explicit "Requesting permission for: <action>"
+    const reqPermMatch = searchArea.match(/Requesting permission for:\s*\n?\s*(.*?)(?:\n|\(y\/n\)|$)/i);
+    if (reqPermMatch && reqPermMatch[1] && reqPermMatch[1].trim()) {
+      description = reqPermMatch[1].trim();
+      command = reqPermMatch[1].trim();
+      return { description, command };
+    }
+
+    // Search backwards in screen lines for bullet headers (● Create...), file paths, and tool lines
+    for (let i = curr.lines.length - 1; i >= Math.max(0, curr.lines.length - 25); i--) {
+      const line = curr.lines[i].trim();
+      if (!line) continue;
+
+      // Ignore generic prompt lines
+      if (
+        line.toLowerCase().includes('do you want to proceed') ||
+        line.toLowerCase().includes('esc to cancel') ||
+        line.toLowerCase().includes('? for shortcuts')
+      ) {
+        continue;
+      }
+
+      // Check for ● bullet lines (e.g. "● Create calculator/index.html")
+      if (line.startsWith('●') || line.startsWith('▸')) {
+        const cleanLine = line.replace(/^[●▸]\s*/, '').trim();
+        if (!description && cleanLine) {
+          description = cleanLine;
+        }
+      }
+
+      // Check for tool action lines (e.g. "Create file /home/...", "Run bash command", "Edit src/App.tsx")
+      if (
+        /^(Create|Read|Edit|Write|Delete|Execute|Run|Bash|Modify)\s+/i.test(line) &&
+        !description
+      ) {
+        description = line;
+      }
+
+      // Check for file path or command lines (e.g. "/home/qhukz/Documents/.../calculator/index.html")
+      if (
+        (/^\/[^\s]+$/i.test(line) || /^[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+$/i.test(line)) &&
+        !command
+      ) {
+        command = line;
+      }
+    }
+
+    // Fallbacks
+    if (!description) {
+      const allowMatch = searchArea.match(/Allow\s+(.*?)\?/i);
+      if (allowMatch && allowMatch[1]) {
+        description = `Allow ${allowMatch[1].trim()}`;
+      } else {
+        description = 'Antigravity action approval required';
+      }
+    }
+
+    if (!command) {
+      command = description !== 'Antigravity action approval required'
+        ? description
+        : 'Do you want to proceed?';
+    }
+
+    return { description, command };
   }
 }

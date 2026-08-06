@@ -4,6 +4,7 @@ import { useProjectStore } from '../stores/useProjectStore';
 import { useDebugLifecycle } from '../utils/debug';
 import { usePanelStore } from '../stores/usePanelStore';
 import { useLocation } from 'wouter';
+import { IconPlus, IconFolder } from './icons/Icons';
 
 interface NavigationSidebarProps {
   onAddProject: () => void;
@@ -78,7 +79,7 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
             color: 'var(--color-text-muted)',
             fontWeight: 'var(--font-weight-semibold)',
             textTransform: 'uppercase',
-            letterSpacing: '0.05em',
+            letterSpacing: '0.06em',
             margin: 0
           }}
         >
@@ -103,12 +104,12 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
           onMouseOver={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
           onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
         >
-          +
+          <IconPlus size={14} color="var(--color-accent-primary)" />
         </button>
       </div>
 
       {/* Project List Container */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-2)' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-3)' }}>
         {projects.length === 0 ? (
           <div
             style={{
@@ -121,7 +122,7 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
             No projects found.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
             {projects.map(p => {
               const isActive = activeProjectId === p.id;
               return (
@@ -147,21 +148,25 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
                     }
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 'var(--font-size-lg)',
-                      fontWeight: isActive ? 'var(--font-weight-semibold)' : 'var(--font-weight-medium)',
-                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                      lineHeight: '1.35'
-                    }}
-                  >
-                    {p.name}
-                  </div>
+                    <div
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: isActive ? 'var(--font-weight-semibold)' : 'var(--font-weight-medium)',
+                        color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                        lineHeight: '1.4',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}
+                    >
+                      {p.name}
+                    </div>
                   <div
                     style={{
                       fontSize: 'var(--font-size-xs)',
                       color: 'var(--color-text-muted)',
                       fontFamily: 'var(--font-family-mono)',
+                      fontVariantNumeric: 'tabular-nums',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',

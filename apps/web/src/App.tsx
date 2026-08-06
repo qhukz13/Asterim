@@ -28,6 +28,7 @@ import { useThreadStore } from './stores/useThreadStore';
 import { useViewStore } from './stores/useViewStore';
 import { InspectorPanel } from './components/InspectorPanel';
 import { CommandPalette } from './components/CommandPalette';
+import { IconRefresh } from './components/icons/Icons';
 import { useChatStore } from './stores/useChatStore';
 import { CustomDropdown } from './components/CustomDropdown';
 import { useDebugLifecycle, subscribeToStore, checkLayoutCollapse, measureFreeze, Debug } from './utils/debug';
@@ -112,6 +113,7 @@ function ApprovalOverlay({
               padding: '6px 12px',
               borderRadius: '20px',
               fontSize: '0.85rem',
+              fontFamily: 'monospace',
               fontWeight: 'bold',
               background: isUrgent ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
               color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-text-secondary)',
@@ -119,7 +121,7 @@ function ApprovalOverlay({
               transition: 'all 0.3s ease'
             }}
           >
-            ⏱️ {timerText}
+            {timerText}
           </div>
         </div>
 
@@ -486,7 +488,7 @@ function ProjectWorkspace({
               e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
             }}
           >
-            🔄
+            <IconRefresh size={14} />
           </button>
         </div>
       </div>
@@ -691,7 +693,7 @@ function ProjectWorkspace({
       ) : null}
 
       {/* Persistent Views (Mounted constantly to preserve local state like inputs) */}
-      <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flex: 1, minHeight: 0, position: 'relative', width: '100%', height: '100%' }}>
+      <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <ChangesView socket={socket} projectId={project.id} activeBackendUrl={activeBackendUrl} />
       </div>
 
