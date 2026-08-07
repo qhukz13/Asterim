@@ -59,3 +59,46 @@ Opening `http://127.0.0.1:5173` on local desktop requires finding and entering a
 
 #### 🎯 Expected Behavior
 Local desktop sessions running on `127.0.0.1` / `localhost` should auto-pair without manual PIN input, while keeping PIN pairing for remote mobile/LAN IP connections.
+
+---
+
+### BUG-004: Cannot Delete Environment in Danger Zone Tab
+
+* **Severity**: **High (P1)**
+* **Status**: **OPEN**
+* **Component**: `EnvironmentSettingsView.tsx` (Danger Zone tab) / Backend Environment DELETE endpoint
+
+#### 📝 Description & Impact
+Attempting to delete an environment from `EnvironmentSettingsView.tsx` -> `Danger Zone` tab fails or does not purge the environment, leaving the environment active in state and database.
+
+#### 🎯 Expected Fix
+Ensure Danger Zone delete action issues `DELETE /api/v1/workspaces/:id` (or `/api/v1/environments/:id`), refreshes `useWorkspaceStore`, and automatically switches active environment to Personal Environment if the active environment was deleted.
+
+---
+
+### BUG-005: "Open Project" Button in Projects & Assignment Tab Fails to Open Project
+
+* **Severity**: **High (P1)**
+* **Status**: **OPEN**
+* **Component**: `EnvironmentSettingsView.tsx` (Projects & Assignment tab)
+
+#### 📝 Description & Impact
+Clicking the "Open Project" button next to an assigned project card or table row in `EnvironmentSettingsView` -> `Projects & Assignment` tab does not switch views or open the project route.
+
+#### 🎯 Expected Fix
+Update the `onClick` handler for "Open Project" in `EnvironmentSettingsView.tsx` to set `activeProjectId` in `useProjectStore` (`useProjectStore.getState().setActiveProject(p.id)`) and trigger navigation via `useLocation` (`setLocation('/workspace/project/' + p.id)`).
+
+---
+
+### BUG-006: Environment Switcher Dropdown Displays 0 Attached Projects
+
+* **Severity**: **Medium (P1)**
+* **Status**: **OPEN**
+* **Component**: `WorkspaceSwitcher.tsx` (`getProjectCount`)
+
+#### 📝 Description & Impact
+In the `⌘E` Environment Switcher dropdown menu (`WorkspaceSwitcher.tsx`), every environment card displays `0 Projects` (e.g. `Personal • 0 Projects`), even when projects are attached.
+
+#### 🔬 Root Cause & Expected Fix
+`getProjectCount(ws.id)` in `WorkspaceSwitcher.tsx` filters `useWorkspaceStore.getState().projects`. However, `projects` in `useWorkspaceStore` only contains projects attached to the *currently active environment*, causing `getProjectCount` for all inactive environments to evaluate to `0`. The fix requires fetching or maintaining a map of project counts across all environments (`ws.projectCount` or `ws.attachedProjects.length`).
+
