@@ -24,6 +24,44 @@ export function useAuth(activeBackendUrl?: string) {
     }
   }, [token, activeBackendUrl]);
 
+  const loginWithOAuthCode = async (
+    code: string,
+    hostUrl?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const protocol = window.location.protocol;
+      const hostname = window.location.hostname;
+      const url = hostUrl || `${protocol}//${hostname}:3000`;
+
+      const res = await fetch(`${url}/api/v1/auth/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          codeVerifier: 'pkce_local_verifier',
+          clientType: 'desktop',
+          deviceName: 'Asterim Desktop',
+          osType: 'linux',
+          clientVersion: 'v1.5.0'
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const accessToken = data.tokens?.accessToken || data.token;
+        localStorage.setItem(getStorageKey(), accessToken);
+        setToken(accessToken);
+        setIsAuthenticated(true);
+        return { success: true };
+      }
+
+      const data = await res.json();
+      return { success: false, error: data.error || 'OAuth token exchange failed' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'OAuth authentication failed' };
+    }
+  };
+
   const login = async (
     pin: string,
     hostUrl?: string
@@ -73,5 +111,5 @@ export function useAuth(activeBackendUrl?: string) {
     setIsAuthenticated(false);
   };
 
-  return { token, isAuthenticated, login, logout, setToken };
+  return { token, isAuthenticated, login, loginWithOAuthCode, logout, setToken };
 }

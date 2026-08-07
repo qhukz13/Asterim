@@ -116,6 +116,10 @@ fastify.get('/health', async () => {
 
 import systemRoutes from './routes/system';
 import authRoutes from './routes/auth';
+import sessionRoutes from './routes/sessions';
+import deviceRoutes from './routes/devices';
+import apiKeyRoutes from './routes/apikeys';
+import webhookRoutes from './routes/webhooks';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
 
@@ -123,6 +127,14 @@ const start = async () => {
   try {
     console.log('[DEBUG] Registering authRoutes');
     await fastify.register(authRoutes);
+    console.log('[DEBUG] Registering sessionRoutes');
+    await fastify.register(sessionRoutes);
+    console.log('[DEBUG] Registering deviceRoutes');
+    await fastify.register(deviceRoutes);
+    console.log('[DEBUG] Registering apiKeyRoutes');
+    await fastify.register(apiKeyRoutes);
+    console.log('[DEBUG] Registering webhookRoutes');
+    await fastify.register(webhookRoutes);
     console.log('[DEBUG] Registering projectRoutes');
     await fastify.register(projectRoutes);
     console.log('[DEBUG] Registering systemRoutes');

@@ -2,3 +2,7 @@ export * from './events';
 export * from './adapters';
 export * from './state';
 export * from './crypto';
+export * from './types/auth';
+export * from './types/account';
+export * from './types/entitlements';
+

@@ -1,15 +1,25 @@
 import { FastifyInstance } from 'fastify';
 import { pairingService } from '../services/PairingService';
+import { authController } from '../controllers/AuthController';
 
 export default async function authRoutes(fastify: FastifyInstance) {
-  // Simple rate limiting state (in-memory, resets on restart)
+  // Simple rate limiting state for local PIN pairing (in-memory, resets on restart)
   const attempts = new Map<string, { count: number; timestamp: number }>();
 
+  // Phase 2 Centralized Web Auth Endpoints
+  fastify.post('/api/v1/auth/register', (req, reply) => authController.register(req, reply));
+  fastify.post('/api/v1/auth/login', (req, reply) => authController.login(req, reply));
+  fastify.post('/api/v1/auth/refresh', (req, reply) => authController.refresh(req, reply));
+  fastify.post('/api/v1/auth/logout', (req, reply) => authController.logout(req, reply));
+  fastify.post('/api/v1/auth/oauth/token', (req, reply) => authController.oauthTokenExchange(req, reply));
+  fastify.get('/api/v1/auth/me', (req, reply) => authController.me(req, reply));
+
+
+  // Legacy local PIN pairing endpoint (retained for backward compatibility during transition)
   fastify.post('/api/v1/auth/pair', async (request, reply) => {
     const ip = request.ip;
     const now = Date.now();
 
-    // Rate limit: 10 attempts per 15 minutes per IP
     const record = attempts.get(ip) || { count: 0, timestamp: now };
     if (now - record.timestamp > 15 * 60 * 1000) {
       record.count = 0;
@@ -32,7 +42,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     if (pairingService.validatePin(body.pin)) {
       console.log(`[Auth] Pairing successful for IP: ${ip}`);
-      // Success, clear attempts
       attempts.delete(ip);
       const token = pairingService.generateToken();
       reply.send({ token });
@@ -45,7 +54,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/api/v1/auth/verify', async (request, reply) => {
-    // If they reach here, the authMiddleware has already validated the token
     reply.send({ ok: true });
   });
 }

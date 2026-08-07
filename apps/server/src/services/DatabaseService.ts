@@ -148,6 +148,112 @@ export class DatabaseService {
         ON context_entries(context_id);
       CREATE INDEX IF NOT EXISTS idx_context_entries_thread
         ON context_entries(thread_id);
+
+      -- Phase 2 Authentication & Account Platform Tables
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        avatar_url TEXT,
+        is_email_verified INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        account_name TEXT NOT NULL,
+        current_plan_id TEXT NOT NULL DEFAULT 'free',
+        subscription_status TEXT NOT NULL DEFAULT 'active',
+        billing_status TEXT NOT NULL DEFAULT 'ok',
+        stripe_customer_id TEXT,
+        plan_expires_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS feature_entitlements (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        feature_key TEXT NOT NULL,
+        is_enabled INTEGER DEFAULT 1,
+        usage_limit INTEGER DEFAULT -1,
+        current_usage INTEGER DEFAULT 0,
+        expires_at INTEGER,
+        UNIQUE(account_id, feature_key),
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        refresh_token_hash TEXT UNIQUE NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        client_type TEXT NOT NULL DEFAULT 'browser',
+        is_revoked INTEGER DEFAULT 0,
+        last_active_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS trusted_devices (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        device_name TEXT NOT NULL,
+        os_type TEXT NOT NULL,
+        os_version TEXT,
+        client_version TEXT NOT NULL,
+        hardware_fingerprint TEXT,
+        is_trusted INTEGER DEFAULT 1,
+        last_active_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        key_name TEXT NOT NULL,
+        key_prefix TEXT NOT NULL,
+        key_hash TEXT UNIQUE NOT NULL,
+        scopes_json TEXT NOT NULL DEFAULT '[]',
+        last_used_at INTEGER,
+        expires_at INTEGER,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_memberships (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        created_at INTEGER NOT NULL,
+        UNIQUE(workspace_id, user_id),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS team_memberships (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        created_at INTEGER NOT NULL,
+        UNIQUE(team_id, user_id),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(user_id);
+      CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
     `);
   }
 
