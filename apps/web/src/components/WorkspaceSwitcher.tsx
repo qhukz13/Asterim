@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useViewStore } from '../stores/useViewStore';
 import {
@@ -7,21 +7,67 @@ import {
   IconPlus,
   IconUser,
   IconBuilding,
+  IconSearch,
+  IconStar,
 } from './icons/Icons';
 
 export const WorkspaceSwitcher: React.FC = () => {
-  const { workspaces, activeWorkspace, setActiveWorkspace, fetchWorkspaces } = useWorkspaceStore();
+  const { workspaces, activeWorkspace, setActiveWorkspace, fetchWorkspaces, projects } = useWorkspaceStore();
   const setActiveView = useViewStore((s) => s.setActiveView);
   const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('asterim_pinned_env_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [recentIds, setRecentIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('asterim_recent_env_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWsName, setNewWsName] = useState('');
   const [newPreset, setNewPreset] = useState<'company' | 'client' | 'experimental' | 'personal'>('company');
   const [creating, setCreating] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchWorkspaces();
   }, [fetchWorkspaces]);
+
+  // Save pinned IDs
+  const togglePin = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setPinnedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      localStorage.setItem('asterim_pinned_env_ids', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Track recent environments
+  const handleSelectEnv = (id: string) => {
+    setActiveWorkspace(id);
+    setRecentIds((prev) => {
+      const next = [id, ...prev.filter((item) => item !== id)].slice(0, 5);
+      localStorage.setItem('asterim_recent_env_ids', JSON.stringify(next));
+      return next;
+    });
+    setIsOpen(false);
+    setSearchQuery('');
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -33,6 +79,7 @@ export const WorkspaceSwitcher: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Shortcut ⌘E
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
@@ -43,6 +90,17 @@ export const WorkspaceSwitcher: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Focus search input on open
+  useEffect(() => {
+    if (isOpen) {
+      setSearchQuery('');
+      setSelectedIndex(0);
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+  }, [isOpen]);
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +124,10 @@ export const WorkspaceSwitcher: React.FC = () => {
         const createdEnv = data.workspace || data.environment;
         await fetchWorkspaces();
         if (createdEnv?.id) {
-          setActiveWorkspace(createdEnv.id);
+          handleSelectEnv(createdEnv.id);
         }
         setShowCreateModal(false);
         setNewWsName('');
-      } else {
-        console.error('Failed to create workspace on server', await res.text());
       }
     } catch (e: any) {
       console.error('Failed to create workspace', e);
@@ -91,6 +147,50 @@ export const WorkspaceSwitcher: React.FC = () => {
       case 'experimental': return '#8b5cf6';
       default: return '#10b981';
     }
+  };
+
+  // Grouping & Ordering: Pinned, Recent, All
+  const { filteredEnvironments, pinnedList, recentList, otherList } = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const filtered = workspaces.filter(
+      (w) => w.name.toLowerCase().includes(q) || (w.preset || '').toLowerCase().includes(q)
+    );
+
+    const pinned = filtered.filter((w) => pinnedIds.includes(w.id));
+    const unpinned = filtered.filter((w) => !pinnedIds.includes(w.id));
+    const recent = unpinned.filter((w) => recentIds.includes(w.id));
+    const other = unpinned.filter((w) => !recentIds.includes(w.id));
+
+    return {
+      filteredEnvironments: [...pinned, ...recent, ...other],
+      pinnedList: pinned,
+      recentList: recent,
+      otherList: other,
+    };
+  }, [workspaces, searchQuery, pinnedIds, recentIds]);
+
+  // Keyboard navigation handler
+  const handleDropdownKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < filteredEnvironments.length - 1 ? prev + 1 : prev));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredEnvironments[selectedIndex]) {
+        handleSelectEnv(filteredEnvironments[selectedIndex].id);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+    }
+  };
+
+  // Compute attached project count per environment
+  const getProjectCount = (envId: string) => {
+    return projects.filter((p) => p.workspaceId === envId || p.environmentId === envId).length;
   };
 
   const currentName = activeWorkspace?.name || 'Personal Environment';
@@ -140,25 +240,30 @@ export const WorkspaceSwitcher: React.FC = () => {
         <IconChevronDown size={12} color="var(--color-text-muted, #94a3b8)" />
       </button>
 
-      {/* Dropdown Menu */}
+      {/* OS-Grade Desktop Dropdown Menu */}
       {isOpen && (
         <div
+          onKeyDown={handleDropdownKeyDown}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
             left: 0,
-            width: '240px',
+            width: '280px',
             background: '#090d16',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
             borderRadius: '8px',
-            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.75)',
-            padding: '4px',
+            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.85)',
+            padding: '6px',
             zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
           }}
         >
+          {/* Header & ⌘E Label */}
           <div
             style={{
-              padding: '6px 10px',
+              padding: '4px 8px',
               fontSize: '0.7rem',
               fontWeight: 700,
               color: '#64748b',
@@ -166,52 +271,124 @@ export const WorkspaceSwitcher: React.FC = () => {
               letterSpacing: '0.5px',
               display: 'flex',
               justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
             <span>Environments</span>
-            <span style={{ fontSize: '0.65rem', color: '#475569' }}>⌘E</span>
+            <span style={{ fontSize: '0.65rem', color: '#475569', fontFamily: 'monospace' }}>⌘E</span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {workspaces.map((ws) => {
-              const isSelected = activeWorkspace?.id === ws.id;
-              return (
-                <button
-                  key={ws.id}
-                  onClick={() => {
-                    setActiveWorkspace(ws.id);
-                    setIsOpen(false);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    width: '100%',
-                    padding: '6px 10px',
-                    borderRadius: '5px',
-                    background: isSelected ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
-                    border: 'none',
-                    color: isSelected ? '#34d399' : '#f8fafc',
-                    fontWeight: isSelected ? 600 : 400,
-                    fontSize: '0.825rem',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {ws.isPersonal ? (
-                      <IconUser size={14} color="#10b981" />
-                    ) : (
-                      <IconBuilding size={14} color="#3b82f6" />
-                    )}
-                    <span>{ws.name}</span>
-                  </div>
-                  {isSelected && <IconCheck size={14} color="#10b981" />}
-                </button>
-              );
-            })}
+          {/* Search Field */}
+          <div style={{ position: 'relative', marginBottom: '4px' }}>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search environments..."
+              style={{
+                width: '100%',
+                padding: '6px 10px 6px 28px',
+                borderRadius: '5px',
+                background: '#131b2e',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#ffffff',
+                fontSize: '0.8rem',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', opacity: 0.6 }}>
+              <IconSearch size={12} color="#94a3b8" />
+            </div>
           </div>
 
+          {/* Environment List */}
+          <div ref={listRef} style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {filteredEnvironments.length === 0 ? (
+              <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>
+                No environments found
+              </div>
+            ) : (
+              filteredEnvironments.map((ws, globalIdx) => {
+                const isSelected = activeWorkspace?.id === ws.id;
+                const isFocused = selectedIndex === globalIdx;
+                const isPinned = pinnedIds.includes(ws.id);
+                const badgeColor = getPresetBadgeColor(ws);
+                const count = getProjectCount(ws.id);
+                const presetLabel = ws.preset || (ws.isPersonal ? 'personal' : 'company');
+
+                return (
+                  <button
+                    key={ws.id}
+                    onClick={() => handleSelectEnv(ws.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: '5px',
+                      background: isFocused
+                        ? 'rgba(16, 185, 129, 0.18)'
+                        : isSelected
+                        ? 'rgba(255, 255, 255, 0.05)'
+                        : 'transparent',
+                      border: isFocused ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
+                      color: isSelected ? '#34d399' : '#f8fafc',
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background 0.1s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                      {/* Preset Badge */}
+                      <div
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '4px',
+                          background: badgeColor,
+                          color: '#042114',
+                          fontWeight: 800,
+                          fontSize: '0.65rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {ws.name[0].toUpperCase()}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <span style={{ fontWeight: isSelected ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {ws.name}
+                        </span>
+                        <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'capitalize' }}>
+                          {presetLabel} • {count} {count === 1 ? 'project' : 'projects'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span
+                        onClick={(e) => togglePin(e, ws.id)}
+                        title={isPinned ? 'Unpin environment' : 'Pin environment'}
+                        style={{ padding: '2px', cursor: 'pointer', opacity: isPinned ? 1 : 0.3 }}
+                      >
+                        <IconStar size={12} color={isPinned ? '#fbbf24' : '#94a3b8'} />
+                      </span>
+                      {isSelected && <IconCheck size={14} color="#10b981" />}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Action Footer */}
           <div
             style={{
               borderTop: '1px solid rgba(255, 255, 255, 0.08)',
@@ -232,13 +409,13 @@ export const WorkspaceSwitcher: React.FC = () => {
                 alignItems: 'center',
                 gap: '8px',
                 width: '100%',
-                padding: '6px 10px',
+                padding: '6px 8px',
                 borderRadius: '5px',
                 background: 'transparent',
                 border: 'none',
                 color: '#34d399',
                 fontWeight: 600,
-                fontSize: '0.825rem',
+                fontSize: '0.8rem',
                 cursor: 'pointer',
               }}
             >

@@ -30,6 +30,11 @@ export const EnvironmentSettingsView: React.FC = () => {
   const [envPreset, setEnvPreset] = useState<EnvironmentPreset>(currentEnv.preset || 'personal');
   const [savedSettings, setSavedSettings] = useState(false);
 
+  // Scalable Projects Tab state
+  const [projectSearchQuery, setProjectSearchQuery] = useState('');
+  const [projectSortBy, setProjectSortBy] = useState<'name' | 'path' | 'recent'>('name');
+  const [projectViewMode, setProjectViewMode] = useState<'grid' | 'table'>('grid');
+
   const loadData = async () => {
     if (!currentEnv.id) return;
     try {
@@ -138,6 +143,28 @@ export const EnvironmentSettingsView: React.FC = () => {
 
   const badgeStyle = getBadgeColor(envPreset);
 
+  const isPersonalEnv = currentEnv.preset === 'personal' || currentEnv.isPersonal;
+
+  const allTabs = [
+    { id: 'general', label: 'General & Presets' },
+    ...(!isPersonalEnv ? [{ id: 'members', label: `Members & Governance (${members.length})` }] : []),
+    { id: 'projects', label: `Projects & Assignment (${projects.length})` },
+    { id: 'agents', label: 'Agent Profiles' },
+    { id: 'secrets', label: 'Secrets & Credentials' },
+    { id: 'mcp', label: 'MCP Tools & Servers' },
+    { id: 'skills', label: 'Skills & Prompts' },
+    { id: 'knowledge', label: 'Knowledge Items' },
+    ...(!isPersonalEnv ? [{ id: 'audit', label: 'Audit Stream' }] : []),
+    { id: 'danger', label: 'Danger Zone' },
+  ];
+
+  // Reset active subtab if it's hidden in personal mode
+  useEffect(() => {
+    if (isPersonalEnv && (activeSubTab === 'members' || activeSubTab === 'audit')) {
+      setActiveSubTab('general');
+    }
+  }, [isPersonalEnv, activeSubTab]);
+
   return (
     <div
       style={{
@@ -201,7 +228,9 @@ export const EnvironmentSettingsView: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
-              Isolated Developer Universe • Secrets, MCP Tools & Context Scoped
+              {isPersonalEnv
+                ? 'Personal Developer Workstation • Solo Mode • Secrets, MCP Tools & Context Scoped'
+                : 'Isolated Developer Universe • Secrets, MCP Tools & Governance Scoped'}
             </p>
           </div>
         </div>
@@ -219,18 +248,7 @@ export const EnvironmentSettingsView: React.FC = () => {
           whiteSpace: 'nowrap',
         }}
       >
-        {[
-          { id: 'general', label: 'General & Presets' },
-          { id: 'members', label: `Members & Governance (${members.length})` },
-          { id: 'projects', label: `Projects & Assignment (${projects.length})` },
-          { id: 'agents', label: 'Agent Profiles' },
-          { id: 'secrets', label: 'Secrets & Credentials' },
-          { id: 'mcp', label: 'MCP Tools & Servers' },
-          { id: 'skills', label: 'Skills & Prompts' },
-          { id: 'knowledge', label: 'Knowledge Items' },
-          { id: 'audit', label: 'Audit Stream' },
-          { id: 'danger', label: 'Danger Zone' },
-        ].map((tab) => {
+        {allTabs.map((tab) => {
           const isActive = activeSubTab === tab.id;
           return (
             <button
@@ -495,94 +513,240 @@ export const EnvironmentSettingsView: React.FC = () => {
           </div>
         )}
 
-        {activeSubTab === 'projects' && (
-          <div style={{ maxWidth: '1000px' }}>
-            <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-              Assign or move projects between Environments to isolate credentials and context.
-            </div>
-            {projects.length === 0 ? (
-              <div style={{ color: '#94a3b8', fontSize: '0.9rem', padding: '1rem 0' }}>
-                No projects assigned to this Environment.
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-                {projects.map((p) => (
-                  <div
-                    key={p.id}
+        {activeSubTab === 'projects' && (() => {
+          const q = projectSearchQuery.toLowerCase().trim();
+          const filtered = projects.filter(
+            (p) => p.name.toLowerCase().includes(q) || (p.path || '').toLowerCase().includes(q)
+          ).sort((a, b) => {
+            if (projectSortBy === 'path') return (a.path || '').localeCompare(b.path || '');
+            if (projectSortBy === 'recent') return (b.id || '').localeCompare(a.id || '');
+            return a.name.localeCompare(b.name);
+          });
+
+          return (
+            <div style={{ maxWidth: '1000px' }}>
+              {/* Header Description & Controls */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '1.25rem' }}>
+                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                  Assign or move projects between Environments to isolate credentials and context.
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {/* Search Input */}
+                  <input
+                    type="text"
+                    value={projectSearchQuery}
+                    onChange={(e) => setProjectSearchQuery(e.target.value)}
+                    placeholder="Search projects..."
                     style={{
-                      padding: '16px 18px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
                       background: '#131b2e',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#ffffff',
+                      fontSize: '0.825rem',
+                      outline: 'none',
+                      width: '180px',
+                    }}
+                  />
+
+                  {/* Sort Dropdown */}
+                  <select
+                    value={projectSortBy}
+                    onChange={(e) => setProjectSortBy(e.target.value as any)}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      background: '#131b2e',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#cbd5e1',
+                      fontSize: '0.825rem',
+                      outline: 'none',
                     }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>{p.name}</span>
-                        <span
+                    <option value="name">Sort: Name (A-Z)</option>
+                    <option value="path">Sort: Path</option>
+                    <option value="recent">Sort: Recently Added</option>
+                  </select>
+
+                  {/* View Mode Toggle */}
+                  <div style={{ display: 'flex', border: '1px solid rgba(255, 255, 255, 0.12)', borderRadius: '6px', overflow: 'hidden' }}>
+                    <button
+                      onClick={() => setProjectViewMode('grid')}
+                      style={{
+                        padding: '5px 10px',
+                        background: projectViewMode === 'grid' ? '#10b981' : '#131b2e',
+                        color: projectViewMode === 'grid' ? '#042114' : '#94a3b8',
+                        border: 'none',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Grid
+                    </button>
+                    <button
+                      onClick={() => setProjectViewMode('table')}
+                      style={{
+                        padding: '5px 10px',
+                        background: projectViewMode === 'table' ? '#10b981' : '#131b2e',
+                        color: projectViewMode === 'table' ? '#042114' : '#94a3b8',
+                        border: 'none',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Table
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: '0.9rem', padding: '2rem 0', textAlign: 'center' }}>
+                  {projectSearchQuery ? 'No matching projects found.' : 'No projects assigned to this Environment.'}
+                </div>
+              ) : projectViewMode === 'table' ? (
+                /* Compact Table Mode */
+                <div style={{ background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', color: '#94a3b8' }}>
+                        <th style={{ padding: '10px 14px', fontWeight: 600 }}>Project Name</th>
+                        <th style={{ padding: '10px 14px', fontWeight: 600 }}>File Path</th>
+                        <th style={{ padding: '10px 14px', fontWeight: 600 }}>Assigned Environment</th>
+                        <th style={{ padding: '10px 14px', fontWeight: 600, textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p) => (
+                        <tr key={p.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                          <td style={{ padding: '10px 14px', color: '#ffffff', fontWeight: 600 }}>{p.name}</td>
+                          <td style={{ padding: '10px 14px', color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.8rem' }}>{p.path}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <select
+                              value={currentEnv.id}
+                              onChange={(e) => handleReassignProject(p.id, e.target.value)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: '#090d16',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                color: '#cbd5e1',
+                                fontSize: '0.78rem',
+                              }}
+                            >
+                              {workspaces.map((w) => (
+                                <option key={w.id} value={w.id}>
+                                  {w.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                            <button
+                              onClick={() => useWorkspaceStore.getState().setProjects(projects)}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                color: '#34d399',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Open
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* Grid Cards Mode */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+                  {filtered.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        padding: '16px 18px',
+                        background: '#131b2e',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>{p.name}</span>
+                          <span
+                            style={{
+                              background: badgeStyle.bg,
+                              color: badgeStyle.text,
+                              fontSize: '0.7rem',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {envPreset}
+                          </span>
+                        </div>
+                        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '6px', fontFamily: 'var(--font-family-mono)', wordBreak: 'break-all' }}>
+                          {p.path}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <select
+                          value={currentEnv.id}
+                          onChange={(e) => handleReassignProject(p.id, e.target.value)}
                           style={{
-                            background: badgeStyle.bg,
-                            color: badgeStyle.text,
-                            fontSize: '0.7rem',
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontWeight: 700,
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            background: '#090d16',
+                            border: '1px solid rgba(255, 255, 255, 0.12)',
+                            color: '#cbd5e1',
+                            fontSize: '0.78rem',
                           }}
                         >
-                          {envPreset}
-                        </span>
-                      </div>
-                      <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '6px', fontFamily: 'var(--font-family-mono)', wordBreak: 'break-all' }}>
-                        {p.path}
+                          {workspaces.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            useWorkspaceStore.getState().setProjects(projects);
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid rgba(255, 255, 255, 0.12)',
+                            color: '#34d399',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Open Project
+                        </button>
                       </div>
                     </div>
-
-                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <select
-                        value={currentEnv.id}
-                        onChange={(e) => handleReassignProject(p.id, e.target.value)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          background: '#090d16',
-                          border: '1px solid rgba(255, 255, 255, 0.12)',
-                          color: '#cbd5e1',
-                          fontSize: '0.78rem',
-                        }}
-                      >
-                        {workspaces.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          useWorkspaceStore.getState().setProjects(projects);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid rgba(255, 255, 255, 0.12)',
-                          color: '#34d399',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          fontSize: '0.78rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Open Project
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {activeSubTab === 'secrets' && (
           <div style={{ maxWidth: '700px' }}>

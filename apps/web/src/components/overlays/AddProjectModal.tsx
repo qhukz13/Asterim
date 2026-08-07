@@ -15,6 +15,7 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
   const [existingProjects, setExistingProjects] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingExisting, setLoadingExisting] = useState(true);
+  const [modalSearchQuery, setModalSearchQuery] = useState('');
 
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -176,121 +177,149 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
         </div>
 
         {/* Tab 1: Multi-Select Existing Repositories */}
-        {activeTab === 'existing' && (
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                maxHeight: '260px',
-                overflowY: 'auto',
-                marginBottom: '1.25rem',
-              }}
-            >
-              {loadingExisting ? (
-                <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1rem', textAlign: 'center' }}>
-                  Scanning local repositories...
-                </div>
-              ) : existingProjects.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.5rem', textAlign: 'center' }}>
-                  No local projects found. Switch to "+ Add New Folder" to import one.
-                </div>
-              ) : (
-                existingProjects.map((p) => {
-                  const isChecked = selectedIds.has(p.id);
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() => toggleSelect(p.id)}
-                      style={{
-                        padding: '10px 14px',
-                        background: isChecked ? 'rgba(16, 185, 129, 0.12)' : '#131b2e',
-                        borderRadius: '8px',
-                        border: `1px solid ${isChecked ? '#10b981' : 'rgba(255, 255, 255, 0.08)'}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#10b981' }}
-                      />
-                      <div style={{ overflow: 'hidden', flex: 1 }}>
-                        <div
-                          style={{
-                            color: '#ffffff',
-                            fontWeight: 700,
-                            fontSize: '0.9rem',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {p.name}
-                        </div>
-                        <div
-                          style={{
-                            color: '#64748b',
-                            fontSize: '0.78rem',
-                            fontFamily: 'monospace',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {p.path}
+        {activeTab === 'existing' && (() => {
+          const q = modalSearchQuery.toLowerCase().trim();
+          const filtered = existingProjects.filter(
+            (p) => p.name.toLowerCase().includes(q) || (p.path || '').toLowerCase().includes(q)
+          );
+
+          return (
+            <div>
+              {/* Search Filter Bar */}
+              <div style={{ marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  value={modalSearchQuery}
+                  onChange={(e) => setModalSearchQuery(e.target.value)}
+                  placeholder="Filter local repositories..."
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: '#131b2e',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#ffffff',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                  marginBottom: '1.25rem',
+                }}
+              >
+                {loadingExisting ? (
+                  <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1rem', textAlign: 'center' }}>
+                    Scanning local repositories...
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.5rem', textAlign: 'center' }}>
+                    {modalSearchQuery ? 'No matching repositories found.' : 'No local projects found. Switch to "+ Add New Folder" to import one.'}
+                  </div>
+                ) : (
+                  filtered.map((p) => {
+                    const isChecked = selectedIds.has(p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => toggleSelect(p.id)}
+                        style={{
+                          padding: '10px 14px',
+                          background: isChecked ? 'rgba(16, 185, 129, 0.12)' : '#131b2e',
+                          borderRadius: '8px',
+                          border: `1px solid ${isChecked ? '#10b981' : 'rgba(255, 255, 255, 0.08)'}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#10b981' }}
+                        />
+                        <div style={{ overflow: 'hidden', flex: 1 }}>
+                          <div
+                            style={{
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '0.9rem',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {p.name}
+                          </div>
+                          <div
+                            style={{
+                              color: '#64748b',
+                              fontSize: '0.78rem',
+                              fontFamily: 'monospace',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {p.path}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                    );
+                  })
+                )}
+              </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#cbd5e1',
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Done / Close
-              </button>
-              <button
-                type="button"
-                disabled={isSubmitting || selectedIds.size === 0}
-                onClick={handleBatchAttach}
-                style={{
-                  background: selectedIds.size > 0 ? '#10b981' : '#334155',
-                  border: 'none',
-                  color: selectedIds.size > 0 ? '#042114' : '#94a3b8',
-                  padding: '8px 18px',
-                  borderRadius: '6px',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  cursor: selectedIds.size > 0 ? 'pointer' : 'not-allowed',
-                }}
-              >
-                {isSubmitting
-                  ? 'Attaching...'
-                  : `Attach Selected Projects (${selectedIds.size})`}
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#cbd5e1',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Done / Close
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || selectedIds.size === 0}
+                  onClick={handleBatchAttach}
+                  style={{
+                    background: selectedIds.size > 0 ? '#10b981' : '#334155',
+                    border: 'none',
+                    color: selectedIds.size > 0 ? '#042114' : '#94a3b8',
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    cursor: selectedIds.size > 0 ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  {isSubmitting
+                    ? 'Attaching...'
+                    : `Attach Selected Projects (${selectedIds.size})`}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Tab 2: Create New Folder */}
         {activeTab === 'new' && (
