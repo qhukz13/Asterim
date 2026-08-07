@@ -358,9 +358,13 @@ function ProjectWorkspace({
   }, [activeTab]);
 
   const [, setLocation] = useLocation();
+  const setStoreView = useViewStore(s => s.setActiveView);
   const setActiveTab = (view: any) => {
+    setStoreView(view);
     if (activeThreadId) {
       setLocation(`/workspace/project/${project.id}/thread/${activeThreadId}/view/${view}`);
+    } else if (project?.id) {
+      setLocation(`/workspace/project/${project.id}/view/${view}`);
     }
   };
   const [autoApproval, setAutoApproval] = useState<'ask' | 'approve' | 'deny'>('ask');
@@ -597,6 +601,27 @@ function ProjectWorkspace({
           >
             <IconSettings size={15} /> Settings
           </button>
+          <button
+            className={`nav-btn ${activeTab === 'environment' || activeTab === 'workspace' ? 'active' : ''}`}
+            style={{
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'environment' || activeTab === 'workspace' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'environment' || activeTab === 'workspace' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderBottom: activeTab === 'environment' || activeTab === 'workspace' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onClick={() => setActiveTab('environment')}
+          >
+            ⚙ Environment
+          </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -812,18 +837,41 @@ function ProjectWorkspace({
 export function App() {
   const workstations = useWorkstations();
   const { isAuthenticated } = useAuth(workstations.activeBackendUrl);
-  const { projects, refreshProjects } = useProjects(workstations.activeBackendUrl);
+  const activeEnvironmentId = useWorkspaceStore(s => s.activeEnvironmentId);
+  const { projects, refreshProjects } = useProjects(workstations.activeBackendUrl, activeEnvironmentId || undefined);
 
-  useDebugLifecycle('App', { isAuthenticated, activeBackendUrl: workstations.activeBackendUrl });
+  useDebugLifecycle('App', { isAuthenticated, activeBackendUrl: workstations.activeBackendUrl, activeEnvironmentId });
 
   const setProjects = useWorkspaceStore(s => s.setProjects);
+  const activeProjectId = useProjectStore(s => s.activeProjectId);
+  const currentEnvId = activeEnvironmentId || 'personal';
+
   useEffect(() => {
     setProjects(projects);
   }, [projects, setProjects]);
 
-  const activeProjectId = useProjectStore(s => s.activeProjectId);
+  // Restore and auto-select active project per environment
+  useEffect(() => {
+    if (projects.length > 0) {
+      const savedId = localStorage.getItem(`asterim_active_project_${currentEnvId}`);
+      const validSaved = projects.find(p => p.id === savedId);
+      const currentValid = projects.find(p => p.id === activeProjectId);
+      if (!currentValid) {
+        const target = validSaved || projects[0];
+        if (target) {
+          useProjectStore.getState().setActiveProject(target.id);
+        }
+      }
+    }
+  }, [projects, activeProjectId, currentEnvId]);
+
+  useEffect(() => {
+    if (activeProjectId && currentEnvId) {
+      localStorage.setItem(`asterim_active_project_${currentEnvId}`, activeProjectId);
+    }
+  }, [activeProjectId, currentEnvId]);
+
   const [, setAppLocation] = useLocation();
-  
   const selectedProject = projects.find(p => p.id === activeProjectId) || null;
 
   const [showAddProject, setShowAddProject] = useState(false);

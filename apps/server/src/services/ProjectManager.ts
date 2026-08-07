@@ -22,10 +22,28 @@ export class ProjectManager {
     const db = dbService.getDb();
     try {
       if (workspaceId && workspaceId !== 'personal') {
-        const query = db.prepare(
-          'SELECT id, workspace_id, name, path, visibility, created_at FROM projects WHERE workspace_id = ? OR workspace_id IS NULL OR workspace_id = "" ORDER BY created_at DESC'
-        );
-        return query.all(workspaceId) as unknown as ProjectConfig[];
+        const wsRow = db.prepare('SELECT is_personal FROM workspaces WHERE id = ?').get(workspaceId) as any;
+        const isPersonal = wsRow ? Boolean(wsRow.is_personal) : false;
+
+        if (isPersonal) {
+          const query = db.prepare(
+            `SELECT DISTINCT p.id, p.workspace_id, p.name, p.path, p.visibility, p.created_at 
+             FROM projects p 
+             LEFT JOIN environment_project_attachments epa ON p.id = epa.project_id
+             WHERE p.workspace_id = ? OR p.workspace_id IS NULL OR p.workspace_id = '' OR epa.environment_id = ?
+             ORDER BY p.created_at DESC`
+          );
+          return query.all(workspaceId, workspaceId) as unknown as ProjectConfig[];
+        } else {
+          const query = db.prepare(
+            `SELECT DISTINCT p.id, p.workspace_id, p.name, p.path, p.visibility, p.created_at 
+             FROM projects p 
+             LEFT JOIN environment_project_attachments epa ON p.id = epa.project_id
+             WHERE p.workspace_id = ? OR epa.environment_id = ?
+             ORDER BY p.created_at DESC`
+          );
+          return query.all(workspaceId, workspaceId) as unknown as ProjectConfig[];
+        }
       }
       const query = db.prepare(
         'SELECT id, workspace_id, name, path, visibility, created_at FROM projects ORDER BY created_at DESC'
@@ -60,6 +78,14 @@ export class ProjectManager {
 
     const insert = db.prepare('INSERT INTO projects (id, workspace_id, name, path, visibility) VALUES (?, ?, ?, ?, ?)');
     insert.run(newProject.id, workspaceId || null, newProject.name, newProject.path, visibility || 'private');
+
+    if (workspaceId) {
+      try {
+        const attachId = `epa_${crypto.randomUUID()}`;
+        db.prepare('INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)')
+          .run(attachId, workspaceId, newProject.id, Date.now());
+      } catch (e) {}
+    }
 
     // Automatically create a default thread
     this.createThread(newProject.id, 'Main Session');

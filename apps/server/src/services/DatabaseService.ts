@@ -107,6 +107,46 @@ export class DatabaseService {
       /* ignore if exists */
     }
     try {
+      this.db.exec("ALTER TABLE workspaces ADD COLUMN preset TEXT NOT NULL DEFAULT 'personal';");
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec("ALTER TABLE workspaces ADD COLUMN execution_profile_id TEXT NOT NULL DEFAULT 'exec_default';");
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE workspaces ADD COLUMN avatar_url TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE workspaces ADD COLUMN is_personal INTEGER DEFAULT 0;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec("ALTER TABLE environments ADD COLUMN preset TEXT NOT NULL DEFAULT 'personal';");
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec("ALTER TABLE environments ADD COLUMN execution_profile_id TEXT NOT NULL DEFAULT 'exec_default';");
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE environments ADD COLUMN avatar_url TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE environments ADD COLUMN is_personal INTEGER DEFAULT 0;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
       this.db.exec('ALTER TABLE events ADD COLUMN thread_id TEXT;');
     } catch (e) {
       /* ignore if exists */
@@ -249,11 +289,82 @@ export class DatabaseService {
         account_id TEXT NOT NULL,
         name TEXT NOT NULL,
         slug TEXT NOT NULL,
+        preset TEXT NOT NULL DEFAULT 'personal',
+        execution_profile_id TEXT NOT NULL DEFAULT 'exec_default',
         avatar_url TEXT,
         is_personal INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS environments (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        preset TEXT NOT NULL DEFAULT 'personal',
+        execution_profile_id TEXT NOT NULL DEFAULT 'exec_default',
+        avatar_url TEXT,
+        is_personal INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS environment_project_attachments (
+        id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        attached_at INTEGER NOT NULL,
+        UNIQUE(environment_id, project_id),
+        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_profiles (
+        id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        default_model TEXT NOT NULL,
+        temperature REAL NOT NULL DEFAULT 0.2,
+        mcp_visibility TEXT NOT NULL DEFAULT '[]',
+        skills TEXT NOT NULL DEFAULT '[]',
+        prompt_template TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS environment_knowledge_items (
+        id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS environment_secrets (
+        id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL,
+        secret_key TEXT NOT NULL,
+        secret_value TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(environment_id, secret_key),
+        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS environment_audit_logs (
+        id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_resource TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS workspace_memberships (
@@ -307,6 +418,11 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_workspace_memberships_workspace ON workspace_memberships(workspace_id);
       CREATE INDEX IF NOT EXISTS idx_workspace_invitations_token ON workspace_invitations(token);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_environments_account ON environments(account_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_profiles_env ON agent_profiles(environment_id);
+      CREATE INDEX IF NOT EXISTS idx_env_knowledge_env ON environment_knowledge_items(environment_id);
+      CREATE INDEX IF NOT EXISTS idx_env_attachments_env ON environment_project_attachments(environment_id);
+
     `);
   }
 

@@ -15,6 +15,7 @@ export const WorkspaceSwitcher: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWsName, setNewWsName] = useState('');
+  const [newPreset, setNewPreset] = useState<'company' | 'client' | 'experimental' | 'personal'>('company');
   const [creating, setCreating] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -49,63 +50,52 @@ export const WorkspaceSwitcher: React.FC = () => {
     setCreating(true);
 
     try {
+      const tokenKey = 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/v1/workspaces', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newWsName.trim() }),
+        headers,
+        body: JSON.stringify({ name: newWsName.trim(), preset: newPreset }),
       });
 
       if (res.ok) {
         const data = await res.json();
+        const createdEnv = data.workspace || data.environment;
         await fetchWorkspaces();
-        setActiveWorkspace(data.workspace.id);
+        if (createdEnv?.id) {
+          setActiveWorkspace(createdEnv.id);
+        }
         setShowCreateModal(false);
         setNewWsName('');
       } else {
-        const fakeId = `ws_${Date.now()}`;
-        const newWs = {
-          id: fakeId,
-          accountId: 'acc_dev',
-          name: newWsName.trim(),
-          slug: newWsName.trim().toLowerCase().replace(/\s+/g, '-'),
-          isPersonal: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        useWorkspaceStore.setState({
-          workspaces: [...workspaces, newWs],
-          activeWorkspaceId: fakeId,
-          activeWorkspace: newWs,
-        });
-        setShowCreateModal(false);
-        setNewWsName('');
+        console.error('Failed to create workspace on server', await res.text());
       }
     } catch (e: any) {
-      const fakeId = `ws_${Date.now()}`;
-      const newWs = {
-        id: fakeId,
-        accountId: 'acc_dev',
-        name: newWsName.trim(),
-        slug: newWsName.trim().toLowerCase().replace(/\s+/g, '-'),
-        isPersonal: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      useWorkspaceStore.setState({
-        workspaces: [...workspaces, newWs],
-        activeWorkspaceId: fakeId,
-        activeWorkspace: newWs,
-      });
-      setShowCreateModal(false);
-      setNewWsName('');
+      console.error('Failed to create workspace', e);
     } finally {
       setCreating(false);
       setIsOpen(false);
     }
   };
 
+  const getPresetBadgeColor = (ws?: any) => {
+    if (!ws) return '#10b981';
+    const preset = ws.preset || (ws.isPersonal ? 'personal' : 'company');
+    switch (preset) {
+      case 'personal': return '#10b981';
+      case 'company': return '#3b82f6';
+      case 'client': return '#f59e0b';
+      case 'experimental': return '#8b5cf6';
+      default: return '#10b981';
+    }
+  };
+
   const currentName = activeWorkspace?.name || 'Personal Environment';
   const currentInitial = currentName[0].toUpperCase();
+  const currentBadgeColor = getPresetBadgeColor(activeWorkspace);
 
   return (
     <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -135,7 +125,7 @@ export const WorkspaceSwitcher: React.FC = () => {
             width: '16px',
             height: '16px',
             borderRadius: '3px',
-            background: activeWorkspace?.isPersonal ? '#10b981' : '#3b82f6',
+            background: currentBadgeColor,
             color: '#042114',
             fontWeight: 800,
             fontSize: '0.65rem',
@@ -234,29 +224,6 @@ export const WorkspaceSwitcher: React.FC = () => {
           >
             <button
               onClick={() => {
-                setActiveView('environment');
-                setIsOpen(false);
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: '5px',
-                background: 'transparent',
-                border: 'none',
-                color: '#cbd5e1',
-                fontWeight: 500,
-                fontSize: '0.825rem',
-                cursor: 'pointer',
-              }}
-            >
-              <span>⚙ Environment Settings</span>
-            </button>
-
-            <button
-              onClick={() => {
                 setShowCreateModal(true);
                 setIsOpen(false);
               }}
@@ -297,13 +264,14 @@ export const WorkspaceSwitcher: React.FC = () => {
         >
           <div
             style={{
-              width: '100%',
-              maxWidth: '380px',
+              width: '90%',
+              maxWidth: '460px',
               background: '#090d16',
               border: '1px solid rgba(255, 255, 255, 0.12)',
               borderRadius: '12px',
               padding: '1.5rem',
               boxShadow: '0 25px 50px rgba(0, 0, 0, 0.8)',
+              boxSizing: 'border-box',
             }}
           >
             <h3
@@ -312,12 +280,24 @@ export const WorkspaceSwitcher: React.FC = () => {
                 fontWeight: 800,
                 color: '#ffffff',
                 margin: '0 0 0.4rem 0',
+                wordBreak: 'break-word',
               }}
             >
-              Create Environment Universe
+              Create Environment
             </h3>
-            <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: '0 0 1.25rem 0' }}>
-              Isolated space for projects, credentials, MCP servers, and skills.
+            <p
+              style={{
+                color: '#94a3b8',
+                fontSize: '0.825rem',
+                margin: '0 0 1.25rem 0',
+                lineHeight: 1.5,
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
+                whiteSpace: 'normal',
+                maxWidth: '100%',
+              }}
+            >
+              Isolated space for repositories, credentials, MCP servers, and agent skills.
             </p>
 
             <form onSubmit={handleCreateWorkspace}>
@@ -341,7 +321,7 @@ export const WorkspaceSwitcher: React.FC = () => {
                 placeholder="Acme Production"
                 style={{
                   width: '100%',
-                  padding: '8px 12px',
+                  padding: '10px 12px',
                   borderRadius: '6px',
                   background: '#131b2e',
                   border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -352,6 +332,52 @@ export const WorkspaceSwitcher: React.FC = () => {
                   boxSizing: 'border-box',
                 }}
               />
+              <label
+                style={{
+                  display: 'block',
+                  color: '#cbd5e1',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  marginBottom: '6px',
+                }}
+              >
+                Environment Preset Type
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '1.25rem' }}>
+                {[
+                  { id: 'company', label: 'Company', color: '#3b82f6' },
+                  { id: 'experimental', label: 'Experimental', color: '#8b5cf6' },
+                  { id: 'client', label: 'Client Sandbox', color: '#f59e0b' },
+                  { id: 'personal', label: 'Personal', color: '#10b981' },
+                ].map((p) => {
+                  const selected = newPreset === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setNewPreset(p.id as any)}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        background: selected ? 'rgba(255, 255, 255, 0.08)' : '#131b2e',
+                        border: `1px solid ${selected ? p.color : 'rgba(255, 255, 255, 0.12)'}`,
+                        color: selected ? p.color : '#cbd5e1',
+                        fontWeight: selected ? 700 : 500,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: p.color }} />
+                      <span>{p.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 <button
@@ -361,7 +387,7 @@ export const WorkspaceSwitcher: React.FC = () => {
                     background: 'transparent',
                     border: '1px solid rgba(255, 255, 255, 0.12)',
                     color: '#cbd5e1',
-                    padding: '6px 14px',
+                    padding: '8px 16px',
                     borderRadius: '6px',
                     fontWeight: 600,
                     fontSize: '0.8rem',
@@ -377,7 +403,7 @@ export const WorkspaceSwitcher: React.FC = () => {
                     background: '#10b981',
                     border: 'none',
                     color: '#042114',
-                    padding: '6px 14px',
+                    padding: '8px 16px',
                     borderRadius: '6px',
                     fontWeight: 700,
                     fontSize: '0.8rem',

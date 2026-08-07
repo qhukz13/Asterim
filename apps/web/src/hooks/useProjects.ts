@@ -7,7 +7,7 @@ export interface Project {
   relayUrl?: string;
 }
 
-export function useProjects(activeBackendUrl?: string) {
+export function useProjects(activeBackendUrl?: string, environmentId?: string) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +26,8 @@ export function useProjects(activeBackendUrl?: string) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
+      const envQuery = environmentId ? `?workspaceId=${environmentId}` : '';
+      const res = await fetch(`${baseUrl}/api/v1/projects${envQuery}`, { headers });
       if (res.status === 401 && token) {
         localStorage.removeItem(tokenKey);
       }
@@ -44,7 +45,7 @@ export function useProjects(activeBackendUrl?: string) {
 
   useEffect(() => {
     fetchProjects();
-  }, [activeBackendUrl]);
+  }, [activeBackendUrl, environmentId]);
 
   return { projects, loading, error, refreshProjects: fetchProjects };
 }

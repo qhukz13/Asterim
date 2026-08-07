@@ -5,36 +5,115 @@ import { rbacService } from '../services/RbacService';
 export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
   // Helper to extract userId and accountId safely from request.user
   const getUserContext = (reqUser: any) => ({
-    userId: reqUser.sub || reqUser.userId || 'usr_dev',
-    accountId: reqUser.acc || reqUser.accountId || 'acc_dev',
+    userId: reqUser?.sub || reqUser?.userId || 'usr_dev',
+    accountId: reqUser?.acc || reqUser?.accountId || 'acc_dev',
   });
 
-  // GET /api/v1/workspaces - List user's workspaces
-  fastify.get('/api/v1/workspaces', async (request, reply) => {
+  // GET /api/v1/workspaces & /api/v1/environments - List user's environments/workspaces
+  const handleListWorkspaces = async (request: any, reply: any) => {
     const { userId, accountId } = getUserContext(request.user);
 
     // Ensure personal workspace exists
     workspaceService.ensurePersonalWorkspace(accountId, userId);
     const workspaces = workspaceService.getUserWorkspaces(userId);
-    return reply.send({ workspaces });
-  });
+    return reply.send({ workspaces, environments: workspaces });
+  };
 
-  // POST /api/v1/workspaces - Create a new workspace
-  fastify.post('/api/v1/workspaces', async (request, reply) => {
-    const { name, slug } = request.body as { name: string; slug?: string };
+  fastify.get('/api/v1/workspaces', handleListWorkspaces);
+  fastify.get('/api/v1/environments', handleListWorkspaces);
+
+  // POST /api/v1/workspaces & /api/v1/environments - Create a new environment/workspace
+  const handleCreateWorkspace = async (request: any, reply: any) => {
+    const { name, slug, preset } = request.body as { name: string; slug?: string; preset?: string };
     const { userId, accountId } = getUserContext(request.user);
 
-    if (!name) return reply.status(400).send({ error: 'Workspace name is required' });
+    if (!name) return reply.status(400).send({ error: 'Environment name is required' });
 
     const workspace = workspaceService.createWorkspace(
       accountId,
       userId,
       name,
-      slug
+      slug,
+      false,
+      preset || 'personal'
     );
 
-    return reply.status(201).send({ workspace });
-  });
+    return reply.status(201).send({ workspace, environment: workspace });
+  };
+
+  fastify.post('/api/v1/workspaces', handleCreateWorkspace);
+  fastify.post('/api/v1/environments', handleCreateWorkspace);
+
+  // POST /api/v1/environments/:id/attach-project - Attach an existing project to an environment
+  const handleAttachProject = async (request: any, reply: any) => {
+    const { id } = request.params as { id: string };
+    const { projectId } = request.body as { projectId: string };
+    if (!projectId) return reply.status(400).send({ error: 'projectId is required' });
+
+    const { dbService } = await import('../services/DatabaseService');
+    const { projectManager } = await import('../services/ProjectManager');
+    const db = dbService.getDb();
+    const attachId = `epa_${crypto.randomUUID()}`;
+
+    try {
+      db.prepare(
+        'INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)'
+      ).run(attachId, id, projectId, Date.now());
+    } catch (e) {}
+
+    const project = projectManager.getProject(projectId);
+    return reply.send({ success: true, project });
+  };
+
+  fastify.post('/api/v1/workspaces/:id/attach-project', handleAttachProject);
+  fastify.post('/api/v1/environments/:id/attach-project', handleAttachProject);
+
+  // POST /api/v1/environments/:id/attach-projects - Batch attach projects
+  const handleBatchAttach = async (request: any, reply: any) => {
+    const { id } = request.params as { id: string };
+    const { projectIds } = request.body as { projectIds: string[] };
+    if (!projectIds || !Array.isArray(projectIds)) {
+      return reply.status(400).send({ error: 'projectIds array is required' });
+    }
+
+    const { dbService } = await import('../services/DatabaseService');
+    const db = dbService.getDb();
+    const now = Date.now();
+
+    for (const pid of projectIds) {
+      try {
+        const attachId = `epa_${crypto.randomUUID()}`;
+        db.prepare(
+          'INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)'
+        ).run(attachId, id, pid, now);
+      } catch (e) {}
+    }
+
+    return reply.send({ success: true, count: projectIds.length });
+  };
+
+  fastify.post('/api/v1/workspaces/:id/attach-projects', handleBatchAttach);
+  fastify.post('/api/v1/environments/:id/attach-projects', handleBatchAttach);
+
+  // POST /api/v1/environments/:id/unattach-project - Detach project
+  const handleUnattachProject = async (request: any, reply: any) => {
+    const { id } = request.params as { id: string };
+    const { projectId } = request.body as { projectId: string };
+    if (!projectId) return reply.status(400).send({ error: 'projectId is required' });
+
+    const { dbService } = await import('../services/DatabaseService');
+    const db = dbService.getDb();
+
+    try {
+      db.prepare('DELETE FROM environment_project_attachments WHERE environment_id = ? AND project_id = ?')
+        .run(id, projectId);
+    } catch (e) {}
+
+    return reply.send({ success: true });
+  };
+
+  fastify.post('/api/v1/workspaces/:id/unattach-project', handleUnattachProject);
+  fastify.post('/api/v1/environments/:id/unattach-project', handleUnattachProject);
 
   // GET /api/v1/workspaces/:id/members - List members of a workspace
   fastify.get('/api/v1/workspaces/:id/members', async (request, reply) => {

@@ -16,17 +16,40 @@ export class WorkspaceService {
     userId: string,
     name: string,
     slug?: string,
-    isPersonal: boolean = false
+    isPersonal: boolean = false,
+    preset: string = 'personal'
   ): Workspace {
     const db = dbService.getDb();
     const workspaceId = `ws_${randomUUID()}`;
     const generatedSlug = (slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-|-$/g, '') || 'workspace';
     const now = Date.now();
 
+    // Ensure default dev account and user exist for foreign keys
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO users (id, email, password_hash, full_name, created_at, updated_at)
+        VALUES (?, 'dev@asterim.local', 'hash', 'Developer', ?, ?)
+      `).run(userId || 'usr_dev', now, now);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO accounts (id, owner_user_id, account_name, created_at, updated_at)
+        VALUES (?, ?, 'Personal Account', ?, ?)
+      `).run(accountId || 'acc_dev', userId || 'usr_dev', now, now);
+    } catch (e) {}
+
     db.prepare(`
-      INSERT INTO workspaces (id, account_id, name, slug, is_personal, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(workspaceId, accountId, name, generatedSlug, isPersonal ? 1 : 0, now, now);
+      INSERT INTO workspaces (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(workspaceId, accountId, name, generatedSlug, preset, 'exec_default', isPersonal ? 1 : 0, now, now);
+
+    try {
+      db.prepare(`
+        INSERT INTO environments (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(workspaceId, accountId, name, generatedSlug, preset, 'exec_default', isPersonal ? 1 : 0, now, now);
+    } catch (e) {
+      /* ignore if exists */
+    }
 
     // Assign creator as owner
     const memberId = `wsm_${randomUUID()}`;
@@ -40,6 +63,8 @@ export class WorkspaceService {
       accountId,
       name,
       slug: generatedSlug,
+      preset: preset as any,
+      executionProfileId: 'exec_default',
       isPersonal,
       createdAt: new Date(now).toISOString(),
       updatedAt: new Date(now).toISOString(),
@@ -53,10 +78,9 @@ export class WorkspaceService {
     const db = dbService.getDb();
     const existing = db.prepare(`
       SELECT w.* FROM workspaces w
-      JOIN workspace_memberships wm ON w.id = wm.workspace_id
-      WHERE wm.user_id = ? AND w.is_personal = 1
+      WHERE w.is_personal = 1 OR w.id = 'personal'
       LIMIT 1
-    `).get(userId) as any;
+    `).get() as any;
 
     if (existing) {
       return {
@@ -65,14 +89,62 @@ export class WorkspaceService {
         name: existing.name,
         slug: existing.slug,
         avatarUrl: existing.avatar_url,
-        isPersonal: Boolean(existing.is_personal),
+        preset: existing.preset || 'personal',
+        executionProfileId: existing.execution_profile_id || 'exec_default',
+        isPersonal: true,
         createdAt: new Date(existing.created_at).toISOString(),
         updatedAt: new Date(existing.updated_at).toISOString(),
       };
     }
 
-    const wsName = fullName ? `${fullName}'s Workspace` : 'Personal Workspace';
-    return this.createWorkspace(accountId, userId, wsName, 'personal', true);
+    const now = Date.now();
+    const workspaceId = 'personal';
+    const wsName = 'Personal Environment';
+
+    // Ensure default dev account and user exist for foreign keys
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO users (id, email, password_hash, full_name, created_at, updated_at)
+        VALUES ('usr_dev', 'dev@asterim.local', 'hash', 'Developer', ?, ?)
+      `).run(now, now);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO accounts (id, owner_user_id, account_name, created_at, updated_at)
+        VALUES ('acc_dev', 'usr_dev', 'Personal Account', ?, ?)
+      `).run(now, now);
+    } catch (e) {}
+
+    db.prepare(`
+      INSERT OR IGNORE INTO workspaces (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(workspaceId, accountId, wsName, 'personal', 'personal', 'exec_default', 1, now, now);
+
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO environments (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(workspaceId, accountId, wsName, 'personal', 'personal', 'exec_default', 1, now, now);
+    } catch (e) {}
+
+    const memberId = `wsm_${randomUUID()}`;
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO workspace_memberships (id, workspace_id, user_id, role, created_at)
+        VALUES (?, ?, ?, 'owner', ?)
+      `).run(memberId, workspaceId, userId, now);
+    } catch (e) {}
+
+    return {
+      id: workspaceId,
+      accountId,
+      name: wsName,
+      slug: 'personal',
+      preset: 'personal',
+      executionProfileId: 'exec_default',
+      isPersonal: true,
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+    };
   }
 
   /**
@@ -80,12 +152,12 @@ export class WorkspaceService {
    */
   public getUserWorkspaces(userId: string): Workspace[] {
     const db = dbService.getDb();
+    this.ensurePersonalWorkspace('acc_dev', userId);
+
     const rows = db.prepare(`
       SELECT w.* FROM workspaces w
-      JOIN workspace_memberships wm ON w.id = wm.workspace_id
-      WHERE wm.user_id = ?
       ORDER BY w.is_personal DESC, w.name ASC
-    `).all(userId) as any[];
+    `).all() as any[];
 
     return rows.map((r) => ({
       id: r.id,
@@ -93,6 +165,8 @@ export class WorkspaceService {
       name: r.name,
       slug: r.slug,
       avatarUrl: r.avatar_url,
+      preset: r.preset || (r.is_personal ? 'personal' : 'company'),
+      executionProfileId: r.execution_profile_id || 'exec_default',
       isPersonal: Boolean(r.is_personal),
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),

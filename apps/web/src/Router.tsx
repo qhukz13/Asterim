@@ -3,6 +3,7 @@ import { useRoute, useLocation } from 'wouter';
 import { useProjectStore } from './stores/useProjectStore';
 import { useThreadStore } from './stores/useThreadStore';
 import { useViewStore, ViewType } from './stores/useViewStore';
+import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import { useDebugLifecycle, Debug } from './utils/debug';
 
 const ROUTE_PATTERN = '/workspace/project/:projectId/thread/:threadId/view/:viewId';
@@ -17,16 +18,36 @@ export function RouterSync() {
 
   useDebugLifecycle('RouterSync', { matchFull, matchView, matchProject, paramsFull, paramsView, paramsProject });
 
-  const setActiveProject = useProjectStore(s => s.setActiveProject);
-  const setActiveThread = useThreadStore(s => s.setActiveThread);
-  const setActiveView = useViewStore(s => s.setActiveView);
+  const setActiveProject = useProjectStore((s: any) => s.setActiveProject);
+  const setActiveThread = useThreadStore((s: any) => s.setActiveThread);
+  const setActiveView = useViewStore((s: any) => s.setActiveView);
   
-  const activeProjectId = useProjectStore(s => s.activeProjectId);
-  const activeThreadId = useThreadStore(s => s.activeThreadId);
-  const activeView = useViewStore(s => s.activeView);
+  const activeProjectId = useProjectStore((s: any) => s.activeProjectId);
+  const activeThreadId = useThreadStore((s: any) => s.activeThreadId);
+  const activeView = useViewStore((s: any) => s.activeView);
+  const projects = useWorkspaceStore((s: any) => s.projects);
 
   // Sync URL to State (Single Source of Truth)
   useEffect(() => {
+    const targetProjectId = matchFull
+      ? paramsFull?.projectId
+      : matchView
+      ? paramsView?.projectId
+      : matchProject
+      ? paramsProject?.projectId
+      : null;
+
+    if (targetProjectId && projects.length >= 0) {
+      const existsInEnv = projects.some((p: any) => p.id === targetProjectId);
+      if (!existsInEnv) {
+        // Project in URL is not attached to current active Environment. Clear state and redirect to /.
+        if (activeProjectId !== null) setActiveProject(null);
+        if (activeThreadId !== null) setActiveThread(null);
+        setLocation('/');
+        return;
+      }
+    }
+
     // If we have a full match (Project + Thread + View)
     if (matchFull && paramsFull) {
       if (activeProjectId !== paramsFull.projectId) setActiveProject(paramsFull.projectId);
@@ -48,7 +69,7 @@ export function RouterSync() {
       if (activeProjectId !== null) setActiveProject(null);
       if (activeThreadId !== null) setActiveThread(null);
     }
-  }, [matchFull, matchView, matchProject, paramsFull, paramsView, paramsProject]);
+  }, [matchFull, matchView, matchProject, paramsFull, paramsView, paramsProject, projects]);
 
   return null;
 }

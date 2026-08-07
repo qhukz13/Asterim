@@ -38,34 +38,24 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
     };
 
     const authHeader = request.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      if (process.env.NODE_ENV !== 'production') {
-        request.user = defaultDevUser;
-        return;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      if (token) {
+        // 1. Check Access Token
+        const jwtPayload = tokenService.verifyAccessToken(token);
+        if (jwtPayload) {
+          request.user = jwtPayload;
+          return;
+        }
+        // 2. Fallback to PIN pairing token
+        if (pairingService.validateToken(token)) {
+          request.user = defaultDevUser;
+          return;
+        }
       }
-      reply.status(401).send({ error: 'Unauthorized: Missing or invalid token' });
-      return reply;
     }
 
-    const token = authHeader.substring(7);
-    if (!token && process.env.NODE_ENV !== 'production') {
-      request.user = defaultDevUser;
-      return;
-    }
-
-    // 1. Check Phase 2 JWT Access Token
-    const jwtPayload = tokenService.verifyAccessToken(token);
-    if (jwtPayload) {
-      request.user = jwtPayload;
-      return;
-    }
-
-    // 2. Fallback to Legacy PIN pairing token during transition
-    if (pairingService.validateToken(token)) {
-      request.user = defaultDevUser;
-      return;
-    }
-
+    // In local development or desktop mode, fallback to defaultDevUser
     if (process.env.NODE_ENV !== 'production') {
       request.user = defaultDevUser;
       return;

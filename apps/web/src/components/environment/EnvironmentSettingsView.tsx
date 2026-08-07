@@ -13,7 +13,7 @@ export const EnvironmentSettingsView: React.FC = () => {
   };
 
   const [activeSubTab, setActiveSubTab] = useState<
-    'general' | 'members' | 'projects' | 'secrets' | 'mcp' | 'skills' | 'audit' | 'danger'
+    'general' | 'members' | 'projects' | 'agents' | 'secrets' | 'mcp' | 'skills' | 'knowledge' | 'audit' | 'danger'
   >('general');
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -223,9 +223,11 @@ export const EnvironmentSettingsView: React.FC = () => {
           { id: 'general', label: 'General & Presets' },
           { id: 'members', label: `Members & Governance (${members.length})` },
           { id: 'projects', label: `Projects & Assignment (${projects.length})` },
+          { id: 'agents', label: 'Agent Profiles' },
           { id: 'secrets', label: 'Secrets & Credentials' },
           { id: 'mcp', label: 'MCP Tools & Servers' },
           { id: 'skills', label: 'Skills & Prompts' },
+          { id: 'knowledge', label: 'Knowledge Items' },
           { id: 'audit', label: 'Audit Stream' },
           { id: 'danger', label: 'Danger Zone' },
         ].map((tab) => {
@@ -648,6 +650,60 @@ export const EnvironmentSettingsView: React.FC = () => {
                 <div key={sk} style={{ padding: '12px 14px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <div style={{ color: '#34d399', fontWeight: 600, fontSize: '0.9rem' }}>/{sk}</div>
                   <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: '4px' }}>Environment Agent Skill</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'agents' && (
+          <div style={{ maxWidth: '800px' }}>
+            <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+              Environment Agent Profiles
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              Configure specialized agent personas (Development, Review, Security, Architecture, Experiment).
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+              {[
+                { name: 'Development Agent', model: 'claude-3-5-sonnet', temp: 0.2, desc: 'High-speed coding agent with interactive command approvals.' },
+                { name: 'Review Agent', model: 'gpt-4o', temp: 0.0, desc: 'Read-only diff inspection and pull request reviewer.' },
+                { name: 'Security Audit Agent', model: 'claude-3-5-sonnet', temp: 0.0, desc: 'Zero-trust security scanner with strict execution rules.' },
+                { name: 'Architecture Agent', model: 'claude-3-5-sonnet', temp: 0.1, desc: 'System design and AST symbol graph analysis persona.' },
+                { name: 'Experiment Agent', model: 'claude-3-5-sonnet', temp: 0.7, desc: 'Sandbox persona for trying new tools with auto-approvals.' },
+              ].map((prof, idx) => (
+                <div key={idx} style={{ padding: '16px', background: '#131b2e', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>{prof.name}</div>
+                  <div style={{ color: '#34d399', fontSize: '0.78rem', fontFamily: 'monospace', marginBottom: '8px' }}>Model: {prof.model} (t={prof.temp})</div>
+                  <div style={{ color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.4 }}>{prof.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'knowledge' && (
+          <div style={{ maxWidth: '800px' }}>
+            <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+              Environment Knowledge System
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              Architecture blueprints, coding conventions, glossaries, and product decisions indexed into local RAG vector search.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {[
+                { title: 'System Architecture Blueprint', category: 'architecture', summary: 'Core monorepo design, SQLite database schema, and event routing.' },
+                { title: 'TypeScript & Code Standards', category: 'convention', summary: 'Strict typing guidelines, ESLint rules, and error handling patterns.' },
+                { title: 'Domain Terminology Glossary', category: 'glossary', summary: 'Definition of Environments, Threads, Missions, and MCP Tooling.' },
+              ].map((ki, idx) => (
+                <div key={idx} style={{ padding: '14px 18px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.9rem' }}>{ki.title}</div>
+                    <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '2px' }}>{ki.summary}</div>
+                  </div>
+                  <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, textTransform: 'uppercase' }}>
+                    {ki.category}
+                  </span>
                 </div>
               ))}
             </div>
