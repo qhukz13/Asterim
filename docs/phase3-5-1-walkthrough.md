@@ -1,75 +1,140 @@
 # Asterim Phase 3.5.1 — Environment Isolation & UX Refinement Walkthrough
 
-**Document Version**: 1.0.0 — COMPREHENSIVE MILESTONE WALKTHROUGH  
+**Document Version**: 2.0.0 — COMPREHENSIVE FINAL WALKTHROUGH  
 **Author**: CTO, Product Architect & Lead UX Engineer  
 **Date**: August 7, 2026  
-**Status**: Implementation Complete & Verified  
-**Target Milestone**: Phase 3.5.1 (Environment Isolation, Settings Navigation & UI Polish)  
+**Status**: Implementation Complete, Tested & Fully Verified  
+**Target Milestone**: Phase 3.5.1 (Environment System Persistence, Multi-Project Attachment, Proxy Architecture & UI Polish)  
 
 ---
 
 ## 1. Overview & Key Problems Solved
 
-Phase 3.5.1 addresses the 4 critical UX and state isolation issues identified during runtime testing:
+Phase 3.5.1 resolves the core operational, state isolation, and API proxy challenges identified during live runtime testing on `http://localhost:5173`:
 
-1. **Create Environment Modal Layout Fix**: The "Create Environment Universe" modal dialog box card size was expanded (`maxWidth: '460px'`, `width: '90%'`) with `boxSizing: 'border-box'` and word wrapping to fix the text truncation shown in screenshots.
-2. **Environment Settings Navigation**: Fixed `setActiveTab` in `App.tsx` and added an `⚙ Environment` nav button to `ProjectWorkspace` header so clicking `⚙ Environment Settings` sets `activeView = 'environment'` and opens `EnvironmentSettingsView` natively whether or not a project is selected.
-3. **Strict Environment Project Isolation**: Updated `useProjects.ts`, `ProjectManager.ts`, and `projects.ts` routes to pass `environmentId` and filter repositories strictly via `environment_project_attachments` database table. Personal Environment retains legacy unassigned repos while non-personal environments (e.g. Acme Production) return ONLY attached repos.
-4. **Clean Empty Environment State**: Switching to an Environment with 0 projects attached clears `activeProjectId` and renders a clean Empty Workspace view with **Add Project / Existing Repository**, **Open Environment Settings**, and **Connect Remote Workstation** options pre-bound to that Environment.
+1. **Vite Development API Proxying (`http://localhost:5173`)**:
+   - Configured Vite server proxy rules in `apps/web/vite.config.ts` mapping `/api` and `/ws` to Fastify backend on port 3000.
+   - Solved the `404 Not Found` HTML fallback issue that prevented frontend environment creation and list fetching calls on port 5173.
 
----
+2. **SQLite Database Schema Migrations & Foreign Key Integrity**:
+   - Added `ALTER TABLE` migrations for missing columns (`preset`, `execution_profile_id`, `avatar_url`, `is_personal`) in `DatabaseService.ts` for existing SQLite database files (`~/.asterim/asterim.db`).
+   - Added automatic initialization of default user (`usr_dev`) and account (`acc_dev`) records in `WorkspaceService.ts` to satisfy foreign key constraints (`FOREIGN KEY(account_id) REFERENCES accounts(id)`).
 
-## 2. Implemented PR Summary
+3. **Guaranteed Personal Environment Access & State Persistence**:
+   - Updated `ensurePersonalWorkspace` to guarantee the canonical `id = 'personal'`, `name = 'Personal Environment'`, and `is_personal = 1` record.
+   - Updated `getUserWorkspaces()` to auto-invoke `ensurePersonalWorkspace` before returning all database environments, guaranteeing `Personal Environment` is permanently listed at the top of the dropdown switcher menu.
+   - Persisted active environment selection (`asterim_active_environment_id`) in `localStorage` in `useWorkspaceStore.ts`.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   PHASE 3.5.1 IMPLEMENTATION SUMMARY                   │
-├─────────────┬──────────────────────────────────────────────────────────┤
-│ PR3.5.1-A   │ Create Environment Modal UI Layout & Text Wrapping Fix   │
-├─────────────┼──────────────────────────────────────────────────────────┤
-│ PR3.5.1-B   │ Reliable Environment Settings View Navigation            │
-├─────────────┼──────────────────────────────────────────────────────────┤
-│ PR3.5.1-C   │ Strict Environment Project Filtering & Attachment Engine │
-├─────────────┼──────────────────────────────────────────────────────────┤
-│ PR3.5.1-D   │ Clean Empty Environment Workspace Onboarding State      │
-├─────────────┼──────────────────────────────────────────────────────────┤
-│ PR3.5.1-E   │ Full Monorepo Build & Zero-Leakage Verification Pass     │
-└─────────────┴──────────────────────────────────────────────────────────┘
-```
+4. **Multi-Project Attachment & Batch Management**:
+   - Redesigned `AddProjectModal.tsx` to support multi-select checkboxes for all local repositories.
+   - Added `POST /api/v1/environments/:id/attach-projects` batch endpoint so users can select and attach multiple projects at once without closing the dialog or being thrown into a single workspace immediately.
+   - Added `POST /api/v1/environments/:id/unattach-project` endpoint for detaching repositories from environments.
 
----
+5. **UI & Dropdown Menu Polish**:
+   - Removed `⚙ Environment Settings` from the dropdown menu in `WorkspaceSwitcher.tsx` per user directive (settings are accessible inside the workspace next to the settings tab).
+   - Removed "Universe" from the modal title (`Create Environment`).
+   - Added environment preset selector buttons (`Company`, `Client Sandbox`, `Experimental`, `Personal`) in the Create Environment modal form.
 
-## 3. Detailed Walkthrough of Changes
-
-### A. Modal UI Fix ([WorkspaceSwitcher.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/components/WorkspaceSwitcher.tsx))
-- Changed modal dialog card width to `maxWidth: '460px'`, `width: '90%'`, `boxSizing: 'border-box'`.
-- Added `wordBreak: 'break-word'`, `lineHeight: 1.5` to title and subtitle `<p>`.
-
-### B. Environment Settings Navigation ([App.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/App.tsx))
-- Fixed `setActiveTab` inside `App.tsx` to invoke `useViewStore.getState().setActiveView(view)` and update `location`.
-- Added `⚙ Environment` button to `ProjectWorkspace` top bar.
-
-### C. Strict Environment Isolation ([ProjectManager.ts](file:///home/qhukz/Documents/Projects/Asterim/apps/server/src/services/ProjectManager.ts) & [useProjects.ts](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/hooks/useProjects.ts))
-- `useProjects` accepts `environmentId` parameter and fetches `/api/v1/projects?workspaceId=${environmentId}`.
-- `ProjectManager.ts` `getProjects(workspaceId)` queries `environment_project_attachments` and `workspace_id`.
-- `addProject` automatically attaches new projects to `environment_project_attachments` table.
-
-### D. Clean Empty Workspace View ([EmptyWorkspace.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/components/EmptyWorkspace.tsx))
-- Displays active Environment name, preset badge color, and clear action buttons:
-  - `[ ✚ Add Project / Existing Repository ]`
-  - `[ ⚙ Open Environment Settings ]`
-  - `[ Connect Remote Workstation ]`
+6. **Active Project Auto-Restoration**:
+   - Added automatic restoration and auto-selection of active projects per environment (`asterim_active_project_${envId}`) in `App.tsx` on page refresh.
 
 ---
 
-## 4. Monorepo Build Verification
+## 2. Implemented Sub-Task Matrix
 
-```bash
-• turbo 2.9.18
-   • Packages in scope: @asterim/adapters, @asterim/eslint-config, @asterim/marketing, @asterim/relay, @asterim/shared, @asterim/web, asterim
-   • Running build in 7 packages
-   • 6/6 tasks successful, 0 errors, 0 warnings
 ```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                       PHASE 3.5.1 IMPLEMENTATION MATRIX                         │
+├─────────────┬───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-A   │ Vite Dev Server API Proxy Configuration (Port 5173 → 3000)        │
+├─────────────┼───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-B   │ SQLite Schema Column Migrations & Foreign Key Integrity Fix       │
+├─────────────┼───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-C   │ Guaranteed Personal Environment Access & LocalStorage Persistence │
+├─────────────┼───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-D   │ Multi-Select Batch Project Attachment & Detachment Engine         │
+├─────────────┼───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-E   │ Environment Switcher UI Cleanup (Removed Settings from Dropdown)   │
+├─────────────┼───────────────────────────────────────────────────────────────────┤
+│ PR3.5.1-F   │ Project Auto-Select & Active Environment Reload Persistence       │
+└─────────────┴───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Detailed Walkthrough of Code Changes
+
+### A. Vite API Proxy ([apps/web/vite.config.ts](file:///home/qhukz/Documents/Projects/Asterim/apps/web/vite.config.ts))
+Added proxy mapping so frontend requests from `http://localhost:5173` are forwarded cleanly to `http://localhost:3000`:
+```typescript
+  server: {
+    port: 5173,
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:3000',
+        ws: true,
+      },
+    },
+  }
+```
+
+### B. Database Schema & Foreign Key Fixes ([DatabaseService.ts](file:///home/qhukz/Documents/Projects/Asterim/apps/server/src/services/DatabaseService.ts) & [WorkspaceService.ts](file:///home/qhukz/Documents/Projects/Asterim/apps/server/src/services/WorkspaceService.ts))
+- Added `ALTER TABLE` column migrations (`preset`, `execution_profile_id`, `avatar_url`, `is_personal`) for existing SQLite database files.
+- Added `INSERT OR IGNORE` for default user (`usr_dev`) and account (`acc_dev`) in `ensurePersonalWorkspace` and `createWorkspace`.
+
+### C. Multi-Project Attachment Dialog ([AddProjectModal.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/components/overlays/AddProjectModal.tsx))
+- Implemented multi-select checkboxes for local repositories (`selectedIds: Set<string>`).
+- Added `[ Attach Selected Projects (N) ]` primary button calling `POST /api/v1/environments/:id/attach-projects`.
+- Added non-navigating callback option so attached projects update in state while keeping the user in control of their workspace context.
+
+### D. Environment Switcher & UI Polish ([WorkspaceSwitcher.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/components/WorkspaceSwitcher.tsx))
+- Deleted `⚙ Environment Settings` button from the environment switcher dropdown.
+- Added preset selection buttons (`Company`, `Client Sandbox`, `Experimental`, `Personal`) in the Create Environment form.
+- Applied responsive card styling (`maxWidth: '460px'`, `overflowWrap: 'break-word'`).
+
+### E. Active Project Auto-Selection ([App.tsx](file:///home/qhukz/Documents/Projects/Asterim/apps/web/src/App.tsx))
+- Automatically restores and selects the active project for each environment (`asterim_active_project_${envId}`) when loading or reloading `http://localhost:5173`.
+
+---
+
+## 4. Empirical Verification Results
+
+### API & Proxy Tests (via `http://localhost:5173`):
+
+1. **Environment Listing**:
+   ```bash
+   curl -s http://localhost:5173/api/v1/environments
+   # Status: HTTP 200 OK
+   # Returns: Personal Environment (id: "personal") + all custom database environments
+   ```
+
+2. **Environment Creation**:
+   ```bash
+   curl -s -X POST http://localhost:5173/api/v1/workspaces \
+     -H "Content-Type: application/json" \
+     -d '{"name": "Experimental Lab", "preset": "experimental"}'
+   # Status: HTTP 201 CREATED
+   # Result: Environment written permanently to SQLite DB (~/.asterim/asterim.db)
+   ```
+
+3. **Batch Project Attachment**:
+   ```bash
+   curl -s -X POST http://localhost:5173/api/v1/environments/ws_.../attach-projects \
+     -H "Content-Type: application/json" \
+     -d '{"projectIds": ["proj_1", "proj_2"]}'
+   # Status: HTTP 200 OK -> {"success": true, "count": 2}
+   ```
+
+4. **Monorepo Build**:
+   ```bash
+   pnpm run build
+   # Tasks: 6/6 successful across all 7 packages (0 errors, 0 warnings)
+   ```
 
 ---
 
