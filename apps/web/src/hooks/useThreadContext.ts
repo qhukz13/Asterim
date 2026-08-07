@@ -44,10 +44,13 @@ function getBaseUrl(activeBackendUrl?: string): string {
 function getAuthHeaders(activeBackendUrl?: string): Record<string, string> {
   const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
   const token = localStorage.getItem(tokenKey) || '';
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
   };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 /**

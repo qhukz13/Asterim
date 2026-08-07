@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ViewType = 'chat' | 'terminal' | 'changes' | 'settings';
+export type ViewType = 'chat' | 'terminal' | 'changes' | 'settings' | 'workspace' | 'environment';
 
 interface ViewState {
   activeView: ViewType;
@@ -14,7 +14,7 @@ interface ViewState {
 
 export const useViewStore = create<ViewState>((set) => ({
   activeView: 'chat',
-  availableViews: ['chat', 'terminal', 'changes', 'settings'],
+  availableViews: ['chat', 'terminal', 'changes', 'settings', 'workspace', 'environment'],
   viewHistory: [],
   perThreadViewState: {},
   

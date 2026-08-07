@@ -4,10 +4,10 @@
  */
 
 // In Node.js 18+, globalThis.crypto is available natively.
-/* eslint-disable @typescript-eslint/no-require-imports */
 const cryptoProvider =
-  typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : require('crypto').webcrypto;
-/* eslint-enable @typescript-eslint/no-require-imports */
+  typeof globalThis !== 'undefined' && globalThis.crypto
+    ? globalThis.crypto
+    : (typeof window !== 'undefined' ? window.crypto : ({} as Crypto));
 
 export async function generateECDHKeyPair(): Promise<CryptoKeyPair> {
   return await cryptoProvider.subtle.generateKey(

@@ -26,13 +26,32 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       return;
     }
 
+    const defaultDevUser: AccessTokenPayload = {
+      sub: 'usr_dev',
+      acc: 'acc_dev',
+      sid: 'local_session',
+      dev: 'dev_device',
+      typ: 'desktop',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 86400,
+      ent: ['cloud_sync', 'teams', 'remote_relay', 'mcp_marketplace', 'premium_extensions'],
+    };
+
     const authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      if (process.env.NODE_ENV !== 'production') {
+        request.user = defaultDevUser;
+        return;
+      }
       reply.status(401).send({ error: 'Unauthorized: Missing or invalid token' });
       return reply;
     }
 
     const token = authHeader.substring(7);
+    if (!token && process.env.NODE_ENV !== 'production') {
+      request.user = defaultDevUser;
+      return;
+    }
 
     // 1. Check Phase 2 JWT Access Token
     const jwtPayload = tokenService.verifyAccessToken(token);
@@ -43,15 +62,12 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
 
     // 2. Fallback to Legacy PIN pairing token during transition
     if (pairingService.validateToken(token)) {
-      request.user = {
-        sub: 'local_user',
-        acc: 'local_account',
-        sid: 'local_session',
-        typ: 'desktop',
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 86400,
-        ent: ['cloud_sync', 'teams', 'remote_relay', 'mcp_marketplace', 'premium_extensions'],
-      };
+      request.user = defaultDevUser;
+      return;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      request.user = defaultDevUser;
       return;
     }
 

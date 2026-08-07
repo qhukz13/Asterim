@@ -44,6 +44,12 @@ export class SocketManager {
     this.io.on('connection', (socket: Socket) => {
       console.log(`[Socket.IO] Client connected: ${socket.id}`);
 
+      // Client joins a specific workspace room for multi-user team synchronization
+      socket.on('join_workspace', (workspaceId: string) => {
+        socket.join(`workspace:${workspaceId}`);
+        console.log(`[Socket.IO] Client ${socket.id} joined workspace room: workspace:${workspaceId}`);
+      });
+
       // Client joins a specific project room to get its isolated telemetry
       socket.on('join_project', async (projectId: string) => {
         socket.join(projectId);
@@ -137,6 +143,11 @@ export class SocketManager {
     // we listen to the catch-all and route based on payload properties.
     eventBus.subscribe('*', (event: AsterimEvent<any>) => {
       const projectId = (event.payload as any)?.projectId;
+      const workspaceId = (event.payload as any)?.workspaceId;
+
+      if (workspaceId) {
+        this.io.to(`workspace:${workspaceId}`).emit(event.type, event);
+      }
 
       if (projectId) {
         // Route strictly to the project room

@@ -41,9 +41,12 @@ export class DatabaseService {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
+        workspace_id TEXT,
         name TEXT NOT NULL,
         path TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        visibility TEXT NOT NULL DEFAULT 'private',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
       );
       CREATE TABLE IF NOT EXISTS threads (
         id TEXT PRIMARY KEY,
@@ -92,7 +95,17 @@ export class DatabaseService {
       );
     `);
 
-    // Add thread_id to existing tables if they were created before this update
+    // Add columns to existing tables if created before updates
+    try {
+      this.db.exec('ALTER TABLE projects ADD COLUMN workspace_id TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec("ALTER TABLE projects ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private';");
+    } catch (e) {
+      /* ignore if exists */
+    }
     try {
       this.db.exec('ALTER TABLE events ADD COLUMN thread_id TEXT;');
     } catch (e) {
@@ -231,6 +244,18 @@ export class DatabaseService {
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        avatar_url TEXT,
+        is_personal INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS workspace_memberships (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -238,7 +263,31 @@ export class DatabaseService {
         role TEXT NOT NULL DEFAULT 'member',
         created_at INTEGER NOT NULL,
         UNIQUE(workspace_id, user_id),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_invitations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        token TEXT UNIQUE NOT NULL,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_resource TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS team_memberships (
@@ -254,6 +303,10 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
       CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(user_id);
       CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
+      CREATE INDEX IF NOT EXISTS idx_workspaces_account ON workspaces(account_id);
+      CREATE INDEX IF NOT EXISTS idx_workspace_memberships_workspace ON workspace_memberships(workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_workspace_invitations_token ON workspace_invitations(token);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);
     `);
   }
 

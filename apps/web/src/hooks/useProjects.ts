@@ -21,21 +21,19 @@ export function useProjects(activeBackendUrl?: string) {
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
-      if (!token) {
-        setProjects([]);
-        setLoading(false);
-        return;
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch(`${baseUrl}/api/v1/projects`, { headers });
-      if (res.status === 401) {
+      if (res.status === 401 && token) {
         localStorage.removeItem(tokenKey);
-        window.location.reload();
-        return;
       }
-      const data = await res.json();
-      setProjects(data.projects || []);
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
     } catch (err) {
       console.error('Failed to fetch projects', err);
       setError('Failed to connect to the server.');

@@ -157,6 +157,10 @@ export function CommandPalette() {
         e.preventDefault();
         navigateToView('settings');
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setActiveView('workspace');
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault();
         togglePanel('left');

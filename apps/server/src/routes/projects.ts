@@ -2,17 +2,18 @@ import { FastifyInstance } from 'fastify';
 import { projectManager } from '../services/ProjectManager';
 
 export default async function projectRoutes(fastify: FastifyInstance) {
-  fastify.get('/api/v1/projects', async (request, reply) => {
-    return { projects: projectManager.getProjects() };
+  fastify.get('/api/v1/projects', async (request: any, reply) => {
+    const { workspaceId } = request.query || {};
+    return { projects: projectManager.getProjects(workspaceId) };
   });
 
   fastify.post('/api/v1/projects', async (request: any, reply) => {
-    const { name, path } = request.body;
+    const { name, path, workspaceId, visibility } = request.body;
     if (!name || !path) {
       reply.code(400);
       return { error: 'Name and path are required' };
     }
-    const project = projectManager.addProject(name, path);
+    const project = projectManager.addProject(name, path, workspaceId, visibility);
     return { project };
   });
 

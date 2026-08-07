@@ -6,6 +6,9 @@
     "module": "esnext",
     "types": ["vite/client"],
     "skipLibCheck": true,
+    "paths": {
+      "@asterim/shared": ["../../packages/shared/src/index.ts"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",

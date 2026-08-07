@@ -2,6 +2,7 @@ import React from 'react';
 import { useDebugLifecycle } from '../utils/debug';
 import { useCommandPaletteStore } from '../stores/useCommandPaletteStore';
 import { IconCheck, IconAlertTriangle, IconTarget, IconTerminal } from './icons/Icons';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 export interface TopBarProps {
   projectName?: string;
@@ -119,47 +120,33 @@ export function TopBar({
 
   return (
     <header className="workspace-topbar">
-      {/* Left: Location Context (Brand Mark + Project / Mission) */}
-      <div className="topbar-left" style={{ gap: 'var(--spacing-2)' }}>
-        <div
-          style={{
-            width: '22px',
-            height: '22px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--color-surface-2)',
-            border: '1px solid var(--color-border-default)',
-            color: 'var(--color-accent-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 'var(--font-weight-semibold)',
-            userSelect: 'none'
-          }}
-        >
-          <IconTerminal size={12} color="var(--color-accent-primary)" />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)' }}>
+      {/* Left: Location Context (Brand Mark + Workspace Switcher + Project / Mission) */}
+      <div className="topbar-left" style={{ gap: 'var(--spacing-2)', alignItems: 'center', whiteSpace: 'nowrap' }}>
+        <WorkspaceSwitcher />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)', whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>/</span>
           <span
             style={{
               fontWeight: 'var(--font-weight-semibold)',
-              fontSize: 'var(--font-size-md)',
-              color: 'var(--color-text-primary)'
+              fontSize: 'var(--font-size-sm)',
+              color: 'var(--color-text-primary)',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
-            {projectName || 'Asterim Workspace'}
+            {projectName || 'All Projects'}
           </span>
           {missionTitle && (
             <>
               <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>/</span>
               <span
                 style={{
-                  fontSize: 'var(--font-size-sm)',
+                  fontSize: 'var(--font-size-xs)',
                   color: 'var(--color-text-secondary)',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  maxWidth: '180px'
+                  maxWidth: '160px',
                 }}
               >
                 {missionTitle}

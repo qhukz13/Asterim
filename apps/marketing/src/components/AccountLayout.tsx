@@ -14,7 +14,9 @@ import {
   RefreshCw,
   Zap,
   ChevronRight,
+  Users,
 } from 'lucide-react';
+import { WorkspaceSettings } from './WorkspaceSettings';
 
 interface AccountLayoutProps {
   user: any;
@@ -30,7 +32,7 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'sessions' | 'devices' | 'apikeys' | 'billing'
+    'overview' | 'members' | 'sessions' | 'devices' | 'apikeys' | 'billing'
   >('overview');
   const [sessions, setSessions] = useState<any[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
@@ -41,7 +43,8 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (currentSubPath.includes('/sessions')) setActiveTab('sessions');
+    if (currentSubPath.includes('/members')) setActiveTab('members');
+    else if (currentSubPath.includes('/sessions')) setActiveTab('sessions');
     else if (currentSubPath.includes('/devices')) setActiveTab('devices');
     else if (currentSubPath.includes('/apikeys')) setActiveTab('apikeys');
     else if (currentSubPath.includes('/billing')) setActiveTab('billing');
@@ -276,6 +279,30 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
           }}
         >
           <User size={16} /> Overview
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('members');
+            navigate('/account/members');
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 18px',
+            background: 'none',
+            border: 'none',
+            borderBottom:
+              activeTab === 'members' ? '2px solid #10b981' : '2px solid transparent',
+            color: activeTab === 'members' ? '#34d399' : '#94a3b8',
+            fontWeight: activeTab === 'members' ? 600 : 500,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Users size={16} /> Members & Roles
         </button>
 
         <button
@@ -570,6 +597,8 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
             </div>
           </div>
         )}
+
+        {activeTab === 'members' && <WorkspaceSettings workspaceId="personal" />}
 
         {activeTab === 'sessions' && (
           <div

@@ -1,4 +1,4 @@
-import { AsterimEvent } from './events';
+import type { AsterimEvent } from './events';
 
 export interface AgentConfig {
   workspace: string;

@@ -20,6 +20,7 @@ import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
 import { ContextView } from './components/workspace/ContextView';
+import { EnvironmentSettingsView } from './components/environment/EnvironmentSettingsView';
 import { AISettings } from './components/AISettings';
 import { RouterSync } from './Router';
 import { InteractionEngine } from './InteractionEngine';
@@ -717,6 +718,9 @@ function ProjectWorkspace({
       <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <ChangesView socket={socket} projectId={project.id} activeBackendUrl={activeBackendUrl} />
       </div>
+      <div style={{ display: activeTab === 'workspace' || activeTab === 'environment' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+        <EnvironmentSettingsView />
+      </div>
 
       {/* Mobile Bottom Navigation */}
       <nav className="bottom-nav">
@@ -917,6 +921,8 @@ export function App() {
     </>
   );
 
+  const activeTab = useViewStore(s => s.activeView);
+
   return (
     <>
       <CommandPalette />
@@ -936,11 +942,15 @@ export function App() {
           topBar={topBar}
           navigationSidebar={navigationSidebar}
           mainWorkspace={
-            <EmptyWorkspace
-              onAddProject={() => setShowAddProject(true)}
-              onConnectWorkstation={() => setShowConnect(true)}
-              activeWorkstationName={workstations.activeWorkstation?.name}
-            />
+            activeTab === 'workspace' || activeTab === 'environment' ? (
+              <EnvironmentSettingsView />
+            ) : (
+              <EmptyWorkspace
+                onAddProject={() => setShowAddProject(true)}
+                onConnectWorkstation={() => setShowConnect(true)}
+                activeWorkstationName={workstations.activeWorkstation?.name}
+              />
+            )
           }
           inspectorPanel={<InspectorPanel socket={null} />}
           overlays={overlays}
