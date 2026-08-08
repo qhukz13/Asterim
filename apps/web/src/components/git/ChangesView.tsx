@@ -450,7 +450,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                 </>
               ) : (
                 <button 
-                  className="btn-primary" 
+                  className={(status.ahead || status.behind) ? "btn-primary" : ""} 
                   style={{ 
                     padding: '10px 16px', 
                     fontWeight: 600, 
@@ -461,30 +461,39 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                     justifyContent: 'center',
                     gap: '8px',
                     opacity: isSyncing ? 0.7 : 1,
-                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.2)'
+                    background: (status.ahead || status.behind) ? 'var(--color-accent-primary)' : 'var(--color-surface-2)',
+                    color: (status.ahead || status.behind) ? '#ffffff' : 'var(--color-text-secondary)',
+                    border: (status.ahead || status.behind) ? 'none' : '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: isSyncing ? 'not-allowed' : 'pointer'
                   }} 
                   onClick={handlePush}
                   disabled={isSyncing}
                 >
-                  <svg 
-                    width="15" 
-                    height="15" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2.2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round"
-                    style={{
-                      transition: 'transform 0.3s ease'
-                    }}
-                  >
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6" />
-                    <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M2.5 16l1.2 1.8a10 10 0 0 0 18.8-4.3" />
-                  </svg>
-                  <span>
-                    {isSyncing ? 'Syncing...' : `Sync Changes${status.ahead && status.ahead > 0 ? ` ${status.ahead} ↑` : ''}${status.behind && status.behind > 0 ? ` ${status.behind} ↓` : ''}`}
-                  </span>
+                  {isSyncing ? (
+                    <>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6" />
+                        <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M2.5 16l1.2 1.8a10 10 0 0 0 18.8-4.3" />
+                      </svg>
+                      <span>Syncing...</span>
+                    </>
+                  ) : (status.ahead || status.behind) ? (
+                    <>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6" />
+                        <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M2.5 16l1.2 1.8a10 10 0 0 0 18.8-4.3" />
+                      </svg>
+                      <span>
+                        Sync Changes{status.ahead && status.ahead > 0 ? ` ${status.ahead} ↑` : ''}{status.behind && status.behind > 0 ? ` ${status.behind} ↓` : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: 'var(--color-state-completed)', fontWeight: 700 }}>✓</span>
+                      <span>Synced</span>
+                    </>
+                  )}
                 </button>
               )}
             </div>
