@@ -149,19 +149,24 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/git/push`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers,
+        body: JSON.stringify({})
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Failed to push changes');
       }
     } catch (err: any) {
-      // Socket event fallback
+      // Socket event handles fallback
     } finally {
       setIsSyncing(false);
     }
@@ -630,11 +635,10 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                       style={vscDarkPlus}
                       showLineNumbers={true}
                       wrapLines={true}
-                      customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem', lineHeight: '1.5', minWidth: '100%', display: 'inline-block' }}
-                      codeTagProps={{ style: { minWidth: '100%', display: 'inline-block' } }}
+                      customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem', lineHeight: '1.5' }}
                       lineProps={(lineNumber: number) => {
                         const lineStr = diff.split('\n')[lineNumber - 1] || '';
-                        let style: React.CSSProperties = { display: 'inline-block', minWidth: '100%', boxSizing: 'border-box', padding: '0 4px' };
+                        let style: React.CSSProperties = { display: 'flex', width: '100%', minWidth: 'max-content', padding: '0 4px', boxSizing: 'border-box' };
                         
                         if (lineStr.startsWith('+')) {
                           style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
