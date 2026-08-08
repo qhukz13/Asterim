@@ -56,6 +56,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       if (event.payload?.projectId === projectId) {
         setIsRepo(event.payload.isRepo);
         setStatus(event.payload.status);
+        setIsSyncing(false);
         setError(null);
       }
     };
@@ -63,6 +64,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
     const onGitError = (event: any) => {
       if (event.payload?.projectId === projectId) {
         setError(event.payload.error);
+        setIsSyncing(false);
       }
     };
     

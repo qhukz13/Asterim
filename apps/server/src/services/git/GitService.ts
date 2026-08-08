@@ -45,6 +45,9 @@ export class GitService {
       if (!project) return;
       const path = project.path;
 
+      this.activeProjectId = project.id;
+      this.activeProjectPath = project.path;
+
       try {
         switch (action) {
           case 'init':
@@ -58,7 +61,7 @@ export class GitService {
               source: 'system:git',
               type: 'git.diff',
               payload: {
-                projectId: this.activeProjectId!,
+                projectId: project.id,
                 file: payload.file,
                 diff
               }
@@ -89,10 +92,10 @@ export class GitService {
             await this.branch.createBranch(path, payload.branch);
             break;
           case 'get_status':
-            this.lastStatusHash = ''; // Force next poll to emit
             break;
         }
-        // Force an immediate poll to update UI
+        // Force an immediate status hash reset & poll to update UI
+        this.lastStatusHash = '';
         await this.poll();
       } catch (err: any) {
         eventBus.publish({
