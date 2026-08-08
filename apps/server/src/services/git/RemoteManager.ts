@@ -25,7 +25,12 @@ export class RemoteManager {
           const currentBranch = (await this.provider.exec('git rev-parse --abbrev-ref HEAD', projectPath)).trim();
           await this.provider.exec(`git push -u origin "${currentBranch}"`, projectPath);
           return;
-        } catch (e) {}
+        } catch (e: any) {
+          throw new Error(`Failed to push branch: ${e.message}`);
+        }
+      }
+      if (errMsg.includes('could not read Username') || errMsg.includes('Authentication failed') || errMsg.includes('Permission denied')) {
+        throw new Error('Git authentication failed (non-interactive session). Please configure SSH keys or Git credential helper for this repository.');
       }
       throw err;
     }

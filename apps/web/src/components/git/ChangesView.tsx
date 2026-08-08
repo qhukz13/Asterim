@@ -139,10 +139,32 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const handlePush = () => {
+  const handlePush = async () => {
     setIsSyncing(true);
+    setError(null);
     sendAction('push');
-    setTimeout(() => setIsSyncing(false), 2000);
+
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+
+      const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/git/push`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to push changes');
+      }
+    } catch (err: any) {
+      // Socket event fallback
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleGenerateCommit = async () => {
@@ -608,10 +630,11 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                       style={vscDarkPlus}
                       showLineNumbers={true}
                       wrapLines={true}
-                      customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem', lineHeight: '1.5' }}
+                      customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem', lineHeight: '1.5', minWidth: '100%', display: 'inline-block' }}
+                      codeTagProps={{ style: { minWidth: '100%', display: 'inline-block' } }}
                       lineProps={(lineNumber: number) => {
                         const lineStr = diff.split('\n')[lineNumber - 1] || '';
-                        let style: React.CSSProperties = { display: 'block', padding: '0 4px' };
+                        let style: React.CSSProperties = { display: 'inline-block', minWidth: '100%', boxSizing: 'border-box', padding: '0 4px' };
                         
                         if (lineStr.startsWith('+')) {
                           style.backgroundColor = 'rgba(16, 185, 129, 0.15)';

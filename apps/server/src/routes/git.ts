@@ -83,6 +83,22 @@ export const gitRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(500).send({ error: err.message || 'Failed to generate commit message' });
     }
   });
+
+  // POST /api/v1/projects/:id/git/push
+  fastify.post('/api/v1/projects/:id/git/push', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const project = projectManager.getProject(id);
+    if (!project) return reply.status(404).send({ error: 'Project not found' });
+
+    try {
+      await gitService.remote.push(project.path);
+      gitService.lastStatusHash = '';
+      await gitService.poll();
+      return reply.send({ success: true });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message || 'Failed to push changes' });
+    }
+  });
 };
 
 export default gitRoutes;
