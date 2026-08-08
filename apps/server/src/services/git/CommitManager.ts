@@ -20,22 +20,28 @@ export class CommitManager {
       throw new Error('Commit message cannot be empty');
     }
     
+    // Auto-stage all if nothing is staged yet
+    try {
+      const staged = await this.provider.exec('git diff --cached --name-only', projectPath);
+      if (!staged.trim()) {
+        await this.stageAll(projectPath);
+      }
+    } catch (e) {}
+
     // We must escape quotes in the commit message
-    const escapedMessage = message.replace(/"/g, '\\"');
+    const escapedMessage = message.replace(/"/g, '\\"').replace(/\n/g, ' ');
     await this.provider.exec(`git commit -m "${escapedMessage}"`, projectPath);
   }
 
   public async generateCommitMessage(projectPath: string): Promise<string> {
     let diffOutput = '';
     try {
-      const { stdout } = await this.provider.exec('git diff --staged', projectPath);
-      diffOutput = stdout.trim();
+      diffOutput = (await this.provider.exec('git diff --staged', projectPath)).trim();
     } catch (e) {}
 
     if (!diffOutput) {
       try {
-        const { stdout } = await this.provider.exec('git diff', projectPath);
-        diffOutput = stdout.trim();
+        diffOutput = (await this.provider.exec('git diff', projectPath)).trim();
       } catch (e) {}
     }
 

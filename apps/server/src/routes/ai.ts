@@ -15,23 +15,37 @@ export default async function aiRoutes(fastify: FastifyInstance) {
       const project = projectManager.getProject(projectId);
       if (!project) return reply.code(404).send({ error: 'Project not found' });
 
-      // We need a diff of only the staged files to pass to AI
       const gitProvider = new GitProvider();
       const diffManager = new DiffManager(gitProvider);
 
       let fullDiff = '';
-      for (const file of stagedFiles) {
-        const diff = await diffManager.getDiff(project.path, file, true);
-        fullDiff += diff + '\n';
+      const filesToInspect = (stagedFiles && Array.isArray(stagedFiles) && stagedFiles.length > 0)
+        ? stagedFiles
+        : [];
+
+      for (const file of filesToInspect) {
+        let diff = await diffManager.getDiff(project.path, file, true);
+        if (!diff) {
+          diff = await diffManager.getDiff(project.path, file, false);
+        }
+        if (diff) fullDiff += diff + '\n';
       }
 
       if (!fullDiff.trim()) {
-        return { commitMessage: 'Update files' };
+        const { gitService } = await import('../services/git/GitService');
+        const fallbackMsg = await gitService.commit.generateCommitMessage(project.path);
+        return { commitMessage: fallbackMsg };
       }
 
-      const provider = aiService.getProvider();
-      const commitMessage = await provider.generateCommitMessage(fullDiff, projectId);
-      return { commitMessage };
+      try {
+        const provider = aiService.getProvider();
+        const commitMessage = await provider.generateCommitMessage(fullDiff, projectId);
+        return { commitMessage };
+      } catch (aiErr) {
+        const { gitService } = await import('../services/git/GitService');
+        const fallbackMsg = await gitService.commit.generateCommitMessage(project.path);
+        return { commitMessage: fallbackMsg };
+      }
     } catch (err: any) {
       console.error('[AIRoute] Failed to generate commit message:', err);
       reply.code(500).send({ error: err.message || 'Failed to generate commit message' });

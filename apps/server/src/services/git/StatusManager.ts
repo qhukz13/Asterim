@@ -11,6 +11,8 @@ export interface RepoStatus {
   branch: string;
   files: FileStatus[];
   syncStatus?: string;
+  ahead?: number;
+  behind?: number;
   lastCommit?: string;
 }
 
@@ -25,6 +27,8 @@ export class StatusManager {
     
     let branch = '';
     let syncStatus = '';
+    let ahead = 0;
+    let behind = 0;
     const files: FileStatus[] = [];
     
     if (rawStatus) {
@@ -42,6 +46,10 @@ export class StatusManager {
             branch = match[1];
             if (match[3]) {
               syncStatus = match[3];
+              const aheadMatch = syncStatus.match(/ahead\s+(\d+)/);
+              if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
+              const behindMatch = syncStatus.match(/behind\s+(\d+)/);
+              if (behindMatch) behind = parseInt(behindMatch[1], 10);
             }
           }
           continue;
@@ -70,7 +78,7 @@ export class StatusManager {
       lastCommit = 'No commits yet';
     }
 
-    // Fallback if branch is still empty (e.g., completely empty uninitialized repo, though 'git status -b' usually outputs '## No commits yet on master')
+    // Fallback if branch is still empty
     if (!branch) {
       try {
         branch = await this.provider.exec('git branch --show-current', projectPath);
@@ -79,6 +87,6 @@ export class StatusManager {
       }
     }
 
-    return { branch: branch.trim(), files, syncStatus, lastCommit };
+    return { branch: branch.trim(), files, syncStatus, ahead, behind, lastCommit };
   }
 }

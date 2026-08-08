@@ -82,11 +82,21 @@ export class ActiveAgentProvider implements IAIProvider {
 
   async generateCommitMessage(diff: string, projectId?: string): Promise<string> {
     const prompt = `You are an expert developer. Write a concise, Conventional Commits style commit message for the following git diff. Respond ONLY with the commit message. No explanations, no markdown formatting blocks.\n\nDiff:\n${diff}`;
-    const output = await this.runAgentHeadless(prompt, projectId);
-    
-    // basic cleanup
-    const lines = output.split('\n').map(l => l.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim()).filter(Boolean);
-    return lines[lines.length - 1] || 'Update files';
+    try {
+      const output = await this.runAgentHeadless(prompt, projectId);
+      
+      if (output.includes('Not logged in') || output.includes('/login') || output.includes('Error:') || output.includes('Unauthorized')) {
+        throw new Error('Unauthenticated agent CLI');
+      }
+
+      const lines = output.split('\n').map(l => l.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim()).filter(Boolean);
+      const lastLine = lines[lines.length - 1];
+      if (lastLine && !lastLine.includes('Not logged in') && !lastLine.includes('/login')) {
+        return lastLine;
+      }
+    } catch (err) {}
+
+    return 'chore: update workspace project files';
   }
 
   async explainDiff(diff: string, projectId?: string): Promise<string> {

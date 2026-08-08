@@ -116,10 +116,13 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
   };
   const handleCommit = () => {
     if (!commitMessage.trim()) return;
+    const stagedCount = status?.files.filter(f => f.staged).length || 0;
+    if (stagedCount === 0 && (status?.files.length || 0) > 0) {
+      handleStageAll();
+    }
     sendAction('commit', { message: commitMessage });
     setCommitMessage('');
   };
-  const handlePush = () => sendAction('push');
   const handlePull = () => sendAction('pull');
   
   const handleSelectFile = (f: FileStatus) => {
@@ -130,9 +133,20 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
     sendAction('get_diff', { file: f.file, staged: f.staged });
   };
 
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handlePush = () => {
+    setIsSyncing(true);
+    sendAction('push');
+    setTimeout(() => setIsSyncing(false), 2000);
+  };
+
   const handleGenerateCommit = async () => {
-    const stagedFiles = status?.files.filter(f => f.staged) || [];
-    if (stagedFiles.length === 0) return;
+    let filesToInspect = status?.files.filter(f => f.staged) || [];
+    if (filesToInspect.length === 0) {
+      filesToInspect = status?.files || [];
+    }
+    if (filesToInspect.length === 0) return;
 
     setIsGeneratingCommit(true);
     try {
@@ -146,7 +160,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ projectId, stagedFiles: stagedFiles.map(f => f.file) })
+        body: JSON.stringify({ projectId, stagedFiles: filesToInspect.map(f => f.file) })
       });
       const data = await res.json();
       if (res.ok && data.commitMessage) {
@@ -265,6 +279,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
   const stagedFiles = status.files.filter(f => f.staged);
   const unstagedFiles = status.files.filter(f => !f.staged);
+  const hasWorkingTreeChanges = status.files.length > 0;
 
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', height: '100%', flex: 1, minHeight: 0, minWidth: 0, boxSizing: 'border-box', overflow: 'hidden' }}>
@@ -286,12 +301,6 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
           >
             Pull
           </button>
-          <button 
-            style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }} 
-            onClick={handlePush}
-          >
-            Push
-          </button>
         </div>
       </div>
 
@@ -304,7 +313,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       {/* Main 2-Column Resizable Layout */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '12px', overflow: 'hidden' }}>
         
-        {/* LEFT COLUMN: Changed Files List & Commit Panel */}
+        {/* LEFT COLUMN: Changed Files List & Commit/Sync Panel */}
         <div style={{ width: `${leftWidth}px`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', overflow: 'hidden' }}>
           
           {/* Changed Files List Container */}
@@ -387,49 +396,64 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
             </div>
           </div>
 
-          {/* Commit Card (Pinned at Left Bottom) */}
+          {/* Commit & Sync Card (Pinned at Left Bottom) */}
           <div style={{ background: 'var(--color-surface-1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', flexShrink: 0 }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)' }}>
-              Commit Changes
+              {hasWorkingTreeChanges ? 'Commit Changes' : 'Sync Workspace'}
             </div>
 
-            <textarea 
-              style={{ 
-                width: '100%', 
-                height: '70px',
-                background: 'var(--color-surface-0)', 
-                color: 'var(--color-text-primary)', 
-                border: '1px solid var(--color-border-subtle)', 
-                borderRadius: 'var(--radius-sm)',
-                padding: '8px',
-                resize: 'none',
-                fontFamily: 'inherit',
-                fontSize: '0.85rem',
-                boxSizing: 'border-box'
-              }}
-              placeholder="Commit message summary..."
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-            />
+            {hasWorkingTreeChanges && (
+              <textarea 
+                style={{ 
+                  width: '100%', 
+                  height: '70px',
+                  background: 'var(--color-surface-0)', 
+                  color: 'var(--color-text-primary)', 
+                  border: '1px solid var(--color-border-subtle)', 
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '8px',
+                  resize: 'none',
+                  fontFamily: 'inherit',
+                  fontSize: '0.85rem',
+                  boxSizing: 'border-box'
+                }}
+                placeholder="Commit message summary..."
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+              />
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <button 
-                style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '6px 12px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', opacity: isGeneratingCommit ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                onClick={handleGenerateCommit}
-                disabled={isGeneratingCommit || stagedFiles.length === 0}
-              >
-                <IconSparkles size={13} color="var(--color-accent-primary)" />
-                {isGeneratingCommit ? 'Generating...' : 'Auto-Generate Message'}
-              </button>
-              
-              <button 
-                className="btn-primary" 
-                style={{ padding: '8px 16px', fontWeight: 600, fontSize: '0.85rem', width: '100%' }} 
-                onClick={handleCommit}
-                disabled={stagedFiles.length === 0 || commitMessage.trim() === ''}
-              >
-                Commit Staged Changes
-              </button>
+              {hasWorkingTreeChanges ? (
+                <>
+                  <button 
+                    style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '6px 12px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', opacity: isGeneratingCommit ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={handleGenerateCommit}
+                    disabled={isGeneratingCommit}
+                  >
+                    <IconSparkles size={13} color="var(--color-accent-primary)" />
+                    {isGeneratingCommit ? 'Generating...' : 'Auto-Generate Message'}
+                  </button>
+                  
+                  <button 
+                    className="btn-primary" 
+                    style={{ padding: '8px 16px', fontWeight: 600, fontSize: '0.85rem', width: '100%' }} 
+                    onClick={handleCommit}
+                    disabled={commitMessage.trim() === ''}
+                  >
+                    Commit Changes
+                  </button>
+                </>
+              ) : (
+                <button 
+                  className="btn-primary" 
+                  style={{ padding: '8px 16px', fontWeight: 600, fontSize: '0.85rem', width: '100%', opacity: isSyncing ? 0.6 : 1 }} 
+                  onClick={handlePush}
+                  disabled={isSyncing}
+                >
+                  {isSyncing ? 'Syncing...' : 'Sync Changes'}
+                </button>
+              )}
             </div>
           </div>
 
