@@ -25,6 +25,44 @@ When a user opened the Command Palette (`⌘K`) inside an active project and sel
 
 ---
 
+### BUG-004: Cannot Delete Environment in Danger Zone Tab (FIXED)
+
+* **Severity**: **High (P1)**
+* **Status**: **RESOLVED & VERIFIED**
+* **Component**: `EnvironmentSettingsView.tsx` / `WorkspaceService.ts` / `routes/workspaces.ts`
+
+#### 🔬 Root Cause & Solution
+* Added `deleteWorkspace` method to `WorkspaceService.ts` to delete workspace records, memberships, invitations, and project attachments while protecting Personal Environment from deletion.
+* Registered `DELETE /api/v1/workspaces/:id` and `DELETE /api/v1/environments/:id` endpoints in `routes/workspaces.ts`.
+* Updated `EnvironmentSettingsView.tsx` with deletion confirmation state and API request handler that automatically re-fetches workspaces and falls back active environment to Personal Environment on success.
+
+---
+
+### BUG-005: "Open Project" Button in Projects & Assignment Tab Fails to Open Project (FIXED)
+
+* **Severity**: **High (P1)**
+* **Status**: **RESOLVED & VERIFIED**
+* **Component**: `EnvironmentSettingsView.tsx` (Projects & Assignment tab)
+
+#### 🔬 Root Cause & Solution
+* Updated `onClick` handlers for "Open" (table mode) and "Open Project" (grid mode) buttons in `EnvironmentSettingsView.tsx`.
+* Button now invokes `useProjectStore.getState().setActiveProject(p.id)` and navigates via `setLocation('/workspace/project/' + p.id)`.
+
+---
+
+### BUG-006: Environment Switcher Dropdown Displays 0 Attached Projects (FIXED)
+
+* **Severity**: **Medium (P1)**
+* **Status**: **RESOLVED & VERIFIED**
+* **Component**: `WorkspaceSwitcher.tsx` / `WorkspaceService.ts` / `@asterim/shared`
+
+#### 🔬 Root Cause & Solution
+* Added `projectCount?: number` to `Workspace` type in `@asterim/shared`.
+* Updated `getUserWorkspaces(userId)` in `WorkspaceService.ts` to compute project counts per workspace from database relationships.
+* Updated `getProjectCount` in `WorkspaceSwitcher.tsx` to read `ws.projectCount` from the environment object, displaying accurate attached project counts in the `⌘E` dropdown.
+
+---
+
 ## 🐛 Active Product Bugs
 
 ### BUG-002: View Switching Resets Terminal & Chat Scroll Positions
@@ -59,46 +97,4 @@ Opening `http://127.0.0.1:5173` on local desktop requires finding and entering a
 
 #### 🎯 Expected Behavior
 Local desktop sessions running on `127.0.0.1` / `localhost` should auto-pair without manual PIN input, while keeping PIN pairing for remote mobile/LAN IP connections.
-
----
-
-### BUG-004: Cannot Delete Environment in Danger Zone Tab
-
-* **Severity**: **High (P1)**
-* **Status**: **OPEN**
-* **Component**: `EnvironmentSettingsView.tsx` (Danger Zone tab) / Backend Environment DELETE endpoint
-
-#### 📝 Description & Impact
-Attempting to delete an environment from `EnvironmentSettingsView.tsx` -> `Danger Zone` tab fails or does not purge the environment, leaving the environment active in state and database.
-
-#### 🎯 Expected Fix
-Ensure Danger Zone delete action issues `DELETE /api/v1/workspaces/:id` (or `/api/v1/environments/:id`), refreshes `useWorkspaceStore`, and automatically switches active environment to Personal Environment if the active environment was deleted.
-
----
-
-### BUG-005: "Open Project" Button in Projects & Assignment Tab Fails to Open Project
-
-* **Severity**: **High (P1)**
-* **Status**: **OPEN**
-* **Component**: `EnvironmentSettingsView.tsx` (Projects & Assignment tab)
-
-#### 📝 Description & Impact
-Clicking the "Open Project" button next to an assigned project card or table row in `EnvironmentSettingsView` -> `Projects & Assignment` tab does not switch views or open the project route.
-
-#### 🎯 Expected Fix
-Update the `onClick` handler for "Open Project" in `EnvironmentSettingsView.tsx` to set `activeProjectId` in `useProjectStore` (`useProjectStore.getState().setActiveProject(p.id)`) and trigger navigation via `useLocation` (`setLocation('/workspace/project/' + p.id)`).
-
----
-
-### BUG-006: Environment Switcher Dropdown Displays 0 Attached Projects
-
-* **Severity**: **Medium (P1)**
-* **Status**: **OPEN**
-* **Component**: `WorkspaceSwitcher.tsx` (`getProjectCount`)
-
-#### 📝 Description & Impact
-In the `⌘E` Environment Switcher dropdown menu (`WorkspaceSwitcher.tsx`), every environment card displays `0 Projects` (e.g. `Personal • 0 Projects`), even when projects are attached.
-
-#### 🔬 Root Cause & Expected Fix
-`getProjectCount(ws.id)` in `WorkspaceSwitcher.tsx` filters `useWorkspaceStore.getState().projects`. However, `projects` in `useWorkspaceStore` only contains projects attached to the *currently active environment*, causing `getProjectCount` for all inactive environments to evaluate to `0`. The fix requires fetching or maintaining a map of project counts across all environments (`ws.projectCount` or `ws.attachedProjects.length`).
 

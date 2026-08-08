@@ -189,8 +189,11 @@ export const WorkspaceSwitcher: React.FC = () => {
   };
 
   // Compute attached project count per environment
-  const getProjectCount = (envId: string) => {
-    return projects.filter((p) => p.workspaceId === envId || p.environmentId === envId).length;
+  const getProjectCount = (ws: any) => {
+    if (ws && typeof ws.projectCount === 'number') {
+      return ws.projectCount;
+    }
+    return projects.filter((p) => p.workspaceId === ws?.id || p.environmentId === ws?.id).length;
   };
 
   const currentName = activeWorkspace?.name || 'Personal Environment';
@@ -315,7 +318,7 @@ export const WorkspaceSwitcher: React.FC = () => {
                 const isFocused = selectedIndex === globalIdx;
                 const isPinned = pinnedIds.includes(ws.id);
                 const badgeColor = getPresetBadgeColor(ws);
-                const count = getProjectCount(ws.id);
+                const count = getProjectCount(ws);
                 const presetLabel = ws.preset || (ws.isPersonal ? 'personal' : 'company');
 
                 return (

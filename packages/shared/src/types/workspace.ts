@@ -35,6 +35,7 @@ export interface Workspace {
   executionProfileId?: string;
   avatarUrl?: string;
   isPersonal: boolean;
+  projectCount?: number;
   createdAt: string;
   updatedAt: string;
 }

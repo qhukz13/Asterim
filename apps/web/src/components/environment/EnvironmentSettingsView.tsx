@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'wouter';
 import type { WorkspaceMember, WorkspaceRole, AuditLogEntry, EnvironmentPreset } from '@asterim/shared';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { IconCheck, IconUser, IconBuilding, IconPlus } from '../icons/Icons';
 
 export const EnvironmentSettingsView: React.FC = () => {
-  const { activeWorkspace, workspaces, fetchWorkspaces } = useWorkspaceStore();
+  const [, setLocation] = useLocation();
+  const { activeWorkspace, workspaces, fetchWorkspaces, setActiveWorkspace } = useWorkspaceStore();
+  const setActiveProject = useProjectStore((s) => s.setActiveProject);
   const currentEnv = activeWorkspace || {
     id: 'personal',
     name: 'Personal Environment',
@@ -25,6 +29,11 @@ export const EnvironmentSettingsView: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Environment Deletion state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingEnv, setDeletingEnv] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // Environment Settings state
   const [envName, setEnvName] = useState(currentEnv.name || 'Personal Environment');
   const [envPreset, setEnvPreset] = useState<EnvironmentPreset>(currentEnv.preset || 'personal');
@@ -34,6 +43,41 @@ export const EnvironmentSettingsView: React.FC = () => {
   const [projectSearchQuery, setProjectSearchQuery] = useState('');
   const [projectSortBy, setProjectSortBy] = useState<'name' | 'path' | 'recent'>('name');
   const [projectViewMode, setProjectViewMode] = useState<'grid' | 'table'>('grid');
+
+  const handleSaveGeneral = async () => {
+    // General settings save
+  };
+
+  const handleDeleteEnvironment = async () => {
+    if (currentEnv.isPersonal) return;
+    setDeletingEnv(true);
+    setDeleteError(null);
+    try {
+      const tokenKey = 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/v1/environments/${currentEnv.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (res.ok) {
+        await fetchWorkspaces();
+        setActiveWorkspace('personal');
+        setActiveSubTab('general');
+        setShowDeleteConfirm(false);
+      } else {
+        const err = await res.json();
+        setDeleteError(err.error || 'Failed to delete environment');
+      }
+    } catch (e: any) {
+      setDeleteError(e.message || 'Failed to delete environment');
+    } finally {
+      setDeletingEnv(false);
+    }
+  };
 
   const loadData = async () => {
     if (!currentEnv.id) return;
@@ -646,7 +690,10 @@ export const EnvironmentSettingsView: React.FC = () => {
                           </td>
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                             <button
-                              onClick={() => useWorkspaceStore.getState().setProjects(projects)}
+                              onClick={() => {
+                                setActiveProject(p.id);
+                                setLocation(`/workspace/project/${p.id}`);
+                              }}
                               style={{
                                 background: 'transparent',
                                 border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -724,7 +771,8 @@ export const EnvironmentSettingsView: React.FC = () => {
                         </select>
                         <button
                           onClick={() => {
-                            useWorkspaceStore.getState().setProjects(projects);
+                            setActiveProject(p.id);
+                            setLocation(`/workspace/project/${p.id}`);
                           }}
                           style={{
                             background: 'transparent',
@@ -914,21 +962,71 @@ export const EnvironmentSettingsView: React.FC = () => {
               <p style={{ color: '#cbd5e1', fontSize: '0.85rem', margin: '0 0 1rem 0', lineHeight: 1.5 }}>
                 Deleting an Environment removes Environment metadata, secrets, and MCP tool bindings. Your local repository files on disk are <strong>never deleted</strong>.
               </p>
-              <button
-                disabled={currentEnv.isPersonal}
-                style={{
-                  background: currentEnv.isPersonal ? '#64748b' : '#ef4444',
-                  color: '#ffffff',
-                  border: 'none',
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  cursor: currentEnv.isPersonal ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {currentEnv.isPersonal ? 'Personal Environment Cannot Be Deleted' : 'Delete Environment'}
-              </button>
+
+              {deleteError && (
+                <div style={{ color: '#f87171', fontSize: '0.825rem', marginBottom: '1rem', padding: '8px 12px', background: 'rgba(239, 68, 68, 0.15)', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                  {deleteError}
+                </div>
+              )}
+
+              {showDeleteConfirm ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <p style={{ color: '#f87171', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>
+                    Are you sure you want to delete &quot;{currentEnv.name}&quot;?
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={handleDeleteEnvironment}
+                      disabled={deletingEnv}
+                      style={{
+                        background: '#ef4444',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        cursor: deletingEnv ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {deletingEnv ? 'Deleting...' : 'Confirm Delete Environment'}
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={deletingEnv}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        color: '#cbd5e1',
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  disabled={currentEnv.isPersonal}
+                  onClick={() => setShowDeleteConfirm(true)}
+                  style={{
+                    background: currentEnv.isPersonal ? '#64748b' : '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    cursor: currentEnv.isPersonal ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {currentEnv.isPersonal ? 'Personal Environment Cannot Be Deleted' : 'Delete Environment'}
+                </button>
+              )}
             </div>
           </div>
         )}

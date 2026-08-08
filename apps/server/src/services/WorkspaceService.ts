@@ -159,18 +159,34 @@ export class WorkspaceService {
       ORDER BY w.is_personal DESC, w.name ASC
     `).all() as any[];
 
-    return rows.map((r) => ({
-      id: r.id,
-      accountId: r.account_id,
-      name: r.name,
-      slug: r.slug,
-      avatarUrl: r.avatar_url,
-      preset: r.preset || (r.is_personal ? 'personal' : 'company'),
-      executionProfileId: r.execution_profile_id || 'exec_default',
-      isPersonal: Boolean(r.is_personal),
-      createdAt: new Date(r.created_at).toISOString(),
-      updatedAt: new Date(r.updated_at).toISOString(),
-    }));
+    return rows.map((r) => {
+      let projectCount = 0;
+      try {
+        const isPersonal = Boolean(r.is_personal) || r.id === 'personal';
+        const cntRow = db.prepare(`
+          SELECT COUNT(DISTINCT p.id) as cnt
+          FROM projects p
+          LEFT JOIN environment_project_attachments epa ON p.id = epa.project_id
+          WHERE p.workspace_id = ? OR epa.environment_id = ?
+          ${isPersonal ? "OR p.workspace_id IS NULL OR p.workspace_id = ''" : ''}
+        `).get(r.id, r.id) as any;
+        projectCount = cntRow ? cntRow.cnt : 0;
+      } catch (e) {}
+
+      return {
+        id: r.id,
+        accountId: r.account_id,
+        name: r.name,
+        slug: r.slug,
+        avatarUrl: r.avatar_url,
+        preset: r.preset || (r.is_personal ? 'personal' : 'company'),
+        executionProfileId: r.execution_profile_id || 'exec_default',
+        isPersonal: Boolean(r.is_personal),
+        projectCount,
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
+      };
+    });
   }
 
   /**
@@ -281,6 +297,46 @@ export class WorkspaceService {
     db.prepare(`
       DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?
     `).run(workspaceId, targetUserId);
+  }
+
+  /**
+   * Delete workspace / environment completely (personal workspace protected).
+   */
+  public deleteWorkspace(workspaceId: string): void {
+    if (workspaceId === 'personal') {
+      throw new Error('Personal Environment cannot be deleted');
+    }
+
+    const db = dbService.getDb();
+    let ws: any;
+    try {
+      ws = db.prepare('SELECT is_personal FROM workspaces WHERE id = ?').get(workspaceId);
+    } catch (e) {}
+    if (!ws) {
+      try {
+        ws = db.prepare('SELECT is_personal FROM environments WHERE id = ?').get(workspaceId);
+      } catch (e) {}
+    }
+
+    if (ws && (Boolean(ws.is_personal) || ws.is_personal === 1)) {
+      throw new Error('Personal Environment cannot be deleted');
+    }
+
+    try {
+      db.prepare('DELETE FROM workspace_memberships WHERE workspace_id = ?').run(workspaceId);
+    } catch (e) {}
+    try {
+      db.prepare('DELETE FROM workspace_invitations WHERE workspace_id = ?').run(workspaceId);
+    } catch (e) {}
+    try {
+      db.prepare('DELETE FROM environment_project_attachments WHERE environment_id = ?').run(workspaceId);
+    } catch (e) {}
+    try {
+      db.prepare('DELETE FROM environments WHERE id = ?').run(workspaceId);
+    } catch (e) {}
+    try {
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    } catch (e) {}
   }
 }
 

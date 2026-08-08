@@ -204,6 +204,20 @@ export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({ auditLogs: logs });
   });
+
+  // DELETE /api/v1/workspaces/:id & /api/v1/environments/:id - Delete an environment
+  const handleDeleteWorkspace = async (request: any, reply: any) => {
+    const { id } = request.params as { id: string };
+    try {
+      workspaceService.deleteWorkspace(id);
+      return reply.send({ success: true });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message || 'Failed to delete environment' });
+    }
+  };
+
+  fastify.delete('/api/v1/workspaces/:id', handleDeleteWorkspace);
+  fastify.delete('/api/v1/environments/:id', handleDeleteWorkspace);
 };
 
 export default workspaceRoutes;
