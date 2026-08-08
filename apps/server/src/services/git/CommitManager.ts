@@ -24,4 +24,52 @@ export class CommitManager {
     const escapedMessage = message.replace(/"/g, '\\"');
     await this.provider.exec(`git commit -m "${escapedMessage}"`, projectPath);
   }
+
+  public async generateCommitMessage(projectPath: string): Promise<string> {
+    let diffOutput = '';
+    try {
+      const { stdout } = await this.provider.exec('git diff --staged', projectPath);
+      diffOutput = stdout.trim();
+    } catch (e) {}
+
+    if (!diffOutput) {
+      try {
+        const { stdout } = await this.provider.exec('git diff', projectPath);
+        diffOutput = stdout.trim();
+      } catch (e) {}
+    }
+
+    if (!diffOutput) {
+      return 'chore: update workspace project files';
+    }
+
+    const lines = diffOutput.split('\n');
+    const modifiedFiles = new Set<string>();
+    for (const line of lines) {
+      if (line.startsWith('+++ b/')) {
+        modifiedFiles.add(line.replace('+++ b/', '').trim());
+      }
+    }
+
+    const filesArray = Array.from(modifiedFiles);
+    const primaryFile = filesArray[0] || 'code';
+    const scope = primaryFile.split('/')[0] || 'core';
+
+    let type = 'feat';
+    if (diffOutput.includes('fix') || diffOutput.includes('bug') || diffOutput.includes('error')) {
+      type = 'fix';
+    } else if (diffOutput.includes('test') || diffOutput.includes('spec')) {
+      type = 'test';
+    } else if (diffOutput.includes('refactor') || diffOutput.includes('clean')) {
+      type = 'refactor';
+    } else if (diffOutput.includes('doc') || diffOutput.includes('README')) {
+      type = 'docs';
+    }
+
+    const summary = filesArray.length === 1
+      ? `update ${filesArray[0]}`
+      : `update ${filesArray.length} files (${filesArray.slice(0, 2).join(', ')})`;
+
+    return `${type}(${scope}): ${summary}`;
+  }
 }

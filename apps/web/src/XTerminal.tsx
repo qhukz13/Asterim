@@ -5,6 +5,7 @@ import 'xterm/css/xterm.css';
 import { Socket } from 'socket.io-client';
 import { useTerminalStore } from './stores/useTerminalStore';
 import { useDebugLifecycle } from './utils/debug';
+import { TerminalStreamThrottler } from './components/terminal/TerminalStreamThrottler';
 
 export function XTerminal({
   socket,
@@ -36,7 +37,8 @@ export function XTerminal({
         fontFamily: 'monospace',
         fontSize: 14,
         disableStdin: false,
-        convertEol: true
+        convertEol: true,
+        scrollback: 10000,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
@@ -120,42 +122,30 @@ export function XTerminal({
     }
   }, [socket, projectId, threadId]);
 
-  // Handle incoming data
+  // Handle incoming data with TerminalStreamThrottler
   useEffect(() => {
     if (!socket || !termInstance.current) return;
 
-    let writeBuffer = '';
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const THROTTLE_MS = 50; // 20 FPS throttle
-
-    const flushBuffer = () => {
-      if (writeBuffer && termInstance.current) {
-        termInstance.current.write(writeBuffer);
+    const throttler = new TerminalStreamThrottler((data) => {
+      if (termInstance.current) {
+        termInstance.current.write(data);
+        useTerminalStore.getState().appendBuffer(threadId || projectId, data);
       }
-      writeBuffer = '';
-      timeoutId = null;
-    };
+    });
 
     const handleData = (event: any) => {
-      // Check if it's the right thread/project
       const isTarget = threadId 
         ? event.payload?.threadId === threadId 
         : event.payload?.projectId === projectId;
         
       if (isTarget && event.payload?.data) {
-        writeBuffer += event.payload.data;
-        if (timeoutId === null) {
-          timeoutId = setTimeout(flushBuffer, THROTTLE_MS);
-        }
+        throttler.push(event.payload.data);
       }
     };
 
     const handleLog = (event: any) => {
       if (event.payload?.message) {
-        writeBuffer += event.payload.message;
-        if (timeoutId === null) {
-          timeoutId = setTimeout(flushBuffer, THROTTLE_MS);
-        }
+        throttler.push(event.payload.message);
       }
     };
 
@@ -165,9 +155,7 @@ export function XTerminal({
     return () => {
       socket.off('terminal.data', handleData);
       socket.off('agent.log', handleLog);
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-      }
+      throttler.clear();
     };
   }, [socket, projectId, threadId]);
 

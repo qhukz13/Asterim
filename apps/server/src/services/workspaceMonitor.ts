@@ -83,6 +83,17 @@ export class WorkspaceMonitor {
       diff
     };
 
+    // Re-index modified symbols in SymbolIndexer
+    try {
+      const { symbolIndexer } = await import('./SymbolIndexer');
+      const relPath = require('path').relative(this.workspacePath, filePath);
+      const fs = require('fs');
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf8');
+        symbolIndexer.extractSymbolsFromFile(relPath, content);
+      }
+    } catch (e) {}
+
     this.eventCallback({
       id: crypto.randomUUID(),
       timestamp: Date.now(),

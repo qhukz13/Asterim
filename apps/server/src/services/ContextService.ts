@@ -84,6 +84,63 @@ export class ContextService {
       payload: { threadId, projectId, entries }
     });
   }
+
+  /**
+   * Assembles a token-budget-aware context window combining project symbols and thread context.
+   */
+  public async assembleContextWindow(
+    threadId: string,
+    projectId: string,
+    maxTokens: number = 8000
+  ): Promise<{ text: string; tokenCount: number; symbolsIncluded: number }> {
+    const { symbolIndexer } = await import('./SymbolIndexer');
+    const { projectManager } = await import('./ProjectManager');
+
+    const maxChars = maxTokens * 4;
+    let accumulatedText = '';
+    let symbolsIncluded = 0;
+
+    // 1. Add Thread Context Entries
+    const entries = this.getEntries(threadId);
+    if (entries.length > 0) {
+      accumulatedText += '## Active Thread Context Files & Pinning:\n';
+      for (const entry of entries) {
+        if (accumulatedText.length + (entry.content?.length || 0) < maxChars * 0.5) {
+          accumulatedText += `### ${entry.label} (${entry.type})\n${entry.content || ''}\n\n`;
+        }
+      }
+    }
+
+    // 2. Add Project Symbols from SymbolIndexer
+    const project = projectManager.getProject(projectId);
+    if (project) {
+      const symbols = symbolIndexer.getSymbols(projectId);
+      if (symbols.length === 0) {
+        await symbolIndexer.indexWorkspace(projectId, project.path);
+      }
+
+      const activeSymbols = symbolIndexer.getSymbols(projectId);
+      if (activeSymbols.length > 0) {
+        accumulatedText += '## Project Symbol Index:\n';
+        for (const sym of activeSymbols) {
+          const lineStr = `- ${sym.kind} **${sym.name}** in \`${sym.filePath}:${sym.line}\`\n`;
+          if (accumulatedText.length + lineStr.length < maxChars) {
+            accumulatedText += lineStr;
+            symbolsIncluded++;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    const estimatedTokens = Math.ceil(accumulatedText.length / 4);
+    return {
+      text: accumulatedText,
+      tokenCount: estimatedTokens,
+      symbolsIncluded
+    };
+  }
 }
 
 export const contextService = new ContextService();

@@ -38,3 +38,37 @@
 - [x] **BUG-006: Environment Switcher Project Counts Displaying 0**
   - [x] Update `getProjectCount` in `WorkspaceSwitcher.tsx` to compute project counts per environment across all environments instead of filtering active environment projects only.
 
+---
+
+# Phase 4 — Developer Workstation (Local Engine Hardening) Tasks
+
+- [x] **PR 1: Fault-Tolerant Subprocess & Agent Execution Engine**
+  - [x] Implement `ProcessTreeManager` for tracking child process PID trees and `SIGTERM` -> `SIGKILL` cascading shutdown.
+  - [x] Implement `AgentCrashRecovery` in `AgentService.ts` to auto-recover session state and prevent restart loops (max 3 retries / 60s).
+  - [x] Implement periodic orphan and zombie process sweeper.
+  - [x] Verify manually and run monorepo build.
+
+- [x] **PR 2: Hardened Terminal & PTY Streaming with Backpressure Throttling**
+  - [x] Implement `TerminalStreamThrottler` for xterm.js output buffer queueing with 16ms frame chunking.
+  - [x] Implement cross-platform shell auto-detection (bash, zsh, powershell, wsl).
+  - [x] Implement terminal session re-attachment and scroll buffer retention.
+  - [x] Verify manually and run monorepo build.
+
+- [x] **PR 3: Hardened Safety & Security Engine (Command AST & Path Traversal)**
+  - [x] Implement real-time shell command AST/Regex security scanner in `ApprovalManager.ts`.
+  - [x] Implement path traversal guard (`../` sandbox escape protection).
+  - [x] Implement command diff preview generator.
+  - [x] Verify manually and run monorepo build.
+
+- [x] **PR 4: Git Subsystem Polish & One-Click Commit Generator**
+  - [x] Implement `GitStatusService` for real-time status tracking, branch management, and staged/unstaged diff inspection.
+  - [x] Implement `✨ Generate Commit` context analyzer for conventional commit messages.
+  - [x] Verify manually and run monorepo build.
+
+- [x] **PR 5: Persistent Workspace File Indexer & Symbol Parser**
+  - [x] Implement `SymbolIndexer` for fast AST symbol extraction (TS/JS, Python, Go, Rust).
+  - [x] Implement workspace file watcher with debounced re-indexing (`chokidar`).
+  - [x] Implement token-budget context window builder for agent prompts.
+  - [x] Verify manually and run monorepo build.
+
+

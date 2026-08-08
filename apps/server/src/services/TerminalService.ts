@@ -5,9 +5,11 @@ import crypto from 'crypto';
 
 class TerminalService {
   private ptys: Map<string, any> = new Map();
+  private outputBuffers: Map<string, string> = new Map();
+  private maxBufferLength = 100000; // Keep last 100k characters per terminal for instant view re-attachment
 
   constructor() {
-    // Listen for terminal spawn requests
+    // Listen for terminal spawn or re-attach requests
     eventBus.subscribe<any>('client.terminal_spawn', event => {
       const { projectId, cols, rows } = event.payload;
       if (!projectId) return;
@@ -38,10 +40,44 @@ class TerminalService {
     });
   }
 
+  /**
+   * Determine the best interactive shell for the user's platform.
+   */
+  private resolveShell(): string {
+    const platform = os.platform();
+    const envShell = process.env.SHELL;
+
+    if (platform === 'win32') {
+      if (process.env.COMSPEC && process.env.COMSPEC.toLowerCase().includes('powershell')) {
+        return process.env.COMSPEC;
+      }
+      return 'powershell.exe';
+    }
+
+    if (envShell && envShell.trim()) {
+      return envShell.trim();
+    }
+
+    const fs = require('fs');
+    if (fs.existsSync('/bin/zsh')) return '/bin/zsh';
+    if (fs.existsSync('/bin/bash')) return '/bin/bash';
+    return 'sh';
+  }
+
   private async spawnTerminal(projectId: string, cols: number, rows: number) {
+    // If PTY is already running, re-publish cached scrollback buffer for view re-attachment
     if (this.ptys.has(projectId)) {
-      this.ptys.get(projectId)?.kill();
-      this.ptys.delete(projectId);
+      const cached = this.outputBuffers.get(projectId);
+      if (cached) {
+        eventBus.publish({
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          source: 'terminal',
+          type: 'terminal.data',
+          payload: { projectId, data: cached }
+        });
+      }
+      return;
     }
 
     const db = dbService.getDb();
@@ -58,7 +94,7 @@ class TerminalService {
       return;
     }
 
-    const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = this.resolveShell();
 
     const fs = require('fs');
     if (!fs.existsSync(project.path)) {
@@ -104,7 +140,14 @@ class TerminalService {
         ptyProcess.write(`clear\r`);
       }
 
+      this.outputBuffers.set(projectId, '');
+
       ptyProcess.onData((data: string) => {
+        // Retain scrollback history buffer for view re-attachment
+        const currentBuf = this.outputBuffers.get(projectId) || '';
+        const nextBuf = (currentBuf + data).slice(-this.maxBufferLength);
+        this.outputBuffers.set(projectId, nextBuf);
+
         eventBus.publish({
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -116,6 +159,7 @@ class TerminalService {
 
       ptyProcess.onExit(() => {
         this.ptys.delete(projectId);
+        this.outputBuffers.delete(projectId);
         eventBus.publish({
           id: crypto.randomUUID(),
           timestamp: Date.now(),

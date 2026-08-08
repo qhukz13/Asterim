@@ -72,4 +72,9 @@ export class SessionManager {
   public getSessionAdapter(sessionId: string): BaseAdapter | undefined {
     return this.activeSessions.get(sessionId);
   }
+
+  public getPid(sessionId: string): number | undefined {
+    const adapter = this.activeSessions.get(sessionId);
+    return adapter?.getPid();
+  }
 }

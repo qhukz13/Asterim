@@ -123,6 +123,7 @@ import webhookRoutes from './routes/webhooks';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
+import gitRoutes from './routes/git';
 
 const start = async () => {
   try {
@@ -140,6 +141,8 @@ const start = async () => {
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');
     await fastify.register(projectRoutes);
+    console.log('[DEBUG] Registering gitRoutes');
+    await fastify.register(gitRoutes);
     console.log('[DEBUG] Registering systemRoutes');
     await fastify.register(systemRoutes);
     console.log('[DEBUG] Registering aiRoutes');

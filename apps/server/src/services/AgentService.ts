@@ -10,6 +10,8 @@ import { WorkspaceMonitor } from './workspaceMonitor';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 
+import { processTreeManager } from './ProcessTreeManager';
+
 export class AgentService {
   private sessionManager = new SessionManager();
   private workspaceMonitors = new Map<string, WorkspaceMonitor>(); // Keyed by projectId
@@ -24,6 +26,9 @@ export class AgentService {
 
   constructor() {
     this.setupListeners();
+    setInterval(() => {
+      processTreeManager.sweepOrphanedProcesses().catch(() => {});
+    }, 60000);
   }
 
   private setupListeners() {
@@ -226,6 +231,7 @@ export class AgentService {
           eventBus.publish(event);
         },
         async (exitCode) => {
+          processTreeManager.unregisterProcess(threadId);
           // If the session manager no longer tracks it, it means it was stopped
           // or a new one started. But we can check userStopped.
           const wasUserStopped = this.userStopped.has(threadId);
@@ -309,8 +315,10 @@ export class AgentService {
       );
 
       const sessionId = crypto.randomUUID();
-      const currentAdapter = this.sessionManager.getSessionAdapter(threadId);
-      const pid = currentAdapter && typeof currentAdapter.getPid === 'function' ? currentAdapter.getPid() : null;
+      const pid = this.sessionManager.getPid(threadId);
+      if (pid) {
+        processTreeManager.registerProcess(threadId, pid);
+      }
 
       try {
         const db = dbService.getDb();
@@ -413,6 +421,7 @@ export class AgentService {
       this.activeSessions.delete(threadId);
     }
 
+    await processTreeManager.killProcessTree(threadId, 3000);
     await this.sessionManager.stopSession(threadId);
 
     eventBus.publish({

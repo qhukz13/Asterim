@@ -9,11 +9,99 @@ interface PendingApproval {
   timeoutId: NodeJS.Timeout;
 }
 
+export interface CommandSecurityAnalysis {
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  isPathTraversal: boolean;
+  warnings: string[];
+  requiresExplicitHumanApproval: boolean;
+}
+
 export class ApprovalManager {
   private pendingApprovals = new Map<string, PendingApproval>();
 
   constructor() {
     this.listenForResponses();
+  }
+
+  /**
+   * Evaluates command syntax, destructive flags, and path traversal attempts.
+   */
+  public evaluateCommandSecurity(command: string, projectPath?: string): CommandSecurityAnalysis {
+    const warnings: string[] = [];
+    let riskLevel: 'low' | 'medium' | 'high' | 'critical' = 'low';
+    let isPathTraversal = false;
+    let requiresExplicitHumanApproval = false;
+
+    const cmdLower = command.toLowerCase().trim();
+
+    // 1. Critical risk destructive commands
+    const CRITICAL_PATTERNS = [
+      /rm\s+-rf?\s+(\/|~|\*|\.\.)/,
+      /mkfs/,
+      /dd\s+if=/,
+      /chmod\s+(-R\s+)?777\s+(\/|~)/,
+      /:(){ :|:& };:/,
+      /shutdown/,
+      /reboot/,
+      /(curl|wget)\s+.*\|\s*(bash|sh|zsh)/,
+    ];
+
+    for (const pattern of CRITICAL_PATTERNS) {
+      if (pattern.test(cmdLower)) {
+        riskLevel = 'critical';
+        requiresExplicitHumanApproval = true;
+        warnings.push(`Critical destructive system command detected matching pattern: ${pattern.source}`);
+        break;
+      }
+    }
+
+    // 2. High risk commands (force push, hard reset, broad deletion)
+    if (riskLevel !== 'critical') {
+      if (cmdLower.includes('git reset --hard') || cmdLower.includes('git push --force') || cmdLower.includes('git push -f')) {
+        riskLevel = 'high';
+        requiresExplicitHumanApproval = true;
+        warnings.push('Potentially destructive Git operation (hard reset or force push).');
+      } else if (cmdLower.includes('rm -rf') || cmdLower.includes('rm -r')) {
+        riskLevel = 'high';
+        warnings.push('Recursive file deletion requested.');
+      } else if (cmdLower.includes('drop database') || cmdLower.includes('drop table')) {
+        riskLevel = 'high';
+        requiresExplicitHumanApproval = true;
+        warnings.push('Database drop statement detected.');
+      }
+    }
+
+    // 3. Path Traversal Guard
+    if (cmdLower.includes('../..') || cmdLower.includes('/etc/') || cmdLower.includes('/var/root')) {
+      isPathTraversal = true;
+      warnings.push('Path traversal attempt detected outside active workspace bounds.');
+      if (riskLevel !== 'critical') {
+        riskLevel = 'high';
+      }
+      requiresExplicitHumanApproval = true;
+    }
+
+    if (projectPath && (cmdLower.includes('cd /') || cmdLower.includes('cd ~'))) {
+      if (!cmdLower.includes(projectPath.toLowerCase())) {
+        isPathTraversal = true;
+        warnings.push('Navigation outside project root path detected.');
+        if (riskLevel !== 'critical') riskLevel = 'high';
+      }
+    }
+
+    // 4. Medium risk commands (installations/modifications)
+    if (riskLevel === 'low') {
+      if (cmdLower.includes('npm install') || cmdLower.includes('pnpm add') || cmdLower.includes('pip install') || cmdLower.includes('cargo add')) {
+        riskLevel = 'medium';
+      }
+    }
+
+    return {
+      riskLevel,
+      isPathTraversal,
+      warnings,
+      requiresExplicitHumanApproval,
+    };
   }
 
   private listenForResponses() {
@@ -105,7 +193,8 @@ export class ApprovalManager {
       this.pendingApprovals.set(actionId, { resolve, reject, timeoutId });
 
       // 3. Publish the request to the EventBus
-      console.log(`[ApprovalManager] Requesting approval for action ${actionId} (${description})`);
+      const security = this.evaluateCommandSecurity(command);
+      console.log(`[ApprovalManager] Requesting approval for action ${actionId} (${description}) - Risk Level: ${security.riskLevel}`);
       eventBus.publish({
         id: crypto.randomUUID(),
         timestamp: Date.now(),
@@ -115,7 +204,8 @@ export class ApprovalManager {
           projectId,
           actionId,
           description,
-          command
+          command,
+          securityAnalysis: security
         }
       });
     });
