@@ -175,6 +175,11 @@ export class GitService {
       // Ignore poll errors to prevent spam
     }
   }
+
+  public async forcePoll() {
+    this.lastStatusHash = '';
+    await this.poll();
+  }
 }
 
 export const gitService = new GitService();

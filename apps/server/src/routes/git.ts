@@ -92,8 +92,7 @@ export const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       await gitService.remote.push(project.path);
-      gitService.lastStatusHash = '';
-      await gitService.poll();
+      await gitService.forcePoll();
       return reply.send({ success: true });
     } catch (err: any) {
       return reply.status(400).send({ error: err.message || 'Failed to push changes' });

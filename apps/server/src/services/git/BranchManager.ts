@@ -12,6 +12,11 @@ export class BranchManager {
     await this.provider.exec(`git checkout "${branch}"`, projectPath);
   }
 
+  public async getCurrentBranch(projectPath: string): Promise<string> {
+    const raw = await this.provider.exec('git branch --show-current', projectPath);
+    return raw.trim() || 'main';
+  }
+
   public async createBranch(projectPath: string, branch: string, checkout: boolean = true): Promise<void> {
     if (checkout) {
       await this.provider.exec(`git checkout -b "${branch}"`, projectPath);
