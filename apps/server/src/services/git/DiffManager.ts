@@ -13,11 +13,15 @@ export class DiffManager {
         ? `git diff --cached -- "${file}"` 
         : `git diff -- "${file}"`;
         
-      const diff = await this.provider.exec(command, projectPath);
+      let diff = await this.provider.exec(command, projectPath);
       
-      // If unstaged diff is empty but file is untracked, git diff returns nothing.
-      // We might need to handle untracked files differently if needed, 
-      // but standard git diff behaviour is generally fine for the MVP.
+      // If unstaged diff is empty, check if it's an untracked file using git diff --no-index
+      if (!diff && !staged) {
+        try {
+          diff = await this.provider.exec(`git diff --no-index -- /dev/null "${file}"`, projectPath);
+        } catch (e) {}
+      }
+
       return diff;
     } catch (err) {
       return '';

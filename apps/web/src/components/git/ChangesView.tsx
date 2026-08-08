@@ -538,7 +538,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                     <div style={{ padding: '16px', color: 'var(--color-text-muted)' }}>Loading diff...</div>
                   ) : diff ? (
                     <SyntaxHighlighterComp
-                      language={selectedFile.split('.').pop() || 'typescript'}
+                      language="diff"
                       style={vscDarkPlus}
                       showLineNumbers={true}
                       wrapLines={true}

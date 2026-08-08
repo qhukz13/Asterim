@@ -1,0 +1,8 @@
+# Test Commit File for Git Subsystem Validation
+
+This is a test file generated to verify Asterim Git status tracking, diff inspection, and one-click commit message generation (`✨ Generate Commit`).
+
+## Test Changes
+- Feature: Local Git workflow verification
+- Component: Git Subsystem & Diff Inspector
+- Timestamp: 2026-08-08T20:18:49+03:00

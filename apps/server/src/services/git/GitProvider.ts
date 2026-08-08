@@ -17,6 +17,9 @@ export class GitProvider {
       const { stdout } = await execAsync(command, { cwd });
       return stdout.trim();
     } catch (error: any) {
+      if (error.stdout && typeof error.stdout === 'string' && error.stdout.trim()) {
+        return error.stdout.trim();
+      }
       throw new Error(`Git command failed: ${error.message}`);
     }
   }
