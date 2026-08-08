@@ -78,13 +78,12 @@ export class StatusManager {
       lastCommit = 'No commits yet';
     }
 
-    // Fallback if branch is still empty
-    if (!branch) {
+    // Calculate unpushed commits count if ahead is 0
+    if (ahead === 0) {
       try {
-        branch = await this.provider.exec('git branch --show-current', projectPath);
-      } catch {
-        branch = 'master';
-      }
+        const unpushed = await this.provider.exec('git rev-list HEAD --not --remotes --count', projectPath);
+        ahead = parseInt(unpushed.trim(), 10) || 0;
+      } catch (e) {}
     }
 
     return { branch: branch.trim(), files, syncStatus, ahead, behind, lastCommit };

@@ -13,6 +13,10 @@ export class RemoteManager {
 
   public async push(projectPath: string): Promise<void> {
     try {
+      const remotes = await this.provider.exec('git remote', projectPath);
+      if (!remotes.trim()) {
+        throw new Error('No remote repository configured. Add a Git remote origin to push changes.');
+      }
       await this.provider.exec('git push', projectPath);
     } catch (err: any) {
       const errMsg = err.message || '';

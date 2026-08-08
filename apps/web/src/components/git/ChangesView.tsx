@@ -20,6 +20,8 @@ export interface RepoStatus {
   branch: string;
   files: FileStatus[];
   syncStatus?: string;
+  ahead?: number;
+  behind?: number;
   lastCommit?: string;
 }
 
@@ -447,11 +449,40 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
               ) : (
                 <button 
                   className="btn-primary" 
-                  style={{ padding: '8px 16px', fontWeight: 600, fontSize: '0.85rem', width: '100%', opacity: isSyncing ? 0.6 : 1 }} 
+                  style={{ 
+                    padding: '10px 16px', 
+                    fontWeight: 600, 
+                    fontSize: '0.85rem', 
+                    width: '100%', 
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    opacity: isSyncing ? 0.7 : 1,
+                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.2)'
+                  }} 
                   onClick={handlePush}
                   disabled={isSyncing}
                 >
-                  {isSyncing ? 'Syncing...' : 'Sync Changes'}
+                  <svg 
+                    width="15" 
+                    height="15" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2.2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                    style={{
+                      transition: 'transform 0.3s ease'
+                    }}
+                  >
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6" />
+                    <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M2.5 16l1.2 1.8a10 10 0 0 0 18.8-4.3" />
+                  </svg>
+                  <span>
+                    {isSyncing ? 'Syncing...' : `Sync Changes${status.ahead && status.ahead > 0 ? ` ${status.ahead} ↑` : ''}${status.behind && status.behind > 0 ? ` ${status.behind} ↓` : ''}`}
+                  </span>
                 </button>
               )}
             </div>
