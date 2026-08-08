@@ -17,10 +17,12 @@ export class GitProvider {
       const { stdout } = await execAsync(command, { cwd });
       return stdout.trim();
     } catch (error: any) {
-      if (error.stdout && typeof error.stdout === 'string' && error.stdout.trim()) {
+      // Special case for git diff --no-index which exits with code 1 when diff exists
+      if (command.includes('diff --no-index') && error.stdout && typeof error.stdout === 'string') {
         return error.stdout.trim();
       }
-      throw new Error(`Git command failed: ${error.message}`);
+      const fullError = error.stderr || error.stdout || error.message || 'Git command failed';
+      throw new Error(fullError.trim());
     }
   }
 }

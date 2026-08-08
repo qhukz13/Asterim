@@ -38,6 +38,11 @@
 - [x] **BUG-006: Environment Switcher Project Counts Displaying 0**
   - [x] Update `getProjectCount` in `WorkspaceSwitcher.tsx` to compute project counts per environment across all environments instead of filtering active environment projects only.
 
+- [x] **BUG-007: Sync Changes Button Silent Failure & Git Execution Fix**
+  - [x] Restrict non-zero exit code stdout fallback in `GitProvider.ts` strictly to `git diff --no-index`.
+  - [x] Ensure `RemoteManager.ts` catches non-interactive credential prompts (`could not read Username`) and surfaces explicit actionable error banners in `ChangesView.tsx`.
+  - [x] Verify monorepo build and Git push diagnostics.
+
 ---
 
 # Phase 4 — Developer Workstation (Local Engine Hardening) Tasks
