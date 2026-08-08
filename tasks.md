@@ -38,10 +38,9 @@
 - [x] **BUG-006: Environment Switcher Project Counts Displaying 0**
   - [x] Update `getProjectCount` in `WorkspaceSwitcher.tsx` to compute project counts per environment across all environments instead of filtering active environment projects only.
 
-- [x] **BUG-007: Sync Changes Button Silent Failure & Git Execution Fix**
-  - [x] Restrict non-zero exit code stdout fallback in `GitProvider.ts` strictly to `git diff --no-index`.
-  - [x] Ensure `RemoteManager.ts` catches non-interactive credential prompts (`could not read Username`) and surfaces explicit actionable error banners in `ChangesView.tsx`.
-  - [x] Verify monorepo build and Git push diagnostics.
+- [ ] **BUG-007: Sync Changes Button Execution & Status Synchronization Failure**
+  - [ ] Investigate Git subprocess execution, authentication handling, and state synchronization in `GitService.ts`, `RemoteManager.ts`, and `ChangesView.tsx`.
+  - [ ] Fix Sync Changes button behavior and verify remote push.
 
 ---
 

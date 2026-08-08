@@ -2,13 +2,15 @@
 
 ## 🐛 Open & In-Progress Bugs
 
-### BUG-007: Sync Changes Button Fails Silently or Returns Error
+### BUG-007: Sync Changes Button Execution & Status Synchronization Failure
 - **Severity**: High (Top Priority)
-- **Component**: Git Subsystem (`GitProvider.ts`, `RemoteManager.ts`, `ChangesView.tsx`)
-- **Symptom**: Clicking `Sync Changes` button spins temporarily and resets to `Sync Changes` without updating sync status or showing diagnostic errors when push fails.
-- **Root Cause**: `GitProvider.ts` swallowed subprocess non-zero exit codes when `stdout` was present, preventing `RemoteManager.push()` from catching `git push` errors (such as non-interactive credential prompts or missing upstream branches).
-- **Fix**: Restricted non-zero stdout fallbacks in `GitProvider.ts` to `git diff --no-index` commands only, ensuring all mutating Git commands (`push`, `pull`, `commit`) properly throw exit code errors and surface actionable UI diagnostic alerts.
-- **Status**: [x] Fixed & Verified
+- **Component**: Git Subsystem (`GitProvider.ts`, `RemoteManager.ts`, `GitService.ts`, `ChangesView.tsx`)
+- **Symptom**: Clicking the `Sync Changes` button spins temporarily and resets to `Sync Changes` without pushing commits to the remote origin or updating the ahead/behind status.
+- **Investigation Notes for Later Fix**:
+  1. Non-interactive subprocess credential prompts during `git push` (`could not read Username`) when SSH/credential store is unconfigured.
+  2. Potential state mismatch between WebSocket `git.action` event handler and HTTP REST fallback `POST /api/v1/projects/:id/git/push`.
+  3. Real-time status polling sync in `GitService.ts` when `ahead` is updated to 0.
+- **Status**: [ ] Open / Pending Fix
 
 ---
 
