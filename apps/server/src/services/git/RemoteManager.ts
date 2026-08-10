@@ -52,8 +52,8 @@ export class RemoteManager {
           throw new Error(`Failed to push branch: ${e.message}`);
         }
       }
-      if (errMsg.includes('could not read Username') || errMsg.includes('Authentication failed') || errMsg.includes('Permission denied')) {
-        throw new Error('Git authentication failed (non-interactive session). Please configure SSH keys or Git credential helper for this repository.');
+      if (errMsg.includes('could not read Username') || errMsg.includes('Authentication failed') || errMsg.includes('Permission denied') || errMsg.includes('Host key verification failed') || errMsg.includes('terminal prompts disabled')) {
+        throw new Error('Git push failed due to unconfigured authentication. If using HTTPS, update your remote URL with a Personal Access Token (https://TOKEN@github.com/user/repo.git) or use SSH format (git@github.com:user/repo.git).');
       }
       throw err;
     }

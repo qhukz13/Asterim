@@ -212,15 +212,14 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       if (!res.ok) {
         const errMsg = data.error || 'Failed to push changes';
         setError(errMsg);
-        if (errMsg.includes('No remote') || errMsg.includes('connect a GitHub') || errMsg.includes('remote origin')) {
-          setShowRemoteModal(true);
-        }
+        setShowRemoteModal(true);
       } else {
         setError(null);
         sendAction('get_status');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to push changes');
+      setShowRemoteModal(true);
     } finally {
       setIsSyncing(false);
     }
@@ -366,6 +365,29 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
   const unstagedFiles = status.files.filter(f => !f.staged);
   const hasWorkingTreeChanges = status.files.length > 0;
 
+  const handleFormatSsh = () => {
+    let url = remoteInputUrl.trim();
+    if (!url && status?.remoteUrl) url = status.remoteUrl;
+    if (url.startsWith('https://github.com/')) {
+      const path = url.replace('https://github.com/', '');
+      url = `git@github.com:${path}`;
+    }
+    setRemoteInputUrl(url);
+  };
+
+  const handleFormatPat = () => {
+    let url = remoteInputUrl.trim();
+    if (!url && status?.remoteUrl) url = status.remoteUrl;
+    if (url.startsWith('git@github.com:')) {
+      const path = url.replace('git@github.com:', '');
+      url = `https://YOUR_TOKEN@github.com/${path}`;
+    } else if (url.startsWith('https://github.com/')) {
+      const path = url.replace('https://github.com/', '');
+      url = `https://YOUR_TOKEN@github.com/${path}`;
+    }
+    setRemoteInputUrl(url);
+  };
+
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', height: '100%', flex: 1, minHeight: 0, minWidth: 0, boxSizing: 'border-box', overflow: 'hidden' }}>
       
@@ -374,9 +396,9 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Changes</h2>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-            <span>{status.files.length} changed ({stagedFiles.length} staged, {unstagedFiles.length} unstaged)</span>
-            <span style={{ color: 'var(--color-accent-primary)', fontWeight: 500 }}>{status.branch}</span>
-            {status.remoteUrl && (
+            <span>{status?.files.length || 0} changed ({stagedFiles.length} staged, {unstagedFiles.length} unstaged)</span>
+            <span style={{ color: 'var(--color-accent-primary)', fontWeight: 500 }}>{status?.branch}</span>
+            {status?.remoteUrl && (
               <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', background: 'var(--color-surface-2)', padding: '2px 8px', borderRadius: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }} title={status.remoteUrl}>
                 origin: {status.remoteUrl}
               </span>
@@ -387,13 +409,13 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button 
             style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--color-accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }} 
-            onClick={() => { setRemoteInputUrl(status.remoteUrl || ''); setShowRemoteModal(true); }}
+            onClick={() => { setRemoteInputUrl(status?.remoteUrl || ''); setShowRemoteModal(true); }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
               <path d="M9 18c-4.51 2-5-2-7-2" />
             </svg>
-            {status.hasRemote ? 'Remote Setup' : 'Connect GitHub / Remote'}
+            {status?.hasRemote ? 'Remote Setup' : 'Connect GitHub / Remote'}
           </button>
 
           <button 
@@ -411,14 +433,12 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
             <strong>Error: </strong> {error}
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {(error.includes('No remote') || error.includes('credential') || error.includes('authentication') || !status.hasRemote) && (
-              <button 
-                style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xs)', padding: '2px 8px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
-                onClick={() => { setRemoteInputUrl(status.remoteUrl || ''); setShowRemoteModal(true); }}
-              >
-                Configure Remote
-              </button>
-            )}
+            <button 
+              style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xs)', padding: '2px 8px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+              onClick={() => { setRemoteInputUrl(status?.remoteUrl || ''); setShowRemoteModal(true); }}
+            >
+              Configure Remote
+            </button>
             <button 
               style={{ background: 'transparent', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.9rem', padding: '0 4px' }}
               onClick={() => setError(null)}
@@ -440,7 +460,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', background: 'var(--color-surface-1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', padding: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', margin: 0, fontWeight: 600 }}>
-                Files ({status.files.length})
+                Files ({status?.files.length || 0})
               </h3>
               {unstagedFiles.length > 0 && (
                 <button 
@@ -453,12 +473,12 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflowY: 'auto' }}>
-              {status.files.length === 0 && (
+              {status?.files.length === 0 && (
                 <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic', padding: '16px 0', textAlign: 'center' }}>
                   No working tree changes
                 </div>
               )}
-              {status.files.map(f => {
+              {status?.files.map(f => {
                 const isSelected = selectedFile === f.file;
                 
                 let badge = 'M';
@@ -566,7 +586,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                 </>
               ) : (
                 <button 
-                  className={(status.ahead || status.behind) ? "btn-primary" : ""} 
+                  className={(status?.ahead || status?.behind) ? "btn-primary" : ""} 
                   style={{ 
                     padding: '10px 16px', 
                     fontWeight: 600, 
@@ -577,9 +597,9 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                     justifyContent: 'center',
                     gap: '8px',
                     opacity: isSyncing ? 0.7 : 1,
-                    background: (status.ahead || status.behind) ? 'var(--color-accent-primary)' : 'var(--color-surface-2)',
-                    color: (status.ahead || status.behind) ? '#ffffff' : 'var(--color-text-secondary)',
-                    border: (status.ahead || status.behind) ? 'none' : '1px solid var(--color-border-subtle)',
+                    background: (status?.ahead || status?.behind) ? 'var(--color-accent-primary)' : 'var(--color-surface-2)',
+                    color: (status?.ahead || status?.behind) ? '#ffffff' : 'var(--color-text-secondary)',
+                    border: (status?.ahead || status?.behind) ? 'none' : '1px solid var(--color-border-subtle)',
                     borderRadius: 'var(--radius-sm)',
                     cursor: isSyncing ? 'not-allowed' : 'pointer'
                   }} 
@@ -594,14 +614,14 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                       </svg>
                       <span>Syncing...</span>
                     </>
-                  ) : (status.ahead || status.behind) ? (
+                  ) : (status?.ahead || status?.behind) ? (
                     <>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21.5 2v6h-6M2.5 22v-6h6" />
                         <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M2.5 16l1.2 1.8a10 10 0 0 0 18.8-4.3" />
                       </svg>
                       <span>
-                        Sync Changes{status.ahead && status.ahead > 0 ? ` ${status.ahead} ↑` : ''}{status.behind && status.behind > 0 ? ` ${status.behind} ↓` : ''}
+                        Sync Changes{status?.ahead && status.ahead > 0 ? ` ${status.ahead} ↑` : ''}{status?.behind && status.behind > 0 ? ` ${status.behind} ↓` : ''}
                       </span>
                     </>
                   ) : (
@@ -758,7 +778,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       {/* GitHub / Remote Repository Configuration Modal */}
       {showRemoteModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--color-surface-1)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)', width: '480px', maxWidth: '90vw', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: 'var(--color-surface-1)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)', width: '520px', maxWidth: '90vw', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -775,14 +795,39 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
               </button>
             </div>
 
+            {error && (
+              <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--color-state-error)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: 1.4 }}>
+                {error}
+              </div>
+            )}
+
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
               Link your local repository to GitHub, GitLab, or any remote Git host by configuring the <code>origin</code> remote URL.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)' }}>
-                Remote Repository URL (HTTPS or SSH)
-              </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)' }}>
+                  Remote Repository URL
+                </label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button 
+                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xs)', padding: '2px 6px', fontSize: '0.7rem', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+                    onClick={handleFormatSsh}
+                    title="Format as SSH git@github.com:owner/repo.git"
+                  >
+                    Format SSH
+                  </button>
+                  <button 
+                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xs)', padding: '2px 6px', fontSize: '0.7rem', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+                    onClick={handleFormatPat}
+                    title="Format as HTTPS PAT https://TOKEN@github.com/owner/repo.git"
+                  >
+                    Format PAT
+                  </button>
+                </div>
+              </div>
+
               <input 
                 type="text"
                 style={{ 
@@ -795,14 +840,18 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                   fontSize: '0.85rem',
                   boxSizing: 'border-box'
                 }}
-                placeholder="https://github.com/username/repository.git"
+                placeholder="https://github.com/username/repository.git or git@github.com:username/repository.git"
                 value={remoteInputUrl}
                 onChange={(e) => setRemoteInputUrl(e.target.value)}
               />
             </div>
 
             <div style={{ background: 'var(--color-surface-2)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
-              <strong>Authentication Note:</strong> Standard Git CLI protocols apply. Asterim uses your local <code>ssh-agent</code> or Git Credential Manager to push commits securely.
+              <strong>Non-Interactive Authentication Guide:</strong>
+              <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                <li><strong>HTTPS with Token:</strong> Use <code>https://YOUR_GITHUB_TOKEN@github.com/username/repo.git</code></li>
+                <li><strong>SSH Keys:</strong> Use <code>git@github.com:username/repo.git</code> with standard SSH keys (e.g. <code>ssh-add</code>).</li>
+              </ul>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>

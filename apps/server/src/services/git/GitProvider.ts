@@ -14,7 +14,13 @@ export class GitProvider {
         throw new Error('GitProvider can only execute git commands.');
       }
       
-      const { stdout } = await execAsync(command, { cwd });
+      const env = {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new'
+      };
+
+      const { stdout } = await execAsync(command, { cwd, env });
       return stdout.trim();
     } catch (error: any) {
       // Special case for git diff --no-index which exits with code 1 when diff exists
