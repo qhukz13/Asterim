@@ -128,7 +128,57 @@
   - [x] Create `docs/phase4-5-refinement-plan.md` (Prioritized P0, P1, P2 implementation plan).
   - [x] Implement P0: Consolidate design tokens in `index.css`, eliminate ad-hoc inline styles, consolidate redundant card containers, upgrade interactive product demos.
   - [x] Implement P1: Polish `DownloadPage.tsx` platform layout, refine `DocsPage.tsx` documentation reader UX, exercise color restraint.
-  - [x] Implement P2: Accessibility focus rings (`:focus-visible`), ARIA attributes, build validation (`pnpm --filter @asterim/marketing build`).
+- [x] **PR 9: Pre-Phase-5 Pre-Release Audit & Final Verification**
+  - [x] Create `docs/pre-phase5-audit.md` (Full independent audit of routes, product truth, legal readiness, SaaS backend, and golden loop).
+  - [x] Verify full monorepo build (`pnpm build` passed 6/6 packages in 13.4s).
+  - [x] Record `DEC-018` in `decisions.md`.
+  - [x] Certify Phase 5 status: **READY TO BEGIN PHASE 5**.
+
+- [x] **PR 10: Website Experience Audit & Overhaul Plan**
+  - [x] Create `docs/phase4-5-experience-audit.md` (Score card, generic pattern audit, interaction audit, animation audit).
+  - [x] Create `docs/phase4-5-experience-overhaul.md` (Hero interactive topology, multi-state simulator, visual language, responsive strategy).
+  - [x] Record `DEC-019` in `decisions.md`.
+
+- [x] **PR 11: Hero Interactive Control Plane Topology Visualizer**
+  - [x] Build interactive topology node pipeline (`Environment Scope` -> `Agent Subprocess` -> `AST Security Guard` -> `Clearance / Execution`).
+  - [x] Embed interactive topology component directly into `HeroSection.tsx`.
+
+- [x] **PR 12: Multi-State Workstation Control Simulator**
+  - [x] Upgrade `AgentStreamTab.tsx` to an interactive state machine (`IDLE` -> `RUNNING` -> `TOOL CALL` -> `SECURITY CHECK` -> `COMPLETED`) with step controls.
+  - [x] Upgrade `SecurityGuardTab.tsx` to an interactive AST hazard inspector with selectable test commands (`rm -rf`, `git commit`, `curl | bash`) and live clearance state.
+  - [x] Upgrade `EnvironmentTab.tsx` to an interactive scope switcher updating file trees, scoped secrets, and MCP tools in real time.
+  - [x] Upgrade `MobileTunnelTab.tsx` to an interactive remote push approval request simulator resolving agent execution.
+
+- [x] **PR 13: Narrative Storytelling & Layout Restraint**
+  - [x] Refine `WhyAsterimSection.tsx`, `ProblemSolutionSection.tsx`, `CapabilitiesGrid.tsx`, and `PlatformMatrixSection.tsx` into open, architecture-driven narrative panels.
+
+- [x] **PR 14: Mobile UX, Accessibility & Design Tokens Polish**
+  - [x] Refine mobile drawer, responsive topology visualizer layout, `:focus-visible` focus rings, and ARIA attributes.
+
+- [x] **PR 16: Corrective Visual Audit & Redesign Strategy Plan**
+  - [x] Create `docs/phase4-5-corrective-audit.md` (Diagnostic of widget tunnel vision, card overload, abstract diagrams, static motion).
+  - [x] Create `docs/phase4-5-experience-redesign.md` (8-act narrative, authentic UI compositions, removal list, component architecture).
+  - [x] Record `DEC-020` in `decisions.md`.
+
+- [ ] **PR 17: Hero Authentic Workstation UI Shell Composition**
+  - [ ] Remove abstract 4-node topology diagram and micro-inspector trivia panels from `HeroSection.tsx`.
+  - [ ] Construct a large, crisp, realistic composition of the **Asterim Workstation UI Shell** (`apps/web`) with active environment selector, project file tree, PTY stream, and code diff view.
+
+- [ ] **PR 18: Immersive Agent in Action Workflow Engine**
+  - [ ] Build 5-step interactive workflow demo (`Agent -> Tool Action -> Code Diff -> Security Approval Request -> Execution Completed`) in `InteractiveProductDemo.tsx`.
+  - [ ] Eliminate decorative trivia counters (`PID 4912`, `RAM 42MB`, `60 FPS / 16ms`).
+
+- [ ] **PR 19: Authentic Environment & AST Security Demos**
+  - [ ] Rebuild `EnvironmentTab.tsx` as an authentic scope switcher (`Personal`, `Company`, `Client`) updating workspace paths, scoped API keys, attached MCP tools, and file access policies.
+  - [ ] Rebuild `SecurityGuardTab.tsx` as an interactive AST command reviewer with real bash command syntax tree and clearance controls.
+
+- [ ] **PR 20: 8-Act Scroll Narrative & Multi-Surface Composition**
+  - [ ] Refine section transitions, open typography-driven layouts, and full-width multi-surface ecosystem composition (`Desktop -> Web -> Mobile`).
+  - [ ] Polish `:focus-visible` focus rings, ARIA roles, and mobile viewports (< 768px).
+
+- [ ] **PR 21: Monorepo Build Verification & Human Quality Check**
+  - [ ] Run `pnpm build` across all 6 monorepo packages.
+  - [ ] Perform human QA verification against Cursor/Vercel/Linear presentation standards.
 
 ---
 

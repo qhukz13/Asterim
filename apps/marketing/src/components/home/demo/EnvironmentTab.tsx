@@ -1,110 +1,133 @@
 import React, { useState } from 'react';
-import { Lock, Server } from 'lucide-react';
+import { Lock, Server, FolderCheck, Key } from 'lucide-react';
 
 export const EnvironmentTab: React.FC = () => {
-  const [selectedPreset, setSelectedPreset] = useState<'personal' | 'company' | 'client'>('company');
-
   const presets = [
     {
       id: 'personal',
       name: 'Personal (Local)',
-      desc: 'Single developer side projects with local LLM models (Ollama, vLLM).',
-      secrets: '2 Scoped Secrets',
-      mcp: '1 Stdio MCP Server',
-      paths: ['~/Projects/asterim', '~/Projects/personal-blog'],
+      path: '~/Projects/side-apps',
+      secrets: 'Local Ollama & Open-Source LLMs (Offline)',
+      mcp: 'FileSystem MCP, SQLite MCP',
+      access: 'Full Local File System Access',
+      leakRisk: '0% (Offline Engine)',
     },
     {
       id: 'company',
       name: 'Company (Enterprise)',
-      desc: 'Corporate repositories with SAML identity, attached team MCP servers, and audit streams.',
-      secrets: '6 Encrypted Enterprise Secrets',
-      mcp: '4 SSE/Stdio MCP Servers',
-      paths: ['/work/corporate-monorepo', '/work/api-gateway'],
+      nameTag: 'ACTIVE DEMO',
+      path: '/home/dev/work/asterim-monorepo',
+      secrets: 'Enterprise Anthropic API Key (Vault Encrypted)',
+      mcp: 'PostgreSQL MCP, GitHub MCP, Sentry MCP',
+      access: 'Scoped Repository Boundary Only',
+      leakRisk: 'Zero Key Leak Guarantee',
     },
     {
       id: 'client',
       name: 'Client (Sandbox)',
-      desc: 'Strict client boundary with isolated workspace keys and restricted shell permissions.',
-      secrets: '3 Sandboxed Client Secrets',
-      mcp: '2 Restricted MCP Servers',
-      paths: ['/clients/acme-corp/app'],
+      path: '/mnt/sandboxes/client-audit',
+      secrets: 'Ephemeral Client OAuth Token (Session-Scoped)',
+      mcp: 'Read-Only Audit MCP',
+      access: 'Read-Only Memory & Strict Container Boundary',
+      leakRisk: 'Isolated Sandbox Container',
+    },
+    {
+      id: 'experimental',
+      name: 'Experimental',
+      path: '/tmp/asterim-experiments',
+      secrets: 'Local Test Keys Only',
+      mcp: 'Custom Python Agent Skills MCP',
+      access: 'Restricted Temp Workspace',
+      leakRisk: 'Transient Storage Only',
     },
   ];
 
-  const current = presets.find((p) => p.id === selectedPreset)!;
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('company');
+  const activePreset = presets.find((p) => p.id === selectedPresetId) || presets[1];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Scope Switcher Tabs */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Scope Switcher Bar */}
+      <div>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
+          Select Environment Profile Preset:
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
           {presets.map((preset) => {
-            const isActive = selectedPreset === preset.id;
+            const isSelected = selectedPresetId === preset.id;
             return (
               <button
                 key={preset.id}
-                onClick={() => setSelectedPreset(preset.id as any)}
+                onClick={() => setSelectedPresetId(preset.id)}
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  background: isActive ? 'var(--accent-green-bg)' : '#04070d',
-                  border: isActive ? '1px solid var(--border-accent)' : '1px solid var(--border-subtle)',
-                  color: isActive ? 'var(--accent-green-hover)' : '#94a3b8',
-                  fontWeight: isActive ? 600 : 500,
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: isSelected ? 'var(--accent-green-bg)' : '#04070d',
+                  border: `1px solid ${isSelected ? 'var(--border-accent)' : 'var(--border-subtle)'}`,
+                  color: isSelected ? 'var(--accent-green-hover)' : 'var(--text-secondary)',
                   fontSize: '0.85rem',
+                  fontWeight: isSelected ? 700 : 500,
                   cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                 }}
               >
-                {preset.name}
+                <span>{preset.name}</span>
+                {isSelected && <span className="status-badge available" style={{ fontSize: '0.6rem' }}>ACTIVE</span>}
               </button>
             );
           })}
         </div>
-
-        <span className="status-badge available" style={{ fontSize: '0.7rem' }}>
-          AVAILABLE NOW
-        </span>
       </div>
 
-      {/* Preset Details Surface Card */}
+      {/* Preset Details Grid */}
       <div
         style={{
           background: '#04070d',
           border: '1px solid var(--border-subtle)',
-          borderRadius: '10px',
-          padding: '24px',
+          borderRadius: 'var(--radius-sm)',
+          padding: '20px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: '24px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '20px',
+          fontSize: '0.88rem',
         }}
       >
         <div>
-          <h4 style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.05rem', marginBottom: '8px' }}>
-            {current.name} Context Scope
-          </h4>
-          <p style={{ color: '#94a3b8', fontSize: '0.88rem', lineHeight: 1.5, marginBottom: '16px' }}>
-            {current.desc}
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem', color: '#cbd5e1' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Lock size={14} style={{ color: 'var(--accent-green)' }} /> {current.secrets}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Server size={14} style={{ color: '#38bdf8' }} /> {current.mcp}
-            </div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <FolderCheck size={14} style={{ color: 'var(--accent-green)' }} /> Workspace Root Boundary
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', fontWeight: 600 }}>
+            {activePreset.path}
           </div>
         </div>
 
         <div>
-          <div style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
-            Attached Workspace Paths:
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Key size={14} style={{ color: '#38bdf8' }} /> Scoped API Credentials
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: '#34d399' }}>
-            {current.paths.map((path, idx) => (
-              <div key={idx} style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
-                {path}
-              </div>
-            ))}
+          <div style={{ color: 'var(--accent-green-hover)', fontWeight: 600 }}>
+            {activePreset.secrets}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Server size={14} style={{ color: '#a855f7' }} /> Attached MCP Tools
+          </div>
+          <div style={{ color: '#cbd5e1' }}>
+            {activePreset.mcp}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Lock size={14} style={{ color: '#f59e0b' }} /> Security & Leak Risk
+          </div>
+          <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+            {activePreset.leakRisk}
           </div>
         </div>
       </div>

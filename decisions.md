@@ -41,6 +41,42 @@
   2. **Restrained Color Palette**: Limit emerald green accent (`#10b981`) to primary CTAs, active tab highlights, and live execution status indicators. Reduce glow opacities to 4-6%.
   3. **High-Fidelity Interactive Demos**: Replace decorative mockups with authentic representations of real Asterim Workstation UI components (`apps/web`).
   4. **Card Container Consolidation**: Merge redundant sections (`WhyAsterimSection` and `ProblemSolutionSection`) into a unified 2-column control plane architecture showcase.
+---
+
+## DEC-018: Pre-Phase-5 Pre-Release Audit & Final Verification
+
+* **Date**: August 11, 2026
+* **Status**: Approved Audit Verdict — READY TO BEGIN PHASE 5
+* **Context**: Prior to initiating Phase 5 (SaaS Foundation & Beta Release), a mandatory independent audit (`docs/pre-phase5-audit.md`) was conducted across all 6 monorepo packages, routes, product claims, backend security, legal checklists, and core execution loop integration.
+* **Decision**: Formally certify Phase 4.5 as 100% complete and declare the repository ready to enter Phase 5.
+* **Key Audit Findings**:
+  1. **Marketing & Routes Verification**: All routes (`/`, `/pricing`, `/docs`, `/download`, `/account/*`) built, verified, and tagged with explicit capability status badges.
+  2. **Product Truth Contract**: Marketing claims audited against `apps/server` and `apps/web` implementations. No false production claims allowed.
+  3. **Golden Execution Loop**: Agent -> EventBus -> WebSocket -> Workstation UI -> Approval -> Resume loop verified working.
+  4. **Monorepo Build Integrity**: Full Turbo build (`pnpm build`) compiled cleanly across all 6 packages in 13.4s with 0 errors.
+---
+
+## DEC-019: Phase 4.5 Experience Overhaul & Interactive Control Plane Simulator Strategy
+
+* **Date**: August 11, 2026
+* **Status**: Approved Strategy & Product Presentation Standard
+* **Context**: User directed a final experience overhaul to elevate `@asterim/marketing` from a static functional website to a distinctive, interactive product experience that teaches Asterim's control-plane architecture through meaningful interaction.
+* **Decision**: Shift from static SaaS marketing patterns to an interactive product-led experience:
+  1. **Hero Control Plane Interactive Topology**: Embed an interactive topology visualizer directly in the hero showing `Environment -> Agent -> Security -> Clearance`.
+  2. **Multi-State Workstation Simulator**: Build interactive state engines for Agent Execution (`IDLE` -> `RUNNING` -> `TOOL CALL` -> `SECURITY CHECK` -> `COMPLETED`), AST Command Hazard Inspector (with selectable risk commands and Approve/Reject clearance), Scope Switcher (Personal, Company, Client), and E2E Remote Relay Push Approval.
+  3. **Visual Architecture Primitives**: Derive visual concepts directly from Asterim's architecture (process trees, AST path bounds, control topology grids).
+---
+
+## DEC-020: Phase 4.5 Corrective Experience Redesign — Product-First Presentation
+
+* **Date**: August 11, 2026
+* **Status**: Approved Strategy & Presentation Standard
+* **Context**: Critical product design audit (`docs/phase4-5-corrective-audit.md`) established that widget-heavy panels, dense metrics (`PID 4912`, `RAM 42MB`), abstract topology node inspector grids, and rounded card overload made the marketing site feel like an AI-generated SaaS template rather than a premium developer product like Cursor, Linear, or Raycast.
+* **Decision**: Adopt a **Product-First Experience Architecture** (`docs/phase4-5-experience-redesign.md`):
+  1. **Realistic Workstation UI Shell in Hero**: Replace abstract node diagrams with a large, crisp, realistic composition of the actual Asterim Workstation interface (`apps/web`).
+  2. **Cinematic 8-Act Narrative Flow**: Replace 3-column card grids with a progressive visual story (`Hero -> Chaos Problem -> Agent in Action Workflow -> Environment Isolation -> AST Security Guard -> Multi-Surface Ecosystem -> Privacy Guarantee -> Quickstart`).
+  3. **Immersive Workflow Demo**: Replace button/text toggle boxes with a 5-step interactive workflow (`Agent -> Tool Action -> Code Diff -> Security Approval Request -> Execution Completed`).
+  4. **Eliminate Widget Noise**: Remove decorative counters, dense trivia panels, unanchored radial background glows, and repetitive card borders.
 * **Impact**:
-  - `docs/phase4-5-website-audit.md` and `docs/phase4-5-refinement-plan.md` created.
-  - `@asterim/marketing` design system consolidated and polished to professional developer tool standards.
+  - `docs/phase4-5-corrective-audit.md` and `docs/phase4-5-experience-redesign.md` created.
+  - `@asterim/marketing` experience redesigned to premium developer product standards.
