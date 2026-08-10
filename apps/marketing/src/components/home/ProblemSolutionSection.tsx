@@ -1,145 +1,140 @@
 import React from 'react';
-import { ArrowRight, ShieldCheck, Zap, Layers } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Zap, Layers, AlertTriangle } from 'lucide-react';
 
 export const ProblemSolutionSection: React.FC = () => {
   const workflows = [
     {
-      problem: 'Juggling detached agent processes across multiple terminal tabs',
-      solution: 'Unified process tree manager with PID tracking and zombie process sweepers',
-      result: '0 orphaned processes and 100% agent lifecycle visibility',
+      problem: 'Juggling detached agent processes across multiple unmonitored terminal tabs',
+      solution: 'Unified process tree manager with PID tracking, SIGTERM cascading shutdown, and zombie sweepers',
+      result: '0 orphaned processes & 100% execution state visibility',
+      status: 'AVAILABLE NOW',
       icon: Zap,
     },
     {
-      problem: 'Agents executing destructive commands or escaping workspace directories',
-      solution: 'Real-time AST syntax scanner and sandbox path traversal protection',
-      result: 'Unvetted commands intercepted before touching file system',
+      problem: 'Agents executing destructive commands or escaping workspace directory boundaries',
+      solution: 'Real-time AST syntax parser blocking hazardous patterns before shell execution',
+      result: 'Destructive commands intercepted before touching file system',
+      status: 'AVAILABLE NOW',
       icon: ShieldCheck,
     },
     {
-      problem: 'Leaking client API keys or mixing configurations between projects',
-      solution: 'Isolated environment presets (Personal, Company, Client) with scoped secrets',
-      result: 'Zero secret leakage and strict project boundary isolation',
+      problem: 'Leaking client API keys or mixing environment credentials across projects',
+      solution: 'Isolated workspace presets (Personal, Company, Client) with scoped credentials & MCP servers',
+      result: 'Zero key leaks & strict client repository isolation',
+      status: 'AVAILABLE NOW',
       icon: Layers,
     },
   ];
 
   return (
-    <section
-      style={{
-        padding: '80px 24px',
-        maxWidth: '1240px',
-        margin: '0 auto',
-        width: '100%',
-      }}
-    >
-      <div style={{ textAlign: 'center', marginBottom: '56px' }}>
-        <div
-          style={{
-            fontSize: '0.85rem',
-            fontWeight: 700,
-            color: '#10b981',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-            marginBottom: '12px',
-          }}
-        >
-          Workflow Engineering
-        </div>
-        <h2
-          style={{
-            fontSize: 'clamp(2rem, 3.5vw, 2.75rem)',
-            fontWeight: 800,
-            color: '#ffffff',
-            letterSpacing: '-0.02em',
-            marginBottom: '16px',
-          }}
-        >
-          Built to Solve Agent Friction
-        </h2>
-        <p style={{ color: '#94a3b8', fontSize: '1.1rem', maxWidth: '620px', margin: '0 auto' }}>
-          Every feature in Asterim directly transforms an operational agent risk into a hardened engineering advantage.
+    <section className="marketing-section">
+      <div className="section-header">
+        <span className="section-tag">Workflow Engineering</span>
+        <h2 className="section-title">Built to Solve Agent Friction</h2>
+        <p className="section-lead">
+          Every feature in Asterim directly transforms an operational agent hazard into a hardened engineering advantage.
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '1080px', margin: '0 auto' }}>
         {workflows.map((item, idx) => {
           const Icon = item.icon;
           return (
             <div
               key={idx}
+              className="surface-card workflow-card"
               style={{
-                background: '#0f172a',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '16px',
-                padding: '28px 32px',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gridTemplateColumns: 'minmax(260px, 1fr) auto minmax(300px, 1.2fr)',
                 alignItems: 'center',
                 gap: '24px',
-                transition: 'border-color 0.2s ease',
+                padding: '20px 24px',
               }}
             >
               {/* Problem Column */}
-              <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
                 <div
                   style={{
                     width: '36px',
                     height: '36px',
-                    borderRadius: '10px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#f87171',
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
                     flexShrink: 0,
+                    marginTop: '2px',
                   }}
                 >
-                  ERR
+                  <AlertTriangle size={18} />
                 </div>
                 <div>
-                  <div style={{ color: '#f87171', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>
-                    The Problem
+                  <div style={{ color: '#f87171', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.04em' }}>
+                    The Agent Hazard
                   </div>
-                  <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '1rem', lineHeight: 1.5 }}>
+                  <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.92rem', lineHeight: 1.45 }}>
                     {item.problem}
                   </div>
                 </div>
               </div>
 
-              {/* Arrow Indicator */}
-              <div style={{ display: 'flex', justifyContent: 'center', color: '#10b981' }}>
-                <ArrowRight size={20} />
+              {/* Arrow Connector Circle */}
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <div
+                  className="workflow-arrow-badge"
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    background: 'var(--accent-green-bg)',
+                    border: '1px solid var(--border-accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-green-hover)',
+                    flexShrink: 0,
+                    boxShadow: '0 0 16px rgba(16, 185, 129, 0.12)',
+                  }}
+                  title="Transforms into Asterim Solution"
+                >
+                  <ArrowRight size={22} />
+                </div>
               </div>
 
               {/* Solution & Result Column */}
-              <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
                 <div
                   style={{
                     width: '36px',
                     height: '36px',
-                    borderRadius: '10px',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--accent-green-bg)',
+                    border: '1px solid var(--border-accent)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#10b981',
+                    color: 'var(--accent-green)',
                     flexShrink: 0,
+                    marginTop: '2px',
                   }}
                 >
                   <Icon size={18} />
                 </div>
                 <div>
-                  <div style={{ color: '#34d399', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Asterim Solution
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ color: 'var(--accent-green-hover)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Asterim Solution
+                    </span>
+                    <span className="status-badge available" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
+                      {item.status}
+                    </span>
                   </div>
-                  <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.98rem', marginBottom: '4px' }}>
+                  <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.92rem', lineHeight: 1.45, marginBottom: '4px' }}>
                     {item.solution}
                   </div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.4 }}>
                     💡 Result: {item.result}
                   </div>
                 </div>

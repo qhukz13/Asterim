@@ -64,9 +64,9 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
         {/* Docs Sidebar */}
         <aside
           style={{
-            background: '#0f172a',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
             padding: '20px',
             position: 'sticky',
             top: '100px',
@@ -79,7 +79,7 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
           <div style={{ position: 'relative' }}>
             <Search
               size={16}
-              style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}
+              style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
             />
             <input
               type="text"
@@ -89,10 +89,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
               style={{
                 width: '100%',
                 padding: '8px 12px 8px 36px',
-                borderRadius: '8px',
+                borderRadius: 'var(--radius-sm)',
                 background: '#04070d',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                color: '#f8fafc',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
                 fontSize: '0.85rem',
                 outline: 'none',
               }}
@@ -106,7 +106,7 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
               if (groupTopics.length === 0) return null;
               return (
                 <div key={group}>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', paddingLeft: '8px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', paddingLeft: '8px' }}>
                     {group}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -122,10 +122,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             padding: '8px 12px',
-                            borderRadius: '6px',
-                            background: isActive ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
-                            border: isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid transparent',
-                            color: isActive ? '#34d399' : '#94a3b8',
+                            borderRadius: 'var(--radius-sm)',
+                            background: isActive ? 'var(--accent-green-bg)' : 'transparent',
+                            border: isActive ? '1px solid var(--border-accent)' : '1px solid transparent',
+                            color: isActive ? 'var(--accent-green-hover)' : 'var(--text-secondary)',
                             fontSize: '0.88rem',
                             fontWeight: isActive ? 600 : 500,
                             cursor: 'pointer',
@@ -133,10 +133,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
                           }}
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Icon size={16} style={{ color: isActive ? '#10b981' : '#64748b' }} />
+                            <Icon size={16} style={{ color: isActive ? 'var(--accent-green)' : 'var(--text-muted)' }} />
                             {t.label}
                           </span>
-                          {isActive && <ChevronRight size={14} style={{ color: '#10b981' }} />}
+                          {isActive && <ChevronRight size={14} style={{ color: 'var(--accent-green)' }} />}
                         </button>
                       );
                     })}
@@ -150,9 +150,9 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
         {/* Content Viewer Main Body */}
         <main
           style={{
-            background: '#0f172a',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
             padding: '40px',
             color: '#cbd5e1',
             lineHeight: 1.7,
@@ -161,36 +161,36 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
         >
           {activeTopic === 'quickstart' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 Quickstart Guide
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Get Asterim installed and start your first autonomous AI agent session in under 2 minutes.
               </p>
 
-              <h2 style={{ fontSize: '1.4rem', color: '#f8fafc', margin: '32px 0 16px' }}>1. Global Installation</h2>
+              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>1. Global Installation</h2>
               <p>Install the Asterim CLI globally via NPM:</p>
               <pre style={codeStyle}>npm install -g asterim</pre>
 
-              <h2 style={{ fontSize: '1.4rem', color: '#f8fafc', margin: '32px 0 16px' }}>2. Initialize Workstation</h2>
+              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>2. Initialize Workstation</h2>
               <p>Start the local workstation daemon on default port 3000:</p>
               <pre style={codeStyle}>asterim start</pre>
 
-              <h2 style={{ fontSize: '1.4rem', color: '#f8fafc', margin: '32px 0 16px' }}>3. Launch Desktop or Web UI</h2>
-              <p>Open your browser at <code>http://localhost:3000</code> or open the Asterim Desktop App shell.</p>
+              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>3. Launch Desktop or Web UI</h2>
+              <p>Open your browser at <code>http://localhost:3000</code> or launch the Asterim Desktop App shell.</p>
             </div>
           )}
 
           {activeTopic === 'what-is-asterim' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 What is Asterim?
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Asterim is a local-first AI engineering operating system and control plane designed specifically for developers who direct autonomous AI coding agents.
               </p>
 
-              <h2 style={{ fontSize: '1.4rem', color: '#f8fafc', margin: '24px 0 16px' }}>Core Philosophy</h2>
+              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '24px 0 16px' }}>Core Philosophy</h2>
               <p>
                 Unlike traditional IDE extensions that rely on inline code suggestions, Asterim manages the complete subprocess lifecycle, terminal backpressure, real-time command security, and environment credential isolation.
               </p>
@@ -199,13 +199,13 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'environments' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 Environments & Workspace Isolation
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Prevent credential leaks and isolate agent profiles across different projects.
               </p>
-              <h2 style={{ fontSize: '1.4rem', color: '#f8fafc', margin: '24px 0 16px' }}>Presets Overview</h2>
+              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '24px 0 16px' }}>Presets Overview</h2>
               <ul>
                 <li><strong>Personal (Local):</strong> Streamlined UX for single-developer side projects.</li>
                 <li><strong>Company (Enterprise):</strong> Attached team MCP servers, RBAC governance, and audit streams.</li>
@@ -216,10 +216,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'agents' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 AI Agent Subprocesses
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Process tree management, PTY output backpressure throttling, and exponential backoff crash recovery.
               </p>
             </div>
@@ -227,10 +227,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'security' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 AST Command Security Guard
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Real-time shell AST syntax scanning and sandbox path traversal protection.
               </p>
             </div>
@@ -238,10 +238,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'mcp-skills' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 MCP Tools & Skills
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Model Context Protocol configuration and reusable task skill definitions.
               </p>
             </div>
@@ -249,10 +249,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'architecture' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 System Architecture
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Decoupled Core Engine, Agent Adapters, Client Shell, and Cloud Identity boundaries.
               </p>
             </div>
@@ -260,10 +260,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'cli' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 CLI Command Reference
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '32px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
                 Complete reference guide for the <code>asterim</code> command-line utility.
               </p>
               <pre style={codeStyle}>asterim start --port 3000</pre>
@@ -272,10 +272,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'privacy' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 Privacy Policy
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '24px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
                 Asterim is designed with strict local-first data boundaries.
               </p>
               <p>Your source code, AST indexes, terminal outputs, and prompt logs remain 100% local to your machine unless routed through explicit user-configured relay tunnels.</p>
@@ -284,10 +284,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'terms' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 Terms of Service
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '24px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
                 Terms governing public usage of asterim.dev identity services and software downloads.
               </p>
             </div>
@@ -295,10 +295,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
 
           {activeTopic === 'license' && (
             <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px' }}>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
                 Open Source MIT License
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: '24px' }}>
+              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
                 Copyright (c) 2026 Asterim Authors.
               </p>
               <pre style={codeStyle}>
@@ -318,11 +318,11 @@ copies of the Software.`}
 
 const codeStyle: React.CSSProperties = {
   background: '#04070d',
-  border: '1px solid rgba(255, 255, 255, 0.1)',
-  borderRadius: '8px',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--radius-sm)',
   padding: '16px 20px',
   fontFamily: 'var(--font-mono)',
-  color: '#34d399',
+  color: 'var(--accent-green-hover)',
   fontSize: '0.9rem',
   overflowX: 'auto',
   margin: '16px 0 24px',

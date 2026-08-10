@@ -29,3 +29,18 @@
   - `docs/phase4-5-roadmap.md` updated to Version 2.0.0.
   - `tasks.md` updated with PR 0 through PR 7 sequence.
 
+---
+
+## DEC-017: Phase 4.5 Professional Website Audit & Visual Design System Refinement
+
+* **Date**: August 11, 2026
+* **Status**: Approved Strategy & Design System Standard
+* **Context**: Following initial Phase 4.5 PR 0-7 implementation, a full professional UX audit (`docs/phase4-5-website-audit.md`) revealed visual design and structural patterns (card overuse, ad-hoc inline styles, overused green glows) that made the site look like an AI-generated template rather than a mature developer product comparable to Cursor, Linear, or Vercel.
+* **Decision**: Adopt the "Remove before adding" principle and establish a unified visual design system in `apps/marketing/src/index.css`:
+  1. **Consolidated Design Tokens**: Enforce CSS variables for surface elevations, neutral borders (`rgba(255,255,255,0.06)`), and structured typography.
+  2. **Restrained Color Palette**: Limit emerald green accent (`#10b981`) to primary CTAs, active tab highlights, and live execution status indicators. Reduce glow opacities to 4-6%.
+  3. **High-Fidelity Interactive Demos**: Replace decorative mockups with authentic representations of real Asterim Workstation UI components (`apps/web`).
+  4. **Card Container Consolidation**: Merge redundant sections (`WhyAsterimSection` and `ProblemSolutionSection`) into a unified 2-column control plane architecture showcase.
+* **Impact**:
+  - `docs/phase4-5-website-audit.md` and `docs/phase4-5-refinement-plan.md` created.
+  - `@asterim/marketing` design system consolidated and polished to professional developer tool standards.

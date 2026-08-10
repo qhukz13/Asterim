@@ -115,13 +115,20 @@
   - [x] Create `DownloadPage.tsx` with OS support matrix and CLI instructions.
   - [x] Create `DocsPage.tsx` lightweight documentation viewer covering 8 core guides (Quickstart, What is Asterim?, Environments, AI Agents, Security, MCP & Skills, Architecture, CLI).
 
-- [ ] **PR 6: Responsive UX, Mobile Polish & Accessibility Audit**
-  - [ ] Refine mobile CSS media queries in `index.css`.
-  - [ ] Audit ARIA attributes, touch targets, and keyboard navigation.
+- [x] **PR 6: Responsive UX, Mobile Polish & Accessibility Audit**
+  - [x] Refine mobile CSS media queries in `index.css`.
+  - [x] Audit ARIA attributes, touch targets, and keyboard navigation.
 
-- [ ] **PR 7: Final Polish, Production Verification & Build Validation**
-  - [ ] Run end-to-end production build (`pnpm --filter @asterim/marketing build`).
-  - [ ] Verify 0 TypeScript/ESLint errors across marketing app.
+- [x] **PR 7: Final Polish, Production Verification & Build Validation**
+  - [x] Run end-to-end production build (`pnpm --filter @asterim/marketing build`).
+  - [x] Verify 0 TypeScript/ESLint errors across marketing app.
+
+- [x] **PR 8: Professional Website Audit & Refinement Execution**
+  - [x] Create `docs/phase4-5-website-audit.md` (Full visual, typography, spacing, component, demo, and content audit).
+  - [x] Create `docs/phase4-5-refinement-plan.md` (Prioritized P0, P1, P2 implementation plan).
+  - [x] Implement P0: Consolidate design tokens in `index.css`, eliminate ad-hoc inline styles, consolidate redundant card containers, upgrade interactive product demos.
+  - [x] Implement P1: Polish `DownloadPage.tsx` platform layout, refine `DocsPage.tsx` documentation reader UX, exercise color restraint.
+  - [x] Implement P2: Accessibility focus rings (`:focus-visible`), ARIA attributes, build validation (`pnpm --filter @asterim/marketing build`).
 
 ---
 

@@ -7,9 +7,9 @@ export const DownloadPage: React.FC = () => {
     {
       os: 'Linux',
       arch: 'x86_64 / ARM64',
-      badge: 'Available Now',
-      formats: [
-        { label: 'CLI NPM Package', cmd: 'npm install -g asterim', primary: true },
+      badge: 'AVAILABLE NOW',
+      statusClass: 'available',
+      downloads: [
         { label: 'AppImage Portable', cmd: 'wget https://releases.asterim.dev/asterim.AppImage' },
         { label: 'Debian / Ubuntu (.deb)', cmd: 'sudo dpkg -i asterim_0.4.5_amd64.deb' },
       ],
@@ -17,19 +17,19 @@ export const DownloadPage: React.FC = () => {
     {
       os: 'macOS',
       arch: 'Apple Silicon (M1/M2/M3) & Intel',
-      badge: 'Available Now',
-      formats: [
-        { label: 'Homebrew Formula', cmd: 'brew install asterim/tap/asterim', primary: true },
+      badge: 'AVAILABLE NOW',
+      statusClass: 'available',
+      downloads: [
+        { label: 'Homebrew Formula', cmd: 'brew install asterim/tap/asterim' },
         { label: 'Desktop Disk Image (.dmg)', cmd: 'Download asterim-0.4.5.dmg' },
-        { label: 'CLI NPM Package', cmd: 'npm install -g asterim' },
       ],
     },
     {
       os: 'Windows',
       arch: 'x64 / WSL2 Native',
-      badge: 'Available Now',
-      formats: [
-        { label: 'PowerShell / NPM', cmd: 'npm install -g asterim', primary: true },
+      badge: 'AVAILABLE NOW',
+      statusClass: 'available',
+      downloads: [
         { label: 'WSL2 Linux Integration', cmd: 'wsl --install asterim' },
         { label: 'Installer (.exe)', cmd: 'Download asterim-setup-0.4.5.exe' },
       ],
@@ -46,37 +46,19 @@ export const DownloadPage: React.FC = () => {
       }}
     >
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: '56px' }}>
-        <div
-          style={{
-            fontSize: '0.85rem',
-            fontWeight: 700,
-            color: '#10b981',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-            marginBottom: '12px',
-          }}
-        >
-          Cross-Platform Distribution
-        </div>
-        <h1
-          style={{
-            fontSize: 'clamp(2.25rem, 4vw, 3.5rem)',
-            fontWeight: 800,
-            color: '#ffffff',
-            letterSpacing: '-0.02em',
-            marginBottom: '16px',
-          }}
-        >
-          Download Asterim Workstation Engine
-        </h1>
-        <p style={{ color: '#94a3b8', fontSize: '1.15rem', maxWidth: '640px', margin: '0 auto', lineHeight: 1.6 }}>
+      <div className="section-header">
+        <span className="section-tag">Cross-Platform Distribution</span>
+        <h1 className="section-title">Download Asterim Workstation Engine</h1>
+        <p className="section-lead">
           Get started in seconds via global NPM installation or native binary packages for Linux, macOS, and Windows.
         </p>
       </div>
 
       {/* Global CLI Quickstart Banner */}
-      <div style={{ marginBottom: '64px', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ marginBottom: '64px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: 600, textTransform: 'uppercase' }}>
+          Universal Quickstart Command:
+        </div>
         <TerminalCopyBlock command="npm install -g asterim" />
       </div>
 
@@ -91,11 +73,8 @@ export const DownloadPage: React.FC = () => {
         {platforms.map((plat, idx) => (
           <div
             key={idx}
+            className="surface-card"
             style={{
-              background: '#0f172a',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '20px',
-              padding: '36px 32px',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
@@ -105,45 +84,35 @@ export const DownloadPage: React.FC = () => {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Laptop size={22} style={{ color: '#10b981' }} />
-                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc' }}>
+                  <Laptop size={22} style={{ color: 'var(--accent-green)' }} />
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                     {plat.os}
                   </h3>
                 </div>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: '#34d399',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                    padding: '4px 10px',
-                    borderRadius: '12px',
-                  }}
-                >
+                <span className={`status-badge ${plat.statusClass}`}>
                   {plat.badge}
                 </span>
               </div>
 
-              <div style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Cpu size={14} /> Architecture: {plat.arch}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {plat.formats.map((fmt, fIdx) => (
+                {plat.downloads.map((fmt, fIdx) => (
                   <div
                     key={fIdx}
                     style={{
-                      background: fmt.primary ? 'rgba(16, 185, 129, 0.08)' : '#04070d',
-                      border: fmt.primary ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '10px',
-                      padding: '14px 16px',
+                      background: '#04070d',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '12px 16px',
                     }}
                   >
-                    <div style={{ color: fmt.primary ? '#34d399' : '#94a3b8', fontSize: '0.82rem', fontWeight: 600, marginBottom: '6px' }}>
+                    <div style={{ color: 'var(--accent-green-hover)', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
                       {fmt.label}
                     </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: '#f8fafc', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--text-primary)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
                       {fmt.cmd}
                     </div>
                   </div>
@@ -151,8 +120,8 @@ export const DownloadPage: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)', paddingTop: '16px', color: '#94a3b8', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Check size={16} style={{ color: '#10b981' }} /> Automatic shell detection (bash, zsh, powershell, wsl)
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px', color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Check size={16} style={{ color: 'var(--accent-green)' }} /> Automatic shell detection (bash, zsh, powershell, wsl)
             </div>
           </div>
         ))}

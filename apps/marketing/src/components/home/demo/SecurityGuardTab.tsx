@@ -1,103 +1,62 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Check, X, FileDiff, Lock } from 'lucide-react';
+import { ShieldCheck, Check, X } from 'lucide-react';
 
 export const SecurityGuardTab: React.FC = () => {
   const [decision, setDecision] = useState<'pending' | 'approved' | 'rejected'>('pending');
 
   return (
-    <div
-      style={{
-        background: '#0f172a',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '12px',
-        padding: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '20px',
-      }}
-    >
-      {/* Header Banner */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Hazard Header Banner */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              background: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              color: '#34d399',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <ShieldCheck size={16} /> AST Security Evaluation: PASSED
-          </div>
-          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Sandbox Boundary: Strict Workspace Scope</span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.8rem' }}>
-          <Lock size={14} style={{ color: '#10b981' }} /> Path Traversal Sandbox Guard Active
-        </div>
-      </div>
-
-      {/* Evaluated Command Box */}
-      <div
-        style={{
-          background: '#04070d',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '8px',
-          padding: '16px',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.88rem',
-        }}
-      >
-        <div style={{ color: '#64748b', fontSize: '0.78rem', marginBottom: '6px' }}>Proposed Shell Command:</div>
-        <div style={{ color: '#f8fafc', fontWeight: 500 }}>
-          $ pnpm --filter @asterim/server exec node ./scripts/build-sandbox.js --scope=isolated
-        </div>
-      </div>
-
-      {/* Diff Inspector Preview */}
-      <div
-        style={{
-          background: '#04070d',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '8px',
-          padding: '16px',
-          fontSize: '0.85rem',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#38bdf8', marginBottom: '10px', fontWeight: 600 }}>
-          <FileDiff size={16} /> File Mutation Diff Inspection:
-        </div>
-        <div style={{ fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
-          <div style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-            - const enableUnsafeShell = true;
-          </div>
-          <div style={{ color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
-            + const enableUnsafeShell = false; // AST Command Security Enforced
-          </div>
-        </div>
-      </div>
-
-      {/* Decision Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '8px' }}>
-        <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-          Status:{' '}
-          <span
-            style={{
-              color: decision === 'approved' ? '#22c55e' : decision === 'rejected' ? '#f87171' : '#fbbf24',
-              fontWeight: 600,
-            }}
-          >
-            {decision === 'approved' ? 'Command Approved & Executing' : decision === 'rejected' ? 'Execution Intercepted & Blocked' : 'Awaiting User Clearance'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ShieldCheck size={18} style={{ color: '#f87171' }} />
+          <span style={{ color: '#f87171', fontWeight: 700, fontSize: '0.9rem' }}>
+            CRITICAL HAZARD DETECTED
+          </span>
+          <span className="status-badge available" style={{ fontSize: '0.7rem' }}>
+            AVAILABLE NOW
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ color: '#64748b', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+          AST Scanner: Path Traversal Bounds Check
+        </div>
+      </div>
+
+      {/* Flagged Command Details */}
+      <div
+        style={{
+          background: '#04070d',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '10px',
+          padding: '16px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        }}
+      >
+        <div style={{ color: '#94a3b8', fontSize: '0.82rem', fontWeight: 600 }}>
+          Target Shell Execution Command:
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', color: '#f87171', fontSize: '0.9rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: '6px' }}>
+          $ rm -rf /var/log/asterim-daemon.log
+        </div>
+
+        <div style={{ color: '#cbd5e1', fontSize: '0.85rem', lineHeight: 1.5 }}>
+          ⚠️ <strong style={{ color: '#f8fafc' }}>Reason:</strong> Command matches recursive un-scoped deletion pattern outside project root boundary (<code>/var/log</code>).
+        </div>
+      </div>
+
+      {/* Decision Actions Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingTop: '8px' }}>
+        <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+          Status: {' '}
+          <span style={{ fontWeight: 700, color: decision === 'approved' ? '#34d399' : decision === 'rejected' ? '#f87171' : '#fbbf24' }}>
+            {decision === 'approved' ? '✓ Command Approved & Executed' : decision === 'rejected' ? '✗ Execution Blocked & Aborted' : '⏳ Awaiting Developer Clearance'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button
             onClick={() => setDecision('rejected')}
             disabled={decision !== 'pending'}
@@ -107,15 +66,15 @@ export const SecurityGuardTab: React.FC = () => {
               gap: '6px',
               padding: '8px 16px',
               borderRadius: '6px',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
+              background: decision === 'rejected' ? 'rgba(239, 68, 68, 0.2)' : '#04070d',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
               color: '#f87171',
               fontWeight: 600,
               fontSize: '0.85rem',
-              cursor: decision === 'pending' ? 'pointer' : 'not-allowed',
+              cursor: decision === 'pending' ? 'pointer' : 'default',
             }}
           >
-            <X size={16} /> Reject Execution
+            <X size={16} /> Reject & Terminate
           </button>
 
           <button
@@ -127,15 +86,15 @@ export const SecurityGuardTab: React.FC = () => {
               gap: '6px',
               padding: '8px 16px',
               borderRadius: '6px',
-              background: '#10b981',
+              background: decision === 'approved' ? 'var(--accent-green-hover)' : 'var(--accent-green)',
               border: 'none',
               color: '#042114',
               fontWeight: 700,
               fontSize: '0.85rem',
-              cursor: decision === 'pending' ? 'pointer' : 'not-allowed',
+              cursor: decision === 'pending' ? 'pointer' : 'default',
             }}
           >
-            <Check size={16} /> Approve Action
+            <Check size={16} /> Approve & Continue
           </button>
         </div>
       </div>

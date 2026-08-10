@@ -7,9 +7,7 @@ export const PlatformMatrixSection: React.FC = () => {
       icon: Laptop,
       name: 'Desktop Workstation',
       status: 'AVAILABLE NOW',
-      statusColor: '#10b981',
-      badgeBg: 'rgba(16, 185, 129, 0.15)',
-      badgeBorder: 'rgba(16, 185, 129, 0.3)',
+      statusClass: 'available',
       desc: 'The primary local execution engine. Direct integration with local git repositories, PTY terminals, subprocess lifecycle managers, and AST symbol parsers.',
       capabilities: [
         'Full offline execution support',
@@ -21,10 +19,8 @@ export const PlatformMatrixSection: React.FC = () => {
     {
       icon: Globe,
       name: 'Web Interface',
-      status: 'AVAILABLE NOW / BETA',
-      statusColor: '#38bdf8',
-      badgeBg: 'rgba(56, 189, 248, 0.15)',
-      badgeBorder: 'rgba(56, 189, 248, 0.3)',
+      status: 'AVAILABLE NOW (BETA)',
+      statusClass: 'beta',
       desc: 'Browser-based workspace management, remote agent monitoring, documentation, and SaaS account portal identity control.',
       capabilities: [
         'Central account identity creation',
@@ -37,9 +33,7 @@ export const PlatformMatrixSection: React.FC = () => {
       icon: Smartphone,
       name: 'Mobile Tunnel',
       status: 'PHASE 5 BETA',
-      statusColor: '#fbbf24',
-      badgeBg: 'rgba(251, 191, 36, 0.15)',
-      badgeBorder: 'rgba(251, 191, 36, 0.3)',
+      statusClass: 'planned',
       desc: 'Remote agent monitoring and push approval notifications over E2E encrypted cloud relay tunnels.',
       capabilities: [
         'E2E encrypted relay connection',
@@ -51,40 +45,12 @@ export const PlatformMatrixSection: React.FC = () => {
   ];
 
   return (
-    <section
-      style={{
-        padding: '80px 24px',
-        maxWidth: '1240px',
-        margin: '0 auto',
-        width: '100%',
-      }}
-    >
-      <div style={{ textAlign: 'center', marginBottom: '56px' }}>
-        <div
-          style={{
-            fontSize: '0.85rem',
-            fontWeight: 700,
-            color: '#10b981',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-            marginBottom: '12px',
-          }}
-        >
-          Ecosystem Surfaces
-        </div>
-        <h2
-          style={{
-            fontSize: 'clamp(2rem, 3.5vw, 2.75rem)',
-            fontWeight: 800,
-            color: '#ffffff',
-            letterSpacing: '-0.02em',
-            marginBottom: '16px',
-          }}
-        >
-          Control Across Every Device
-        </h2>
-        <p style={{ color: '#94a3b8', fontSize: '1.1rem', maxWidth: '640px', margin: '0 auto' }}>
-          Transparent platform availability status across local workstations, web interfaces, and mobile control.
+    <section className="marketing-section">
+      <div className="section-header">
+        <span className="section-tag">Ecosystem Availability</span>
+        <h2 className="section-title">Control Across Every Surface</h2>
+        <p className="section-lead">
+          Transparent platform status across local desktop workstations, web interfaces, and mobile control.
         </p>
       </div>
 
@@ -98,66 +64,45 @@ export const PlatformMatrixSection: React.FC = () => {
         {platforms.map((plat, idx) => {
           const Icon = plat.icon;
           return (
-            <div
-              key={idx}
-              style={{
-                background: '#0f172a',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '16px',
-                padding: '32px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '20px',
-              }}
-            >
+            <div key={idx} className="surface-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div
                   style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '10px',
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: 'var(--radius-sm)',
                     background: 'rgba(255, 255, 255, 0.04)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    border: '1px solid var(--border-subtle)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: plat.statusColor,
+                    color: 'var(--text-primary)',
                   }}
                 >
-                  <Icon size={22} />
+                  <Icon size={20} />
                 </div>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: plat.statusColor,
-                    background: plat.badgeBg,
-                    border: `1px solid ${plat.badgeBorder}`,
-                    padding: '4px 10px',
-                    borderRadius: '12px',
-                  }}
-                >
+                <span className={`status-badge ${plat.statusClass}`}>
                   {plat.status}
                 </span>
               </div>
 
               <div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' }}>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
                   {plat.name}
                 </h3>
-                <p style={{ color: '#94a3b8', fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
                   {plat.desc}
                 </p>
               </div>
 
-              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)', paddingTop: '16px' }}>
-                <div style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '12px' }}>
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '12px' }}>
                   Platform Capabilities:
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {plat.capabilities.map((cap, cIdx) => (
                     <li key={cIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '0.88rem' }}>
-                      <Check size={14} style={{ color: plat.statusColor }} />
+                      <Check size={14} style={{ color: 'var(--accent-green)' }} />
                       {cap}
                     </li>
                   ))}

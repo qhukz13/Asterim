@@ -1,125 +1,112 @@
 import React, { useState } from 'react';
-import { Layers, FolderGit2, Key, Server, Check } from 'lucide-react';
+import { Lock, Server } from 'lucide-react';
 
 export const EnvironmentTab: React.FC = () => {
-  const [activeEnv, setActiveEnv] = useState<'personal' | 'company' | 'client'>('company');
+  const [selectedPreset, setSelectedPreset] = useState<'personal' | 'company' | 'client'>('company');
 
-  const envs = [
+  const presets = [
     {
       id: 'personal',
       name: 'Personal (Local)',
-      preset: 'personal',
-      badge: 'Local Machine',
-      projects: 3,
-      mcp: 'Stdio MCP Servers',
-      secrets: 'Local Keychain',
-      ui: 'Streamlined (No Governance Overhead)',
+      desc: 'Single developer side projects with local LLM models (Ollama, vLLM).',
+      secrets: '2 Scoped Secrets',
+      mcp: '1 Stdio MCP Server',
+      paths: ['~/Projects/asterim', '~/Projects/personal-blog'],
     },
     {
       id: 'company',
-      name: 'Acme Corp (Company)',
-      preset: 'company',
-      badge: 'Enterprise Preset',
-      projects: 12,
-      mcp: 'Team MCP Server Fleet',
-      secrets: 'Encrypted SSO Vault',
-      ui: 'Full Governance, Audit Stream & RBAC',
+      name: 'Company (Enterprise)',
+      desc: 'Corporate repositories with SAML identity, attached team MCP servers, and audit streams.',
+      secrets: '6 Encrypted Enterprise Secrets',
+      mcp: '4 SSE/Stdio MCP Servers',
+      paths: ['/work/corporate-monorepo', '/work/api-gateway'],
     },
     {
       id: 'client',
-      name: 'Client Portal (Isolated)',
-      preset: 'client',
-      badge: 'Client Sandbox',
-      projects: 2,
-      mcp: 'Restricted Stdio Only',
-      secrets: 'Scoped Client Credentials',
-      ui: 'Strict Audit Logging',
+      name: 'Client (Sandbox)',
+      desc: 'Strict client boundary with isolated workspace keys and restricted shell permissions.',
+      secrets: '3 Sandboxed Client Secrets',
+      mcp: '2 Restricted MCP Servers',
+      paths: ['/clients/acme-corp/app'],
     },
   ];
 
-  const current = envs.find((e) => e.id === activeEnv)!;
+  const current = presets.find((p) => p.id === selectedPreset)!;
 
   return (
-    <div
-      style={{
-        background: '#0f172a',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '12px',
-        padding: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '20px',
-      }}
-    >
-      {/* Environment Selector Bar */}
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        {envs.map((env) => (
-          <button
-            key={env.id}
-            onClick={() => setActiveEnv(env.id as any)}
-            style={{
-              padding: '10px 16px',
-              borderRadius: '8px',
-              background: activeEnv === env.id ? 'rgba(16, 185, 129, 0.15)' : '#04070d',
-              border: activeEnv === env.id ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
-              color: activeEnv === env.id ? '#34d399' : '#94a3b8',
-              fontWeight: activeEnv === env.id ? 600 : 500,
-              fontSize: '0.88rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <Layers size={16} />
-            {env.name}
-            {activeEnv === env.id && <Check size={14} style={{ color: '#10b981' }} />}
-          </button>
-        ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Scope Switcher Tabs */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {presets.map((preset) => {
+            const isActive = selectedPreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                onClick={() => setSelectedPreset(preset.id as any)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  background: isActive ? 'var(--accent-green-bg)' : '#04070d',
+                  border: isActive ? '1px solid var(--border-accent)' : '1px solid var(--border-subtle)',
+                  color: isActive ? 'var(--accent-green-hover)' : '#94a3b8',
+                  fontWeight: isActive ? 600 : 500,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                }}
+              >
+                {preset.name}
+              </button>
+            );
+          })}
+        </div>
+
+        <span className="status-badge available" style={{ fontSize: '0.7rem' }}>
+          AVAILABLE NOW
+        </span>
       </div>
 
-      {/* Selected Environment Details Card */}
+      {/* Preset Details Surface Card */}
       <div
         style={{
           background: '#04070d',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          border: '1px solid var(--border-subtle)',
           borderRadius: '10px',
-          padding: '20px',
+          padding: '24px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '24px',
         }}
       >
         <div>
-          <div style={{ color: '#64748b', fontSize: '0.78rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <FolderGit2 size={14} /> Attached Projects
-          </div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
-            {current.projects} Workspace Repositories
+          <h4 style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.05rem', marginBottom: '8px' }}>
+            {current.name} Context Scope
+          </h4>
+          <p style={{ color: '#94a3b8', fontSize: '0.88rem', lineHeight: 1.5, marginBottom: '16px' }}>
+            {current.desc}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem', color: '#cbd5e1' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Lock size={14} style={{ color: 'var(--accent-green)' }} /> {current.secrets}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Server size={14} style={{ color: '#38bdf8' }} /> {current.mcp}
+            </div>
           </div>
         </div>
 
         <div>
-          <div style={{ color: '#64748b', fontSize: '0.78rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Server size={14} /> MCP Server Integration
+          <div style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
+            Attached Workspace Paths:
           </div>
-          <div style={{ fontSize: '1rem', fontWeight: 600, color: '#38bdf8' }}>
-            {current.mcp}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ color: '#64748b', fontSize: '0.78rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Key size={14} /> Credential Isolation
-          </div>
-          <div style={{ fontSize: '1rem', fontWeight: 600, color: '#a855f7' }}>
-            {current.secrets}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: '#34d399' }}>
+            {current.paths.map((path, idx) => (
+              <div key={idx} style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                {path}
+              </div>
+            ))}
           </div>
         </div>
-      </div>
-
-      <div style={{ color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.5, background: 'rgba(255, 255, 255, 0.02)', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-        💡 <strong style={{ color: '#f8fafc' }}>Environment Isolation Guarantee:</strong> Switching to <em>{current.name}</em> instantly swaps API keys, agent profiles, MCP tools, and project contexts without cross-environment secret leakage.
       </div>
     </div>
   );
