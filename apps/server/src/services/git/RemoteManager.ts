@@ -11,11 +11,34 @@ export class RemoteManager {
     await this.provider.exec('git pull', projectPath);
   }
 
+  public async getRemoteUrl(projectPath: string): Promise<string | null> {
+    try {
+      const url = await this.provider.exec('git remote get-url origin', projectPath);
+      return url.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async setRemoteUrl(projectPath: string, remoteUrl: string): Promise<void> {
+    const cleanUrl = remoteUrl.trim();
+    if (!cleanUrl) {
+      throw new Error('Remote URL cannot be empty.');
+    }
+
+    const existingUrl = await this.getRemoteUrl(projectPath);
+    if (existingUrl) {
+      await this.provider.exec(`git remote set-url origin "${cleanUrl}"`, projectPath);
+    } else {
+      await this.provider.exec(`git remote add origin "${cleanUrl}"`, projectPath);
+    }
+  }
+
   public async push(projectPath: string): Promise<void> {
     try {
       const remotes = await this.provider.exec('git remote', projectPath);
       if (!remotes.trim()) {
-        throw new Error('No remote repository configured. Add a Git remote origin to push changes.');
+        throw new Error('No remote repository configured. Please connect a GitHub or Git remote origin URL.');
       }
       await this.provider.exec('git push', projectPath);
     } catch (err: any) {
@@ -36,3 +59,4 @@ export class RemoteManager {
     }
   }
 }
+

@@ -91,6 +91,9 @@ export class GitService {
           case 'create_branch':
             await this.branch.createBranch(path, payload.branch);
             break;
+          case 'set_remote':
+            await this.remote.setRemoteUrl(path, payload.remoteUrl);
+            break;
           case 'get_status':
             break;
         }

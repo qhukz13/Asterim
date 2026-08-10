@@ -23,6 +23,8 @@ export interface RepoStatus {
   ahead?: number;
   behind?: number;
   lastCommit?: string;
+  hasRemote?: boolean;
+  remoteUrl?: string;
 }
 
 interface ChangesViewProps {
@@ -49,6 +51,10 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
   const [isReviewingChanges, setIsReviewingChanges] = useState(false);
   const [diffReview, setDiffReview] = useState<string | null>(null);
 
+  const [showRemoteModal, setShowRemoteModal] = useState(false);
+  const [remoteInputUrl, setRemoteInputUrl] = useState('');
+  const [isSettingRemote, setIsSettingRemote] = useState(false);
+
   useEffect(() => {
     if (!socket) return;
 
@@ -57,7 +63,6 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
         setIsRepo(event.payload.isRepo);
         setStatus(event.payload.status);
         setIsSyncing(false);
-        setError(null);
       }
     };
 
@@ -139,10 +144,52 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const handleSaveRemote = async (customUrl?: string) => {
+    const targetUrl = (customUrl || remoteInputUrl).trim();
+    if (!targetUrl) return;
+
+    setIsSettingRemote(true);
+    setError(null);
+    try {
+      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
+      const token = localStorage.getItem(tokenKey) || '';
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${baseUrl}/api/v1/projects/${projectId}/git/remote`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ remoteUrl: targetUrl })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowRemoteModal(false);
+        setRemoteInputUrl('');
+        sendAction('get_status');
+      } else {
+        setError(data.error || 'Failed to update remote repository URL');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to update remote repository URL');
+    } finally {
+      setIsSettingRemote(false);
+    }
+  };
+
   const handlePush = async () => {
+    if (!status?.hasRemote && !status?.remoteUrl) {
+      setShowRemoteModal(true);
+      return;
+    }
+
     setIsSyncing(true);
     setError(null);
-    sendAction('push');
 
     try {
       const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -163,10 +210,17 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Failed to push changes');
+        const errMsg = data.error || 'Failed to push changes';
+        setError(errMsg);
+        if (errMsg.includes('No remote') || errMsg.includes('connect a GitHub') || errMsg.includes('remote origin')) {
+          setShowRemoteModal(true);
+        }
+      } else {
+        setError(null);
+        sendAction('get_status');
       }
     } catch (err: any) {
-      // Socket event handles fallback
+      setError(err.message || 'Failed to push changes');
     } finally {
       setIsSyncing(false);
     }
@@ -319,13 +373,29 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Changes</h2>
-          <div style={{ display: 'flex', gap: '12px', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
             <span>{status.files.length} changed ({stagedFiles.length} staged, {unstagedFiles.length} unstaged)</span>
             <span style={{ color: 'var(--color-accent-primary)', fontWeight: 500 }}>{status.branch}</span>
+            {status.remoteUrl && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', background: 'var(--color-surface-2)', padding: '2px 8px', borderRadius: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }} title={status.remoteUrl}>
+                origin: {status.remoteUrl}
+              </span>
+            )}
           </div>
         </div>
         
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button 
+            style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--color-accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }} 
+            onClick={() => { setRemoteInputUrl(status.remoteUrl || ''); setShowRemoteModal(true); }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+              <path d="M9 18c-4.51 2-5-2-7-2" />
+            </svg>
+            {status.hasRemote ? 'Remote Setup' : 'Connect GitHub / Remote'}
+          </button>
+
           <button 
             style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '4px 12px', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }} 
             onClick={handlePull}
@@ -336,8 +406,27 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
       </div>
 
       {error && (
-        <div style={{ padding: '10px 14px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-state-error)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', flexShrink: 0 }}>
-          {error}
+        <div style={{ padding: '10px 14px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: 'var(--color-state-error)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+          <div>
+            <strong>Error: </strong> {error}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {(error.includes('No remote') || error.includes('credential') || error.includes('authentication') || !status.hasRemote) && (
+              <button 
+                style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xs)', padding: '2px 8px', fontSize: '0.75rem', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+                onClick={() => { setRemoteInputUrl(status.remoteUrl || ''); setShowRemoteModal(true); }}
+              >
+                Configure Remote
+              </button>
+            )}
+            <button 
+              style={{ background: 'transparent', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.9rem', padding: '0 4px' }}
+              onClick={() => setError(null)}
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -665,6 +754,77 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
         </div>
 
       </div>
+
+      {/* GitHub / Remote Repository Configuration Modal */}
+      {showRemoteModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--color-surface-1)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)', width: '480px', maxWidth: '90vw', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+                  <path d="M9 18c-4.51 2-5-2-7-2" />
+                </svg>
+                Connect Remote Repository
+              </h3>
+              <button 
+                style={{ background: 'transparent', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1.1rem' }}
+                onClick={() => setShowRemoteModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+              Link your local repository to GitHub, GitLab, or any remote Git host by configuring the <code>origin</code> remote URL.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)' }}>
+                Remote Repository URL (HTTPS or SSH)
+              </label>
+              <input 
+                type="text"
+                style={{ 
+                  width: '100%', 
+                  padding: '10px 12px', 
+                  background: 'var(--color-surface-0)', 
+                  border: '1px solid var(--color-border-subtle)', 
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '0.85rem',
+                  boxSizing: 'border-box'
+                }}
+                placeholder="https://github.com/username/repository.git"
+                value={remoteInputUrl}
+                onChange={(e) => setRemoteInputUrl(e.target.value)}
+              />
+            </div>
+
+            <div style={{ background: 'var(--color-surface-2)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+              <strong>Authentication Note:</strong> Standard Git CLI protocols apply. Asterim uses your local <code>ssh-agent</code> or Git Credential Manager to push commits securely.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <button 
+                style={{ background: 'transparent', border: '1px solid var(--color-border-subtle)', padding: '8px 16px', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
+                onClick={() => setShowRemoteModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary"
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', fontWeight: 600, fontSize: '0.85rem', cursor: isSettingRemote ? 'not-allowed' : 'pointer' }}
+                onClick={() => handleSaveRemote()}
+                disabled={isSettingRemote || !remoteInputUrl.trim()}
+              >
+                {isSettingRemote ? 'Saving...' : 'Save Remote'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

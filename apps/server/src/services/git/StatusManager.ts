@@ -14,12 +14,32 @@ export interface RepoStatus {
   ahead?: number;
   behind?: number;
   lastCommit?: string;
+  hasRemote?: boolean;
+  remoteUrl?: string;
 }
 
 export class StatusManager {
   constructor(private provider: GitProvider) {}
 
   public async getStatus(projectPath: string): Promise<RepoStatus> {
+    // Check if remote origin exists and get URL
+    let hasRemote = false;
+    let remoteUrl: string | undefined = undefined;
+    try {
+      const remotes = await this.provider.exec('git remote', projectPath);
+      if (remotes.trim()) {
+        hasRemote = true;
+        try {
+          const url = await this.provider.exec('git remote get-url origin', projectPath);
+          if (url.trim()) {
+            remoteUrl = url.trim();
+          }
+        } catch {
+          // Origin might have a different name, default to first remote name if needed
+        }
+      }
+    } catch {}
+
     // Get porcelain status with branch info
     // Format: ## branch...upstream [ahead X, behind Y]
     // Followed by: XY PATH
@@ -40,7 +60,7 @@ export class StatusManager {
         if (line.startsWith('##')) {
           // Parse branch and sync status
           // e.g. ## main...origin/main [ahead 1, behind 2]
-          const regex = /##\s+([^.\s]+)(?:\.\.\.([^\s]+))?(?:\s+\[(.*)\])?/;
+          const regex = /##\s+([^\s]+?)(?:\.\.\.([^\s]+))?(?:\s+\[(.*)\])?$/;
           const match = line.match(regex);
           if (match) {
             branch = match[1];
@@ -78,14 +98,14 @@ export class StatusManager {
       lastCommit = 'No commits yet';
     }
 
-    // Calculate unpushed commits count if ahead is 0
-    if (ahead === 0) {
+    // Calculate unpushed commits count if ahead is 0 and remote is configured
+    if (ahead === 0 && hasRemote) {
       try {
         const unpushed = await this.provider.exec('git rev-list HEAD --not --remotes --count', projectPath);
         ahead = parseInt(unpushed.trim(), 10) || 0;
       } catch (e) {}
     }
 
-    return { branch: branch.trim(), files, syncStatus, ahead, behind, lastCommit };
+    return { branch: branch.trim(), files, syncStatus, ahead, behind, lastCommit, hasRemote, remoteUrl };
   }
 }

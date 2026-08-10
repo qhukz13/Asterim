@@ -98,6 +98,41 @@ export const gitRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: err.message || 'Failed to push changes' });
     }
   });
+
+  // GET /api/v1/projects/:id/git/remote
+  fastify.get('/api/v1/projects/:id/git/remote', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const project = projectManager.getProject(id);
+    if (!project) return reply.status(404).send({ error: 'Project not found' });
+
+    try {
+      const remoteUrl = await gitService.remote.getRemoteUrl(project.path);
+      return reply.send({ hasRemote: !!remoteUrl, remoteUrl });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Failed to get git remote' });
+    }
+  });
+
+  // POST /api/v1/projects/:id/git/remote
+  fastify.post('/api/v1/projects/:id/git/remote', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { remoteUrl } = request.body as { remoteUrl?: string };
+    if (!remoteUrl || !remoteUrl.trim()) {
+      return reply.status(400).send({ error: 'Remote URL is required' });
+    }
+
+    const project = projectManager.getProject(id);
+    if (!project) return reply.status(404).send({ error: 'Project not found' });
+
+    try {
+      await gitService.remote.setRemoteUrl(project.path, remoteUrl.trim());
+      await gitService.forcePoll();
+      return reply.send({ success: true, remoteUrl: remoteUrl.trim() });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message || 'Failed to set git remote URL' });
+    }
+  });
 };
 
 export default gitRoutes;
+
