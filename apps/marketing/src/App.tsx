@@ -1,14 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Shield, Smartphone, Bell, Copy, Check, ArrowDown, Terminal } from 'lucide-react';
 import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
+import { MobileNavDrawer } from './components/MobileNavDrawer';
+import { HeroSection } from './components/home/HeroSection';
+import { InteractiveProductDemo } from './components/home/InteractiveProductDemo';
+import { WhyAsterimSection } from './components/home/WhyAsterimSection';
+import { ProblemSolutionSection } from './components/home/ProblemSolutionSection';
+import { CapabilitiesGrid } from './components/home/CapabilitiesGrid';
+import { PlatformMatrixSection } from './components/home/PlatformMatrixSection';
+import { OpenSourceSection } from './components/home/OpenSourceSection';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { AccountLayout } from './components/AccountLayout';
+import { PricingPage } from './pages/PricingPage';
+import { DownloadPage } from './pages/DownloadPage';
+import { DocsPage } from './pages/DocsPage';
 
 function App() {
-  const [copied, setCopied] = useState(false);
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [currentPath, setCurrentPath] = useState(window.location.pathname + window.location.search);
   const [user, setUser] = useState<any | null>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname + window.location.search);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     // Check current session
@@ -25,12 +45,7 @@ function App() {
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
     setCurrentPath(path);
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText('npm install -g asterim');
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLoginSuccess = (userData: any) => {
@@ -43,34 +58,72 @@ function App() {
     navigate('/');
   };
 
+  const pathname = currentPath.split('?')[0];
+
   // Route: Sign In
-  if (currentPath === '/account/login') {
+  if (pathname === '/account/login') {
     return (
       <div className="marketing-container">
-        <Navbar currentPath={currentPath} navigate={navigate} user={user} />
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
         <Login navigate={navigate} onLoginSuccess={handleLoginSuccess} />
       </div>
     );
   }
 
   // Route: Register
-  if (currentPath === '/account/register') {
+  if (pathname === '/account/register') {
     return (
       <div className="marketing-container">
-        <Navbar currentPath={currentPath} navigate={navigate} user={user} />
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
         <Register navigate={navigate} onLoginSuccess={handleLoginSuccess} />
       </div>
     );
   }
 
   // Route: Account Portal Subpages
-  if (currentPath.startsWith('/account')) {
+  if (pathname.startsWith('/account')) {
     return (
       <div className="marketing-container">
-        <Navbar currentPath={currentPath} navigate={navigate} user={user} />
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
         <AccountLayout
           user={user}
-          currentSubPath={currentPath}
+          currentSubPath={pathname}
           navigate={navigate}
           onLogout={handleLogout}
         />
@@ -78,95 +131,99 @@ function App() {
     );
   }
 
-  // Route: Default Landing Page
+  // Dedicated Public Pages
+  if (pathname === '/pricing') {
+    return (
+      <div className="marketing-container">
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
+        <PricingPage navigate={navigate} />
+        <Footer navigate={navigate} />
+      </div>
+    );
+  }
+
+  if (pathname === '/docs') {
+    return (
+      <div className="marketing-container">
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
+        <DocsPage navigate={navigate} />
+        <Footer navigate={navigate} />
+      </div>
+    );
+  }
+
+  if (pathname === '/download') {
+    return (
+      <div className="marketing-container">
+        <Navbar
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        />
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          currentPath={pathname}
+          navigate={navigate}
+          user={user}
+        />
+        <DownloadPage />
+        <Footer navigate={navigate} />
+      </div>
+    );
+  }
+
+  // Route: Default Landing Page (Home)
   return (
     <div className="marketing-container">
-      <Navbar currentPath={currentPath} navigate={navigate} user={user} />
+      <Navbar
+        currentPath={pathname}
+        navigate={navigate}
+        user={user}
+        onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+      />
+      <MobileNavDrawer
+        isOpen={isMobileDrawerOpen}
+        onClose={() => setIsMobileDrawerOpen(false)}
+        currentPath={pathname}
+        navigate={navigate}
+        user={user}
+      />
 
-      <main className="hero">
-        <h1>
-          Code Anywhere.
-          <br />
-          Monitor Everywhere.
-        </h1>
-        <p>
-          The ultimate control center for autonomous coding agents. Monitor, approve, and direct AI
-          agents like Aider from your mobile device securely over an E2E encrypted tunnel.
-        </p>
+      <HeroSection navigate={navigate} />
+      <InteractiveProductDemo />
+      <WhyAsterimSection />
+      <ProblemSolutionSection />
+      <CapabilitiesGrid />
+      <PlatformMatrixSection />
+      <OpenSourceSection />
 
-        <div className="terminal-mockup">
-          <div style={{ color: '#94a3b8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Terminal size={14} /> # Install globally via NPM
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>$ npm install -g asterim</span>
-            <button
-              onClick={handleCopy}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#3b82f6',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '0.9rem'
-              }}
-            >
-              {copied ? (
-                <>
-                  <Check size={16} style={{ color: '#22c55e' }} /> Copied!
-                </>
-              ) : (
-                <>
-                  <Copy size={16} /> Copy
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        <button
-          className="cta-button"
-          onClick={() => window.scrollTo({ top: 800, behavior: 'smooth' })}
-        >
-          Explore Features <ArrowDown size={18} />
-        </button>
-      </main>
-
-      <section className="features-grid">
-        <div className="feature-card">
-          <div className="feature-icon">
-            <Shield size={24} />
-          </div>
-          <div className="feature-title">End-to-End Encryption</div>
-          <div className="feature-desc">
-            Connect from any coffee shop or cellular network. Your code and logs never touch our
-            servers in plaintext.
-          </div>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <Smartphone size={24} />
-          </div>
-          <div className="feature-title">Mobile Native Feel</div>
-          <div className="feature-desc">
-            Optimized UI that feels like a native app on iOS and Android. Review diffs and send
-            commands with a thumb.
-          </div>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <Bell size={24} />
-          </div>
-          <div className="feature-title">Push Notifications</div>
-          <div className="feature-desc">
-            Go grab a coffee while Aider works. Receive a push notification instantly when the agent
-            needs your approval.
-          </div>
-        </div>
-      </section>
+      <Footer navigate={navigate} />
     </div>
   );
 }

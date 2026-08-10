@@ -157,6 +157,39 @@ Harden the local-first execution engine to guarantee 99.9% reliability for daily
 
 ---
 
+## Phase 4.5 — Marketing Website & Product Presentation Refinement
+
+### Goal
+Refine the public marketing website (`asterim.dev` / `@asterim/marketing`) into a high-precision, product-focused presentation experience that clearly communicates Asterim's local-first AI engineering operating system vision, capabilities, platform availability, and path to adoption.
+
+### Deliverables
+* **Product Positioning & Storytelling Architecture**: Clean client-side routing (`/`, `/pricing`, `/docs`, `/download`, `/account/*`), high-impact hero section, clear value proposition, problem/solution breakdown, and 5-pillar capability visual grid.
+* **Interactive Product Demonstration Components**: Tabbed live UI preview components showcasing agent session PTY output streaming, real-time command AST security parsing, isolated environment preset switching, and remote mobile tunnel monitoring.
+* **Platform Ecosystem Presentation**: Clear matrix detailing capabilities and availability status across Desktop (Available Now / Hardened), Web (Available Now / Beta), and Mobile (Phase 5 Beta).
+* **Dedicated Public Pages**:
+  * `/pricing`: Transparent Community (Free) vs Pro vs Enterprise tier comparison.
+  * `/download`: OS support matrix (Linux, macOS, Windows) and CLI `npm install -g asterim` quickstart.
+  * `/docs`: Interactive quickstart guide, agent adapter setup, MCP & Skills integration guide.
+* **Responsive UX & Accessiblity Shell**: Responsive header, mobile drawer navigation, multi-column footer, dark monochrome theme with emerald accents (`#10b981`), Google Fonts (`Inter` / `JetBrains Mono`), and WCAG AAA compliance.
+
+### Dependencies
+* Phase 1 (Product UX & Design System Tokens)
+* Phase 2 (Authentication & Identity Backend)
+* Phase 4 (Developer Workstation Engine Hardening)
+
+### Success Criteria
+* 100% of website routes (`/`, `/pricing`, `/docs`, `/download`, `/account/*`) render dedicated content without routing fall-throughs.
+* New visitors can understand what Asterim is, why it matters, what it can do, and how to start within seconds.
+* `pnpm --filter @asterim/marketing build` succeeds with zero TypeScript or bundling errors.
+
+### Risks
+* Overbuilding Phase 5 SaaS backend infrastructure prematurely. (Mitigated by keeping Phase 4.5 strictly focused on presentation layer).
+
+### Estimated Complexity
+**Medium** (1 Sprint)
+
+---
+
 ## Phase 5 — SaaS Foundation & Beta Release
 
 ### Goal
@@ -166,6 +199,7 @@ Establish cloud deployment infrastructure, multi-region database architecture, b
 * **Cloud API & Relay Orchestrator**: Cloud gateway routing remote web/mobile client requests securely to local workstations via authenticated WebSocket tunnels.
 * **Production Database & Multi-Tenancy**: Postgres + Prisma/Drizzle ORM migration path for cloud deployment with tenant isolation.
 * **Billing & Subscription Engine**: Integration with Stripe / LemonSqueezy for user/team tiers (Free, Pro, Team, Enterprise), plan limits, and usage metering.
+* **Seamless Git Credential & SSH Auto-Detection**: Background inheritance of desktop SSH agent sockets (`SSH_AUTH_SOCK`), global Git credential helpers (`credential.helper`), and automatic fallback conversion between HTTPS and SSH remote formats for zero-friction non-interactive Git synchronization.
 * **State Synchronization**: Bi-directional sync for context index metadata, user preferences, and thread bookmarks between local instances and cloud accounts.
 * **CI/CD & Deployment Pipeline**: Automated Docker build, staging/production infrastructure setup (AWS/GCP/Fly.io), telemetry monitoring (Sentry/OpenTelemetry), and automated release pipeline.
 

@@ -75,4 +75,63 @@
   - [x] Implement token-budget context window builder for agent prompts.
   - [x] Verify manually and run monorepo build.
 
+---
+
+# Phase 4.5 — Marketing Website & Product Presentation Refinement Tasks
+
+- [x] **PR 0: Marketing Truth & Content Contract Audit**
+  - [x] Create `docs/phase4-5-content-truth.md` auditing codebase capabilities into 6 categories (AVAILABLE NOW, PARTIAL, BETA, PHASE 5, PLANNED, NOT IMPLEMENTED).
+  - [x] Create `docs/phase4-5-legal-checklist.md` establishing public release legal readiness framework.
+  - [x] Update `docs/phase4-5-roadmap.md`, `decisions.md`, `tasks.md`, `blueprint/ROADMAP.md`.
+
+- [x] **PR 1: Marketing Router Architecture, Navigation & Layout Shell**
+  - [x] Implement client-side route matcher in `App.tsx` for `/`, `/pricing`, `/docs`, `/download`, `/account/*`.
+  - [x] Implement active path states and GitHub star counter link in `Navbar.tsx`.
+  - [x] Create `Footer.tsx` multi-column layout component with legal links (`/privacy`, `/terms`, `/security`).
+  - [x] Create `MobileNavDrawer.tsx` responsive drawer component.
+  - [x] Update `index.html` with title, meta tags, Google Fonts (`Inter`, `JetBrains Mono`).
+  - [x] Clean up unused Vite template styles in `App.css`.
+
+- [x] **PR 2: Homepage Hero & "Why Asterim?" Positioning Section**
+  - [x] Create `HeroSection.tsx` with headline, subhead, status badge, and primary CTAs.
+  - [x] Create `WhyAsterimSection.tsx` communicating 30-second product story & control plane differentiation.
+  - [x] Create `TerminalCopyBlock.tsx` for interactive `$ npm install -g asterim` snippet.
+
+- [x] **PR 3: Interactive Product Demonstration Components**
+  - [x] Create `InteractiveProductDemo.tsx` tabbed live preview component modeling real Asterim app states (`apps/web`).
+  - [x] Create `AgentStreamTab.tsx` PTY output streaming preview with 16ms backpressure throttling.
+  - [x] Create `SecurityGuardTab.tsx` command AST approval & diff inspector preview.
+  - [x] Create `EnvironmentTab.tsx` isolated environment switcher preview (Personal, Company, Client).
+  - [x] Create `MobileTunnelTab.tsx` remote tunnel & mobile monitoring status preview.
+
+- [x] **PR 4: Problem/Solution, Core Capabilities & Platform Matrix**
+  - [x] Create `ProblemSolutionSection.tsx` comparing agent chaos vs Asterim control plane.
+  - [x] Create `CapabilitiesGrid.tsx` visual cards for the 5 core product pillars.
+  - [x] Create `PlatformMatrixSection.tsx` detailing Desktop (Available Now), Web (Beta), and Mobile (Phase 5).
+  - [x] Create `OpenSourceSection.tsx` highlighting local-first and MIT core philosophy.
+
+- [x] **PR 5: Dedicated Pages: Pricing, Download & Lightweight Docs**
+  - [x] Create `PricingPage.tsx` with static Community vs Pro vs Enterprise comparison table (presentation only).
+  - [x] Create `DownloadPage.tsx` with OS support matrix and CLI instructions.
+  - [x] Create `DocsPage.tsx` lightweight documentation viewer covering 8 core guides (Quickstart, What is Asterim?, Environments, AI Agents, Security, MCP & Skills, Architecture, CLI).
+
+- [ ] **PR 6: Responsive UX, Mobile Polish & Accessibility Audit**
+  - [ ] Refine mobile CSS media queries in `index.css`.
+  - [ ] Audit ARIA attributes, touch targets, and keyboard navigation.
+
+- [ ] **PR 7: Final Polish, Production Verification & Build Validation**
+  - [ ] Run end-to-end production build (`pnpm --filter @asterim/marketing build`).
+  - [ ] Verify 0 TypeScript/ESLint errors across marketing app.
+
+---
+
+# Phase 5 — SaaS Foundation & Beta Release Tasks
+
+- [ ] **PR 1: Zero-Friction Git Credentials & SSH Auto-Detection**
+  - [ ] Implement `SSH_AUTH_SOCK` socket auto-discovery and inheritance in `GitProvider.ts`.
+  - [ ] Implement global `credential.helper` resolution and non-interactive Git credential provider integration.
+  - [ ] Implement automatic silent retry & format conversion (HTTPS <-> SSH) on initial push failure.
+
+
+
 

@@ -1,135 +1,120 @@
 import React from 'react';
-import { Sparkles, User, LogIn, ArrowRight } from 'lucide-react';
+import { Sparkles, User, LogIn, ArrowRight, Menu } from 'lucide-react';
+
+const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+    <path d="M9 18c-4.51 2-5-2-7-2" />
+  </svg>
+);
 
 interface NavbarProps {
   currentPath: string;
   navigate: (path: string) => void;
   user: any | null;
+  onOpenMobileDrawer?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, user }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentPath,
+  navigate,
+  user,
+  onOpenMobileDrawer,
+}) => {
+  const isNavActive = (path: string) => {
+    if (path === '/') return currentPath === '/';
+    return currentPath.startsWith(path);
+  };
+
   return (
-    <nav style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '14px 32px',
-      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-      background: 'rgba(8, 12, 20, 0.85)',
-      backdropFilter: 'blur(16px)',
-      position: 'sticky',
-      top: 0,
-      zIndex: 100
-    }}>
-      <div 
-        onClick={() => navigate('/')} 
-        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '1.2rem', color: '#f8fafc' }}
+    <nav className="marketing-navbar">
+      {/* Brand Header */}
+      <div
+        onClick={() => navigate('/')}
+        className="brand-logo"
       >
-        <div style={{
-          width: '32px',
-          height: '32px',
-          borderRadius: '8px',
-          background: 'rgba(16, 185, 129, 0.15)',
-          border: '1px solid rgba(16, 185, 129, 0.3)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#10b981'
-        }}>
+        <div className="brand-icon">
           <Sparkles size={18} />
         </div>
-        Asterim
+        <span className="brand-name">Asterim</span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-        <button 
-          onClick={() => navigate('/')} 
-          style={{ background: 'none', border: 'none', color: currentPath === '/' ? '#10b981' : '#94a3b8', cursor: 'pointer', fontWeight: 500, fontSize: '0.95rem' }}
+      {/* Desktop Links */}
+      <div className="desktop-nav-links">
+        <button
+          onClick={() => navigate('/')}
+          className={`nav-link ${isNavActive('/') ? 'active' : ''}`}
         >
           Home
         </button>
-        <button 
-          onClick={() => navigate('/pricing')} 
-          style={{ background: 'none', border: 'none', color: currentPath === '/pricing' ? '#10b981' : '#94a3b8', cursor: 'pointer', fontWeight: 500, fontSize: '0.95rem' }}
+        <button
+          onClick={() => navigate('/pricing')}
+          className={`nav-link ${isNavActive('/pricing') ? 'active' : ''}`}
         >
           Pricing
         </button>
-        <button 
-          onClick={() => navigate('/docs')} 
-          style={{ background: 'none', border: 'none', color: currentPath === '/docs' ? '#10b981' : '#94a3b8', cursor: 'pointer', fontWeight: 500, fontSize: '0.95rem' }}
+        <button
+          onClick={() => navigate('/docs')}
+          className={`nav-link ${isNavActive('/docs') ? 'active' : ''}`}
         >
           Docs
         </button>
-        <button 
-          onClick={() => navigate('/download')} 
-          style={{ background: 'none', border: 'none', color: currentPath === '/download' ? '#10b981' : '#94a3b8', cursor: 'pointer', fontWeight: 500, fontSize: '0.95rem' }}
+        <button
+          onClick={() => navigate('/download')}
+          className={`nav-link ${isNavActive('/download') ? 'active' : ''}`}
         >
           Download
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {/* Action Controls */}
+      <div className="nav-actions">
+        <a
+          href="https://github.com/qhukz13/Asterim"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="github-badge-link"
+          title="View Asterim on GitHub"
+        >
+          <GithubIcon size={16} />
+          <span className="github-text">GitHub</span>
+        </a>
+
         {user ? (
           <button
             onClick={() => navigate('/account/dashboard')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              background: '#0f172a',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              color: '#34d399',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              cursor: 'pointer'
-            }}
+            className="account-btn"
           >
             <User size={16} />
-            Account Portal
+            <span className="btn-text">Account Portal</span>
           </button>
         ) : (
           <>
             <button
               onClick={() => navigate('/account/login')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                background: 'transparent',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#f8fafc',
-                fontWeight: 500,
-                fontSize: '0.9rem',
-                cursor: 'pointer'
-              }}
+              className="login-btn"
             >
               <LogIn size={16} />
-              Sign In
+              <span className="btn-text">Sign In</span>
             </button>
             <button
               onClick={() => navigate('/account/register')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                background: '#10b981',
-                border: 'none',
-                color: '#062b1b',
-                fontWeight: 700,
-                fontSize: '0.9rem',
-                cursor: 'pointer'
-              }}
+              className="register-btn"
             >
-              Get Started <ArrowRight size={16} />
+              <span>Get Started</span>
+              <ArrowRight size={16} />
             </button>
           </>
         )}
+
+        {/* Mobile Hamburger Toggle */}
+        <button
+          onClick={onOpenMobileDrawer}
+          className="mobile-hamburger-btn"
+          aria-label="Open navigation menu"
+        >
+          <Menu size={22} />
+        </button>
       </div>
     </nav>
   );
