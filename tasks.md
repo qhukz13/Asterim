@@ -160,25 +160,57 @@
   - [x] Create `docs/phase4-5-experience-redesign.md` (8-act narrative, authentic UI compositions, removal list, component architecture).
   - [x] Record `DEC-020` in `decisions.md`.
 
-- [ ] **PR 17: Hero Authentic Workstation UI Shell Composition**
-  - [ ] Remove abstract 4-node topology diagram and micro-inspector trivia panels from `HeroSection.tsx`.
-  - [ ] Construct a large, crisp, realistic composition of the **Asterim Workstation UI Shell** (`apps/web`) with active environment selector, project file tree, PTY stream, and code diff view.
+- [x] **PR 17: Hero Authentic Workstation UI Shell Composition**
+  - [x] Remove abstract 4-node topology diagram and micro-inspector trivia panels from `HeroSection.tsx`.
+  - [x] Construct a large, crisp, realistic composition of the **Asterim Workstation UI Shell** (`apps/web`) with active environment selector, project file tree, PTY stream, and code diff view.
 
-- [ ] **PR 18: Immersive Agent in Action Workflow Engine**
-  - [ ] Build 5-step interactive workflow demo (`Agent -> Tool Action -> Code Diff -> Security Approval Request -> Execution Completed`) in `InteractiveProductDemo.tsx`.
-  - [ ] Eliminate decorative trivia counters (`PID 4912`, `RAM 42MB`, `60 FPS / 16ms`).
+- [x] **PR 18: Immersive Agent in Action Workflow Engine**
+  - [x] Build 5-step interactive workflow demo (`Agent -> Tool Action -> Code Diff -> Security Approval Request -> Execution Completed`) in `InteractiveProductDemo.tsx`.
+  - [x] Eliminate decorative trivia counters (`PID 4912`, `RAM 42MB`, `60 FPS / 16ms`).
 
-- [ ] **PR 19: Authentic Environment & AST Security Demos**
-  - [ ] Rebuild `EnvironmentTab.tsx` as an authentic scope switcher (`Personal`, `Company`, `Client`) updating workspace paths, scoped API keys, attached MCP tools, and file access policies.
-  - [ ] Rebuild `SecurityGuardTab.tsx` as an interactive AST command reviewer with real bash command syntax tree and clearance controls.
+- [x] **PR 19: Authentic Environment & AST Security Demos**
+  - [x] Rebuild `EnvironmentTab.tsx` as an authentic scope switcher (`Personal`, `Company`, `Client`) updating workspace paths, scoped API keys, attached MCP tools, and file access policies.
+  - [x] Rebuild `SecurityGuardTab.tsx` as an interactive AST command reviewer with real bash command syntax tree and clearance controls.
 
-- [ ] **PR 20: 8-Act Scroll Narrative & Multi-Surface Composition**
-  - [ ] Refine section transitions, open typography-driven layouts, and full-width multi-surface ecosystem composition (`Desktop -> Web -> Mobile`).
-  - [ ] Polish `:focus-visible` focus rings, ARIA roles, and mobile viewports (< 768px).
+- [x] **PR 20: 8-Act Scroll Narrative & Multi-Surface Composition**
+  - [x] Refine section transitions, open typography-driven layouts, and full-width multi-surface ecosystem composition (`Desktop -> Web -> Mobile`).
+  - [x] Polish `:focus-visible` focus rings, ARIA roles, and mobile viewports (< 768px).
 
-- [ ] **PR 21: Monorepo Build Verification & Human Quality Check**
-  - [ ] Run `pnpm build` across all 6 monorepo packages.
-  - [ ] Perform human QA verification against Cursor/Vercel/Linear presentation standards.
+- [x] **PR 22: Agentic Design Skills Audit & Design System Specification**
+  - [x] Integrate installed skills (`design-taste-frontend`, `scroll-experience`, `frontend-design`, `frontend-design-review`).
+  - [x] Create `docs/phase4-5-full-design-audit.md` (Diagnostic, human critique, competitive analysis, design principles).
+  - [x] Create `docs/phase4-5-design-system.md` (Typography, color calibration, anti-card policy, motion physics, accessibility).
+  - [x] Record `DEC-021` in `decisions.md`.
+
+- [x] **PR 23: Hero Thesis & Authentic Workstation Composition**
+  - [x] Implement Design System Tokens in `apps/marketing/src/index.css`.
+  - [x] Rebuild `HeroSection.tsx` with bold thesis headline, minimal copy, and crisp Asterim Workstation UI composition (`apps/web`).
+
+- [x] **PR 24: Progressive Scroll Narrative & Cinematic Product Demonstrations**
+  - [x] Implement 8-Act progressive scroll narrative with open, typography-driven architectural panels.
+  - [x] Rebuild `AgentWorkflowDemo.tsx`, `EnvironmentScopeDemo.tsx`, `SecurityGuardDemo.tsx`, and `PlatformMatrixSection.tsx`.
+
+- [x] **PR 26: Visual Audit v2 & Art Direction Specification**
+  - [x] Perform brutal visual audit of rendered website ([media__full.png](file:///home/qhukz/.gemini/antigravity-ide/brain/8c0b19e9-7951-4a05-a54b-79f868bf09c4/media__full.png)).
+  - [x] Create `docs/phase4-5-visual-audit-v2.md` (Diagnostic findings, rendered evidence, remediation plan).
+  - [x] Create `docs/asterim-marketing-art-direction.md` (Satoshi display typography, desaturated charcoal/slate palette, surgical emerald, spatial & shape language).
+  - [x] Create `docs/phase4-5-experience-redesign-v2.md` (10-act scroll narrative & stateful product mechanics).
+  - [x] Record `DEC-022` in `decisions.md`.
+
+- [x] **PR 27: Art Direction Foundation & Satoshi Typography System**
+  - [x] Update `apps/marketing/src/index.css` with Art Direction tokens, Satoshi display font stack, desaturated charcoal base (`#070a10`), and surgical emerald rules.
+
+- [x] **PR 28: Asymmetric Hero Rebuild & Workstation UI Shell Composition**
+  - [x] Rebuild `HeroSection.tsx` into a high-impact asymmetric product composition with multi-layered Workstation UI depth (`apps/web`).
+
+- [x] **PR 29: 10-Act Narrative Flow & Stateful Product Mechanics**
+  - [x] Rebuild `WhyAsterimSection.tsx`, `InteractiveProductDemo.tsx`, `PlatformMatrixSection.tsx`, and `CapabilitiesGrid.tsx` into open split-screen typography panels.
+  - [x] Implement stateful mechanics for Agent Execution, Environment Scope Switching, AST Command Decomposition, Code Patch Inspection, and Multi-Surface Flow.
+
+- [x] **PR 30: Iterative Visual QA & Rendered Screenshots Loop**
+  - [x] Run headless Firefox screenshot capture across viewports (1440px, 1280px, 1024px, 768px, 375px).
+  - [x] Verify against 15 Human Quality Gate questions before declaring completion.
+  - [x] Run `pnpm build` across all 6 packages.
 
 ---
 

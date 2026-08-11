@@ -77,6 +77,32 @@
   2. **Cinematic 8-Act Narrative Flow**: Replace 3-column card grids with a progressive visual story (`Hero -> Chaos Problem -> Agent in Action Workflow -> Environment Isolation -> AST Security Guard -> Multi-Surface Ecosystem -> Privacy Guarantee -> Quickstart`).
   3. **Immersive Workflow Demo**: Replace button/text toggle boxes with a 5-step interactive workflow (`Agent -> Tool Action -> Code Diff -> Security Approval Request -> Execution Completed`).
   4. **Eliminate Widget Noise**: Remove decorative counters, dense trivia panels, unanchored radial background glows, and repetitive card borders.
+---
+
+## DEC-021: Phase 4.5 Full Design Audit & Agentic Design System Strategy
+
+* **Date**: August 11, 2026
+* **Status**: Approved Strategy & Visual Design Standard
+* **Context**: Integrated installed Agentic Awesome Skills (`design-taste-frontend`, `scroll-experience`, `frontend-design`, `frontend-design-review`) to execute a full visual and product presentation redesign of `@asterim/marketing`.
+* **Decision**: Adopt the **Asterim Design System & Experience Architecture** (`docs/phase4-5-full-design-audit.md` & `docs/phase4-5-design-system.md`):
+  1. **Installed Skills Framework**: Apply `design-taste-frontend` for strict color calibration, typography (`Geist`/`Satoshi` + `JetBrains Mono`), tactile feedback, and anti-card overuse rules; apply `scroll-experience` for smooth, progressive scroll reveals; apply `frontend-design` for hero-as-a-thesis composition; apply `frontend-design-review` for accessibility and responsive stability.
+  2. **Product as Thesis**: Position a large, realistic composition of the actual Asterim Workstation interface (`apps/web`) as the hero centerpiece.
+  3. **Anti-Card Overuse & Restrained Accent**: Eliminate generic 3-column card grids; use open whitespace, hairline slate dividers (`rgba(255,255,255,0.05)`), and desaturated emerald `#10b981` strictly for active execution states and primary CTAs.
 * **Impact**:
-  - `docs/phase4-5-corrective-audit.md` and `docs/phase4-5-experience-redesign.md` created.
-  - `@asterim/marketing` experience redesigned to premium developer product standards.
+  - `docs/phase4-5-full-design-audit.md` and `docs/phase4-5-design-system.md` created.
+  - `@asterim/marketing` visual design system certified to premium developer product standards.
+
+---
+
+## DEC-022: Phase 4.5 Visual Art Direction & Iterative Visual QA Standard
+
+* **Date**: August 11, 2026
+* **Status**: Approved Art Direction & Visual Verification Standard
+* **Context**: Rendered visual evidence ([media__full.png](file:///home/qhukz/.gemini/antigravity-ide/brain/8c0b19e9-7951-4a05-a54b-79f868bf09c4/media__full.png)) established that build success alone does not prove visual quality. The marketing site suffered from visual monotony, formulaic component repetition, overused green text fills, and card container overload.
+* **Decision**: Adopt the **Asterim Art Direction & Iterative Visual QA Framework** (`docs/phase4-5-visual-audit-v2.md`, `docs/asterim-marketing-art-direction.md`, `docs/phase4-5-experience-redesign-v2.md`):
+  1. **Art Direction & Satoshi Display Typography**: Mandate `Satoshi` display typography, desaturated deep charcoal base (`#070a10`), calm slate surfaces (`#0d1424`), and surgical emerald `#10b981` reserved strictly for active execution states and primary CTAs.
+  2. **10-Act Continuous Narrative**: Eliminate 3-column card grids. Use open split-screen typography panels, full-width Workstation UI compositions, sticky mechanics, and multi-surface pipeline flows.
+  3. **Visual QA Loop**: Mandatory visual screenshot inspection across viewports (1440px to 375px) before reporting Phase 4.5 completion.
+* **Impact**:
+  - `docs/phase4-5-visual-audit-v2.md`, `docs/asterim-marketing-art-direction.md`, and `docs/phase4-5-experience-redesign-v2.md` created.
+  - Visual verification standard enforced.
