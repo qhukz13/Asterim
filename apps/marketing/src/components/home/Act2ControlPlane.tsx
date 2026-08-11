@@ -1,80 +1,95 @@
 import React from 'react';
-import { IconX, IconCheck } from '../common/MarketingIcons';
+import { IconX, IconCheck, IconTerminal, IconShield } from '../common/MarketingIcons';
 
 export const Act2ControlPlane: React.FC = () => {
   return (
-    <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-      <div className="section-header">
-        <span className="section-tag">ACT 2 // CONTROL PLANE VS CHAOS</span>
+    <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '104px 24px', maxWidth: '1280px' }}>
+      <div className="section-header" style={{ marginBottom: '64px' }}>
+        <span className="section-tag">ACT 2 // CONTROL PLANE VS TERMINAL CHAOS</span>
         <h2 className="section-title">Stop Managing Loose Terminal Windows.</h2>
         <p className="section-lead">
           AI coding agents are fast, but running 5 unmonitored CLI sessions across isolated terminal tabs leads to missing context, secret leaks, and unreviewed system modifications.
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
-        {/* Left Split: Terminal Chaos */}
+      {/* Asymmetric Split Screen: Unmonitored CLI vs Asterim Control Plane */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+        {/* Left Split: Raw Terminal Chaos */}
         <div
           style={{
-            background: '#0a0d14',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
+            background: '#04070d',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
             borderRadius: '12px',
-            padding: '28px'
+            overflow: 'hidden',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <span style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <IconX size={16} color="#ef4444" />
+          {/* Header */}
+          <div style={{ padding: '14px 20px', background: 'rgba(239, 68, 68, 0.08)', borderBottom: '1px solid rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ width: '24px', height: '24px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <IconX size={14} color="#ef4444" />
+              </span>
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', fontFamily: 'var(--font-mono)' }}>
+                UNMONITORED TERMINAL CHAOS
+              </span>
+            </div>
+            <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              HIGH RISK
             </span>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>Disconnected CLI Chaos</h3>
           </div>
 
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.92rem', color: '#94a3b8' }}>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#ef4444', fontWeight: 700 }}>✕</span>
-              <span><strong>Unmonitored Commands:</strong> Agents execute bash commands directly without pre-computation AST parsing.</span>
-            </li>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#ef4444', fontWeight: 700 }}>✕</span>
-              <span><strong>Context Collisions:</strong> Parallel sessions overwrite shared files and git branches unexpectedly.</span>
-            </li>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#ef4444', fontWeight: 700 }}>✕</span>
-              <span><strong>Secret Leakage:</strong> Production DB connection strings and API tokens leak across terminal histories.</span>
-            </li>
-          </ul>
+          {/* Simulated Raw Terminal Log */}
+          <div style={{ padding: '20px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', lineHeight: 1.65, color: '#94a3b8' }}>
+            <div style={{ color: '#ef4444' }}>$ claude-code --dangerously-skip-permissions</div>
+            <div style={{ color: '#64748b' }}>[bash] rm -rf ./config/secrets.env</div>
+            <div style={{ color: '#eab308' }}>[WARN] API_KEY exposed in plain text history</div>
+            <div style={{ color: '#ef4444' }}>[ERR] Git branch collision: main overwritten by agent-session-4</div>
+            <div style={{ color: '#64748b' }}>[bash] curl -X POST https://untrusted-analytics.io/telemetry</div>
+            <div style={{ color: '#ef4444', marginTop: '12px', fontWeight: 700 }}>
+              ⚠ CRITICAL: 3 parallel agent sessions mutated shared workspace files without human approval.
+            </div>
+          </div>
         </div>
 
-        {/* Right Split: Asterim Unified Control Plane */}
+        {/* Right Split: Asterim Local Control Plane */}
         <div
           style={{
-            background: '#0d1424',
-            border: '1px solid rgba(16, 185, 129, 0.3)',
+            background: '#070a10',
+            border: '1px solid rgba(16, 185, 129, 0.35)',
             borderRadius: '12px',
-            padding: '28px'
+            overflow: 'hidden',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <span style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <IconCheck size={16} color="#10b981" />
+          {/* Header */}
+          <div style={{ padding: '14px 20px', background: 'rgba(16, 185, 129, 0.08)', borderBottom: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ width: '24px', height: '24px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <IconCheck size={14} color="#10b981" />
+              </span>
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', fontFamily: 'var(--font-mono)' }}>
+                ASTERIM LOCAL CONTROL PLANE
+              </span>
+            </div>
+            <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              PROTECTED
             </span>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>Asterim Local Control Plane</h3>
           </div>
 
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.92rem', color: '#cbd5e1' }}>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#10b981', fontWeight: 700 }}>✓</span>
-              <span><strong>AST Guard Interception:</strong> Zero-trust clearance rules intercept risky CLI execution with promise gates.</span>
-            </li>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#10b981', fontWeight: 700 }}>✓</span>
-              <span><strong>Multi-Thread Isolation:</strong> Each agent runs in a scoped PTY thread with its own state telemetry.</span>
-            </li>
-            <li style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ color: '#10b981', fontWeight: 700 }}>✓</span>
-              <span><strong>Scoped Environments:</strong> Environment variables and credentials are enclave-isolated per workspace.</span>
-            </li>
-          </ul>
+          {/* Simulated Protected Control Plane Log */}
+          <div style={{ padding: '20px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', lineHeight: 1.65, color: '#cbd5e1' }}>
+            <div style={{ color: '#10b981' }}>$ asterim run --agent claude-code --workspace core</div>
+            <div style={{ color: '#38bdf8' }}>[AST Parser] Pre-computation clearance check active</div>
+            <div style={{ color: '#10b981' }}>[AST Guard] Intercepted destructive mutation request: rm -rf ./config</div>
+            <div style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '4px', display: 'inline-block', margin: '6px 0' }}>
+              ✓ PROMISE GATE: Execution held for human review.
+            </div>
+            <div style={{ color: '#cbd5e1' }}>[Enclave] Secrets masked. Data remains 100% on local machine.</div>
+            <div style={{ color: '#10b981', marginTop: '12px', fontWeight: 700 }}>
+              ✓ STABLE: Multi-thread isolation active. All agent actions audited and reversible.
+            </div>
+          </div>
         </div>
       </div>
     </section>
