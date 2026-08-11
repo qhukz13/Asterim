@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IconCpu, IconLayers, IconShield, IconTerminal } from '../common/MarketingIcons';
+import { IconCpu } from '../common/MarketingIcons';
 
 interface AgentProcess {
   id: string;

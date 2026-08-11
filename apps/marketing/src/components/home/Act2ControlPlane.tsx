@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconX, IconCheck, IconTerminal, IconShield } from '../common/MarketingIcons';
+import { IconX, IconCheck } from '../common/MarketingIcons';
 
 export const Act2ControlPlane: React.FC = () => {
   return (
