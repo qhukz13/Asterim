@@ -1,71 +1,95 @@
-# Asterim Marketing Art Direction Specification
+# Asterim Marketing Art Direction & Design System Specification
 
-**Version**: 2.0.0  
+**Version**: 3.0.0  
 **Target Application**: `@asterim/marketing` (`apps/marketing`)  
-**Design Skills Applied**: `design-taste-frontend`, `scroll-experience`, `frontend-design`, `frontend-design-review`  
+**Design Tier Benchmark**: Linear, Cursor, Raycast, Vercel  
 
 ---
 
-## 1. Primary Typography System
+## 1. Primary Design System Laws
 
-### Display & Headlines
-- **Typeface**: **`Satoshi`** (Primary Display Face)
-- **Hero H1**: `font-family: 'Satoshi', 'Inter', sans-serif; font-size: clamp(2.75rem, 5.5vw, 4.75rem); font-weight: 800; letter-spacing: -0.035em; line-height: 1.05;`
-- **Section H2**: `font-family: 'Satoshi', 'Inter', sans-serif; font-size: clamp(2.0rem, 3.8vw, 3.0rem); font-weight: 800; letter-spacing: -0.025em; line-height: 1.12;`
-- **Subhead H3**: `font-family: 'Satoshi', 'Inter', sans-serif; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.015em;`
+### Law 1: The Website IS the Product
+All product UI previews must look and feel like real, working React software from `apps/web`. Static SaaS illustrations, fake card grids, and generic mockup graphics are strictly banned.
 
-### Code & Terminal Metadata
-- **Typeface**: **`JetBrains Mono`**
-- **Terminal Logs & Code Diffs**: `font-family: 'JetBrains Mono', monospace; font-size: 0.84rem; line-height: 1.6; font-weight: 500;`
+### Law 2: Motion Communicates Causality
+Animations must reflect real system state events (agent streaming logs, AST security command interception, environment scope switching, multi-agent thread execution). Floating decorative blobs or meaningless floating cards are forbidden.
 
-### Body & Paragraphs
-- **Typeface**: **`Inter`**
-- **Section Lead**: `font-size: 1.15rem; color: #94a3b8; line-height: 1.65; max-width: 720px;`
-- **Standard Body**: `font-size: 0.95rem; color: #cbd5e1; line-height: 1.6;`
+### Law 3: Spacing & Visual Rhythm
+Maintain spatial dignity and breathing room across all viewports. Every section uses standardized vertical rhythm (`padding: 104px 24px` desktop / `64px 20px` mobile).
+
+### Law 4: Anti-Card Policy
+Repeating 3x3 or 2x3 rounded icon boxes ("card slop") is prohibited. Content must be structured using open 2-column split views, hairline dividers (`border-t border-slate-800/60`), and full-width interactive workstation frames.
 
 ---
 
-## 2. Color Composition & Palette Calibration
+## 2. Color Palette & Surgical Emerald Standard
 
-| Token | Color Code / RGBA | Role & Application |
+| Token | Color Value | Role & Application |
 | :--- | :--- | :--- |
-| `--bg-dark` | `#070a10` | Deep technical charcoal viewport background (Strictly NO `#000000`, NO purple gradients) |
-| `--bg-surface` | `#0d1424` | Calm slate workstation panels & navigation chrome |
-| `--bg-elevated` | `#121b30` | Elevated workstation panels & popovers |
-| `--border-subtle` | `rgba(255, 255, 255, 0.06)` | Hairline slate dividers and subtle section borders |
-| `--border-hover` | `rgba(255, 255, 255, 0.14)` | Hover boundary state |
-| `--border-accent` | `rgba(16, 185, 129, 0.35)` | Active execution & focus ring boundary |
+| `--bg-dark` | `#070a10` | Viewport background (Strictly NO `#000000`, NO purple glows) |
+| `--bg-surface` | `#0d1424` | Workstation panels, navbar chrome, header bars |
+| `--bg-elevated` | `#121b30` | Popovers, modals, elevated workstation panels |
+| `--bg-terminal` | `#04070d` | Code diff containers and terminal log viewports |
+| `--border-subtle` | `rgba(255, 255, 255, 0.06)` | Hairline slate section dividers and panel boundaries |
+| `--border-hover` | `rgba(255, 255, 255, 0.14)` | Subtle element hover boundaries |
+| `--border-accent` | `rgba(16, 185, 129, 0.35)` | Active execution, security clearance, and focus ring boundary |
 | `--text-primary` | `#f8fafc` | Primary headlines and high-contrast titles |
-| `--text-secondary` | `#94a3b8` | Subheads, descriptive paragraphs, and labels |
-| `--text-muted` | `#64748b` | Metadata, captions, and inactive tabs |
-| `--accent-green` | `#10b981` | Surgical emerald accent (CTAs, active execution state, status indicators) |
-| `--accent-green-hover` | `#34d399` | Hover state for emerald buttons & active links |
+| `--text-secondary` | `#94a3b8` | Subheads, descriptive paragraphs, and tab labels |
+| `--text-muted` | `#64748b` | Captions, metadata, inactive tab indicators |
+| `--accent-emerald` | `#10b981` | **Surgical Emerald**: Signal color ONLY (Active execution, status, CTAs) |
+| `--accent-emerald-hover` | `#34d399` | Hover state for primary emerald buttons & badges |
+| `--hazard-red` | `#ef4444` | AST security intercepted hazard alert state |
 
-*Surgical Emerald Rule*: Emerald `#10b981` must NOT become the identity of every section. It is reserved strictly for active execution states, approved security clearance, and primary CTAs. Banned from decorative text fills and unanchored radial background glows.
+### Surgical Emerald Rule
+Emerald `#10b981` is reserved strictly for signal indicators:
+- Active agent execution badges
+- Passed AST security clearances
+- Primary conversion CTAs
+- Focused keyboard navigation outlines (`outline: 2px solid #10b981`)
 
----
-
-## 3. Spatial & Structural Language
-
-- **Container Scale**: `max-width: 1180px; margin: 0 auto;`
-- **Section Rhythm**: `padding: 104px 24px;` (Desktop) / `padding: 64px 20px;` (Mobile).
-- **Anti-Card Overuse Policy**: Omit container boxes when `border-t border-slate-800/60`, `divide-y`, or open whitespace groups content cleanly.
-- **Visual Variety**: Alternating layout patterns across the 10 acts (asymmetric hero, open 2-column split screens, full-width Workstation UI compositions, sticky workflow engines, and ecosystem pipeline grids).
-
----
-
-## 4. Shape & Surface Language
-
-- **Workstation UI Shell**: `border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); background: #070a10; shadow: 0 40px 100px rgba(0,0,0,0.9);`
-- **Inner Panels & Code Diffs**: `border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); background: #04070d;`
-- **CTAs & Buttons**: `border-radius: 6px;`
+*Banned*: Decorative text fill gradients in emerald, unanchored green radial blobs, or green borders on inactive cards.
 
 ---
 
-## 5. Motion & Causality System
+## 3. Typography System
 
-Every animation communicates a system event:
-- **Agent Output Streaming**: Real-time terminal log appends.
-- **Diff Reveal**: Staged code patch appearance upon agent tool call.
-- **AST Security Interception**: Dangerous command analysis and clearance prompt.
-- **Environment Context Switch**: Visually updates workspace root paths, scoped credentials, attached MCP tools, and file access policies.
+- **Display & Headlines**: Satoshi or Geist
+  - Hero H1: `font-size: clamp(2.75rem, 5.5vw, 4.75rem); font-weight: 800; letter-spacing: -0.035em; line-height: 1.05;`
+  - Section H2: `font-size: clamp(2.0rem, 3.8vw, 3.0rem); font-weight: 800; letter-spacing: -0.025em; line-height: 1.12;`
+  - Subhead H3: `font-size: 1.25rem; font-weight: 700; letter-spacing: -0.015em;`
+- **Body Text**: Inter
+  - Lead: `font-size: 1.15rem; color: #94a3b8; line-height: 1.65; max-width: 720px;`
+  - Body: `font-size: 0.95rem; color: #cbd5e1; line-height: 1.6;`
+- **Terminal / Logs / Code Diffs**: JetBrains Mono
+  - Code/Log: `font-family: 'JetBrains Mono', monospace; font-size: 0.84rem; line-height: 1.6; font-weight: 500;`
+
+---
+
+## 4. UI Shell & Workstation Surfaces
+
+```css
+.workstation-frame {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #070a10;
+  box-shadow: 0 32px 96px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+}
+
+.workstation-header {
+  height: 40px;
+  background: #0d1424;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.terminal-viewport {
+  background: #04070d;
+  font-family: 'JetBrains Mono', monospace;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+```

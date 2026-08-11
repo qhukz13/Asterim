@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { MobileNavDrawer } from './components/MobileNavDrawer';
-import { HeroSection } from './components/home/HeroSection';
-import { InteractiveProductDemo } from './components/home/InteractiveProductDemo';
-import { WhyAsterimSection } from './components/home/WhyAsterimSection';
-import { ProblemSolutionSection } from './components/home/ProblemSolutionSection';
-import { CapabilitiesGrid } from './components/home/CapabilitiesGrid';
-import { PlatformMatrixSection } from './components/home/PlatformMatrixSection';
-import { OpenSourceSection } from './components/home/OpenSourceSection';
+import { Act1Hero } from './components/home/Act1Hero';
+import { Act2ControlPlane } from './components/home/Act2ControlPlane';
+import { Act3SandboxSection } from './components/home/Act3SandboxSection';
+import { Act4SwarmSection } from './components/home/Act4SwarmSection';
+import { Act5EnvironmentSection } from './components/home/Act5EnvironmentSection';
+import { Act6SecurityGuardSection } from './components/home/Act6SecurityGuardSection';
+import { Act7RemoteRelaySection } from './components/home/Act7RemoteRelaySection';
+import { Act8CTAQuickstart } from './components/home/Act8CTAQuickstart';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { AccountLayout } from './components/AccountLayout';
@@ -215,13 +216,15 @@ function App() {
         user={user}
       />
 
-      <HeroSection navigate={navigate} />
-      <InteractiveProductDemo />
-      <WhyAsterimSection />
-      <ProblemSolutionSection />
-      <CapabilitiesGrid />
-      <PlatformMatrixSection />
-      <OpenSourceSection />
+      {/* 8-Act Scroll Narrative Architecture */}
+      <Act1Hero />
+      <Act2ControlPlane />
+      <Act3SandboxSection />
+      <Act4SwarmSection />
+      <Act5EnvironmentSection />
+      <Act6SecurityGuardSection />
+      <Act7RemoteRelaySection />
+      <Act8CTAQuickstart />
 
       <Footer navigate={navigate} />
     </div>
