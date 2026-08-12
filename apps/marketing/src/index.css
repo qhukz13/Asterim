@@ -204,10 +204,137 @@ code, pre, kbd, samp {
   align-items: start;
 }
 
+/* Mirrored variant — visual surface leads on the left, narrative follows.
+   Keeps repeated split sections from reading as one repeated template. */
+.split-panel--flip {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+}
+
 @media (max-width: 900px) {
-  .split-panel {
+  .split-panel,
+  .split-panel--flip {
     grid-template-columns: 1fr;
     gap: 40px;
+  }
+  /* On a single column the narrative should still come first. */
+  .split-panel--flip > :first-child {
+    order: 2;
+  }
+}
+
+/* ==========================================================================
+   CONTROL PLANE PIPELINE (DESIGN-005)
+   Horizontal architecture diagram: agents → bus → guard → gate → workstation.
+   ========================================================================== */
+
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+}
+
+.pipeline-node {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The gate is where the human enters the loop — the one node that earns accent. */
+.pipeline-node[data-accent='true'] {
+  border-color: var(--border-accent);
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.06), transparent 70%), var(--bg-surface);
+}
+
+.pipeline-badge {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 6px;
+  align-self: flex-start;
+}
+
+.pipeline-node[data-accent='true'] .pipeline-badge {
+  color: var(--accent-emerald);
+  border-color: var(--border-accent);
+}
+
+.pipeline-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.pipeline-detail {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Animated flow connector between nodes. */
+.pipeline-link {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.pipeline-link::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 8px;
+  height: 1px;
+  background-image: linear-gradient(90deg, var(--accent-emerald) 0 6px, transparent 6px 12px);
+  background-size: 12px 1px;
+  opacity: 0.55;
+  animation: pipeline-flow 0.9s linear infinite;
+}
+
+.pipeline-link::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--accent-emerald);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  opacity: 0.7;
+}
+
+@keyframes pipeline-flow {
+  to {
+    background-position: 12px 0;
+  }
+}
+
+/* Stack vertically on narrow screens; connectors rotate to point down. */
+@media (max-width: 900px) {
+  .pipeline {
+    flex-direction: column;
+  }
+  .pipeline-link {
+    flex: 0 0 26px;
+    transform: rotate(90deg);
+  }
+  .pipeline-link::before {
+    left: -4px;
+    right: 10px;
   }
 }
 
@@ -621,6 +748,30 @@ code, pre, kbd, samp {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* Changes view — file list beside diff, mirroring ChangesView.tsx. */
+.ws-changes {
+  display: grid;
+  grid-template-columns: minmax(0, 30fr) minmax(0, 70fr);
+}
+
+/* Environment preset picker. */
+.ws-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .ws-changes,
+  .ws-preset-grid {
+    grid-template-columns: 1fr;
+  }
+  .ws-changes > :first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
 }
 
 /* Tablet: drop the inspector into the flow beneath the main pane. */

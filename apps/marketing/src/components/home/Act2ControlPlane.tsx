@@ -1,97 +1,121 @@
 import React from 'react';
-import { IconX, IconCheck } from '../common/MarketingIcons';
+import { IconX } from '../common/MarketingIcons';
+
+interface PipelineNode {
+  badge: string;
+  title: string;
+  detail: string;
+  accent?: boolean;
+}
+
+const PIPELINE: PipelineNode[] = [
+  { badge: 'SPAWNED', title: 'AI Agents', detail: 'claude-code · aider · antigravity' },
+  { badge: 'STREAMING', title: 'Event Bus Telemetry', detail: 'agent:stdout · tool.call · diff' },
+  { badge: 'SCANNING', title: 'AST Guard Intercept', detail: 'parse → bounds → classify' },
+  { badge: 'PAUSED', title: 'Human Approval Gate', detail: 'approve / deny · promise held', accent: true },
+  { badge: 'LOCAL', title: 'Local Workstation', detail: 'pty · git · filesystem' }
+];
+
+const CHAOS = [
+  '$ claude-code --dangerously-skip-permissions',
+  '[bash] rm -rf ./config/secrets.env',
+  '[warn] API_KEY exposed in plain-text shell history',
+  '[bash] curl -X POST https://untrusted-analytics.io/telemetry'
+];
 
 export const Act2ControlPlane: React.FC = () => {
   return (
-    <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '104px 24px', maxWidth: '1280px' }}>
-      <div className="section-header" style={{ marginBottom: '64px' }}>
+    <section
+      className="marketing-section"
+      style={{ borderTop: '1px solid var(--border-subtle)', padding: '104px 24px', maxWidth: '1280px' }}
+    >
+      <div className="section-header" style={{ marginBottom: '48px' }}>
         <span className="section-tag">CONTROL PLANE</span>
         <h2 className="section-title">Stop Managing Loose Terminal Windows.</h2>
         <p className="section-lead">
-          AI coding agents are fast, but running 5 unmonitored CLI sessions across isolated terminal tabs leads to missing context, secret leaks, and unreviewed system modifications.
+          Five unmonitored CLI sessions across five terminal tabs is not an architecture. Asterim
+          puts one observable path between an agent and your machine.
         </p>
       </div>
 
-      {/* Asymmetric Split Screen: Unmonitored CLI vs Asterim Control Plane */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-        {/* Left Split: Raw Terminal Chaos */}
+      {/* Without Asterim — a single condensed strip, not a competing panel. */}
+      <div style={{ marginBottom: '40px' }}>
         <div
           style={{
-            background: '#04070d',
-            border: '1px solid rgba(239, 68, 68, 0.25)',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '12px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: 'var(--hazard-red)'
           }}
         >
-          {/* Header */}
-          <div style={{ padding: '14px 20px', background: 'rgba(239, 68, 68, 0.08)', borderBottom: '1px solid rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ width: '24px', height: '24px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <IconX size={14} color="#ef4444" />
-              </span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', fontFamily: 'var(--font-mono)' }}>
-                UNMONITORED TERMINAL CHAOS
-              </span>
-            </div>
-            <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              HIGH RISK
-            </span>
-          </div>
-
-          {/* Simulated Raw Terminal Log */}
-          <div style={{ padding: '20px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', lineHeight: 1.65, color: '#94a3b8' }}>
-            <div style={{ color: '#ef4444' }}>$ claude-code --dangerously-skip-permissions</div>
-            <div style={{ color: '#64748b' }}>[bash] rm -rf ./config/secrets.env</div>
-            <div style={{ color: '#eab308' }}>[WARN] API_KEY exposed in plain text history</div>
-            <div style={{ color: '#ef4444' }}>[ERR] Git branch collision: main overwritten by agent-session-4</div>
-            <div style={{ color: '#64748b' }}>[bash] curl -X POST https://untrusted-analytics.io/telemetry</div>
-            <div style={{ color: '#ef4444', marginTop: '12px', fontWeight: 700 }}>
-              ⚠ CRITICAL: 3 parallel agent sessions mutated shared workspace files without human approval.
-            </div>
-          </div>
+          <IconX size={13} color="#ef4444" />
+          WITHOUT ASTERIM — NO PATH, NO RECORD
         </div>
-
-        {/* Right Split: Asterim Local Control Plane */}
         <div
           style={{
-            background: '#070a10',
-            border: '1px solid rgba(16, 185, 129, 0.35)',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
+            borderLeft: '2px solid rgba(239, 68, 68, 0.35)',
+            paddingLeft: '16px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.78rem',
+            lineHeight: 1.75,
+            color: '#64748b'
           }}
         >
-          {/* Header */}
-          <div style={{ padding: '14px 20px', background: 'rgba(16, 185, 129, 0.08)', borderBottom: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ width: '24px', height: '24px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <IconCheck size={14} color="#10b981" />
-              </span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', fontFamily: 'var(--font-mono)' }}>
-                ASTERIM LOCAL CONTROL PLANE
-              </span>
-            </div>
-            <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              PROTECTED
-            </span>
-          </div>
-
-          {/* Simulated Protected Control Plane Log */}
-          <div style={{ padding: '20px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', lineHeight: 1.65, color: '#cbd5e1' }}>
-            <div style={{ color: '#10b981' }}>$ asterim run --agent claude-code --workspace core</div>
-            <div style={{ color: '#38bdf8' }}>[AST Parser] Pre-computation clearance check active</div>
-            <div style={{ color: '#10b981' }}>[AST Guard] Intercepted destructive mutation request: rm -rf ./config</div>
-            <div style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '4px', display: 'inline-block', margin: '6px 0' }}>
-              ✓ PROMISE GATE: Execution held for human review.
-            </div>
-            <div style={{ color: '#cbd5e1' }}>[Enclave] Secrets masked. Data remains 100% on local machine.</div>
-            <div style={{ color: '#10b981', marginTop: '12px', fontWeight: 700 }}>
-              ✓ STABLE: Multi-thread isolation active. All agent actions audited and reversible.
-            </div>
+          {CHAOS.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+          <div style={{ color: 'var(--hazard-red)', marginTop: '6px' }}>
+            3 parallel sessions mutated shared files · 0 approvals · 0 audit entries
           </div>
         </div>
       </div>
+
+      {/* With Asterim — the pipeline. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginBottom: '16px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          letterSpacing: '0.08em',
+          color: 'var(--accent-emerald)'
+        }}
+      >
+        WITH ASTERIM — ONE OBSERVABLE PATH
+      </div>
+
+      <div className="pipeline">
+        {PIPELINE.map((node, i) => (
+          <React.Fragment key={node.title}>
+            <div className="pipeline-node" data-accent={node.accent ? 'true' : 'false'}>
+              <span className="pipeline-badge">{node.badge}</span>
+              <span className="pipeline-title">{node.title}</span>
+              <span className="pipeline-detail">{node.detail}</span>
+            </div>
+            {i < PIPELINE.length - 1 && <span className="pipeline-link" aria-hidden="true" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      <p
+        style={{
+          marginTop: '20px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.76rem',
+          color: 'var(--text-muted)'
+        }}
+      >
+        Nothing reaches the shell without passing the gate — and every step is recorded on the way
+        through.
+      </p>
     </section>
   );
 };

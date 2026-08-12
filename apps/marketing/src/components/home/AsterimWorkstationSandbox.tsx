@@ -15,231 +15,85 @@ import {
   IconChevronRight,
   IconChevronDown,
   IconFileCode,
-  IconUser,
-  IconBot,
+  IconRefreshCw,
   IconSend
 } from '../common/MarketingIcons';
 
+/*
+ * Faithful reproduction of the Asterim workstation UI (`apps/web`).
+ * Structure, copy and state names are taken from the real components:
+ *   TopBar.tsx · NavigationSidebar.tsx · SessionSidebar.tsx · App.tsx (tab strip
+ *   + thread header) · InspectorPanel.tsx · ChatInput.tsx · ChangesView.tsx ·
+ *   AISettings.tsx · environment/EnvironmentSettingsView.tsx
+ * Do not invent controls here — if it is not in apps/web, it does not belong.
+ */
+
 export type SandboxTab = 'chat' | 'terminal' | 'changes' | 'settings' | 'environment';
 
-export interface TranscriptStep {
-  type: 'log' | 'tool' | 'security';
-  text: string;
-}
+type ThreadStatus = 'idle' | 'working' | 'approval';
 
-export interface ThreadData {
+interface ThreadData {
   id: string;
-  projectId: string;
-  projectName: string;
-  projectPath: string;
-  branch: string;
+  shortId: string;
   name: string;
-  agent: string;
-  status: 'approval' | 'working' | 'completed';
-  mission: string;
-  userPrompt: string;
-  transcriptSteps: TranscriptStep[];
+  status: ThreadStatus;
+  runtime: string;
+  terminal: string[];
   approvalCmd?: string;
-  riskScore?: string;
-  attachedFiles: string[];
-  terminalLog?: string[];
-  pidInfo?: string;
-  diffFile?: string;
-  diffCode?: string;
-  agentResponseText?: string;
-  commitBadge?: string;
 }
 
-export const THREADS_DATA: Record<string, ThreadData> = {
-  'tr-104': {
-    id: 'tr-104',
-    projectId: 'asterim-core',
-    projectName: 'asterim-core',
-    projectPath: 'packages/core',
-    branch: 'feature/agent-auth',
-    name: 'feature/agent-auth',
-    agent: 'Claude Code 3.7',
-    status: 'working',
-    mission: 'Implement Agent Session Authentication Handshake',
-    userPrompt: 'Add PKCE token exchange to the agent adapter handshake.',
-    transcriptSteps: [
-      { type: 'log', text: '[11:48:01] agent: Reading adapter handshake contract...' },
-      { type: 'tool', text: 'read_file("packages/adapters/src/ClaudeCodeAdapter.ts")' },
-      { type: 'log', text: '[11:48:06] agent: Drafting PKCE verifier exchange.' }
-    ],
-    attachedFiles: [
-      'packages/adapters/src/ClaudeCodeAdapter.ts',
-      'packages/shared/src/adapters.ts',
-      'apps/server/src/middleware/auth.ts'
-    ],
-    terminalLog: [
-      '[11:48:01] pty_init: spawning zsh · cwd packages/core',
-      '[11:48:04] agent: read_file packages/adapters/src/ClaudeCodeAdapter.ts',
-      '[11:48:06] agent: 412 lines · 6.1 KB into context',
-      '[11:48:09] agent: streaming patch for PKCE verifier exchange',
-      '✓ PASS packages/adapters/test/handshake.test.ts (14 assertions)'
-    ],
-    pidInfo: 'zsh · packages/core · streaming'
+const THREADS: ThreadData[] = [
+  {
+    id: 'main',
+    shortId: '6ae1794d',
+    name: 'Main Session',
+    status: 'idle',
+    runtime: 'antigravity',
+    terminal: [
+      'qhukz@fedora:~/Documents/Projects/Asterim$ asterim start',
+      'asterim: workstation daemon listening on 127.0.0.1:3000',
+      'asterim: adapter antigravity ready',
+      'qhukz@fedora:~/Documents/Projects/Asterim$ '
+    ]
   },
-  'tr-105': {
-    id: 'tr-105',
-    projectId: 'analytics-service',
-    projectName: 'analytics-service',
-    projectPath: 'services/telemetry',
-    branch: 'security/ast-interception',
-    name: 'security/ast-interception',
-    agent: 'Aider v0.72',
+  {
+    id: 'ast-security-gate',
+    shortId: 'b12f77e0',
+    name: 'ast-security-gate',
     status: 'approval',
-    mission: 'Harden AST Command Interception Before Shell Execution',
-    userPrompt: 'Rebuild the release step so the build directory is cleaned before deploy.',
-    transcriptSteps: [
-      { type: 'log', text: '[12:02:11] agent: Planning release pipeline rewrite...' },
-      { type: 'tool', text: 'read_file("services/telemetry/scripts/release.sh")' },
-      { type: 'security', text: 'AST Security Guard intercepted: rm -rf ./build && pnpm deploy' }
-    ],
+    runtime: 'antigravity',
     approvalCmd: 'rm -rf ./build && pnpm deploy',
-    riskScore: '8.4 / 10',
-    attachedFiles: ['services/telemetry/scripts/release.sh', 'services/telemetry/package.json'],
-    terminalLog: [
-      '[12:02:11] pty_init: spawning bash · cwd services/telemetry',
-      '[12:02:14] agent: proposed command → rm -rf ./build && pnpm deploy',
-      '[12:02:14] ast_guard: recursive delete + network publish detected',
-      '[12:02:14] ast_guard: execution PAUSED · awaiting human clearance'
-    ],
-    pidInfo: 'bash · services/telemetry · paused'
+    terminal: [
+      'qhukz@fedora:~/Documents/Projects/Asterim$ pnpm release',
+      'agent: proposed command → rm -rf ./build && pnpm deploy',
+      'ast_guard: recursive delete + network publish detected',
+      'ast_guard: execution PAUSED · awaiting human clearance'
+    ]
   },
-  'tr-106': {
-    id: 'tr-106',
-    projectId: 'mobile-relay',
-    projectName: 'mobile-relay',
-    projectPath: 'apps/mobile',
-    branch: 'diff/git-review',
-    name: 'diff/git-review',
-    agent: 'Antigravity',
-    status: 'completed',
-    mission: 'Review Noise Protocol Relay Patch',
-    userPrompt: 'Add the Noise protocol handshake to the mobile websocket relay.',
-    transcriptSteps: [
-      { type: 'log', text: '[11:40:00] agent: Initialised Noise handshake generator.' },
-      { type: 'tool', text: 'exec("pnpm test apps/mobile")' },
-      { type: 'log', text: '[11:42:10] agent: All E2E mobile push tests passed.' }
-    ],
-    agentResponseText: 'Noise protocol handshake implemented. All E2E push tests passed — patch ready for review.',
-    commitBadge: 'Commit 7a7eb7f "feat: add Noise protocol relay"',
-    diffFile: 'apps/mobile/src/push.ts',
-    diffCode: [
-      '@@ -18,9 +18,14 @@ export async function openRelay(url: string) {',
-      '   const socket = new WebSocket(url);',
-      '-  socket.binaryType = "arraybuffer";',
-      '-  return socket;',
-      '+  socket.binaryType = "arraybuffer";',
-      '+',
-      '+  const handshake = await NoiseHandshake.initiate(socket, {',
-      '+    pattern: "XX",',
-      '+    staticKey: await Keychain.deviceKey(),',
-      '+  });',
-      '+',
-      '+  return handshake.secureChannel();',
-      ' }'
-    ].join('\n'),
-    attachedFiles: ['apps/mobile/src/push.ts', 'packages/shared/src/types.ts']
+  {
+    id: 'auth-feature',
+    shortId: '3c9de510',
+    name: 'auth-feature',
+    status: 'working',
+    runtime: 'antigravity',
+    terminal: [
+      'qhukz@fedora:~/Documents/Projects/Asterim$ asterim run --thread auth-feature',
+      'agent: read_file packages/adapters/src/ClaudeCodeAdapter.ts',
+      'agent: 412 lines · 6.1 KB into context',
+      'agent: streaming patch for PKCE verifier exchange'
+    ]
   }
-};
+];
 
-function ToolAccordion({
-  title,
-  children,
-  defaultOpen = false,
-  type = 'tool',
-  status = 'success'
-}: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-  type?: 'thought' | 'tool' | 'diff';
-  status?: 'success' | 'running' | 'failed';
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+const DIFF = [
+  '@@ -1,4 +1,4 @@',
+  '-482913',
+  '+771904',
+  ' '
+].join('\n');
 
-  return (
-    <div
-      style={{
-        margin: '8px 0',
-        borderRadius: '6px',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        background: '#070a10',
-        overflow: 'hidden'
-      }}
-    >
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          padding: '8px 12px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          userSelect: 'none',
-          background: '#0d1424',
-          fontSize: '0.78rem',
-          fontFamily: 'var(--font-mono)',
-          color: '#94a3b8'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {type === 'diff' ? (
-            <IconFileCode size={13} color="#10b981" />
-          ) : (
-            <IconTerminal size={13} color="#10b981" />
-          )}
-          <span style={{ fontWeight: 600, color: '#f8fafc' }}>{title}</span>
-          <span
-            style={{
-              fontSize: '0.65rem',
-              fontWeight: 700,
-              padding: '1px 6px',
-              borderRadius: '100px',
-              background: status === 'running' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-              color: status === 'running' ? '#38bdf8' : '#10b981',
-              border: status === 'running' ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)'
-            }}
-          >
-            {status === 'running' ? 'Running' : 'Success'}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: '#64748b' }}>
-          {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-          <span>{isOpen ? 'Collapse' : 'Expand Log'}</span>
-        </div>
-      </div>
-      {isOpen && (
-        <div
-          style={{
-            padding: '10px 14px',
-            background: '#04070d',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.78rem',
-            lineHeight: 1.6,
-            color: '#cbd5e1',
-            borderTop: '1px solid rgba(255, 255, 255, 0.06)'
-          }}
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Line-by-line diff viewer. Mirrors the gutter/highlight conventions used by
- * `apps/web/src/components/git/ChangesView.tsx`: old/new line-number columns,
- * `@@` hunk headers, and +/- row tinting.
- */
-function DiffBlock({ code, file }: { code: string; file?: string }) {
+function DiffBlock({ code, file }: { code: string; file: string }) {
   const rows = code.split('\n');
-
-  // Walk the hunk header to assign real old/new line numbers per row.
   let oldNo = 0;
   let newNo = 0;
   const numbered = rows.map((line) => {
@@ -256,81 +110,29 @@ function DiffBlock({ code, file }: { code: string; file?: string }) {
     return { line, kind: 'ctx' as const, old: oldNo++, next: newNo++ };
   });
 
-  const added = numbered.filter((r) => r.kind === 'add').length;
-  const removed = numbered.filter((r) => r.kind === 'del').length;
-
   const gutter = (v: number | null) => (
-    <span
-      style={{
-        display: 'inline-block',
-        width: '30px',
-        textAlign: 'right',
-        paddingRight: '10px',
-        color: '#475569',
-        userSelect: 'none',
-        flexShrink: 0
-      }}
-    >
+    <span style={{ display: 'inline-block', width: '28px', textAlign: 'right', paddingRight: '10px', color: '#475569', userSelect: 'none', flexShrink: 0 }}>
       {v ?? ''}
     </span>
   );
 
   return (
-    <div
-      style={{
-        borderRadius: '6px',
-        overflow: 'hidden',
-        margin: '10px 0',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        background: '#04070d',
-        fontFamily: 'var(--font-mono)',
-        fontSize: '0.78rem',
-        lineHeight: 1.6
-      }}
-    >
-      <div
-        style={{
-          background: '#0d1424',
-          padding: '6px 12px',
-          fontSize: '0.7rem',
-          color: '#64748b',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '12px'
-        }}
-      >
-        <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {file ?? 'DIFF EXCERPT'}
-        </span>
-        <span style={{ flexShrink: 0 }}>
-          <span style={{ color: '#10b981' }}>+{added}</span>{' '}
-          <span style={{ color: '#f87171' }}>−{removed}</span>
-        </span>
+    <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', background: '#04070d', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', lineHeight: 1.6 }}>
+      <div style={{ padding: '6px 12px', background: '#0d1424', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#94a3b8', fontSize: '0.72rem' }}>
+        {file}
       </div>
       <div style={{ padding: '6px 0', overflowX: 'auto' }}>
-        {numbered.map((row, idx) => {
-          const style =
+        {numbered.map((row, i) => {
+          const s =
             row.kind === 'add'
               ? { bg: 'rgba(16, 185, 129, 0.12)', fg: '#34d399' }
               : row.kind === 'del'
                 ? { bg: 'rgba(239, 68, 68, 0.12)', fg: '#f87171' }
                 : row.kind === 'hunk'
-                  ? { bg: 'rgba(255, 255, 255, 0.03)', fg: '#64748b' }
+                  ? { bg: 'rgba(255,255,255,0.03)', fg: '#64748b' }
                   : { bg: 'transparent', fg: '#94a3b8' };
-
           return (
-            <div
-              key={idx}
-              style={{
-                display: 'flex',
-                padding: '1px 12px',
-                background: style.bg,
-                color: style.fg,
-                whiteSpace: 'pre'
-              }}
-            >
+            <div key={i} style={{ display: 'flex', padding: '1px 12px', background: s.bg, color: s.fg, whiteSpace: 'pre' }}>
               {gutter(row.old)}
               {gutter(row.next)}
               <span>{row.line}</span>
@@ -342,283 +144,150 @@ function DiffBlock({ code, file }: { code: string; file?: string }) {
   );
 }
 
+const TABS: Array<{ id: SandboxTab; label: string; icon: React.ReactNode }> = [
+  { id: 'chat', label: 'Chat', icon: <IconZap size={14} /> },
+  { id: 'terminal', label: 'Terminal', icon: <IconTerminal size={14} /> },
+  { id: 'changes', label: 'Changes', icon: <IconFileCode size={14} /> },
+  { id: 'settings', label: 'Settings', icon: <IconLock size={14} /> },
+  { id: 'environment', label: 'Environment', icon: <IconShield size={14} /> }
+];
+
+const PRESETS = [
+  { id: 'personal', title: 'Personal Environment', desc: '100% offline, solo developer mode with zero network dependencies.' },
+  { id: 'company', title: 'Company Environment', desc: 'Shared team tools, centralized audit stream, and enterprise RBAC.' },
+  { id: 'client', title: 'Client Sandbox', desc: 'Isolated secrets and custom MCP tools for freelance/contract projects.' },
+  { id: 'experimental', title: 'Experimental Sandbox', desc: 'Relaxed execution policies for testing experimental LLM models.' }
+];
+
+const sectionLabel: React.CSSProperties = {
+  fontSize: '0.68rem',
+  fontWeight: 600,
+  color: '#64748b',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em'
+};
+
 export const AsterimWorkstationSandbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SandboxTab>('chat');
-  // Opens on the interception gate: the approval loop is the product's core
-  // differentiator, so it is the strongest default state for the hero.
-  const [activeThreadId, setActiveThreadId] = useState<string>('tr-105');
-  const [projectSearchQuery, setProjectSearchQuery] = useState('');
-  const [chatInputText, setChatInputText] = useState('');
+  const [activeThreadId, setActiveThreadId] = useState('main');
+  const [projectFilter, setProjectFilter] = useState('');
+  const [approval, setApproval] = useState<'pending' | 'approved' | 'denied'>('pending');
+  const [extraTerminal, setExtraTerminal] = useState<Record<string, string[]>>({});
+  const [preset, setPreset] = useState('personal');
 
-  const [threadStatuses, setThreadStatuses] = useState<Record<string, 'approval' | 'working' | 'completed'>>({
-    'tr-104': 'working',
-    'tr-105': 'approval',
-    'tr-106': 'completed'
-  });
+  const thread = THREADS.find((t) => t.id === activeThreadId) || THREADS[0];
+  const status: ThreadStatus =
+    thread.status === 'approval' && approval === 'approved'
+      ? 'working'
+      : thread.status === 'approval' && approval === 'denied'
+        ? 'idle'
+        : thread.status;
 
-  const [approvalActionState, setApprovalActionState] = useState<Record<string, 'pending' | 'approved' | 'denied'>>({
-    'tr-105': 'pending'
-  });
+  const projects = [
+    { name: 'Asterim', path: '/home/qhukz/Documents/Projects/Asterim', pinned: true },
+    { name: 'test', path: '~/dev/test', pinned: false },
+    { name: 'MainTest', path: '~/dev/MainTest', pinned: false }
+  ].filter((p) => p.name.toLowerCase().includes(projectFilter.toLowerCase()));
 
-  // Audit lines appended to the terminal stream by an approval decision.
-  const [extraTerminalLines, setExtraTerminalLines] = useState<Record<string, string[]>>({});
+  const pinned = projects.filter((p) => p.pinned);
+  const rest = projects.filter((p) => !p.pinned);
 
-  const [extraChatMessages, setExtraChatMessages] = useState<Record<string, Array<{ role: 'user' | 'agent'; text: string; time: string }>>>({});
-
-  const currentThread = THREADS_DATA[activeThreadId] || THREADS_DATA['tr-104'];
-  const currentStatus = threadStatuses[activeThreadId] || currentThread.status;
-  const currentApprovalState = approvalActionState[activeThreadId] || 'pending';
-
-  const handleSelectThread = (threadId: string) => {
-    setActiveThreadId(threadId);
-  };
-
-  const handleSelectProject = (projectId: string) => {
-    const matchingThread = Object.values(THREADS_DATA).find((t) => t.projectId === projectId);
-    if (matchingThread) {
-      setActiveThreadId(matchingThread.id);
-    }
-  };
-
-  const appendTerminal = (threadId: string, lines: string[]) =>
-    setExtraTerminalLines((prev) => ({ ...prev, [threadId]: [...(prev[threadId] || []), ...lines] }));
-
-  const handleApproveAction = () => {
-    const threadId = activeThreadId;
-    const cmd = THREADS_DATA[threadId]?.approvalCmd ?? '';
-
-    setApprovalActionState((prev) => ({ ...prev, [threadId]: 'approved' }));
-    setThreadStatuses((prev) => ({ ...prev, [threadId]: 'working' }));
-    appendTerminal(threadId, [
-      '[12:03:02] ast_guard: CLEARANCE GRANTED by developer',
-      `[12:03:02] pty_exec: ${cmd}`
-    ]);
-
-    setTimeout(() => {
-      setThreadStatuses((prev) => ({ ...prev, [threadId]: 'completed' }));
-      appendTerminal(threadId, ['✓ [12:03:09] pty_exit: code 0 · release published']);
-      setExtraChatMessages((prev) => ({
-        ...prev,
-        [threadId]: [
-          ...(prev[threadId] || []),
-          {
-            role: 'agent',
-            text: 'Clearance granted. Build directory cleaned and deploy completed with exit code 0.',
-            time: '12:03 PM'
-          }
-        ]
-      }));
-    }, 1500);
-  };
-
-  const handleDenyAction = () => {
-    const threadId = activeThreadId;
-    const cmd = THREADS_DATA[threadId]?.approvalCmd ?? '';
-
-    setApprovalActionState((prev) => ({ ...prev, [threadId]: 'denied' }));
-    appendTerminal(threadId, [
-      '✗ [12:03:02] ast_guard: COMMAND BLOCKED by developer',
-      `✗ [12:03:02] audit: ${cmd} — never reached the shell`,
-      '✗ [12:03:02] audit: event persisted to local store'
-    ]);
-    setExtraChatMessages((prev) => ({
+  const decide = (verdict: 'approved' | 'denied') => {
+    setApproval(verdict);
+    setExtraTerminal((prev) => ({
       ...prev,
-      [threadId]: [
-        ...(prev[threadId] || []),
-        {
-          role: 'agent',
-          text: 'Understood. Command execution canceled. Awaiting revised instructions.',
-          time: '12:03 PM'
-        }
+      [thread.id]: [
+        ...(prev[thread.id] || []),
+        verdict === 'approved'
+          ? 'ast_guard: CLEARANCE GRANTED by developer'
+          : 'ast_guard: COMMAND BLOCKED — never reached the shell'
       ]
     }));
   };
 
-  const handleSendMessage = () => {
-    if (!chatInputText.trim()) return;
-
-    const userText = chatInputText;
-    setChatInputText('');
-
-    setExtraChatMessages((prev) => ({
-      ...prev,
-      [activeThreadId]: [
-        ...(prev[activeThreadId] || []),
-        { role: 'user', text: userText, time: '11:52 AM' }
-      ]
-    }));
-
-    setTimeout(() => {
-      setExtraChatMessages((prev) => ({
-        ...prev,
-        [activeThreadId]: [
-          ...(prev[activeThreadId] || []),
-          {
-            role: 'agent',
-            text: `Analyzing request "${userText}" and scanning workspace context for ${currentThread.projectPath}...`,
-            time: '11:52 AM'
-          }
-        ]
-      }));
-    }, 1000);
+  const statePill = () => {
+    if (status === 'working') return { text: '● Executing', fg: '#60a5fa', bg: 'rgba(59,130,246,0.1)', bd: 'rgba(59,130,246,0.3)' };
+    if (status === 'approval') return { text: '⏸ Paused for Review', fg: '#fbbf24', bg: 'rgba(245,158,11,0.1)', bd: 'rgba(245,158,11,0.3)' };
+    return { text: '○ Idle', fg: '#94a3b8', bg: 'rgba(255,255,255,0.05)', bd: 'rgba(255,255,255,0.1)' };
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleSendMessage();
-    }
-  };
-
-  const projectsList = [
-    { id: 'asterim-core', name: 'asterim-core', path: 'packages/core' },
-    { id: 'analytics-service', name: 'analytics-service', path: 'services/telemetry' },
-    { id: 'mobile-relay', name: 'mobile-relay', path: 'apps/mobile' }
-  ].filter(
-    (p) =>
-      p.name.toLowerCase().includes(projectSearchQuery.toLowerCase()) ||
-      p.path.toLowerCase().includes(projectSearchQuery.toLowerCase())
-  );
+  const pill = statePill();
 
   return (
     <div className="workstation-frame" id="workstation-sandbox">
+      {/* ── Top chrome (TopBar.tsx) ─────────────────────────────── */}
       <div className="ws-header">
         <div className="ws-header-left">
           <div className="ws-chip">
-            <IconLayers size={13} color="#10b981" />
-            <span className="ws-chip-label">Company Workspace (Acme Corp)</span>
+            <span
+              style={{
+                width: '16px',
+                height: '16px',
+                borderRadius: '4px',
+                background: 'rgba(16,185,129,0.15)',
+                color: '#10b981',
+                fontSize: '0.62rem',
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+            >
+              P
+            </span>
+            <span className="ws-chip-label">Personal Environment</span>
+            <IconChevronDown size={11} color="#64748b" />
           </div>
 
           <div className="ws-breadcrumb">
             <span>/</span>
-            <span style={{ color: '#f8fafc', fontWeight: 600 }}>{currentThread.projectName}</span>
+            <span style={{ color: '#f8fafc', fontWeight: 600 }}>Asterim</span>
             <span>/</span>
-            <span style={{ color: '#34d399' }}>{currentThread.branch}</span>
+            <span style={{ color: '#94a3b8' }}>{thread.name}</span>
           </div>
         </div>
 
         <div className="ws-mission">
           <IconTarget size={12} color="#10b981" />
-          <span style={{ color: '#f8fafc', fontWeight: 600, flexShrink: 0 }}>Mission:</span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {currentThread.mission}
+          <span style={{ opacity: 0.8 }}>Mission:</span>
+          <span style={{ color: '#f8fafc', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {thread.name}
           </span>
         </div>
 
         <div className="ws-header-right">
-          {currentApprovalState === 'denied' ? (
-            <div
-              style={{
-                padding: '3px 10px',
-                borderRadius: '100px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                background: 'rgba(239, 68, 68, 0.12)',
-                color: 'var(--hazard-red)',
-                border: '1px solid rgba(239, 68, 68, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <IconX size={12} color="#ef4444" />
-              <span className="ws-status-full">Execution Halted</span>
-              <span className="ws-status-short">Halted</span>
-            </div>
-          ) : currentApprovalState === 'approved' && currentStatus === 'working' ? (
-            <div
-              style={{
-                padding: '3px 10px',
-                borderRadius: '100px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#10b981',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
-              <span className="ws-status-full">Executing…</span>
-              <span className="ws-status-short">Exec</span>
-            </div>
-          ) : currentStatus === 'approval' ? (
-            <div
-              style={{
-                padding: '3px 10px',
-                borderRadius: '100px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                background: 'rgba(245, 158, 11, 0.12)',
-                color: '#f59e0b',
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <IconAlertTriangle size={12} color="#f59e0b" />
-              <span className="ws-status-full">Action Required · Paused for Review</span>
-              <span className="ws-status-short">Review</span>
-            </div>
-          ) : currentStatus === 'working' ? (
-            <div
-              style={{
-                padding: '3px 10px',
-                borderRadius: '100px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#10b981',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
-              <span className="ws-status-full">Working ({currentThread.agent})</span>
-              <span className="ws-status-short">Working</span>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: '3px 10px',
-                borderRadius: '100px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                background: 'rgba(16, 185, 129, 0.15)',
-                color: '#34d399',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <IconCheck size={12} color="#34d399" />
-              <span className="ws-status-full">Task Completed</span>
-              <span className="ws-status-short">Done</span>
-            </div>
-          )}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '3px 10px',
+              borderRadius: '100px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              background: 'rgba(16,185,129,0.12)',
+              color: '#10b981',
+              border: '1px solid rgba(16,185,129,0.3)'
+            }}
+          >
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+            <span className="ws-status-full">Agent Ready</span>
+            <span className="ws-status-short">Ready</span>
+          </div>
 
           <div
             className="ws-host"
             style={{
+              alignItems: 'center',
+              gap: '5px',
               padding: '3px 8px',
               borderRadius: '4px',
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
               fontSize: '0.72rem',
               color: '#94a3b8',
-              fontFamily: 'var(--font-mono)',
-              alignItems: 'center',
-              gap: '5px'
+              whiteSpace: 'nowrap'
             }}
           >
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
@@ -632,108 +301,127 @@ export const AsterimWorkstationSandbox: React.FC = () => {
       </div>
 
       <div className="ws-body">
+        {/* ── Left nav (NavigationSidebar + SessionSidebar) ──────── */}
         <div className="ws-sidebar">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={sectionLabel}>Projects (3)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#64748b', fontFamily: 'var(--font-mono)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '3px', padding: '1px 5px' }}>
+                STD
+              </span>
+              <IconPlus size={13} color="#64748b" />
+            </div>
+          </div>
+
           <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+              <IconSearch size={12} color="#64748b" />
+            </span>
             <input
-              type="text"
-              value={projectSearchQuery}
-              onChange={(e) => setProjectSearchQuery(e.target.value)}
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
               placeholder="Filter projects..."
               style={{
                 width: '100%',
                 padding: '6px 8px 6px 26px',
                 borderRadius: '6px',
                 background: '#0d1424',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255,255,255,0.08)',
                 color: '#f8fafc',
-                fontSize: '0.78rem',
+                fontSize: '0.76rem',
                 outline: 'none'
               }}
             />
-            <div style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>
-              <IconSearch size={12} color="#94a3b8" />
-            </div>
           </div>
 
-          <div>
-            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              Projects ({projectsList.length})
+          {pinned.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ ...sectionLabel, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ color: '#fbbf24' }}>★</span> Pinned
+              </span>
+              {pinned.map((p) => (
+                <div
+                  key={p.name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '7px 9px',
+                    borderRadius: '6px',
+                    background: 'rgba(16,185,129,0.06)',
+                    border: '1px solid rgba(16,185,129,0.35)'
+                  }}
+                >
+                  <IconFolder size={13} color="#10b981" />
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc' }}>{p.name}</span>
+                    <span style={{ display: 'block', fontSize: '0.66rem', color: '#64748b', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {p.path}
+                    </span>
+                  </span>
+                  <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>★</span>
+                </div>
+              ))}
             </div>
+          )}
+
+          {rest.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {projectsList.map((p) => {
-                const isProjectActive = currentThread.projectId === p.id;
+              <span style={sectionLabel}>All Repositories</span>
+              {rest.map((p) => (
+                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 9px', borderRadius: '6px' }}>
+                  <IconFolder size={13} color="#64748b" />
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{p.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', color: '#94a3b8' }}>
+                <span style={{ transform: 'rotate(180deg)', display: 'flex' }}>
+                  <IconChevronRight size={12} color="#94a3b8" />
+                </span>
+                Projects
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', fontWeight: 700, color: '#10b981' }}>
+                <IconPlus size={11} color="#10b981" /> New Agent
+              </span>
+            </div>
+
+            <span style={sectionLabel}>Active Threads</span>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {THREADS.map((t) => {
+                const isActive = t.id === thread.id;
                 return (
                   <button
-                    key={p.id}
-                    onClick={() => handleSelectProject(p.id)}
+                    key={t.id}
+                    onClick={() => setActiveThreadId(t.id)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
-                      borderRadius: '6px',
-                      background: isProjectActive ? '#0d1424' : 'transparent',
-                      border: isProjectActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid transparent',
-                      color: isProjectActive ? '#f8fafc' : '#94a3b8',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <IconFolder size={14} color={isProjectActive ? '#10b981' : '#64748b'} />
-                    <div style={{ overflow: 'hidden' }}>
-                      <div style={{ fontWeight: isProjectActive ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                      <div style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>{p.path}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Active Threads
-              </span>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                <IconPlus size={10} color="#10b981" /> New Agent
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {Object.values(THREADS_DATA).map((t) => {
-                const isSelected = activeThreadId === t.id;
-                const status = threadStatuses[t.id] || t.status;
-                const statusColor = status === 'approval' ? '#f59e0b' : status === 'working' ? '#10b981' : '#34d399';
-                const statusLabel = status === 'approval' ? 'Action Req' : status === 'working' ? 'Working' : 'Done';
-
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => handleSelectThread(t.id)}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '2px',
-                      padding: '8px',
-                      borderRadius: '6px',
-                      background: isSelected ? '#0d1424' : 'transparent',
-                      border: isSelected ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent',
-                      borderLeft: isSelected ? '3px solid #10b981' : '1px solid transparent',
-                      color: isSelected ? '#f8fafc' : '#94a3b8',
-                      fontSize: '0.78rem',
-                      cursor: 'pointer',
+                      width: '100%',
                       textAlign: 'left',
-                      transition: 'all 0.15s ease'
+                      padding: '7px 9px',
+                      borderRadius: '6px',
+                      background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                      border: 'none',
+                      borderLeft: isActive ? '2px solid #10b981' : '2px solid transparent',
+                      color: isActive ? '#f8fafc' : '#94a3b8',
+                      fontSize: '0.79rem',
+                      fontWeight: isActive ? 600 : 500,
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-sans)'
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: isSelected ? 700 : 500, color: isSelected ? '#f8fafc' : '#cbd5e1' }}>{t.name}</span>
-                      <span style={{ fontSize: '0.65rem', color: statusColor, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                        {statusLabel}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Agent: {t.agent}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.name}
+                    </span>
+                    {t.status === 'approval' && <span style={{ fontSize: '0.62rem', color: '#fbbf24', whiteSpace: 'nowrap' }}>Action Req</span>}
+                    {t.status === 'working' && <span style={{ fontSize: '0.62rem', color: '#10b981', whiteSpace: 'nowrap' }}>Working</span>}
                   </button>
                 );
               })}
@@ -741,320 +429,332 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Center: thread header + tabs + view ────────────────── */}
         <div className="ws-main">
-          <div className="ws-tabs">
-            {[
-              { id: 'chat', label: 'Chat', icon: <IconZap size={13} /> },
-              { id: 'terminal', label: 'Terminal', icon: <IconTerminal size={13} /> },
-              { id: 'changes', label: 'Changes', icon: <IconFileCode size={13} /> },
-              { id: 'settings', label: 'Settings', icon: <IconLock size={13} /> },
-              { id: 'environment', label: 'Environment', icon: <IconShield size={13} /> }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as SandboxTab)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                  background: activeTab === tab.id ? '#0d1424' : 'transparent',
-                  border: 'none',
-                  borderBottom: activeTab === tab.id ? '2px solid #10b981' : '2px solid transparent',
-                  color: activeTab === tab.id ? '#f8fafc' : '#94a3b8',
-                  fontSize: '0.8rem',
-                  fontWeight: activeTab === tab.id ? 600 : 500,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 38px)', justifyContent: 'space-between' }}>
-            <div style={{ padding: '16px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  <IconUser size={13} color="#38bdf8" />
-                  <span style={{ fontWeight: 700, color: '#f8fafc' }}>Developer</span>
-                  <span style={{ fontSize: '0.68rem', color: '#64748b' }}>11:48 AM</span>
-                </div>
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    background: '#0d1424',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    fontSize: '0.84rem',
-                    color: '#f8fafc',
-                    lineHeight: 1.5,
-                    maxWidth: '85%'
-                  }}
-                >
-                  {currentThread.userPrompt}
+          {/* Thread header (App.tsx Layer 1) */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              padding: '10px 16px',
+              borderBottom: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.02)',
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>{thread.name}</div>
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '3px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <span>Thread: {thread.shortId}</span>
+                  <span>Last activity: just now</span>
                 </div>
               </div>
+              <span
+                style={{
+                  fontSize: '0.74rem',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  whiteSpace: 'nowrap',
+                  background: pill.bg,
+                  color: pill.fg,
+                  border: `1px solid ${pill.bd}`
+                }}
+              >
+                {pill.text}
+              </span>
+            </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  <IconBot size={14} color="#10b981" />
-                  <span style={{ fontWeight: 700, color: '#10b981' }}>Agent Assistant ({currentThread.agent})</span>
-                  <span style={{ fontSize: '0.68rem', color: '#64748b' }}>11:48 AM</span>
-                </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  minWidth: '186px',
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  background: '#0d1424',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  fontSize: '0.78rem',
+                  color: '#f8fafc'
+                }}
+              >
+                Antigravity (Google)
+                <IconChevronDown size={12} color="#64748b" />
+              </div>
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 10px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.12)'
+                }}
+              >
+                <IconRefreshCw size={13} color="#94a3b8" />
+              </span>
+            </div>
+          </div>
 
-                <div
+          {/* Tab strip (App.tsx Layer 2) */}
+          <div className="ws-tabs">
+            {TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
                   style={{
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: '#070a10',
-                    border: '1px solid rgba(255, 255, 255, 0.06)',
-                    fontSize: '0.84rem',
-                    color: '#cbd5e1',
-                    lineHeight: 1.6
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                    background: isActive ? '#191c20' : 'transparent',
+                    border: 'none',
+                    borderBottom: isActive ? '2px solid #10b981' : '2px solid transparent',
+                    borderRadius: '6px 6px 0 0',
+                    color: isActive ? '#ffffff' : '#94a3b8',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-sans)'
                   }}
                 >
-                  <ToolAccordion title={`Agent Reasoning (${currentThread.mission})`} defaultOpen={true}>
-                    {currentThread.transcriptSteps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '4px', color: step.type === 'tool' ? '#38bdf8' : step.type === 'security' ? '#f59e0b' : '#94a3b8' }}>
-                        {step.text}
-                      </div>
-                    ))}
-                  </ToolAccordion>
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
-                  {activeTab === 'changes' && !currentThread.diffCode && (
-                    <div style={{ margin: '10px 0', padding: '14px', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '6px', color: '#64748b', fontSize: '0.8rem' }}>
-                      No staged changes on <span style={{ fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>{currentThread.branch}</span> yet.
-                    </div>
-                  )}
-
-                  {currentThread.diffCode && activeTab !== 'terminal' && (
-                    <DiffBlock code={currentThread.diffCode} file={currentThread.diffFile} />
-                  )}
-
-                  {currentThread.terminalLog && activeTab !== 'changes' && (
-                    <div style={{ margin: '10px 0', padding: '10px 12px', background: '#000000', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', overflowX: 'auto' }}>
-                      <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '4px' }}>
-                        {currentThread.pidInfo}
-                      </div>
-                      {[...currentThread.terminalLog, ...(extraTerminalLines[activeThreadId] || [])].map((log, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            whiteSpace: 'pre',
-                            color: log.startsWith('✗')
-                              ? '#f87171'
-                              : log.startsWith('✓')
-                                ? '#10b981'
-                                : log.includes('ast_guard')
-                                  ? '#f59e0b'
-                                  : log.startsWith('[')
-                                    ? '#38bdf8'
-                                    : '#cbd5e1'
-                          }}
-                        >
-                          {log}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {currentThread.commitBadge && (
-                    <div style={{ marginTop: '8px', padding: '8px 12px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#34d399', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <IconCheck size={14} color="#34d399" />
-                      <span>{currentThread.commitBadge}</span>
-                    </div>
-                  )}
-
-                  {currentThread.agentResponseText && (
-                    <div style={{ marginTop: '8px', color: '#f8fafc' }}>
-                      {currentThread.agentResponseText}
-                    </div>
-                  )}
-
-                  {currentThread.approvalCmd && (
+          {/* ── Views ───────────────────────────────────────────── */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {activeTab === 'chat' && (
+              <>
+                <div style={{ flex: 1, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', minHeight: '210px' }}>
+                  {thread.status === 'approval' ? (
                     <div
                       style={{
-                        marginTop: '12px',
-                        padding: '14px',
+                        border: '1px solid rgba(245,158,11,0.35)',
+                        background: 'rgba(245,158,11,0.06)',
                         borderRadius: '8px',
-                        background: currentApprovalState === 'approved' ? 'rgba(16, 185, 129, 0.08)' : currentApprovalState === 'denied' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                        border: currentApprovalState === 'approved' ? '1px solid rgba(16, 185, 129, 0.35)' : currentApprovalState === 'denied' ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(245, 158, 11, 0.35)'
+                        padding: '14px'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.82rem', color: '#f8fafc' }}>
-                          <IconAlertTriangle size={15} color={currentApprovalState === 'approved' ? '#10b981' : currentApprovalState === 'denied' ? '#ef4444' : '#f59e0b'} />
-                          <span>
-                            {currentApprovalState === 'approved' ? 'Clearance Granted · Command Executing' : currentApprovalState === 'denied' ? 'Command Blocked · Never Reached the Shell' : 'Human Approval Required · Intercept #AST-402'}
-                          </span>
-                        </div>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#ef4444', background: 'rgba(239, 68, 68, 0.2)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          RISK SCORE: {currentThread.riskScore || '8.4 / 10'}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '0.82rem', fontWeight: 700, color: '#fbbf24' }}>
+                        <IconAlertTriangle size={14} color="#fbbf24" />
+                        {approval === 'pending'
+                          ? 'Permission requested for shell action'
+                          : approval === 'approved'
+                            ? 'Clearance granted · command executing'
+                            : 'Command blocked · never reached the shell'}
                       </div>
-
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', background: '#000000', padding: '8px 12px', borderRadius: '6px', color: '#f8fafc', marginBottom: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        {currentThread.approvalCmd}
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#f8fafc', background: '#04070d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', padding: '9px 12px', overflowX: 'auto', whiteSpace: 'pre' }}>
+                        {thread.approvalCmd}
                       </div>
-
-                      {currentApprovalState === 'pending' ? (
-                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                      {approval === 'pending' && (
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px' }}>
                           <button
-                            onClick={handleDenyAction}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '6px 14px',
-                              borderRadius: '6px',
-                              background: 'rgba(239, 68, 68, 0.15)',
-                              border: '1px solid rgba(239, 68, 68, 0.4)',
-                              color: '#ef4444',
-                              fontWeight: 600,
-                              fontSize: '0.78rem',
-                              cursor: 'pointer'
-                            }}
+                            onClick={() => decide('denied')}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '6px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}
                           >
-                            <IconX size={14} color="#ef4444" /> Deny Command
+                            <IconX size={13} color="#ef4444" /> Deny
                           </button>
                           <button
-                            onClick={handleApproveAction}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '6px 14px',
-                              borderRadius: '6px',
-                              background: '#10b981',
-                              border: 'none',
-                              color: '#042114',
-                              fontWeight: 700,
-                              fontSize: '0.78rem',
-                              cursor: 'pointer'
-                            }}
+                            onClick={() => decide('approved')}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '6px', background: '#10b981', border: 'none', color: '#042114', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
                           >
-                            <IconCheck size={14} color="#042114" /> Approve Command
+                            <IconCheck size={13} color="#042114" /> Approve
                           </button>
-                        </div>
-                      ) : (
-                        <div style={{ color: currentApprovalState === 'approved' ? '#10b981' : '#ef4444', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {currentApprovalState === 'approved' ? <IconCheck size={14} color="#10b981" /> : <IconX size={14} color="#ef4444" />}
-                          <span>
-                            {currentApprovalState === 'approved' ? 'Clearance Granted by Developer. Execution proceeding...' : 'Command Execution Canceled by Developer.'}
-                          </span>
                         </div>
                       )}
                     </div>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px', color: '#64748b', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
+                      <IconTerminal size={14} color="#64748b" />
+                      No messages in active thread
+                    </div>
                   )}
                 </div>
-              </div>
 
-              {(extraChatMessages[activeThreadId] || []).map((msg, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {msg.role === 'user' ? <IconUser size={13} color="#38bdf8" /> : <IconBot size={14} color="#10b981" />}
-                    <span style={{ fontWeight: 700, color: msg.role === 'user' ? '#f8fafc' : '#10b981' }}>
-                      {msg.role === 'user' ? 'Developer' : `Agent Assistant (${currentThread.agent})`}
-                    </span>
-                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{msg.time}</span>
+                {/* ChatInput.tsx */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', background: '#070a10', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '9px 12px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                    Ask for Approval
+                    <IconChevronDown size={11} color="#64748b" />
                   </div>
+                  <input
+                    readOnly
+                    placeholder="Ask the agent to do something..."
+                    style={{ flex: 1, minWidth: '120px', padding: '10px 12px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.8rem', outline: 'none' }}
+                  />
+                  <button style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '6px', background: '#10b981', border: 'none', color: '#042114', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                    <IconSend size={13} color="#042114" /> Send
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'terminal' && (
+              <div style={{ flex: 1, padding: '14px 16px', background: '#04070d', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', lineHeight: 1.7, overflowX: 'auto', minHeight: '260px' }}>
+                {[...thread.terminal, ...(extraTerminal[thread.id] || [])].map((line, i) => (
                   <div
+                    key={i}
                     style={{
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      background: msg.role === 'user' ? '#0d1424' : '#070a10',
-                      border: msg.role === 'user' ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(16, 185, 129, 0.2)',
-                      fontSize: '0.84rem',
-                      color: '#f8fafc',
-                      lineHeight: 1.5,
-                      maxWidth: msg.role === 'user' ? '85%' : '100%'
+                      whiteSpace: 'pre',
+                      color: line.startsWith('qhukz@')
+                        ? '#10b981'
+                        : line.includes('ast_guard')
+                          ? '#fbbf24'
+                          : line.startsWith('asterim:')
+                            ? '#38bdf8'
+                            : '#cbd5e1'
                     }}
                   >
-                    {msg.text}
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'changes' && (
+              <div className="ws-changes" style={{ flex: 1, minHeight: '260px' }}>
+                <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+                  <div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc' }}>Changes</div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>1 changed</div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <span style={{ color: '#fbbf24', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700 }}>M</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      pairing_pin.txt
+                    </span>
+                  </div>
+
+                  <textarea
+                    readOnly
+                    placeholder="Commit summary"
+                    style={{ width: '100%', minHeight: '64px', resize: 'none', padding: '9px 11px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.78rem', outline: 'none', fontFamily: 'var(--font-sans)' }}
+                  />
+
+                  <button style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+                    ✨ Auto-Generate Message
+                  </button>
+
+                  <button style={{ padding: '9px 12px', borderRadius: '6px', background: '#10b981', border: 'none', color: '#042114', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                    Commit Changes
+                  </button>
+                </div>
+
+                <div style={{ padding: '14px', minWidth: 0, overflow: 'hidden' }}>
+                  <DiffBlock code={DIFF} file="pairing_pin.txt" />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div style={{ flex: 1, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '260px' }}>
+                <div>
+                  <div style={{ ...sectionLabel, marginBottom: '8px' }}>Agent Engine</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: '320px', padding: '9px 12px', borderRadius: '8px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', color: '#f8fafc' }}>
+                    Antigravity (Google)
+                    <IconChevronDown size={12} color="#64748b" />
                   </div>
                 </div>
-              ))}
-            </div>
 
-            <div
-              style={{
-                padding: '10px 14px',
-                background: '#070a10',
-                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'center'
-              }}
-            >
-              <input
-                type="text"
-                value={chatInputText}
-                onChange={(e) => setChatInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask Asterim agent or type / command..."
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRadius: '6px',
-                  background: '#0d1424',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  color: '#f8fafc',
-                  fontSize: '0.82rem',
-                  outline: 'none'
-                }}
-              />
-              <button
-                onClick={handleSendMessage}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '10px 16px',
-                  borderRadius: '6px',
-                  background: '#10b981',
-                  border: 'none',
-                  color: '#042114',
-                  fontWeight: 700,
-                  fontSize: '0.82rem',
-                  cursor: 'pointer'
-                }}
-              >
-                <IconSend size={14} color="#042114" />
-                Send
-              </button>
-            </div>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', marginBottom: '12px' }}>
+                    <IconShield size={15} color="#10b981" />
+                    Workspace AI Settings
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.6, maxWidth: '440px', marginBottom: '14px' }}>
+                    Model routing, context budget, and auto-approval rules apply to every agent
+                    dispatched inside this environment.
+                  </p>
+                  <button style={{ padding: '9px 16px', borderRadius: '6px', background: '#10b981', border: 'none', color: '#042114', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                    Save AI Settings
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'environment' && (
+              <div style={{ flex: 1, padding: '18px 16px', minHeight: '260px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>Personal Environment</span>
+                  <span style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.06em', padding: '3px 8px', borderRadius: '100px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', whiteSpace: 'nowrap' }}>
+                    PERSONAL ENVIRONMENT
+                  </span>
+                </div>
+
+                <div className="ws-preset-grid">
+                  {PRESETS.map((p) => {
+                    const isActive = preset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setPreset(p.id)}
+                        style={{
+                          textAlign: 'left',
+                          padding: '13px',
+                          borderRadius: '8px',
+                          background: isActive ? 'rgba(16,185,129,0.06)' : 'rgba(255,255,255,0.02)',
+                          border: `1px solid ${isActive ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font-sans)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '5px' }}>
+                          <IconLayers size={13} color={isActive ? '#10b981' : '#64748b'} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isActive ? '#f8fafc' : '#94a3b8' }}>{p.title}</span>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', lineHeight: 1.5 }}>{p.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* ── Inspector (InspectorPanel.tsx) ─────────────────────── */}
         <div className="ws-inspector">
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            AI CONTEXT &amp; STATE
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={sectionLabel}>AI Context &amp; State</span>
+            <IconChevronRight size={12} color="#64748b" />
           </div>
 
-          <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
-            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#34d399', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <IconShield size={14} color="#10b981" />
-              AST GUARD ACTIVE
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
+            <span style={sectionLabel}>Agent Activity</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Runtime:</span>
+              <span style={{ fontSize: '0.78rem', color: '#f8fafc', fontWeight: 500 }}>{thread.runtime}</span>
             </div>
-            <div style={{ fontSize: '0.72rem', color: '#94a3b8', lineHeight: 1.4 }}>
-              Zero-Trust clearance rules active. Dangerous CLI mutations intercepted before shell execution.
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Execution State:</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 600, color: status === 'working' ? '#10b981' : status === 'approval' ? '#f59e0b' : '#10b981', whiteSpace: 'nowrap' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: status === 'working' ? '#10b981' : status === 'approval' ? '#f59e0b' : '#10b981' }} />
+                {status === 'working' ? 'Computing' : status === 'approval' ? 'Action Required' : 'Ready / Idle'}
+              </span>
             </div>
           </div>
 
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            ATTACHED CONTEXT
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#cbd5e1' }}>
-            {currentThread.attachedFiles.map((file, i) => (
-              <div key={i} style={{ padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                📄 {file}
-              </div>
-            ))}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
+            <span style={sectionLabel}>
+              Attached Context <span style={{ color: '#64748b', textTransform: 'none', fontWeight: 400 }}>(Working Set)</span>
+            </span>
+            <span style={sectionLabel}>Active Context Files (0)</span>
+            <div style={{ fontSize: '0.74rem', color: '#64748b' }}>No files pinned yet.</div>
           </div>
         </div>
       </div>
