@@ -1,27 +1,57 @@
+/* ==========================================================================
+   ASTERIM MARKETING — CANONICAL DESIGN TOKENS (DESIGN-001)
+   Source of truth: docs/asterim-marketing-art-direction.md
+   No token may be introduced outside this block.
+   ========================================================================== */
+
 :root {
+  /* Surfaces — deep obsidian slate. Never #000000, never purple. */
   --bg-dark: #070a10;
   --bg-surface: #0d1424;
-  --bg-surface-hover: #121b30;
-  --bg-elevated: #162238;
+  --bg-elevated: #121b30;
   --bg-terminal: #04070d;
+
+  /* Borders — hairline only. */
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-hover: rgba(255, 255, 255, 0.14);
   --border-accent: rgba(16, 185, 129, 0.35);
+
+  /* Typography colors. */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
+
+  /* Surgical Emerald — signal only: active execution, clearance, primary CTA.
+     Banned: decorative text fills, unanchored radial blobs, inactive borders. */
   --accent-emerald: #10b981;
   --accent-emerald-hover: #34d399;
-  --accent-emerald-bg: rgba(16, 185, 129, 0.08);
   --hazard-red: #ef4444;
-  --warning-amber: #f59e0b;
-  --font-display: 'Satoshi', 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Type stacks. */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Satoshi', 'Geist', 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* --------------------------------------------------------------------------
+   COMPATIBILITY LAYER — TEMPORARY
+   The pre-reset codebase references a `--accent-green-*` namespace that was
+   never defined (62 references, 0 definitions), plus `--font-display` and a
+   radius scale. These aliases restore correct rendering on /docs, /download
+   and /pricing until those views are rebuilt in the follow-on DESIGN tasks.
+   DELETE this block once no `--accent-green-*` / `--font-display` refs remain.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --accent-green: var(--accent-emerald);
+  --accent-green-hover: var(--accent-emerald-hover);
+  --accent-green-bg: rgba(16, 185, 129, 0.08);
+  --accent-green-subtle: rgba(16, 185, 129, 0.06);
+  --accent-emerald-bg: rgba(16, 185, 129, 0.08);
+  --font-display: var(--font-heading);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
-  --radius-xl: 24px;
 }
 
 * {
@@ -38,6 +68,66 @@ body {
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   TYPOGRAPHY FOUNDATION (DESIGN-001)
+   Scale per docs/asterim-marketing-art-direction.md §3.
+   Display face = Satoshi. Body = Inter. Code/telemetry = JetBrains Mono.
+   ========================================================================== */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  color: var(--text-primary);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0;
+}
+
+/* Hero H1 — thesis statement. One per page. */
+.display-hero {
+  font-family: var(--font-heading);
+  font-size: clamp(2.75rem, 5.5vw, 4.75rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+
+/* H3 subhead. */
+.subhead {
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.text-lead {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  max-width: 720px;
+}
+
+.text-body {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+/* Terminal output, logs, diffs, telemetry. */
+.text-code {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.6;
 }
 
 /* Accessibility Focus Ring & Reduced Motion */
