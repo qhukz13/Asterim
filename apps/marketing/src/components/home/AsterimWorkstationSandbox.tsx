@@ -42,7 +42,7 @@ interface ThreadData {
   approvalCmd?: string;
 }
 
-const THREADS: ThreadData[] = [
+const buildThreads = (u: string): ThreadData[] => [
   {
     id: 'main',
     shortId: '6ae1794d',
@@ -50,10 +50,10 @@ const THREADS: ThreadData[] = [
     status: 'idle',
     runtime: 'antigravity',
     terminal: [
-      'qhukz@fedora:~/Documents/Projects/Asterim$ asterim start',
+      `${u}@fedora:~/Documents/Projects/Asterim$ asterim start`,
       'asterim: workstation daemon listening on 127.0.0.1:3000',
       'asterim: adapter antigravity ready',
-      'qhukz@fedora:~/Documents/Projects/Asterim$ '
+      `${u}@fedora:~/Documents/Projects/Asterim$ `
     ]
   },
   {
@@ -64,7 +64,7 @@ const THREADS: ThreadData[] = [
     runtime: 'antigravity',
     approvalCmd: 'rm -rf ./build && pnpm deploy',
     terminal: [
-      'qhukz@fedora:~/Documents/Projects/Asterim$ pnpm release',
+      `${u}@fedora:~/Documents/Projects/Asterim$ pnpm release`,
       'agent: proposed command → rm -rf ./build && pnpm deploy',
       'ast_guard: recursive delete + network publish detected',
       'ast_guard: execution PAUSED · awaiting human clearance'
@@ -77,7 +77,7 @@ const THREADS: ThreadData[] = [
     status: 'working',
     runtime: 'antigravity',
     terminal: [
-      'qhukz@fedora:~/Documents/Projects/Asterim$ asterim run --thread auth-feature',
+      `${u}@fedora:~/Documents/Projects/Asterim$ asterim run --thread auth-feature`,
       'agent: read_file packages/adapters/src/ClaudeCodeAdapter.ts',
       'agent: 412 lines · 6.1 KB into context',
       'agent: streaming patch for PKCE verifier exchange'
@@ -85,12 +85,92 @@ const THREADS: ThreadData[] = [
   }
 ];
 
-const DIFF = [
-  '@@ -1,4 +1,4 @@',
-  '-482913',
-  '+771904',
-  ' '
-].join('\n');
+/**
+ * Derive a unix-style handle for the signed-in visitor so the sandbox reads as
+ * *their* machine. Prefers the first name, falls back to the email local part,
+ * then to a neutral default. Always lowercase and shell-safe.
+ */
+export function deriveUsername(user?: { fullName?: string | null; email?: string | null } | null): string {
+  const candidates = [user?.fullName?.trim().split(/\s+/)[0], user?.email?.split('@')[0]];
+  for (const c of candidates) {
+    const handle = (c || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (handle) return handle;
+  }
+  return 'user';
+}
+
+interface ChangedFile {
+  path: string;
+  status: 'M' | 'A' | 'D';
+  diff: string;
+}
+
+const CHANGED_FILES: ChangedFile[] = [
+  {
+    path: 'packages/adapters/src/ClaudeCodeAdapter.ts',
+    status: 'M',
+    diff: [
+      '@@ -142,7 +142,12 @@ export class ClaudeCodeAdapter implements IAgentAdapter {',
+      '   async handshake(session: Session) {',
+      '-    return this.transport.connect(session.id);',
+      '+    const verifier = await Pkce.createVerifier();',
+      '+    const challenge = await Pkce.challenge(verifier);',
+      '+',
+      '+    return this.transport.connect(session.id, {',
+      '+      codeChallenge: challenge,',
+      '+      method: "S256",',
+      '+    });',
+      '   }'
+    ].join('\n')
+  },
+  {
+    path: 'apps/server/src/middleware/auth.ts',
+    status: 'M',
+    diff: [
+      '@@ -28,6 +28,9 @@ export async function requireSession(req, reply) {',
+      '   const token = req.cookies.asterim_session;',
+      '-  if (!token) return reply.status(401).send();',
+      '+  if (!token) {',
+      '+    return reply.status(401).send({ code: AuthErrorCode.UNAUTHORIZED });',
+      '+  }',
+      ' ',
+      '   return verifyAccessToken(token);'
+    ].join('\n')
+  },
+  {
+    path: 'packages/shared/src/adapters.ts',
+    status: 'M',
+    diff: [
+      '@@ -61,6 +61,7 @@ export interface AdapterCapabilities {',
+      '   supportsInterrupt: boolean;',
+      '   supportsResume: boolean;',
+      '+  supportsHandshakeAuth: boolean;',
+      '   supportsStreaming: boolean;',
+      ' }'
+    ].join('\n')
+  },
+  {
+    path: 'packages/adapters/test/handshake.test.ts',
+    status: 'A',
+    diff: [
+      '@@ -0,0 +1,9 @@',
+      '+import { describe, it, expect } from "vitest";',
+      '+import { ClaudeCodeAdapter } from "../src/ClaudeCodeAdapter";',
+      '+',
+      '+describe("handshake", () => {',
+      '+  it("sends an S256 challenge", async () => {',
+      '+    const adapter = new ClaudeCodeAdapter();',
+      '+    await expect(adapter.handshake(session)).resolves.toBeDefined();',
+      '+  });',
+      '+});'
+    ].join('\n')
+  },
+  {
+    path: 'pairing_pin.txt',
+    status: 'M',
+    diff: ['@@ -1,1 +1,1 @@', '-482913', '+771904'].join('\n')
+  }
+];
 
 function DiffBlock({ code, file }: { code: string; file: string }) {
   const rows = code.split('\n');
@@ -117,8 +197,8 @@ function DiffBlock({ code, file }: { code: string; file: string }) {
   );
 
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', background: '#04070d', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', lineHeight: 1.6 }}>
-      <div style={{ padding: '6px 12px', background: '#0d1424', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#94a3b8', fontSize: '0.72rem' }}>
+    <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', background: 'var(--ws-surface-0)', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', lineHeight: 1.6 }}>
+      <div style={{ padding: '6px 12px', background: 'var(--ws-surface-1)', borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontSize: '0.72rem' }}>
         {file}
       </div>
       <div style={{ padding: '6px 0', overflowX: 'auto' }}>
@@ -167,8 +247,10 @@ const sectionLabel: React.CSSProperties = {
   letterSpacing: '0.06em'
 };
 
-export const AsterimWorkstationSandbox: React.FC = () => {
+export const AsterimWorkstationSandbox: React.FC<{ username?: string }> = ({ username = 'user' }) => {
+  const THREADS = React.useMemo(() => buildThreads(username), [username]);
   const [activeTab, setActiveTab] = useState<SandboxTab>('chat');
+  const [activeFile, setActiveFile] = useState(CHANGED_FILES[0].path);
   const [activeThreadId, setActiveThreadId] = useState('main');
   const [projectFilter, setProjectFilter] = useState('');
   const [approval, setApproval] = useState<'pending' | 'approved' | 'denied'>('pending');
@@ -184,7 +266,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
         : thread.status;
 
   const projects = [
-    { name: 'Asterim', path: '/home/qhukz/Documents/Projects/Asterim', pinned: true },
+    { name: 'Asterim', path: `/home/${username}/Documents/Projects/Asterim`, pinned: true },
     { name: 'test', path: '~/dev/test', pinned: false },
     { name: 'MainTest', path: '~/dev/MainTest', pinned: false }
   ].filter((p) => p.name.toLowerCase().includes(projectFilter.toLowerCase()));
@@ -294,7 +376,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             <span>Local Host</span>
           </div>
 
-          <span className="ws-kbd" style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', fontSize: '0.7rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>
+          <span className="ws-kbd" style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', fontSize: '0.7rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>
             ⌘K
           </span>
         </div>
@@ -325,7 +407,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                 width: '100%',
                 padding: '6px 8px 6px 26px',
                 borderRadius: '6px',
-                background: '#0d1424',
+                background: 'var(--ws-surface-1)',
                 border: '1px solid rgba(255,255,255,0.08)',
                 color: '#f8fafc',
                 fontSize: '0.76rem',
@@ -377,7 +459,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             </div>
           )}
 
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', color: '#94a3b8' }}>
                 <span style={{ transform: 'rotate(180deg)', display: 'flex' }}>
@@ -439,7 +521,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               justifyContent: 'space-between',
               gap: '12px',
               padding: '10px 16px',
-              borderBottom: '1px solid rgba(255,255,255,0.12)',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
               background: 'rgba(255,255,255,0.02)',
               flexWrap: 'wrap'
             }}
@@ -477,8 +559,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                   minWidth: '186px',
                   padding: '7px 10px',
                   borderRadius: '8px',
-                  background: '#0d1424',
-                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'var(--ws-surface-1)',
+                  border: '1px solid rgba(255,255,255,0.08)',
                   fontSize: '0.78rem',
                   color: '#f8fafc'
                 }}
@@ -494,7 +576,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                   height: '34px',
                   borderRadius: '8px',
                   background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.12)'
+                  border: '1px solid rgba(255,255,255,0.08)'
                 }}
               >
                 <IconRefreshCw size={13} color="#94a3b8" />
@@ -517,7 +599,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                     padding: '8px 14px',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
-                    background: isActive ? '#191c20' : 'transparent',
+                    background: isActive ? 'var(--ws-surface-2)' : 'transparent',
                     border: 'none',
                     borderBottom: isActive ? '2px solid #10b981' : '2px solid transparent',
                     borderRadius: '6px 6px 0 0',
@@ -557,7 +639,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                             ? 'Clearance granted · command executing'
                             : 'Command blocked · never reached the shell'}
                       </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#f8fafc', background: '#04070d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', padding: '9px 12px', overflowX: 'auto', whiteSpace: 'pre' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#f8fafc', background: 'var(--ws-surface-0)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', padding: '9px 12px', overflowX: 'auto', whiteSpace: 'pre' }}>
                         {thread.approvalCmd}
                       </div>
                       {approval === 'pending' && (
@@ -586,15 +668,15 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                 </div>
 
                 {/* ChatInput.tsx */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', background: '#070a10', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '9px 12px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', background: 'var(--ws-surface-1)', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '9px 12px', borderRadius: '6px', background: 'var(--ws-surface-1)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
                     Ask for Approval
                     <IconChevronDown size={11} color="#64748b" />
                   </div>
                   <input
                     readOnly
                     placeholder="Ask the agent to do something..."
-                    style={{ flex: 1, minWidth: '120px', padding: '10px 12px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.8rem', outline: 'none' }}
+                    style={{ flex: 1, minWidth: '120px', padding: '10px 12px', borderRadius: '6px', background: 'var(--ws-surface-1)', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.8rem', outline: 'none' }}
                   />
                   <button style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '6px', background: '#10b981', border: 'none', color: '#042114', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
                     <IconSend size={13} color="#042114" /> Send
@@ -604,13 +686,13 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             )}
 
             {activeTab === 'terminal' && (
-              <div style={{ flex: 1, padding: '14px 16px', background: '#04070d', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', lineHeight: 1.7, overflowX: 'auto', minHeight: '260px' }}>
+              <div style={{ flex: 1, padding: '14px 16px', background: 'var(--ws-surface-0)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', lineHeight: 1.7, overflowX: 'auto', minHeight: '260px' }}>
                 {[...thread.terminal, ...(extraTerminal[thread.id] || [])].map((line, i) => (
                   <div
                     key={i}
                     style={{
                       whiteSpace: 'pre',
-                      color: line.startsWith('qhukz@')
+                      color: line.startsWith(`${username}@`)
                         ? '#10b981'
                         : line.includes('ast_guard')
                           ? '#fbbf24'
@@ -627,26 +709,64 @@ export const AsterimWorkstationSandbox: React.FC = () => {
 
             {activeTab === 'changes' && (
               <div className="ws-changes" style={{ flex: 1, minHeight: '260px' }}>
-                <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+                <div style={{ borderRight: '1px solid rgba(255,255,255,0.08)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
                   <div>
                     <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc' }}>Changes</div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>1 changed</div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>
+                      {CHANGED_FILES.length} changed
+                    </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span style={{ color: '#fbbf24', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700 }}>M</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      pairing_pin.txt
-                    </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {CHANGED_FILES.map((f) => {
+                      const isActive = f.path === activeFile;
+                      const name = f.path.split('/').pop();
+                      const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+                      return (
+                        <button
+                          key={f.path}
+                          onClick={() => setActiveFile(f.path)}
+                          title={f.path}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '6px 9px',
+                            borderRadius: '6px',
+                            background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontFamily: 'var(--font-mono)',
+                            minWidth: 0
+                          }}
+                        >
+                          <span style={{ color: f.status === 'A' ? '#34d399' : f.status === 'D' ? '#f87171' : '#fbbf24', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>
+                            {f.status}
+                          </span>
+                          <span style={{ minWidth: 0, flex: 1 }}>
+                            <span style={{ display: 'block', fontSize: '0.74rem', color: isActive ? '#f8fafc' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {name}
+                            </span>
+                            {dir && (
+                              <span style={{ display: 'block', fontSize: '0.64rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {dir}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <textarea
                     readOnly
                     placeholder="Commit summary"
-                    style={{ width: '100%', minHeight: '64px', resize: 'none', padding: '9px 11px', borderRadius: '6px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.78rem', outline: 'none', fontFamily: 'var(--font-sans)' }}
+                    style={{ width: '100%', minHeight: '58px', resize: 'none', padding: '9px 11px', borderRadius: '6px', background: 'var(--ws-surface-1)', border: '1px solid rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: '0.78rem', outline: 'none', fontFamily: 'var(--font-sans)' }}
                   />
 
-                  <button style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+                  <button style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
                     ✨ Auto-Generate Message
                   </button>
 
@@ -656,7 +776,10 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                 </div>
 
                 <div style={{ padding: '14px', minWidth: 0, overflow: 'hidden' }}>
-                  <DiffBlock code={DIFF} file="pairing_pin.txt" />
+                  <DiffBlock
+                    code={(CHANGED_FILES.find((f) => f.path === activeFile) || CHANGED_FILES[0]).diff}
+                    file={activeFile}
+                  />
                 </div>
               </div>
             )}
@@ -665,13 +788,13 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               <div style={{ flex: 1, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '260px' }}>
                 <div>
                   <div style={{ ...sectionLabel, marginBottom: '8px' }}>Agent Engine</div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: '320px', padding: '9px 12px', borderRadius: '8px', background: '#0d1424', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', color: '#f8fafc' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: '320px', padding: '9px 12px', borderRadius: '8px', background: 'var(--ws-surface-1)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.82rem', color: '#f8fafc' }}>
                     Antigravity (Google)
                     <IconChevronDown size={12} color="#64748b" />
                   </div>
                 </div>
 
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', marginBottom: '12px' }}>
                     <IconShield size={15} color="#10b981" />
                     Workspace AI Settings
@@ -734,7 +857,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             <IconChevronRight size={12} color="#64748b" />
           </div>
 
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
             <span style={sectionLabel}>Agent Activity</span>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
               <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Runtime:</span>
@@ -749,7 +872,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
             <span style={sectionLabel}>
               Attached Context <span style={{ color: '#64748b', textTransform: 'none', fontWeight: 400 }}>(Working Set)</span>
             </span>

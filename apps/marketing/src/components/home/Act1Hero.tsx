@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { IconCheck, IconCopy, IconArrowRight } from '../common/MarketingIcons';
-import { AsterimWorkstationSandbox } from './AsterimWorkstationSandbox';
+import { AsterimWorkstationSandbox, deriveUsername } from './AsterimWorkstationSandbox';
 
-export const Act1Hero: React.FC = () => {
+interface Act1HeroProps {
+  /** Signed-in visitor, if any — used to personalise the workstation sandbox. */
+  user?: { fullName?: string | null; email?: string | null } | null;
+}
+
+export const Act1Hero: React.FC<Act1HeroProps> = ({ user }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -118,7 +123,7 @@ export const Act1Hero: React.FC = () => {
       </div>
 
       {/* Live Interactive Asterim Workstation Simulator */}
-      <AsterimWorkstationSandbox />
+      <AsterimWorkstationSandbox username={deriveUsername(user)} />
     </section>
   );
 };

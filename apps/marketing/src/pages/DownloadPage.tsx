@@ -84,7 +84,7 @@ export const DownloadPage: React.FC = () => {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Laptop size={22} style={{ color: 'var(--accent-green)' }} />
+                  <Laptop size={22} style={{ color: 'var(--accent-emerald)' }} />
                   <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                     {plat.os}
                   </h3>
@@ -109,7 +109,7 @@ export const DownloadPage: React.FC = () => {
                       padding: '12px 16px',
                     }}
                   >
-                    <div style={{ color: 'var(--accent-green-hover)', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
+                    <div style={{ color: 'var(--accent-emerald-hover)', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
                       {fmt.label}
                     </div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--text-primary)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
@@ -121,7 +121,7 @@ export const DownloadPage: React.FC = () => {
             </div>
 
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px', color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Check size={16} style={{ color: 'var(--accent-green)' }} /> Automatic shell detection (bash, zsh, powershell, wsl)
+              <Check size={16} style={{ color: 'var(--accent-emerald)' }} /> Automatic shell detection (bash, zsh, powershell, wsl)
             </div>
           </div>
         ))}

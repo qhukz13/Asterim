@@ -217,7 +217,7 @@ function App() {
       />
 
       {/* 8-Act Scroll Narrative Architecture */}
-      <Act1Hero />
+      <Act1Hero user={user} />
       <Act2ControlPlane />
       <Act3SandboxSection />
       <Act4SwarmSection />

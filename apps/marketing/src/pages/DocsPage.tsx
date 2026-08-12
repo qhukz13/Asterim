@@ -125,9 +125,9 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
                             justifyContent: 'space-between',
                             padding: '8px 12px',
                             borderRadius: 'var(--radius-sm)',
-                            background: isActive ? 'var(--accent-green-bg)' : 'transparent',
+                            background: isActive ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
                             border: isActive ? '1px solid var(--border-accent)' : '1px solid transparent',
-                            color: isActive ? 'var(--accent-green-hover)' : 'var(--text-secondary)',
+                            color: isActive ? 'var(--accent-emerald-hover)' : 'var(--text-secondary)',
                             fontSize: '0.88rem',
                             fontWeight: isActive ? 600 : 500,
                             cursor: 'pointer',
@@ -135,10 +135,10 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
                           }}
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Icon size={16} style={{ color: isActive ? 'var(--accent-green)' : 'var(--text-muted)' }} />
+                            <Icon size={16} style={{ color: isActive ? 'var(--accent-emerald)' : 'var(--text-muted)' }} />
                             {t.label}
                           </span>
-                          {isActive && <ChevronRight size={14} style={{ color: 'var(--accent-green)' }} />}
+                          {isActive && <ChevronRight size={14} style={{ color: 'var(--accent-emerald)' }} />}
                         </button>
                       );
                     })}
@@ -325,7 +325,7 @@ const codeStyle: React.CSSProperties = {
   borderRadius: 'var(--radius-sm)',
   padding: '16px 20px',
   fontFamily: 'var(--font-mono)',
-  color: 'var(--accent-green-hover)',
+  color: 'var(--accent-emerald-hover)',
   fontSize: '0.9rem',
   overflowX: 'auto',
   margin: '16px 0 24px',

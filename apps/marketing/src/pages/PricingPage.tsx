@@ -106,12 +106,12 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
               justifyContent: 'space-between',
               position: 'relative',
               borderColor: tier.highlight ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)',
-              background: tier.highlight ? 'radial-gradient(circle at 50% 0%, var(--accent-green-subtle), transparent 70%), var(--bg-surface)' : 'var(--bg-surface)',
+              background: tier.highlight ? 'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.06), transparent 70%), var(--bg-surface)' : 'var(--bg-surface)',
             }}
           >
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ color: 'var(--accent-green-hover)', fontSize: '0.8rem', fontWeight: 600 }}>
+                <span style={{ color: 'var(--accent-emerald-hover)', fontSize: '0.8rem', fontWeight: 600 }}>
                   {tier.badge}
                 </span>
                 <span className={`status-badge ${tier.statusClass}`} style={{ fontSize: '0.65rem' }}>
@@ -150,7 +150,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {tier.features.map((feat, fIdx) => (
                     <li key={fIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#cbd5e1', fontSize: '0.88rem', lineHeight: 1.5 }}>
-                      <Check size={16} style={{ color: 'var(--accent-green)', flexShrink: 0, marginTop: '2px' }} />
+                      <Check size={16} style={{ color: 'var(--accent-emerald)', flexShrink: 0, marginTop: '2px' }} />
                       <span>{feat}</span>
                     </li>
                   ))}
