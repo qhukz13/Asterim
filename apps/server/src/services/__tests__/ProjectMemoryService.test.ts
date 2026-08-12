@@ -1,0 +1,508 @@
+/**
+ * Unit tests for ProjectMemoryService (P5.0-04).
+ *
+ * The repository has no test runner (docs/p5.0-01-verification-report.md § 3), so this
+ * file is a standalone script with its own assertion harness rather than a spec for
+ * vitest/jest. Run it with:
+ *
+ *   pnpm --filter asterim exec tsx src/services/__tests__/ProjectMemoryService.test.ts
+ *
+ * ASTERIM_DATA_DIR is set before the service modules are loaded. DatabaseService exports
+ * a singleton constructed at import time, so `require` is used instead of `import` —
+ * ESM import bindings are hoisted and would initialise the real ~/.asterim/asterim.db.
+ */
+
+import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asterim-memory-test-'));
+process.env.ASTERIM_DATA_DIR = tmpDir;
+
+const { dbService } = require('../DatabaseService');
+const { projectMemoryService } = require('../ProjectMemoryService');
+
+// --- Minimal assertion harness ---
+
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
+
+function check(label: string, condition: boolean, detail?: string): void {
+  if (condition) {
+    passed++;
+    console.log(`  PASS  ${label}`);
+  } else {
+    failed++;
+    failures.push(label);
+    console.log(`  FAIL  ${label}${detail ? `  — ${detail}` : ''}`);
+  }
+}
+
+function equal(label: string, actual: unknown, expected: unknown): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  check(label, ok, ok ? undefined : `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+function throws(label: string, fn: () => void): void {
+  try {
+    fn();
+    check(label, false, 'expected a throw, but the call succeeded');
+  } catch {
+    check(label, true);
+  }
+}
+
+function describe(name: string): void {
+  console.log(`\n${name}`);
+}
+
+/** Busy-waits until Date.now() advances, so created_at values are distinct and ordering is deterministic. */
+function tick(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    /* spin */
+  }
+}
+
+function cleanup(): void {
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    console.log(`\n[cleanup] removed ${tmpDir}`);
+  } catch (err) {
+    console.error(`[cleanup] failed to remove ${tmpDir}:`, (err as Error).message);
+  }
+}
+
+// --- Fixtures ---
+
+const PROJECT_A = 'project-a';
+const PROJECT_B = 'project-b';
+
+function seedProjects(): void {
+  const db = dbService.getDb();
+  const insert = db.prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)');
+  insert.run(PROJECT_A, 'Project A', '/tmp/project-a');
+  insert.run(PROJECT_B, 'Project B', '/tmp/project-b');
+}
+
+try {
+  check('test database is isolated in the temp directory', dbService.dbPath.startsWith(tmpDir), dbService.dbPath);
+  seedProjects();
+
+  // --- createDecision & getDecision ---------------------------------------
+  describe('createDecision & getDecision');
+
+  const decision = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Use SQLite via node:sqlite',
+    summary: 'Persistence is node:sqlite, not better-sqlite3.',
+    rationale: 'Zero native build step for the packaged binary.',
+    constraints: ['No migration framework', 'Schema changes must stay idempotent'],
+    provenance: 'REPOSITORY_EVIDENCE',
+    confidence: 0.9
+  });
+
+  check('createDecision returns a generated id', typeof decision.id === 'string' && decision.id.length > 0);
+  equal('projectId is persisted', decision.projectId, PROJECT_A);
+  equal('title is persisted', decision.title, 'Use SQLite via node:sqlite');
+  equal('constraints round-trip through JSON', decision.constraints, [
+    'No migration framework',
+    'Schema changes must stay idempotent'
+  ]);
+  equal('provenance is persisted', decision.provenance, 'REPOSITORY_EVIDENCE');
+  equal('confidence is persisted', decision.confidence, 0.9);
+  equal('status defaults to ACTIVE', decision.status, 'ACTIVE');
+  equal('supersededBy is null on a new decision', decision.supersededBy, null);
+  equal('codeRefs is empty when none were supplied', decision.codeRefs, []);
+  equal('relatedFiles is empty when none were supplied', decision.relatedFiles, []);
+  check('createdAt is a timestamp', typeof decision.createdAt === 'number' && decision.createdAt > 0);
+  equal('updatedAt equals createdAt on insert', decision.updatedAt, decision.createdAt);
+
+  const fetched = projectMemoryService.getDecision(decision.id);
+  equal('getDecision returns the same record', fetched, decision);
+  equal('getDecision returns null for an unknown id', projectMemoryService.getDecision('nope'), null);
+
+  // --- Validation -----------------------------------------------------------
+  describe('input validation');
+
+  const clampedHigh = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Clamp high',
+    summary: 's',
+    rationale: 'r',
+    confidence: 4.2
+  });
+  equal('confidence above 1 is clamped to 1.0', clampedHigh.confidence, 1.0);
+
+  const clampedLow = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Clamp low',
+    summary: 's',
+    rationale: 'r',
+    confidence: -3
+  });
+  equal('confidence below 0 is clamped to 0', clampedLow.confidence, 0);
+
+  const defaulted = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Default confidence',
+    summary: 's',
+    rationale: 'r'
+  });
+  equal('confidence defaults to 1.0', defaulted.confidence, 1.0);
+  equal('provenance defaults to HUMAN_CONFIRMED', defaulted.provenance, 'HUMAN_CONFIRMED');
+
+  throws('an unrecognised status is rejected', () =>
+    projectMemoryService.createDecision({
+      projectId: PROJECT_A,
+      title: 'Bad status',
+      summary: 's',
+      rationale: 'r',
+      status: 'active'
+    })
+  );
+  throws('an unrecognised provenance is rejected', () =>
+    projectMemoryService.createDecision({
+      projectId: PROJECT_A,
+      title: 'Bad provenance',
+      summary: 's',
+      rationale: 'r',
+      provenance: 'GUESSED'
+    })
+  );
+  throws('an empty title is rejected', () =>
+    projectMemoryService.createDecision({
+      projectId: PROJECT_A,
+      title: '   ',
+      summary: 's',
+      rationale: 'r'
+    })
+  );
+  throws('a decision for an unknown project is rejected by the foreign key', () =>
+    projectMemoryService.createDecision({
+      projectId: 'project-does-not-exist',
+      title: 'Orphan',
+      summary: 's',
+      rationale: 'r'
+    })
+  );
+
+  const decisionCountBefore = projectMemoryService.listDecisions(PROJECT_A).length;
+
+  // --- Code references & findRelevantDecisions -----------------------------
+  describe('code references & findRelevantDecisions');
+
+  tick();
+  const anchored = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'EventBus is the only async channel',
+    summary: 'All asynchronous work flows through the EventBus singleton.',
+    rationale: 'ADR-008.',
+    codeRefs: [
+      { filePath: 'apps/server/src/services/EventBus.ts', symbolName: 'EventBus', commitHash: 'abc1234' },
+      { filePath: 'apps/server/src/services/AgentService.ts' }
+    ],
+    relatedFiles: ['apps/server/src/sockets/socketManager.ts']
+  });
+
+  equal('explicit and derived code refs are both stored', anchored.codeRefs.length, 3);
+  equal(
+    'relatedFiles is derived from the code refs',
+    [...anchored.relatedFiles].sort(),
+    [
+      'apps/server/src/services/AgentService.ts',
+      'apps/server/src/services/EventBus.ts',
+      'apps/server/src/sockets/socketManager.ts'
+    ]
+  );
+  const eventBusRef = anchored.codeRefs.find(
+    (r: { filePath?: string }) => r.filePath === 'apps/server/src/services/EventBus.ts'
+  );
+  equal('symbolName is persisted', eventBusRef.symbolName, 'EventBus');
+  equal('commitHash is persisted', eventBusRef.commitHash, 'abc1234');
+  equal('decisionId back-reference is set', eventBusRef.decisionId, anchored.id);
+  const bareRef = anchored.codeRefs.find(
+    (r: { filePath?: string }) => r.filePath === 'apps/server/src/services/AgentService.ts'
+  );
+  equal('an omitted symbolName reads back as undefined', bareRef.symbolName, undefined);
+
+  const duplicated = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Dedup check',
+    summary: 's',
+    rationale: 'r',
+    codeRefs: [{ filePath: 'src/dup.ts', symbolName: 'thing' }],
+    relatedFiles: ['src/dup.ts']
+  });
+  equal('a relatedFile already covered by a code ref is not duplicated', duplicated.codeRefs.length, 1);
+
+  const relevant = projectMemoryService.findRelevantDecisions(
+    PROJECT_A,
+    'apps/server/src/services/EventBus.ts'
+  );
+  equal('findRelevantDecisions matches on file path', relevant.length, 1);
+  equal('findRelevantDecisions returns the anchored decision', relevant[0].id, anchored.id);
+  equal(
+    'findRelevantDecisions attaches code refs to its results',
+    relevant[0].codeRefs.length,
+    3
+  );
+  equal(
+    'findRelevantDecisions matches a path contributed via relatedFiles',
+    projectMemoryService.findRelevantDecisions(PROJECT_A, 'apps/server/src/sockets/socketManager.ts').length,
+    1
+  );
+  equal(
+    'findRelevantDecisions returns nothing for an unreferenced file',
+    projectMemoryService.findRelevantDecisions(PROJECT_A, 'no/such/file.ts').length,
+    0
+  );
+
+  // A non-ACTIVE decision must drop out of the relevance lookup.
+  dbService
+    .getDb()
+    .prepare("UPDATE project_decisions SET status = 'ARCHIVED' WHERE id = ?")
+    .run(anchored.id);
+  equal(
+    'findRelevantDecisions ignores non-ACTIVE decisions',
+    projectMemoryService.findRelevantDecisions(PROJECT_A, 'apps/server/src/services/EventBus.ts').length,
+    0
+  );
+  dbService
+    .getDb()
+    .prepare("UPDATE project_decisions SET status = 'ACTIVE' WHERE id = ?")
+    .run(anchored.id);
+
+  // --- listDecisions --------------------------------------------------------
+  describe('listDecisions');
+
+  const listed = projectMemoryService.listDecisions(PROJECT_A);
+  equal('listDecisions returns every decision for the project', listed.length, decisionCountBefore + 2);
+  check(
+    'listDecisions is ordered by created_at DESC',
+    listed.every(
+      (d: { createdAt: number }, i: number) => i === 0 || listed[i - 1].createdAt >= d.createdAt
+    )
+  );
+
+  dbService
+    .getDb()
+    .prepare("UPDATE project_decisions SET status = 'STALE' WHERE id = ?")
+    .run(clampedHigh.id);
+
+  const stale = projectMemoryService.listDecisions(PROJECT_A, { status: 'STALE' });
+  equal('status filter returns only matching rows', stale.length, 1);
+  equal('status filter returns the right row', stale[0].id, clampedHigh.id);
+  equal(
+    'status filter excludes the STALE row from an ACTIVE query',
+    projectMemoryService
+      .listDecisions(PROJECT_A, { status: 'ACTIVE' })
+      .some((d: { id: string }) => d.id === clampedHigh.id),
+    false
+  );
+  equal(
+    'a status with no rows returns an empty array',
+    projectMemoryService.listDecisions(PROJECT_A, { status: 'SUPERSEDED' }),
+    []
+  );
+
+  // --- Intents --------------------------------------------------------------
+  describe('createIntent & getActiveIntent');
+
+  equal('getActiveIntent returns null before any intent is set', projectMemoryService.getActiveIntent(PROJECT_A), null);
+
+  const firstIntent = projectMemoryService.createIntent({
+    projectId: PROJECT_A,
+    goal: 'Ship Project Memory Core',
+    constraints: ['No new dependencies'],
+    nonGoals: ['Cloud sync']
+  });
+
+  equal('createIntent returns an ACTIVE intent', firstIntent.status, 'ACTIVE');
+  equal('goal is persisted', firstIntent.goal, 'Ship Project Memory Core');
+  equal('constraints round-trip', firstIntent.constraints, ['No new dependencies']);
+  equal('nonGoals round-trip', firstIntent.nonGoals, ['Cloud sync']);
+  equal('getActiveIntent returns the new intent', projectMemoryService.getActiveIntent(PROJECT_A).id, firstIntent.id);
+
+  tick();
+  const secondIntent = projectMemoryService.createIntent({
+    projectId: PROJECT_A,
+    goal: 'Ship the REST surface'
+  });
+
+  equal('getActiveIntent returns the newest intent', projectMemoryService.getActiveIntent(PROJECT_A).id, secondIntent.id);
+  equal('the previous intent is archived', projectMemoryService.getIntent(firstIntent.id).status, 'ARCHIVED');
+  check(
+    'archiving stamps updated_at on the previous intent',
+    projectMemoryService.getIntent(firstIntent.id).updatedAt > firstIntent.updatedAt
+  );
+
+  const activeIntentRows = dbService
+    .getDb()
+    .prepare("SELECT COUNT(*) AS c FROM project_intents WHERE project_id = ? AND status = 'ACTIVE'")
+    .get(PROJECT_A) as { c: number };
+  equal('exactly one intent is ACTIVE per project', activeIntentRows.c, 1);
+
+  throws('an intent for an unknown project is rejected', () =>
+    projectMemoryService.createIntent({ projectId: 'project-does-not-exist', goal: 'Orphan' })
+  );
+  throws('an empty goal is rejected', () =>
+    projectMemoryService.createIntent({ projectId: PROJECT_A, goal: '  ' })
+  );
+  equal(
+    'a rejected intent leaves the active intent untouched',
+    projectMemoryService.getActiveIntent(PROJECT_A).id,
+    secondIntent.id
+  );
+
+  // --- Rules ----------------------------------------------------------------
+  describe('createRule & listRules');
+
+  const rule = projectMemoryService.createRule({
+    projectId: PROJECT_A,
+    title: 'No hardcoded colors',
+    statement: 'Use the CSS custom properties in tokens.css.',
+    severity: 'error',
+    scopePattern: 'apps/web/src/**'
+  });
+
+  equal('severity is persisted', rule.severity, 'error');
+  equal('scopePattern is persisted', rule.scopePattern, 'apps/web/src/**');
+  equal('title is persisted', rule.title, 'No hardcoded colors');
+
+  tick();
+  const defaultedRule = projectMemoryService.createRule({
+    projectId: PROJECT_A,
+    title: 'Reference the Blueprint',
+    statement: 'Do not duplicate Blueprint rationale into code comments.'
+  });
+  equal('severity defaults to warning', defaultedRule.severity, 'warning');
+  equal('scopePattern defaults to the schema default', defaultedRule.scopePattern, '*');
+
+  throws('an unrecognised severity is rejected', () =>
+    projectMemoryService.createRule({
+      projectId: PROJECT_A,
+      title: 'Bad severity',
+      statement: 's',
+      severity: 'critical'
+    })
+  );
+
+  const rules = projectMemoryService.listRules(PROJECT_A);
+  equal('listRules returns both rules', rules.length, 2);
+  equal('listRules is ordered by created_at DESC', rules[0].id, defaultedRule.id);
+
+  // --- Project boundary isolation ------------------------------------------
+  describe('project boundary isolation');
+
+  const bDecision = projectMemoryService.createDecision({
+    projectId: PROJECT_B,
+    title: 'Project B decision',
+    summary: 's',
+    rationale: 'r',
+    codeRefs: [{ filePath: 'apps/server/src/services/EventBus.ts' }]
+  });
+  projectMemoryService.createIntent({ projectId: PROJECT_B, goal: 'Project B goal' });
+  projectMemoryService.createRule({
+    projectId: PROJECT_B,
+    title: 'Project B rule',
+    statement: 'Applies only to B.'
+  });
+
+  const aDecisions = projectMemoryService.listDecisions(PROJECT_A);
+  check(
+    'listDecisions never returns another project rows',
+    aDecisions.every((d: { projectId: string }) => d.projectId === PROJECT_A)
+  );
+  equal(
+    'Project B decision is absent from Project A',
+    aDecisions.some((d: { id: string }) => d.id === bDecision.id),
+    false
+  );
+
+  const bRelevant = projectMemoryService.findRelevantDecisions(
+    PROJECT_B,
+    'apps/server/src/services/EventBus.ts'
+  );
+  equal('findRelevantDecisions is scoped to the project', bRelevant.length, 1);
+  equal('findRelevantDecisions returns only the B decision', bRelevant[0].id, bDecision.id);
+
+  equal(
+    'getActiveIntent is scoped to the project',
+    projectMemoryService.getActiveIntent(PROJECT_B).goal,
+    'Project B goal'
+  );
+  equal(
+    'setting Project B intent did not archive Project A intent',
+    projectMemoryService.getActiveIntent(PROJECT_A).id,
+    secondIntent.id
+  );
+
+  const bRules = projectMemoryService.listRules(PROJECT_B);
+  equal('listRules is scoped to the project', bRules.length, 1);
+  equal('listRules returns the B rule', bRules[0].title, 'Project B rule');
+  equal(
+    'an empty project returns no rules',
+    projectMemoryService.listRules('project-with-no-memory'),
+    []
+  );
+
+  // --- Transactional integrity ---------------------------------------------
+  describe('transactional integrity');
+
+  const refCountBefore = dbService.getDb().prepare('SELECT COUNT(*) AS c FROM decision_code_refs').get().c;
+  const decisionCountBeforeRollback = dbService
+    .getDb()
+    .prepare('SELECT COUNT(*) AS c FROM project_decisions')
+    .get().c;
+
+  // Force a failure *after* the decision row is inserted: with every generated id
+  // identical, the decision insert and the first code ref succeed (different tables)
+  // and the second code ref violates the primary key. The whole write must unwind.
+  throws('a createDecision that fails mid-transaction throws', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    try {
+      (crypto as { randomUUID: () => string }).randomUUID = () => 'collision-id';
+      projectMemoryService.createDecision({
+        projectId: PROJECT_A,
+        title: 'Rollback probe',
+        summary: 's',
+        rationale: 'r',
+        codeRefs: [{ filePath: 'rollback-a.ts' }, { filePath: 'rollback-b.ts' }]
+      });
+    } finally {
+      (crypto as { randomUUID: () => string }).randomUUID = originalRandomUUID;
+    }
+  });
+
+  const refCountAfter = dbService.getDb().prepare('SELECT COUNT(*) AS c FROM decision_code_refs').get().c;
+  const decisionCountAfter = dbService
+    .getDb()
+    .prepare('SELECT COUNT(*) AS c FROM project_decisions')
+    .get().c;
+  equal('a failed createDecision leaves no decision row behind', decisionCountAfter, decisionCountBeforeRollback);
+  equal('a failed createDecision leaves no code ref rows behind', refCountAfter, refCountBefore);
+
+  // --- Cascade -------------------------------------------------------------
+  describe('cascade on project deletion');
+
+  dbService.getDb().prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_B);
+  equal('deleting a project removes its decisions', projectMemoryService.listDecisions(PROJECT_B), []);
+  equal('deleting a project removes its intent', projectMemoryService.getActiveIntent(PROJECT_B), null);
+  equal('deleting a project removes its rules', projectMemoryService.listRules(PROJECT_B), []);
+  check('Project A memory survives Project B deletion', projectMemoryService.listDecisions(PROJECT_A).length > 0);
+} catch (err) {
+  failed++;
+  console.error('\nUNCAUGHT ERROR:', err);
+} finally {
+  cleanup();
+}
+
+console.log(`\n${passed}/${passed + failed} assertions passed`);
+if (failures.length > 0) {
+  console.log('Failed assertions:');
+  for (const f of failures) console.log(`  - ${f}`);
+}
+process.exit(failed === 0 ? 0 : 1);
