@@ -32,6 +32,7 @@ export interface ThreadData {
   projectId: string;
   projectName: string;
   projectPath: string;
+  branch: string;
   name: string;
   agent: string;
   status: 'approval' | 'working' | 'completed';
@@ -43,6 +44,7 @@ export interface ThreadData {
   attachedFiles: string[];
   terminalLog?: string[];
   pidInfo?: string;
+  diffFile?: string;
   diffCode?: string;
   agentResponseText?: string;
   commitBadge?: string;
@@ -54,62 +56,92 @@ export const THREADS_DATA: Record<string, ThreadData> = {
     projectId: 'asterim-core',
     projectName: 'asterim-core',
     projectPath: 'packages/core',
-    name: 'Thread #104: AST Parser',
+    branch: 'feature/agent-auth',
+    name: 'feature/agent-auth',
     agent: 'Claude Code 3.7',
-    status: 'approval',
-    mission: 'Refactor AST Command Intercept & Audit Logging Engine',
-    userPrompt: 'Refactor process lifecycle logging in ApprovalManager.ts and clean up legacy logs.',
+    status: 'working',
+    mission: 'Implement Agent Session Authentication Handshake',
+    userPrompt: 'Add PKCE token exchange to the agent adapter handshake.',
     transcriptSteps: [
-      { type: 'log', text: '[11:48:01] agent: Analyzing AST symbol graph for packages/core...' },
-      { type: 'tool', text: 'read_file("packages/core/src/security/ast_parser.ts")' },
-      { type: 'security', text: 'AST Security Guard Intercepted payload: rm -rf /src/legacy' }
+      { type: 'log', text: '[11:48:01] agent: Reading adapter handshake contract...' },
+      { type: 'tool', text: 'read_file("packages/adapters/src/ClaudeCodeAdapter.ts")' },
+      { type: 'log', text: '[11:48:06] agent: Drafting PKCE verifier exchange.' }
     ],
-    diffCode: `- log.info("legacy process start", pid);\n+ ProcessTreeManager.trackSubprocess(pid, { isolateEnv: true });`,
-    approvalCmd: 'rm -rf /src/legacy && git commit -m "refactor: ast parser"',
-    riskScore: '8.4 / 10',
-    attachedFiles: ['packages/core/src/security/ast_parser.ts', 'apps/web/src/components/TopBar.tsx', 'AGENTS.md']
+    attachedFiles: [
+      'packages/adapters/src/ClaudeCodeAdapter.ts',
+      'packages/shared/src/adapters.ts',
+      'apps/server/src/middleware/auth.ts'
+    ],
+    terminalLog: [
+      '[11:48:01] pty_init: spawning zsh · cwd packages/core',
+      '[11:48:04] agent: read_file packages/adapters/src/ClaudeCodeAdapter.ts',
+      '[11:48:06] agent: 412 lines · 6.1 KB into context',
+      '[11:48:09] agent: streaming patch for PKCE verifier exchange',
+      '✓ PASS packages/adapters/test/handshake.test.ts (14 assertions)'
+    ],
+    pidInfo: 'zsh · packages/core · streaming'
   },
   'tr-105': {
     id: 'tr-105',
     projectId: 'analytics-service',
     projectName: 'analytics-service',
     projectPath: 'services/telemetry',
-    name: 'Thread #105: Process Tree',
+    branch: 'security/ast-interception',
+    name: 'security/ast-interception',
     agent: 'Aider v0.72',
-    status: 'working',
-    mission: 'Optimize PTY Terminal 16ms Frame-Chunking Buffer',
-    userPrompt: 'Fix terminal output stutter when streaming 10,000+ lines/sec.',
+    status: 'approval',
+    mission: 'Harden AST Command Interception Before Shell Execution',
+    userPrompt: 'Rebuild the release step so the build directory is cleaned before deploy.',
     transcriptSteps: [
-      { type: 'log', text: '[11:50:12] agent: Inspecting TerminalService.ts frame buffer chunking...' },
-      { type: 'tool', text: 'write_file("services/telemetry/TerminalService.ts")' },
-      { type: 'log', text: '[11:50:15] agent: Benchmarking xterm.js render throughput...' }
+      { type: 'log', text: '[12:02:11] agent: Planning release pipeline rewrite...' },
+      { type: 'tool', text: 'read_file("services/telemetry/scripts/release.sh")' },
+      { type: 'security', text: 'AST Security Guard intercepted: rm -rf ./build && pnpm deploy' }
     ],
-    attachedFiles: ['services/telemetry/TerminalService.ts', 'services/telemetry/buffer.ts'],
+    approvalCmd: 'rm -rf ./build && pnpm deploy',
+    riskScore: '8.4 / 10',
+    attachedFiles: ['services/telemetry/scripts/release.sh', 'services/telemetry/package.json'],
     terminalLog: [
-      '[11:50:10] pty_init: Spawning local zsh process #88301',
-      '[11:50:12] asterim: Streaming 12,500 lines/sec throughput test',
-      'Frame chunk buffer: 16ms steady state',
-      '✓ PASS services/telemetry/TerminalService.test.ts'
+      '[12:02:11] pty_init: spawning bash · cwd services/telemetry',
+      '[12:02:14] agent: proposed command → rm -rf ./build && pnpm deploy',
+      '[12:02:14] ast_guard: recursive delete + network publish detected',
+      '[12:02:14] ast_guard: execution PAUSED · awaiting human clearance'
     ],
-    pidInfo: 'PID 88301 | CPU 8% | RAM 98MB'
+    pidInfo: 'bash · services/telemetry · paused'
   },
   'tr-106': {
     id: 'tr-106',
     projectId: 'mobile-relay',
     projectName: 'mobile-relay',
     projectPath: 'apps/mobile',
-    name: 'Thread #106: Runner Pool',
+    branch: 'diff/git-review',
+    name: 'diff/git-review',
     agent: 'Antigravity',
     status: 'completed',
-    mission: 'Implement Mobile Push Relay & E2E Noise Tunnel',
-    userPrompt: 'Add Noise protocol handshake to mobile websocket relay.',
+    mission: 'Review Noise Protocol Relay Patch',
+    userPrompt: 'Add the Noise protocol handshake to the mobile websocket relay.',
     transcriptSteps: [
-      { type: 'log', text: '[11:40:00] agent: Initialized Noise protocol handshake generator.' },
+      { type: 'log', text: '[11:40:00] agent: Initialised Noise handshake generator.' },
       { type: 'tool', text: 'exec("pnpm test apps/mobile")' },
-      { type: 'log', text: '[11:42:10] agent: All E2E mobile push tests passed successfully.' }
+      { type: 'log', text: '[11:42:10] agent: All E2E mobile push tests passed.' }
     ],
-    agentResponseText: 'Completed Noise protocol handshake implementation. All E2E push tests passed successfully.',
-    commitBadge: '✓ Commit 7a7eb7f "feat: add Noise protocol relay"',
+    agentResponseText: 'Noise protocol handshake implemented. All E2E push tests passed — patch ready for review.',
+    commitBadge: 'Commit 7a7eb7f "feat: add Noise protocol relay"',
+    diffFile: 'apps/mobile/src/push.ts',
+    diffCode: [
+      '@@ -18,9 +18,14 @@ export async function openRelay(url: string) {',
+      '   const socket = new WebSocket(url);',
+      '-  socket.binaryType = "arraybuffer";',
+      '-  return socket;',
+      '+  socket.binaryType = "arraybuffer";',
+      '+',
+      '+  const handshake = await NoiseHandshake.initiate(socket, {',
+      '+    pattern: "XX",',
+      '+    staticKey: await Keychain.deviceKey(),',
+      '+  });',
+      '+',
+      '+  return handshake.secureChannel();',
+      ' }'
+    ].join('\n'),
     attachedFiles: ['apps/mobile/src/push.ts', 'packages/shared/src/types.ts']
   }
 };
@@ -199,8 +231,50 @@ function ToolAccordion({
   );
 }
 
-function DiffBlock({ code }: { code: string }) {
-  const lines = code.split('\n');
+/**
+ * Line-by-line diff viewer. Mirrors the gutter/highlight conventions used by
+ * `apps/web/src/components/git/ChangesView.tsx`: old/new line-number columns,
+ * `@@` hunk headers, and +/- row tinting.
+ */
+function DiffBlock({ code, file }: { code: string; file?: string }) {
+  const rows = code.split('\n');
+
+  // Walk the hunk header to assign real old/new line numbers per row.
+  let oldNo = 0;
+  let newNo = 0;
+  const numbered = rows.map((line) => {
+    if (line.startsWith('@@')) {
+      const m = line.match(/-(\d+)(?:,\d+)?\s+\+(\d+)/);
+      if (m) {
+        oldNo = parseInt(m[1], 10);
+        newNo = parseInt(m[2], 10);
+      }
+      return { line, kind: 'hunk' as const, old: null, next: null };
+    }
+    if (line.startsWith('+')) return { line, kind: 'add' as const, old: null, next: newNo++ };
+    if (line.startsWith('-')) return { line, kind: 'del' as const, old: oldNo++, next: null };
+    return { line, kind: 'ctx' as const, old: oldNo++, next: newNo++ };
+  });
+
+  const added = numbered.filter((r) => r.kind === 'add').length;
+  const removed = numbered.filter((r) => r.kind === 'del').length;
+
+  const gutter = (v: number | null) => (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '30px',
+        textAlign: 'right',
+        paddingRight: '10px',
+        color: '#475569',
+        userSelect: 'none',
+        flexShrink: 0
+      }}
+    >
+      {v ?? ''}
+    </span>
+  );
+
   return (
     <div
       style={{
@@ -217,34 +291,49 @@ function DiffBlock({ code }: { code: string }) {
       <div
         style={{
           background: '#0d1424',
-          padding: '4px 12px',
+          padding: '6px 12px',
           fontSize: '0.7rem',
           color: '#64748b',
           borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          letterSpacing: '0.05em'
+          gap: '12px'
         }}
       >
-        <span>DIFF EXCERPT</span>
-        <span style={{ color: '#10b981' }}>+1 -1 lines</span>
+        <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {file ?? 'DIFF EXCERPT'}
+        </span>
+        <span style={{ flexShrink: 0 }}>
+          <span style={{ color: '#10b981' }}>+{added}</span>{' '}
+          <span style={{ color: '#f87171' }}>−{removed}</span>
+        </span>
       </div>
-      <div style={{ padding: '6px 0' }}>
-        {lines.map((line, idx) => {
-          let bg = 'transparent';
-          let color = '#94a3b8';
-          if (line.startsWith('+')) {
-            bg = 'rgba(16, 185, 129, 0.12)';
-            color = '#34d399';
-          } else if (line.startsWith('-')) {
-            bg = 'rgba(239, 68, 68, 0.12)';
-            color = '#f87171';
-          }
+      <div style={{ padding: '6px 0', overflowX: 'auto' }}>
+        {numbered.map((row, idx) => {
+          const style =
+            row.kind === 'add'
+              ? { bg: 'rgba(16, 185, 129, 0.12)', fg: '#34d399' }
+              : row.kind === 'del'
+                ? { bg: 'rgba(239, 68, 68, 0.12)', fg: '#f87171' }
+                : row.kind === 'hunk'
+                  ? { bg: 'rgba(255, 255, 255, 0.03)', fg: '#64748b' }
+                  : { bg: 'transparent', fg: '#94a3b8' };
+
           return (
-            <div key={idx} style={{ padding: '2px 12px', background: bg, color }}>
-              <span style={{ display: 'inline-block', width: '24px', opacity: 0.5, userSelect: 'none' }}>{idx + 1}</span>
-              <span>{line}</span>
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                padding: '1px 12px',
+                background: style.bg,
+                color: style.fg,
+                whiteSpace: 'pre'
+              }}
+            >
+              {gutter(row.old)}
+              {gutter(row.next)}
+              <span>{row.line}</span>
             </div>
           );
         })}
@@ -255,19 +344,24 @@ function DiffBlock({ code }: { code: string }) {
 
 export const AsterimWorkstationSandbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SandboxTab>('chat');
-  const [activeThreadId, setActiveThreadId] = useState<string>('tr-104');
+  // Opens on the interception gate: the approval loop is the product's core
+  // differentiator, so it is the strongest default state for the hero.
+  const [activeThreadId, setActiveThreadId] = useState<string>('tr-105');
   const [projectSearchQuery, setProjectSearchQuery] = useState('');
   const [chatInputText, setChatInputText] = useState('');
 
   const [threadStatuses, setThreadStatuses] = useState<Record<string, 'approval' | 'working' | 'completed'>>({
-    'tr-104': 'approval',
-    'tr-105': 'working',
+    'tr-104': 'working',
+    'tr-105': 'approval',
     'tr-106': 'completed'
   });
 
   const [approvalActionState, setApprovalActionState] = useState<Record<string, 'pending' | 'approved' | 'denied'>>({
-    'tr-104': 'pending'
+    'tr-105': 'pending'
   });
+
+  // Audit lines appended to the terminal stream by an approval decision.
+  const [extraTerminalLines, setExtraTerminalLines] = useState<Record<string, string[]>>({});
 
   const [extraChatMessages, setExtraChatMessages] = useState<Record<string, Array<{ role: 'user' | 'agent'; text: string; time: string }>>>({});
 
@@ -286,20 +380,31 @@ export const AsterimWorkstationSandbox: React.FC = () => {
     }
   };
 
+  const appendTerminal = (threadId: string, lines: string[]) =>
+    setExtraTerminalLines((prev) => ({ ...prev, [threadId]: [...(prev[threadId] || []), ...lines] }));
+
   const handleApproveAction = () => {
-    setApprovalActionState((prev) => ({ ...prev, [activeThreadId]: 'approved' }));
-    setThreadStatuses((prev) => ({ ...prev, [activeThreadId]: 'working' }));
+    const threadId = activeThreadId;
+    const cmd = THREADS_DATA[threadId]?.approvalCmd ?? '';
+
+    setApprovalActionState((prev) => ({ ...prev, [threadId]: 'approved' }));
+    setThreadStatuses((prev) => ({ ...prev, [threadId]: 'working' }));
+    appendTerminal(threadId, [
+      '[12:03:02] ast_guard: CLEARANCE GRANTED by developer',
+      `[12:03:02] pty_exec: ${cmd}`
+    ]);
 
     setTimeout(() => {
-      setThreadStatuses((prev) => ({ ...prev, [activeThreadId]: 'completed' }));
+      setThreadStatuses((prev) => ({ ...prev, [threadId]: 'completed' }));
+      appendTerminal(threadId, ['✓ [12:03:09] pty_exit: code 0 · release published']);
       setExtraChatMessages((prev) => ({
         ...prev,
-        [activeThreadId]: [
-          ...(prev[activeThreadId] || []),
+        [threadId]: [
+          ...(prev[threadId] || []),
           {
             role: 'agent',
-            text: 'Successfully refactored ApprovalManager.ts and cleaned up legacy process logs.',
-            time: '11:49 AM'
+            text: 'Clearance granted. Build directory cleaned and deploy completed with exit code 0.',
+            time: '12:03 PM'
           }
         ]
       }));
@@ -307,15 +412,23 @@ export const AsterimWorkstationSandbox: React.FC = () => {
   };
 
   const handleDenyAction = () => {
-    setApprovalActionState((prev) => ({ ...prev, [activeThreadId]: 'denied' }));
+    const threadId = activeThreadId;
+    const cmd = THREADS_DATA[threadId]?.approvalCmd ?? '';
+
+    setApprovalActionState((prev) => ({ ...prev, [threadId]: 'denied' }));
+    appendTerminal(threadId, [
+      '✗ [12:03:02] ast_guard: COMMAND BLOCKED by developer',
+      `✗ [12:03:02] audit: ${cmd} — never reached the shell`,
+      '✗ [12:03:02] audit: event persisted to local store'
+    ]);
     setExtraChatMessages((prev) => ({
       ...prev,
-      [activeThreadId]: [
-        ...(prev[activeThreadId] || []),
+      [threadId]: [
+        ...(prev[threadId] || []),
         {
           role: 'agent',
           text: 'Understood. Command execution canceled. Awaiting revised instructions.',
-          time: '11:49 AM'
+          time: '12:03 PM'
         }
       ]
     }));
@@ -379,7 +492,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             <span>/</span>
             <span style={{ color: '#f8fafc', fontWeight: 600 }}>{currentThread.projectName}</span>
             <span>/</span>
-            <span style={{ color: '#64748b' }}>#{currentThread.id}</span>
+            <span style={{ color: '#34d399' }}>{currentThread.branch}</span>
           </div>
         </div>
 
@@ -392,13 +505,54 @@ export const AsterimWorkstationSandbox: React.FC = () => {
         </div>
 
         <div className="ws-header-right">
-          {currentStatus === 'approval' ? (
+          {currentApprovalState === 'denied' ? (
             <div
               style={{
                 padding: '3px 10px',
                 borderRadius: '100px',
                 fontSize: '0.72rem',
                 fontWeight: 700,
+                whiteSpace: 'nowrap',
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: 'var(--hazard-red)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <IconX size={12} color="#ef4444" />
+              <span className="ws-status-full">Execution Halted</span>
+              <span className="ws-status-short">Halted</span>
+            </div>
+          ) : currentApprovalState === 'approved' && currentStatus === 'working' ? (
+            <div
+              style={{
+                padding: '3px 10px',
+                borderRadius: '100px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                background: 'rgba(16, 185, 129, 0.12)',
+                color: '#10b981',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+              <span className="ws-status-full">Executing…</span>
+              <span className="ws-status-short">Exec</span>
+            </div>
+          ) : currentStatus === 'approval' ? (
+            <div
+              style={{
+                padding: '3px 10px',
+                borderRadius: '100px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
                 background: 'rgba(245, 158, 11, 0.12)',
                 color: '#f59e0b',
                 border: '1px solid rgba(245, 158, 11, 0.3)',
@@ -418,6 +572,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                 borderRadius: '100px',
                 fontSize: '0.72rem',
                 fontWeight: 700,
+                whiteSpace: 'nowrap',
                 background: 'rgba(16, 185, 129, 0.12)',
                 color: '#10b981',
                 border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -437,6 +592,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                 borderRadius: '100px',
                 fontSize: '0.72rem',
                 fontWeight: 700,
+                whiteSpace: 'nowrap',
                 background: 'rgba(16, 185, 129, 0.15)',
                 color: '#34d399',
                 border: '1px solid rgba(16, 185, 129, 0.35)',
@@ -446,7 +602,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               }}
             >
               <IconCheck size={12} color="#34d399" />
-              <span>Mission Complete</span>
+              <span className="ws-status-full">Task Completed</span>
+              <span className="ws-status-short">Done</span>
             </div>
           )}
 
@@ -669,15 +826,37 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                     ))}
                   </ToolAccordion>
 
-                  {currentThread.diffCode && <DiffBlock code={currentThread.diffCode} />}
+                  {activeTab === 'changes' && !currentThread.diffCode && (
+                    <div style={{ margin: '10px 0', padding: '14px', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '6px', color: '#64748b', fontSize: '0.8rem' }}>
+                      No staged changes on <span style={{ fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>{currentThread.branch}</span> yet.
+                    </div>
+                  )}
 
-                  {currentThread.terminalLog && (
-                    <div style={{ margin: '10px 0', padding: '10px 12px', background: '#000000', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                  {currentThread.diffCode && activeTab !== 'terminal' && (
+                    <DiffBlock code={currentThread.diffCode} file={currentThread.diffFile} />
+                  )}
+
+                  {currentThread.terminalLog && activeTab !== 'changes' && (
+                    <div style={{ margin: '10px 0', padding: '10px 12px', background: '#000000', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', overflowX: 'auto' }}>
                       <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '4px' }}>
                         {currentThread.pidInfo}
                       </div>
-                      {currentThread.terminalLog.map((log, i) => (
-                        <div key={i} style={{ color: log.startsWith('✓') ? '#10b981' : log.startsWith('[') ? '#38bdf8' : '#cbd5e1' }}>
+                      {[...currentThread.terminalLog, ...(extraTerminalLines[activeThreadId] || [])].map((log, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            whiteSpace: 'pre',
+                            color: log.startsWith('✗')
+                              ? '#f87171'
+                              : log.startsWith('✓')
+                                ? '#10b981'
+                                : log.includes('ast_guard')
+                                  ? '#f59e0b'
+                                  : log.startsWith('[')
+                                    ? '#38bdf8'
+                                    : '#cbd5e1'
+                          }}
+                        >
                           {log}
                         </div>
                       ))}
@@ -711,7 +890,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.82rem', color: '#f8fafc' }}>
                           <IconAlertTriangle size={15} color={currentApprovalState === 'approved' ? '#10b981' : currentApprovalState === 'denied' ? '#ef4444' : '#f59e0b'} />
                           <span>
-                            {currentApprovalState === 'approved' ? '✓ Command Approved & Executed (Clearance Granted)' : currentApprovalState === 'denied' ? '❌ Command Intercepted & Denied by Developer' : '⚠️ Human Approval Required · Intercept #AST-402'}
+                            {currentApprovalState === 'approved' ? 'Clearance Granted · Command Executing' : currentApprovalState === 'denied' ? 'Command Blocked · Never Reached the Shell' : 'Human Approval Required · Intercept #AST-402'}
                           </span>
                         </div>
                         <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#ef4444', background: 'rgba(239, 68, 68, 0.2)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
