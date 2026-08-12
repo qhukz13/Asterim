@@ -22,6 +22,7 @@ process.env.ASTERIM_DATA_DIR = tmpDir;
 
 const { dbService } = require('../DatabaseService');
 const { projectMemoryService } = require('../ProjectMemoryService');
+const { eventBus } = require('../EventBus');
 
 // --- Minimal assertion harness ---
 
@@ -1032,6 +1033,230 @@ try {
     tiedSessionOrder,
     [...tiedSessionOrder].sort().reverse()
   );
+
+  // --- EventBus integration -------------------------------------------------
+  describe('EventBus integration');
+
+  // Events cross the require() boundary untyped, so the captured envelope is
+  // inspected structurally rather than against the compiled AsterimEvent type.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type CapturedEvent = { type: string; event: any };
+  const captured: CapturedEvent[] = [];
+  const MEMORY_EVENT_TYPES = [
+    'memory.decision_created',
+    'memory.decision_superseded',
+    'memory.intent_updated',
+    'memory.rule_created'
+  ];
+  const listeners = MEMORY_EVENT_TYPES.map(type => {
+    const listener = (event: CapturedEvent['event']) => captured.push({ type, event });
+    eventBus.subscribe(type, listener);
+    return { type, listener };
+  });
+
+  const PROJECT_E = 'project-e';
+  dbService
+    .getDb()
+    .prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)')
+    .run(PROJECT_E, 'Project E', '/tmp/project-e');
+
+  equal('initEventBusListeners registers on the first call', projectMemoryService.initEventBusListeners(), true);
+  equal('initEventBusListeners is idempotent', projectMemoryService.initEventBusListeners(), false);
+
+  // memory.decision_created
+  captured.length = 0;
+  const eventDecision = projectMemoryService.createDecision({
+    projectId: PROJECT_E,
+    title: 'E decision',
+    summary: 's',
+    rationale: 'r',
+    relatedFiles: ['src/e.ts']
+  });
+
+  equal('createDecision publishes exactly one event', captured.length, 1);
+  equal('the event type is memory.decision_created', captured[0].event.type, 'memory.decision_created');
+  equal('the event source is system:memory', captured[0].event.source, 'system:memory');
+  check('the event carries a generated id', typeof captured[0].event.id === 'string' && captured[0].event.id.length > 0);
+  check('the event carries a timestamp', typeof captured[0].event.timestamp === 'number' && captured[0].event.timestamp > 0);
+  equal('the payload carries the projectId', captured[0].event.payload.projectId, PROJECT_E);
+  equal('the payload carries the decision', captured[0].event.payload.decision.id, eventDecision.id);
+  equal(
+    'the payload decision is the fully mapped record',
+    JSON.stringify(captured[0].event.payload.decision),
+    JSON.stringify(eventDecision)
+  );
+  equal(
+    'the payload decision includes code refs',
+    captured[0].event.payload.decision.codeRefs.length,
+    1
+  );
+  equal(
+    'the envelope exposes exactly the AsterimEvent keys',
+    Object.keys(captured[0].event).sort(),
+    ['id', 'payload', 'source', 'timestamp', 'type']
+  );
+
+  // memory.rule_created
+  captured.length = 0;
+  const eventRule = projectMemoryService.createRule({
+    projectId: PROJECT_E,
+    title: 'E rule',
+    statement: 'Applies to E.',
+    severity: 'info'
+  });
+  equal('createRule publishes exactly one event', captured.length, 1);
+  equal('the event type is memory.rule_created', captured[0].event.type, 'memory.rule_created');
+  equal('the rule payload carries the projectId', captured[0].event.payload.projectId, PROJECT_E);
+  equal('the rule payload carries the rule', captured[0].event.payload.rule.id, eventRule.id);
+  equal('the rule payload keeps the severity', captured[0].event.payload.rule.severity, 'info');
+
+  // memory.intent_updated — first intent has no predecessor
+  captured.length = 0;
+  const eventIntent1 = projectMemoryService.createIntent({ projectId: PROJECT_E, goal: 'E goal 1' });
+  equal('createIntent publishes exactly one event', captured.length, 1);
+  equal('the event type is memory.intent_updated', captured[0].event.type, 'memory.intent_updated');
+  equal('the intent payload carries the projectId', captured[0].event.payload.projectId, PROJECT_E);
+  equal('the intent payload carries the intent', captured[0].event.payload.intent.id, eventIntent1.id);
+  equal(
+    'the first intent reports no previousIntentId',
+    'previousIntentId' in captured[0].event.payload,
+    false
+  );
+
+  // memory.intent_updated — a replacement names what it archived
+  captured.length = 0;
+  const eventIntent2 = projectMemoryService.createIntent({ projectId: PROJECT_E, goal: 'E goal 2' });
+  equal('replacing an intent publishes one event', captured.length, 1);
+  equal('the replacement intent is in the payload', captured[0].event.payload.intent.id, eventIntent2.id);
+  equal(
+    'the payload names the archived intent',
+    captured[0].event.payload.previousIntentId,
+    eventIntent1.id
+  );
+
+  // memory.decision_superseded
+  captured.length = 0;
+  const eventReplacement = projectMemoryService.supersedeDecision(eventDecision.id, {
+    projectId: PROJECT_E,
+    title: 'E decision v2',
+    summary: 's2',
+    rationale: 'r2'
+  });
+  equal('supersedeDecision publishes exactly one event', captured.length, 1);
+  equal(
+    'the event type is memory.decision_superseded',
+    captured[0].event.type,
+    'memory.decision_superseded'
+  );
+  equal(
+    'supersede does not also publish decision_created',
+    captured.some(c => c.type === 'memory.decision_created'),
+    false
+  );
+  equal('the payload names the superseded decision', captured[0].event.payload.decisionId, eventDecision.id);
+  equal('the payload names the replacement', captured[0].event.payload.supersededBy, eventReplacement.id);
+  equal('the payload carries the replacement record', captured[0].event.payload.decision.id, eventReplacement.id);
+  equal('the payload projectId is the shared project', captured[0].event.payload.projectId, PROJECT_E);
+
+  // Reads and failed writes must stay silent.
+  captured.length = 0;
+  projectMemoryService.getProjectBriefing(PROJECT_E);
+  projectMemoryService.listDecisions(PROJECT_E);
+  projectMemoryService.getActiveIntent(PROJECT_E);
+  equal('read methods publish nothing', captured.length, 0);
+
+  try {
+    projectMemoryService.createDecision({
+      projectId: 'project-does-not-exist',
+      title: 'Never persisted',
+      summary: 's',
+      rationale: 'r'
+    });
+  } catch {
+    /* expected */
+  }
+  equal('a rejected write publishes nothing', captured.length, 0);
+
+  try {
+    projectMemoryService.supersedeDecision('no-such-decision', {
+      projectId: PROJECT_E,
+      title: 'Never persisted',
+      summary: 's',
+      rationale: 'r'
+    });
+  } catch {
+    /* expected */
+  }
+  equal('a rejected supersede publishes nothing', captured.length, 0);
+
+  // A subscriber that throws must not corrupt the caller's contract: the write
+  // has already committed by the time the event goes out.
+  const thrower = () => {
+    throw new Error('subscriber blew up');
+  };
+  eventBus.subscribe('memory.rule_created', thrower);
+  let ruleAfterThrow: { id: string } | null = null;
+  let threwToCaller = false;
+  try {
+    ruleAfterThrow = projectMemoryService.createRule({
+      projectId: PROJECT_E,
+      title: 'Rule despite a bad subscriber',
+      statement: 's'
+    });
+  } catch {
+    threwToCaller = true;
+  }
+  eventBus.unsubscribe('memory.rule_created', thrower);
+  equal('a throwing subscriber does not surface to the caller', threwToCaller, false);
+  check('the write survived a throwing subscriber', ruleAfterThrow !== null);
+  equal(
+    'the rule really persisted despite the throw',
+    ruleAfterThrow ? projectMemoryService.getRule(ruleAfterThrow.id).title : null,
+    'Rule despite a bad subscriber'
+  );
+
+  // A subscriber that writes memory in reaction to a memory event would recurse
+  // forever on a synchronous EventEmitter. The publish-depth guard bounds it.
+  let reentrantCalls = 0;
+  const reentrant = () => {
+    reentrantCalls++;
+    if (reentrantCalls > 50) return; // safety net: the guard should stop us long before
+    projectMemoryService.createRule({
+      projectId: PROJECT_E,
+      title: `Reentrant ${reentrantCalls}`,
+      statement: 's'
+    });
+  };
+  eventBus.subscribe('memory.rule_created', reentrant);
+  let loopThrew = false;
+  try {
+    projectMemoryService.createRule({ projectId: PROJECT_E, title: 'Loop seed', statement: 's' });
+  } catch {
+    loopThrew = true;
+  }
+  eventBus.unsubscribe('memory.rule_created', reentrant);
+
+  equal('a re-entrant subscriber does not blow the stack', loopThrew, false);
+  check(
+    'the publish-depth guard bounds the recursion',
+    reentrantCalls > 0 && reentrantCalls < 10,
+    `reentrantCalls=${reentrantCalls}`
+  );
+  check(
+    'the guard resets after the cycle unwinds',
+    (() => {
+      captured.length = 0;
+      projectMemoryService.createRule({ projectId: PROJECT_E, title: 'After the loop', statement: 's' });
+      return captured.length === 1;
+    })(),
+    'a later publish still reaches subscribers'
+  );
+
+  // Unsubscribing must actually detach.
+  captured.length = 0;
+  for (const { type, listener } of listeners) eventBus.unsubscribe(type, listener);
+  projectMemoryService.createRule({ projectId: PROJECT_E, title: 'After unsubscribe', statement: 's' });
+  equal('unsubscribed listeners receive nothing', captured.length, 0);
 
   // --- Cascade -------------------------------------------------------------
   describe('cascade on project deletion');

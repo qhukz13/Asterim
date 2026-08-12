@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
+import { eventBus } from './EventBus';
 import type {
   ProjectDecision,
   DecisionCodeRef,
@@ -12,7 +13,11 @@ import type {
   AgentWorkSummary,
   AgentWorkStatus,
   ApprovalSummary,
-  ApprovalOutcome
+  ApprovalOutcome,
+  MemoryDecisionCreatedPayload,
+  MemoryDecisionSupersededPayload,
+  MemoryIntentUpdatedPayload,
+  MemoryRuleCreatedPayload
 } from '@asterim/shared';
 
 /** Row shape returned from the project_decisions table. */
@@ -146,6 +151,42 @@ const RULE_SEVERITIES: readonly ArchitecturalRuleSeverity[] = ['error', 'warning
  * (see docs/p5.0-03-report.md § 5), so this service validates them before writing.
  */
 export class ProjectMemoryService {
+  /** Set once initEventBusListeners() has run, so repeat calls do not stack listeners. */
+  private listenersInitialised = false;
+
+  /** Nesting level of publishMemoryEvent, used to break re-entrant publish cycles. */
+  private publishDepth = 0;
+
+  /** Publishes nested deeper than this are dropped rather than allowed to recurse. */
+  private static readonly MAX_PUBLISH_DEPTH = 4;
+
+  // --- EventBus wiring ---
+
+  /**
+   * Registers this service's EventBus subscriptions. Idempotent — calling it
+   * twice registers nothing the second time, which matters because EventBus is a
+   * process-wide singleton and duplicate listeners would double every reaction.
+   *
+   * No subscription is registered yet: no existing system event requires a memory
+   * write, and inventing one would be inventing product behaviour. This is the
+   * single seam where P5.0-08+ should add them.
+   *
+   * Two rules for anything added here:
+   *   1. Never subscribe to the literal '*' channel. EventBus re-emits every event
+   *      there (ADR-008), including this service's own memory.* events, so a
+   *      handler that writes would feed itself.
+   *   2. A handler that writes memory must not react to a memory.* type. The
+   *      publish-depth guard in publishMemoryEvent bounds such a cycle, but it
+   *      bounds a bug rather than licensing one.
+   *
+   * Returns true when it registered, false when it was already initialised.
+   */
+  public initEventBusListeners(): boolean {
+    if (this.listenersInitialised) return false;
+    this.listenersInitialised = true;
+    return true;
+  }
+
   // --- Decisions ---
 
   /**
@@ -165,6 +206,12 @@ export class ProjectMemoryService {
     if (!created) {
       throw new Error(`[ProjectMemoryService] Decision ${id} could not be read back after insert`);
     }
+
+    this.publishMemoryEvent<MemoryDecisionCreatedPayload>('memory.decision_created', {
+      projectId: created.projectId,
+      decision: created
+    });
+
     return created;
   }
 
@@ -214,6 +261,14 @@ export class ProjectMemoryService {
     if (!created) {
       throw new Error(`[ProjectMemoryService] Decision ${newId} could not be read back after insert`);
     }
+
+    this.publishMemoryEvent<MemoryDecisionSupersededPayload>('memory.decision_superseded', {
+      projectId: created.projectId,
+      decisionId: oldDecisionId,
+      supersededBy: created.id,
+      decision: created
+    });
+
     return created;
   }
 
@@ -328,6 +383,9 @@ export class ProjectMemoryService {
     const id = crypto.randomUUID();
     const now = Date.now();
 
+    // Captured before the transaction so the event can name what was replaced.
+    const previousIntentId = this.getActiveIntent(projectId)?.id;
+
     this.transaction(() => {
       db.prepare(
         "UPDATE project_intents SET status = 'ARCHIVED', updated_at = ? WHERE project_id = ? AND status = 'ACTIVE'"
@@ -344,6 +402,16 @@ export class ProjectMemoryService {
     if (!created) {
       throw new Error(`[ProjectMemoryService] Intent ${id} could not be read back after insert`);
     }
+
+    const intentPayload: MemoryIntentUpdatedPayload = {
+      projectId: created.projectId,
+      intent: created
+    };
+    if (previousIntentId) {
+      intentPayload.previousIntentId = previousIntentId;
+    }
+    this.publishMemoryEvent<MemoryIntentUpdatedPayload>('memory.intent_updated', intentPayload);
+
     return created;
   }
 
@@ -394,6 +462,12 @@ export class ProjectMemoryService {
     if (!created) {
       throw new Error(`[ProjectMemoryService] Rule ${id} could not be read back after insert`);
     }
+
+    this.publishMemoryEvent<MemoryRuleCreatedPayload>('memory.rule_created', {
+      projectId: created.projectId,
+      rule: created
+    });
+
     return created;
   }
 
@@ -469,6 +543,46 @@ export class ProjectMemoryService {
   }
 
   // --- Private helpers ---
+
+  /**
+   * Publishes a memory event after the write that produced it has committed.
+   *
+   * EventBus dispatch is synchronous (Node EventEmitter), which has two
+   * consequences this method absorbs:
+   *
+   *   - A subscriber that throws would otherwise propagate out of createDecision
+   *     and friends, making a committed write look like a failure to the caller.
+   *     Subscriber errors are logged and swallowed instead.
+   *   - A subscriber that writes memory would re-enter this method on the same
+   *     stack. The depth guard drops the publish past MAX_PUBLISH_DEPTH, so a
+   *     cycle terminates with a logged error rather than a stack overflow.
+   *
+   * Adapter and subscriber failures must never take down the Core.
+   */
+  private publishMemoryEvent<T extends object>(type: string, payload: T): void {
+    if (this.publishDepth >= ProjectMemoryService.MAX_PUBLISH_DEPTH) {
+      console.error(
+        `[ProjectMemoryService] Dropping '${type}': publish depth ${this.publishDepth} ` +
+          `reached the limit. A subscriber is writing memory in reaction to a memory event.`
+      );
+      return;
+    }
+
+    this.publishDepth++;
+    try {
+      eventBus.publish<T>({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'system:memory',
+        type,
+        payload
+      });
+    } catch (err) {
+      console.error(`[ProjectMemoryService] Subscriber threw while handling '${type}':`, err);
+    } finally {
+      this.publishDepth--;
+    }
+  }
 
   /**
    * Validates input and writes a decision plus its code refs. Returns the new id.
