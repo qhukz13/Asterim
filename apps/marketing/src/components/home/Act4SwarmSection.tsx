@@ -71,7 +71,7 @@ export const Act4SwarmSection: React.FC = () => {
   return (
     <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '104px 24px', maxWidth: '1280px' }}>
       <div className="section-header" style={{ marginBottom: '48px' }}>
-        <span className="section-tag">ACT 4 // MULTI-AGENT SWARM TELEMETRY</span>
+        <span className="section-tag">MULTI-AGENT TELEMETRY</span>
         <h2 className="section-title">Run Specialized Swarms Parallelized.</h2>
         <p className="section-lead">
           Delegate distinct engineering tasks to specialized AI runtimes simultaneously. Asterim manages thread lifecycle, PTY process isolation, and event streams without context collisions.

@@ -5,7 +5,7 @@ export const Act2ControlPlane: React.FC = () => {
   return (
     <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '104px 24px', maxWidth: '1280px' }}>
       <div className="section-header" style={{ marginBottom: '64px' }}>
-        <span className="section-tag">ACT 2 // CONTROL PLANE VS TERMINAL CHAOS</span>
+        <span className="section-tag">CONTROL PLANE</span>
         <h2 className="section-title">Stop Managing Loose Terminal Windows.</h2>
         <p className="section-lead">
           AI coding agents are fast, but running 5 unmonitored CLI sessions across isolated terminal tabs leads to missing context, secret leaks, and unreviewed system modifications.

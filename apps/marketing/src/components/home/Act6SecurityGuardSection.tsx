@@ -5,7 +5,7 @@ export const Act6SecurityGuardSection: React.FC = () => {
   return (
     <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="section-header">
-        <span className="section-tag">ACT 6 // AST SECURITY GUARD &amp; ZERO-TRUST CLEARANCE</span>
+        <span className="section-tag">SECURITY &amp; APPROVALS</span>
         <h2 className="section-title">Zero-Trust Command Interception.</h2>
         <p className="section-lead">
           Traditional agents run commands blind. Asterim parses CLI command AST trees before execution, scoring hazard severity levels and holding high-risk operations behind a promise clearance gate.

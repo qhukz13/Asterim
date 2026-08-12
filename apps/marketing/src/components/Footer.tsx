@@ -152,7 +152,7 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
               </button>
             </li>
             <li>
-              <button onClick={() => navigate('/docs?topic=mcp')} style={footerLinkStyle}>
+              <button onClick={() => navigate('/docs?topic=mcp-skills')} style={footerLinkStyle}>
                 MCP Tools & Skills
               </button>
             </li>

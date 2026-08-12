@@ -76,10 +76,12 @@ body {
    Display face = Satoshi. Body = Inter. Code/telemetry = JetBrains Mono.
    ========================================================================== */
 
+/* Satoshi ships 300/400/500/700/900 — there is no 800. Requesting 800 resolves
+   upward to 900 (Black). 700 is the intended bold display weight. */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading);
   color: var(--text-primary);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.12;
   text-wrap: balance;
@@ -94,7 +96,7 @@ code, pre, kbd, samp {
 .display-hero {
   font-family: var(--font-heading);
   font-size: clamp(2.75rem, 5.5vw, 4.75rem);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 1.05;
   color: var(--text-primary);
@@ -178,7 +180,7 @@ code, pre, kbd, samp {
 .section-title {
   font-family: var(--font-display);
   font-size: clamp(2rem, 3.8vw, 3rem);
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.025em;
   margin-bottom: 16px;
@@ -191,6 +193,22 @@ code, pre, kbd, samp {
   max-width: 720px;
   margin: 0;
   line-height: 1.65;
+}
+
+/* Open 2-column split — the anti-card layout primitive (art direction Law 4).
+   Narrative left, live product surface right. Collapses to a single column. */
+.split-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 64px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .split-panel {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
 }
 
 /* Surface Panels */
@@ -457,5 +475,30 @@ code, pre, kbd, samp {
   }
   .marketing-navbar {
     padding: 14px 16px;
+  }
+}
+
+/* Narrow phones: the action cluster must never wrap a button label. */
+@media (max-width: 560px) {
+  .marketing-navbar {
+    grid-template-columns: 1fr auto;
+    padding: 12px 14px;
+  }
+  .nav-actions {
+    gap: 8px;
+  }
+  .register-btn,
+  .login-btn {
+    white-space: nowrap;
+    padding: 8px 12px;
+  }
+  /* Sign-in lives in the drawer at this width; Get Started stays as the single
+     visible conversion action. */
+  .login-btn,
+  .github-badge-link {
+    display: none;
+  }
+  .brand-name {
+    font-size: 1.1rem;
   }
 }

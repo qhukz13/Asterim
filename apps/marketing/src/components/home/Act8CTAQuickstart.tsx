@@ -23,7 +23,7 @@ export const Act8CTAQuickstart: React.FC = () => {
           margin: '0 auto'
         }}
       >
-        <span className="section-tag" style={{ marginBottom: '16px' }}>ACT 8 // GET STARTED LOCAL-FIRST</span>
+        <span className="section-tag" style={{ marginBottom: '16px' }}>GET STARTED</span>
         
         <h2
           style={{

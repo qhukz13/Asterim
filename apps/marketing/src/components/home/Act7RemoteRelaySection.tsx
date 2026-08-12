@@ -5,7 +5,7 @@ export const Act7RemoteRelaySection: React.FC = () => {
   return (
     <section className="marketing-section" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="section-header">
-        <span className="section-tag">ACT 7 // LOCAL-FIRST ARCHITECTURE &amp; REMOTE RELAY</span>
+        <span className="section-tag">LOCAL-FIRST ARCHITECTURE</span>
         <h2 className="section-title">Local Heavy Lift. Remote Control.</h2>
         <p className="section-lead">
           Heavy agent LLM tool calls and PTY sessions run locally on your desktop machine. Monitor execution, stream logs, and approve AST security gates remotely from your phone or web browser via encrypted cloud relay.

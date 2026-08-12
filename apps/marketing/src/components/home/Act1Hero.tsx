@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IconCheck, IconCopy, IconArrowRight, IconBookOpen } from '../common/MarketingIcons';
+import { IconCheck, IconCopy, IconArrowRight } from '../common/MarketingIcons';
 import { AsterimWorkstationSandbox } from './AsterimWorkstationSandbox';
 
 export const Act1Hero: React.FC = () => {
@@ -39,7 +39,7 @@ export const Act1Hero: React.FC = () => {
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'clamp(2.75rem, 5.5vw, 4.75rem)',
-            fontWeight: 800,
+            fontWeight: 700,
             letterSpacing: '-0.035em',
             lineHeight: 1.05,
             color: '#f8fafc',
@@ -77,12 +77,6 @@ export const Act1Hero: React.FC = () => {
           <a href="/account/register" className="btn-primary" style={{ padding: '14px 28px', fontSize: '1.0rem' }}>
             Get Started Free
             <IconArrowRight size={18} />
-          </a>
-
-          {/* Secondary Outline Button */}
-          <a href="/docs" className="btn-secondary" style={{ padding: '14px 24px', fontSize: '1.0rem' }}>
-            <IconBookOpen size={16} />
-            Read Documentation
           </a>
 
           {/* Shell Command Snippet Pill */}
