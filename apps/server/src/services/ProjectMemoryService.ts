@@ -132,63 +132,9 @@ export class ProjectMemoryService {
    * (enforced by the foreign key) or if an enum value is not recognised.
    */
   public createDecision(params: CreateDecisionInput): ProjectDecision {
-    const db = dbService.getDb();
-
-    const projectId = requireText(params.projectId, 'projectId');
-    const title = requireText(params.title, 'title');
-    const summary = requireText(params.summary, 'summary');
-    const rationale = requireText(params.rationale, 'rationale');
-    const status = validateEnum(params.status, DECISION_STATUSES, 'ACTIVE', 'status');
-    const provenance = validateEnum(
-      params.provenance,
-      DECISION_PROVENANCES,
-      'HUMAN_CONFIRMED',
-      'provenance'
-    );
-    const confidence = clampConfidence(params.confidence);
-    const constraints = normalizeStringArray(params.constraints);
-
-    const id = crypto.randomUUID();
-    const now = Date.now();
-
-    const codeRefInputs = this.mergeCodeRefInputs(params.codeRefs, params.relatedFiles);
-
+    let id = '';
     this.transaction(() => {
-      db.prepare(
-        `INSERT INTO project_decisions
-           (id, project_id, title, summary, rationale, constraints_json, status,
-            superseded_by, provenance, confidence, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
-      ).run(
-        id,
-        projectId,
-        title,
-        summary,
-        rationale,
-        JSON.stringify(constraints),
-        status,
-        provenance,
-        confidence,
-        now,
-        now
-      );
-
-      if (codeRefInputs.length > 0) {
-        const insertRef = db.prepare(
-          `INSERT INTO decision_code_refs (id, decision_id, file_path, symbol_name, commit_hash, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        );
-        for (const ref of codeRefInputs) {
-          insertRef.run(
-            crypto.randomUUID(),
-            id,
-            ref.filePath ?? null,
-            ref.symbolName ?? null,
-            ref.commitHash ?? null,
-            now
-          );
-        }
-      }
+      id = this.insertDecision(params);
     });
 
     const created = this.getDecision(id);
@@ -196,6 +142,86 @@ export class ProjectMemoryService {
       throw new Error(`[ProjectMemoryService] Decision ${id} could not be read back after insert`);
     }
     return created;
+  }
+
+  /**
+   * Replaces a decision with a new one, linking the two.
+   *
+   * The whole exchange is one transaction, so the old decision is never left
+   * SUPERSEDED without a replacement and the replacement is never orphaned.
+   * Throws if the old decision does not exist or belongs to another project.
+   */
+  public supersedeDecision(oldDecisionId: string, newParams: CreateDecisionInput): ProjectDecision {
+    const db = dbService.getDb();
+
+    const oldDecision = this.getDecision(oldDecisionId);
+    if (!oldDecision) {
+      throw new Error(`[ProjectMemoryService] Decision ${oldDecisionId} not found`);
+    }
+
+    const projectId = requireText(newParams.projectId, 'projectId');
+    if (oldDecision.projectId !== projectId) {
+      throw new Error(
+        `[ProjectMemoryService] Cannot supersede a decision across projects: ` +
+          `${oldDecisionId} belongs to ${oldDecision.projectId}, not ${projectId}`
+      );
+    }
+
+    let newId = '';
+    this.transaction(() => {
+      // The replacement always enters as ACTIVE, whatever the caller passed.
+      newId = this.insertDecision({ ...newParams, status: 'ACTIVE' });
+      const now = Date.now();
+
+      db.prepare(
+        "UPDATE project_decisions SET status = 'SUPERSEDED', superseded_by = ?, updated_at = ? WHERE id = ?"
+      ).run(newId, now, oldDecisionId);
+
+      // Bidirectional link: the replacement records what it replaced.
+      // See docs/p5.0-05-report.md § 5 on the semantics of this column.
+      db.prepare('UPDATE project_decisions SET superseded_by = ?, updated_at = ? WHERE id = ?').run(
+        oldDecisionId,
+        now,
+        newId
+      );
+    });
+
+    const created = this.getDecision(newId);
+    if (!created) {
+      throw new Error(`[ProjectMemoryService] Decision ${newId} could not be read back after insert`);
+    }
+    return created;
+  }
+
+  /** Retires a decision without a replacement. Throws if it does not exist. */
+  public archiveDecision(id: string): ProjectDecision {
+    return this.updateDecisionStatus(id, 'ARCHIVED');
+  }
+
+  /**
+   * Moves a decision to another lifecycle state and stamps updated_at.
+   * Throws if the decision does not exist or the status is not recognised.
+   */
+  public updateDecisionStatus(id: string, status: DecisionStatus): ProjectDecision {
+    const db = dbService.getDb();
+
+    const validated = validateEnum(status, DECISION_STATUSES, 'ACTIVE', 'status');
+    const existing = this.getDecision(id);
+    if (!existing) {
+      throw new Error(`[ProjectMemoryService] Decision ${id} not found`);
+    }
+
+    db.prepare('UPDATE project_decisions SET status = ?, updated_at = ? WHERE id = ?').run(
+      validated,
+      Date.now(),
+      id
+    );
+
+    const updated = this.getDecision(id);
+    if (!updated) {
+      throw new Error(`[ProjectMemoryService] Decision ${id} could not be read back after update`);
+    }
+    return updated;
   }
 
   /** Returns a decision with its code references attached, or null if it does not exist. */
@@ -216,11 +242,13 @@ export class ProjectMemoryService {
     const rows = filter?.status
       ? (db
           .prepare(
-            'SELECT * FROM project_decisions WHERE project_id = ? AND status = ? ORDER BY created_at DESC'
+            'SELECT * FROM project_decisions WHERE project_id = ? AND status = ? ORDER BY created_at DESC, id DESC'
           )
           .all(projectId, filter.status) as unknown as ProjectDecisionRow[])
       : (db
-          .prepare('SELECT * FROM project_decisions WHERE project_id = ? ORDER BY created_at DESC')
+          .prepare(
+            'SELECT * FROM project_decisions WHERE project_id = ? ORDER BY created_at DESC, id DESC'
+          )
           .all(projectId) as unknown as ProjectDecisionRow[]);
 
     return this.attachCodeRefs(rows);
@@ -240,7 +268,7 @@ export class ProjectMemoryService {
           WHERE d.project_id = ?
             AND r.file_path = ?
             AND d.status = 'ACTIVE'
-          ORDER BY d.created_at DESC`
+          ORDER BY d.created_at DESC, d.id DESC`
       )
       .all(projectId, filePath) as unknown as ProjectDecisionRow[];
 
@@ -310,7 +338,7 @@ export class ProjectMemoryService {
     const db = dbService.getDb();
     const row = db
       .prepare(
-        "SELECT * FROM project_intents WHERE project_id = ? AND status = 'ACTIVE' ORDER BY created_at DESC LIMIT 1"
+        "SELECT * FROM project_intents WHERE project_id = ? AND status = 'ACTIVE' ORDER BY created_at DESC, id DESC LIMIT 1"
       )
       .get(projectId) as ProjectIntentRow | undefined;
 
@@ -359,13 +387,79 @@ export class ProjectMemoryService {
   public listRules(projectId: string): ArchitecturalRule[] {
     const db = dbService.getDb();
     const rows = db
-      .prepare('SELECT * FROM architectural_rules WHERE project_id = ? ORDER BY created_at DESC')
+      .prepare('SELECT * FROM architectural_rules WHERE project_id = ? ORDER BY created_at DESC, id DESC')
       .all(projectId) as unknown as ArchitecturalRuleRow[];
 
     return rows.map(mapRule);
   }
 
   // --- Private helpers ---
+
+  /**
+   * Validates input and writes a decision plus its code refs. Returns the new id.
+   *
+   * Caller-supplied transaction: this method issues no BEGIN of its own, so it can
+   * be composed into a larger unit of work (createDecision, supersedeDecision).
+   */
+  private insertDecision(params: CreateDecisionInput): string {
+    const db = dbService.getDb();
+
+    const projectId = requireText(params.projectId, 'projectId');
+    const title = requireText(params.title, 'title');
+    const summary = requireText(params.summary, 'summary');
+    const rationale = requireText(params.rationale, 'rationale');
+    const status = validateEnum(params.status, DECISION_STATUSES, 'ACTIVE', 'status');
+    const provenance = validateEnum(
+      params.provenance,
+      DECISION_PROVENANCES,
+      'HUMAN_CONFIRMED',
+      'provenance'
+    );
+    const confidence = clampConfidence(params.confidence);
+    const constraints = normalizeStringArray(params.constraints);
+    const codeRefInputs = this.mergeCodeRefInputs(params.codeRefs, params.relatedFiles);
+
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    db.prepare(
+      `INSERT INTO project_decisions
+         (id, project_id, title, summary, rationale, constraints_json, status,
+          superseded_by, provenance, confidence, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
+    ).run(
+      id,
+      projectId,
+      title,
+      summary,
+      rationale,
+      JSON.stringify(constraints),
+      status,
+      provenance,
+      confidence,
+      now,
+      now
+    );
+
+    if (codeRefInputs.length > 0) {
+      const insertRef = db.prepare(
+        `INSERT INTO decision_code_refs (id, decision_id, file_path, symbol_name, commit_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const ref of codeRefInputs) {
+        insertRef.run(
+          crypto.randomUUID(),
+          id,
+          ref.filePath ?? null,
+          ref.symbolName ?? null,
+          ref.commitHash ?? null,
+          now
+        );
+      }
+    }
+
+    return id;
+  }
 
   /**
    * Runs fn inside a transaction, rolling back on any error.

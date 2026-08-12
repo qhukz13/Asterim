@@ -485,6 +485,294 @@ try {
   equal('a failed createDecision leaves no decision row behind', decisionCountAfter, decisionCountBeforeRollback);
   equal('a failed createDecision leaves no code ref rows behind', refCountAfter, refCountBefore);
 
+  // --- supersedeDecision ----------------------------------------------------
+  describe('supersedeDecision');
+
+  tick();
+  const original = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Store data in JSON files',
+    summary: 'Persistence is a flat JSON file per project.',
+    rationale: 'Simplest thing that works.',
+    codeRefs: [{ filePath: 'apps/server/src/store.ts', symbolName: 'writeStore' }]
+  });
+
+  tick();
+  const replacement = projectMemoryService.supersedeDecision(original.id, {
+    projectId: PROJECT_A,
+    title: 'Store data in SQLite',
+    summary: 'Persistence is node:sqlite.',
+    rationale: 'JSON files corrupt under concurrent writes.',
+    provenance: 'HUMAN_CONFIRMED',
+    codeRefs: [{ filePath: 'apps/server/src/services/DatabaseService.ts', symbolName: 'DatabaseService' }]
+  });
+
+  const supersededOriginal = projectMemoryService.getDecision(original.id);
+  equal('the old decision transitions to SUPERSEDED', supersededOriginal.status, 'SUPERSEDED');
+  equal('the old decision points at its replacement', supersededOriginal.supersededBy, replacement.id);
+  check(
+    'the old decision updated_at advances',
+    supersededOriginal.updatedAt > original.updatedAt,
+    `${supersededOriginal.updatedAt} vs ${original.updatedAt}`
+  );
+  equal('the old decision createdAt is unchanged', supersededOriginal.createdAt, original.createdAt);
+
+  equal('the replacement is ACTIVE', replacement.status, 'ACTIVE');
+  equal('the replacement points back at what it replaced', replacement.supersededBy, original.id);
+  equal('the replacement belongs to the same project', replacement.projectId, PROJECT_A);
+  equal('the replacement returns its code refs', replacement.codeRefs.length, 1);
+  equal(
+    'the replacement code ref is the new one',
+    replacement.codeRefs[0].filePath,
+    'apps/server/src/services/DatabaseService.ts'
+  );
+  equal(
+    'the replacement relatedFiles is derived from its own refs',
+    replacement.relatedFiles,
+    ['apps/server/src/services/DatabaseService.ts']
+  );
+
+  equal(
+    'the superseded decision drops out of findRelevantDecisions',
+    projectMemoryService.findRelevantDecisions(PROJECT_A, 'apps/server/src/store.ts').length,
+    0
+  );
+  equal(
+    'the replacement is returned by findRelevantDecisions',
+    projectMemoryService.findRelevantDecisions(PROJECT_A, 'apps/server/src/services/DatabaseService.ts')[0].id,
+    replacement.id
+  );
+  equal(
+    'the superseded decision is listed under the SUPERSEDED filter',
+    projectMemoryService
+      .listDecisions(PROJECT_A, { status: 'SUPERSEDED' })
+      .some((d: { id: string }) => d.id === original.id),
+    true
+  );
+
+  throws('superseding a non-existent decision fails', () =>
+    projectMemoryService.supersedeDecision('no-such-decision', {
+      projectId: PROJECT_A,
+      title: 'Replacement',
+      summary: 's',
+      rationale: 'r'
+    })
+  );
+
+  throws('superseding across projects fails', () =>
+    projectMemoryService.supersedeDecision(replacement.id, {
+      projectId: PROJECT_B,
+      title: 'Cross-project replacement',
+      summary: 's',
+      rationale: 'r'
+    })
+  );
+  equal(
+    'a rejected cross-project supersede leaves the target ACTIVE',
+    projectMemoryService.getDecision(replacement.id).status,
+    'ACTIVE'
+  );
+
+  // A supersede that fails partway must leave both decisions untouched.
+  const beforeRollback = projectMemoryService.getDecision(replacement.id);
+  const decisionCountBeforeSupersedeRollback = dbService
+    .getDb()
+    .prepare('SELECT COUNT(*) AS c FROM project_decisions')
+    .get().c;
+
+  throws('a supersede that fails mid-transaction throws', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    try {
+      (crypto as { randomUUID: () => string }).randomUUID = () => 'supersede-collision-id';
+      projectMemoryService.supersedeDecision(replacement.id, {
+        projectId: PROJECT_A,
+        title: 'Rollback replacement',
+        summary: 's',
+        rationale: 'r',
+        codeRefs: [{ filePath: 'x.ts' }, { filePath: 'y.ts' }]
+      });
+    } finally {
+      (crypto as { randomUUID: () => string }).randomUUID = originalRandomUUID;
+    }
+  });
+
+  equal(
+    'a failed supersede inserts no decision',
+    dbService.getDb().prepare('SELECT COUNT(*) AS c FROM project_decisions').get().c,
+    decisionCountBeforeSupersedeRollback
+  );
+  equal(
+    'a failed supersede leaves the target status unchanged',
+    projectMemoryService.getDecision(replacement.id).status,
+    beforeRollback.status
+  );
+  equal(
+    'a failed supersede leaves the target supersededBy unchanged',
+    projectMemoryService.getDecision(replacement.id).supersededBy,
+    beforeRollback.supersededBy
+  );
+
+  // --- archiveDecision & updateDecisionStatus -------------------------------
+  describe('archiveDecision & updateDecisionStatus');
+
+  tick();
+  const lifecycle = projectMemoryService.createDecision({
+    projectId: PROJECT_A,
+    title: 'Lifecycle subject',
+    summary: 's',
+    rationale: 'r'
+  });
+  equal('a new decision starts ACTIVE', lifecycle.status, 'ACTIVE');
+
+  tick();
+  const staled = projectMemoryService.updateDecisionStatus(lifecycle.id, 'STALE');
+  equal('ACTIVE → STALE', staled.status, 'STALE');
+  check('updateDecisionStatus advances updated_at', staled.updatedAt > lifecycle.updatedAt);
+  equal('updateDecisionStatus preserves created_at', staled.createdAt, lifecycle.createdAt);
+  equal('updateDecisionStatus preserves the payload', staled.title, 'Lifecycle subject');
+
+  tick();
+  const archived = projectMemoryService.archiveDecision(lifecycle.id);
+  equal('STALE → ARCHIVED', archived.status, 'ARCHIVED');
+  check('archiveDecision advances updated_at', archived.updatedAt > staled.updatedAt);
+  equal(
+    'archiveDecision persists, not just returns',
+    projectMemoryService.getDecision(lifecycle.id).status,
+    'ARCHIVED'
+  );
+
+  tick();
+  const reactivated = projectMemoryService.updateDecisionStatus(lifecycle.id, 'ACTIVE');
+  equal('ARCHIVED → ACTIVE is permitted', reactivated.status, 'ACTIVE');
+
+  throws('an unrecognised status is rejected by updateDecisionStatus', () =>
+    projectMemoryService.updateDecisionStatus(lifecycle.id, 'RETIRED')
+  );
+  equal(
+    'a rejected status change leaves the decision untouched',
+    projectMemoryService.getDecision(lifecycle.id).status,
+    'ACTIVE'
+  );
+  throws('updateDecisionStatus on a missing decision fails', () =>
+    projectMemoryService.updateDecisionStatus('no-such-decision', 'ARCHIVED')
+  );
+  throws('archiveDecision on a missing decision fails', () =>
+    projectMemoryService.archiveDecision('no-such-decision')
+  );
+
+  // --- Deterministic ordering ----------------------------------------------
+  describe('deterministic ordering within one millisecond');
+
+  const tiedIds: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    tiedIds.push(
+      projectMemoryService.createDecision({
+        projectId: PROJECT_A,
+        title: `Tied decision ${i}`,
+        summary: 's',
+        rationale: 'r'
+      }).id
+    );
+  }
+  // Force an exact timestamp collision, which Date.now() cannot be relied on to produce.
+  const tiedTimestamp = Date.now() + 60_000;
+  const tieUpdate = dbService.getDb().prepare('UPDATE project_decisions SET created_at = ? WHERE id = ?');
+  for (const id of tiedIds) tieUpdate.run(tiedTimestamp, id);
+
+  const tiedRows = dbService
+    .getDb()
+    .prepare('SELECT COUNT(DISTINCT created_at) AS c FROM project_decisions WHERE id IN (?, ?, ?, ?, ?)')
+    .get(...tiedIds) as { c: number };
+  equal('the five decisions share one created_at', tiedRows.c, 1);
+
+  const orderedIds = projectMemoryService
+    .listDecisions(PROJECT_A)
+    .map((d: { id: string }) => d.id)
+    .filter((id: string) => tiedIds.includes(id));
+  equal(
+    'listDecisions breaks the tie by id DESC',
+    orderedIds,
+    [...tiedIds].sort().reverse()
+  );
+  equal(
+    'listDecisions returns the same order on a repeat call',
+    projectMemoryService
+      .listDecisions(PROJECT_A)
+      .map((d: { id: string }) => d.id)
+      .filter((id: string) => tiedIds.includes(id)),
+    orderedIds
+  );
+  equal(
+    'the status-filtered query breaks ties the same way',
+    projectMemoryService
+      .listDecisions(PROJECT_A, { status: 'ACTIVE' })
+      .map((d: { id: string }) => d.id)
+      .filter((id: string) => tiedIds.includes(id)),
+    orderedIds
+  );
+
+  // Rules tie-break
+  const tiedRuleIds: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    tiedRuleIds.push(
+      projectMemoryService.createRule({
+        projectId: PROJECT_A,
+        title: `Tied rule ${i}`,
+        statement: 's'
+      }).id
+    );
+  }
+  const ruleTieUpdate = dbService.getDb().prepare('UPDATE architectural_rules SET created_at = ? WHERE id = ?');
+  for (const id of tiedRuleIds) ruleTieUpdate.run(tiedTimestamp, id);
+  equal(
+    'listRules breaks the tie by id DESC',
+    projectMemoryService
+      .listRules(PROJECT_A)
+      .map((r: { id: string }) => r.id)
+      .filter((id: string) => tiedRuleIds.includes(id)),
+    [...tiedRuleIds].sort().reverse()
+  );
+
+  // findRelevantDecisions tie-break
+  const tiedRefIds: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    tiedRefIds.push(
+      projectMemoryService.createDecision({
+        projectId: PROJECT_A,
+        title: `Tied anchored ${i}`,
+        summary: 's',
+        rationale: 'r',
+        relatedFiles: ['shared/tied.ts']
+      }).id
+    );
+  }
+  for (const id of tiedRefIds) tieUpdate.run(tiedTimestamp, id);
+  equal(
+    'findRelevantDecisions breaks the tie by id DESC',
+    projectMemoryService
+      .findRelevantDecisions(PROJECT_A, 'shared/tied.ts')
+      .map((d: { id: string }) => d.id),
+    [...tiedRefIds].sort().reverse()
+  );
+
+  // getActiveIntent tie-break: two ACTIVE intents forced to the same created_at
+  const intentA = projectMemoryService.createIntent({ projectId: PROJECT_A, goal: 'Tie intent 1' });
+  const intentB = projectMemoryService.createIntent({ projectId: PROJECT_A, goal: 'Tie intent 2' });
+  const intentDb = dbService.getDb();
+  intentDb
+    .prepare("UPDATE project_intents SET created_at = ?, status = 'ACTIVE' WHERE id IN (?, ?)")
+    .run(tiedTimestamp, intentA.id, intentB.id);
+  const expectedIntentId = [intentA.id, intentB.id].sort().reverse()[0];
+  equal(
+    'getActiveIntent breaks the tie by id DESC',
+    projectMemoryService.getActiveIntent(PROJECT_A).id,
+    expectedIntentId
+  );
+  // Restore a single active intent so later assertions are unaffected.
+  intentDb
+    .prepare("UPDATE project_intents SET status = 'ARCHIVED' WHERE project_id = ? AND id != ?")
+    .run(PROJECT_A, expectedIntentId);
+
   // --- Cascade -------------------------------------------------------------
   describe('cascade on project deletion');
 
