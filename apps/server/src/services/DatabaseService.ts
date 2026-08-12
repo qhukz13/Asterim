@@ -38,6 +38,14 @@ export class DatabaseService {
   }
 
   private init() {
+    // Write-Ahead Logging: concurrent readers during writes, and fewer fsyncs.
+    // Persisted in the database header, so this applies once per database file.
+    try {
+      this.db.exec('PRAGMA journal_mode = WAL;');
+    } catch {
+      console.warn('[Database] Could not enable WAL journal mode; continuing with the default journal.');
+    }
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
@@ -423,6 +431,69 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_env_knowledge_env ON environment_knowledge_items(environment_id);
       CREATE INDEX IF NOT EXISTS idx_env_attachments_env ON environment_project_attachments(environment_id);
 
+    `);
+
+    // Phase 5.0 Project Memory Core Tables
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS project_decisions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        constraints_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        superseded_by TEXT,
+        provenance TEXT NOT NULL DEFAULT 'HUMAN_CONFIRMED',
+        confidence REAL NOT NULL DEFAULT 1.0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY(superseded_by) REFERENCES project_decisions(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS decision_code_refs (
+        id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL,
+        file_path TEXT,
+        symbol_name TEXT,
+        commit_hash TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(decision_id) REFERENCES project_decisions(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS project_intents (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        constraints_json TEXT NOT NULL DEFAULT '[]',
+        non_goals_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS architectural_rules (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        statement TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'warning',
+        scope_pattern TEXT NOT NULL DEFAULT '*',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_decisions_project_status ON project_decisions(project_id, status);
+      CREATE INDEX IF NOT EXISTS idx_decision_refs_decision ON decision_code_refs(decision_id);
+      CREATE INDEX IF NOT EXISTS idx_decision_refs_file ON decision_code_refs(file_path);
+      CREATE INDEX IF NOT EXISTS idx_intents_project_status ON project_intents(project_id, status);
+      CREATE INDEX IF NOT EXISTS idx_rules_project ON architectural_rules(project_id);
+
+      -- Briefing lookups scan sessions/approvals by project; neither table was indexed.
+      CREATE INDEX IF NOT EXISTS idx_sessions_project_started ON sessions(project_id, started_at);
+      CREATE INDEX IF NOT EXISTS idx_approvals_project_created ON approvals(project_id, created_at);
     `);
   }
 
