@@ -46,7 +46,9 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        minHeight: 'calc(100vh - 80px)',
+        /* Grow to fill the shell rather than forcing a fixed viewport height —
+           keeps the footer at the bottom without padding the page out. */
+        flex: 1,
         maxWidth: '1280px',
         margin: '0 auto',
         width: '100%',
@@ -156,7 +158,8 @@ export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
             padding: '40px',
             color: '#cbd5e1',
             lineHeight: 1.7,
-            minHeight: '600px',
+            minHeight: '500px',
+            height: 'auto',
           }}
         >
           {activeTopic === 'quickstart' && (

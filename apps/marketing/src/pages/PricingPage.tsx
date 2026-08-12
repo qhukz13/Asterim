@@ -105,7 +105,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
               flexDirection: 'column',
               justifyContent: 'space-between',
               position: 'relative',
-              borderColor: tier.highlight ? 'var(--border-accent)' : 'var(--border-subtle)',
+              borderColor: tier.highlight ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)',
               background: tier.highlight ? 'radial-gradient(circle at 50% 0%, var(--accent-green-subtle), transparent 70%), var(--bg-surface)' : 'var(--bg-surface)',
             }}
           >
@@ -128,7 +128,9 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>/ {tier.period}</span>
               </div>
 
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.5, marginBottom: '28px' }}>
+              {/* min-height keeps the CTA row aligned across tiers regardless of
+                  how long each description runs. */}
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.5, marginBottom: '28px', minHeight: '4.2rem' }}>
                 {tier.description}
               </p>
 

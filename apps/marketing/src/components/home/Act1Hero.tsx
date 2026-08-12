@@ -20,17 +20,18 @@ export const Act1Hero: React.FC = () => {
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '8px',
-            padding: '5px 16px',
+            gap: '9px',
+            padding: '7px 16px',
             borderRadius: '100px',
             background: 'rgba(16, 185, 129, 0.08)',
             border: '1px solid rgba(16, 185, 129, 0.25)',
-            marginBottom: '28px'
+            marginBottom: '28px',
+            lineHeight: 1
           }}
         >
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#34d399', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
-            🟢 Asterim Open-Core v1.0 Released
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', flexShrink: 0 }} />
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#34d399', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)', lineHeight: 1.2 }}>
+            Asterim Open-Core v1.0 Released
           </span>
         </div>
 

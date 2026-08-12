@@ -368,39 +368,14 @@ export const AsterimWorkstationSandbox: React.FC = () => {
 
   return (
     <div className="workstation-frame" id="workstation-sandbox">
-      <div
-        style={{
-          height: '42px',
-          background: '#0d1424',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          userSelect: 'none'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              color: '#f8fafc',
-              cursor: 'pointer'
-            }}
-          >
+      <div className="ws-header">
+        <div className="ws-header-left">
+          <div className="ws-chip">
             <IconLayers size={13} color="#10b981" />
-            <span>Company Workspace (Acme Corp)</span>
+            <span className="ws-chip-label">Company Workspace (Acme Corp)</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+          <div className="ws-breadcrumb">
             <span>/</span>
             <span style={{ color: '#f8fafc', fontWeight: 600 }}>{currentThread.projectName}</span>
             <span>/</span>
@@ -408,23 +383,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '3px 12px',
-            background: '#070a10',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '100px',
-            fontSize: '0.75rem',
-            color: '#94a3b8',
-            maxWidth: '380px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <div className="ws-mission">
           <IconTarget size={12} color="#10b981" />
           <span style={{ color: '#f8fafc', fontWeight: 600, flexShrink: 0 }}>Mission:</span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -432,7 +391,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="ws-header-right">
           {currentStatus === 'approval' ? (
             <div
               style={{
@@ -449,7 +408,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               }}
             >
               <IconAlertTriangle size={12} color="#f59e0b" />
-              <span>Action Required · Paused for Review</span>
+              <span className="ws-status-full">Action Required · Paused for Review</span>
+              <span className="ws-status-short">Review</span>
             </div>
           ) : currentStatus === 'working' ? (
             <div
@@ -467,7 +427,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               }}
             >
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
-              <span>Working ({currentThread.agent})</span>
+              <span className="ws-status-full">Working ({currentThread.agent})</span>
+              <span className="ws-status-short">Working</span>
             </div>
           ) : (
             <div
@@ -490,6 +451,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           )}
 
           <div
+            className="ws-host"
             style={{
               padding: '3px 8px',
               borderRadius: '4px',
@@ -498,7 +460,6 @@ export const AsterimWorkstationSandbox: React.FC = () => {
               fontSize: '0.72rem',
               color: '#94a3b8',
               fontFamily: 'var(--font-mono)',
-              display: 'flex',
               alignItems: 'center',
               gap: '5px'
             }}
@@ -507,30 +468,14 @@ export const AsterimWorkstationSandbox: React.FC = () => {
             <span>Local Host</span>
           </div>
 
-          <span style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', fontSize: '0.7rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>
+          <span className="ws-kbd" style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', fontSize: '0.7rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>
             ⌘K
           </span>
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '230px 1fr 250px',
-          minHeight: '520px',
-          background: '#04070d'
-        }}
-      >
-        <div
-          style={{
-            borderRight: '1px solid rgba(255, 255, 255, 0.06)',
-            background: '#070a10',
-            padding: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
-          }}
-        >
+      <div className="ws-body">
+        <div className="ws-sidebar">
           <div style={{ position: 'relative' }}>
             <input
               type="text"
@@ -639,18 +584,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', background: '#04070d' }}>
-          <div
-            style={{
-              height: '38px',
-              background: '#070a10',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-              padding: '0 12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-          >
+        <div className="ws-main">
+          <div className="ws-tabs">
             {[
               { id: 'chat', label: 'Chat', icon: <IconZap size={13} /> },
               { id: 'terminal', label: 'Terminal', icon: <IconTerminal size={13} /> },
@@ -666,6 +601,8 @@ export const AsterimWorkstationSandbox: React.FC = () => {
                   alignItems: 'center',
                   gap: '6px',
                   padding: '6px 12px',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
                   background: activeTab === tab.id ? '#0d1424' : 'transparent',
                   border: 'none',
                   borderBottom: activeTab === tab.id ? '2px solid #10b981' : '2px solid transparent',
@@ -915,16 +852,7 @@ export const AsterimWorkstationSandbox: React.FC = () => {
           </div>
         </div>
 
-        <div
-          style={{
-            borderLeft: '1px solid rgba(255, 255, 255, 0.06)',
-            background: '#070a10',
-            padding: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '14px'
-          }}
-        >
+        <div className="ws-inspector">
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             AI CONTEXT &amp; STATE
           </div>

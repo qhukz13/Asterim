@@ -211,6 +211,53 @@ code, pre, kbd, samp {
   }
 }
 
+/* Surface card — used by Pricing and Download tiers. Previously referenced by
+   six components but never defined, which is why those panels rendered as
+   square, borderless, unpadded blocks. */
+.surface-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 28px;
+  transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.surface-card:hover {
+  border-color: var(--border-hover);
+}
+
+/* Status pill — capability truthfulness marker (content-truth contract). */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.status-badge.available {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--accent-emerald);
+}
+
+.status-badge.beta {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.status-badge.planned {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+}
+
 /* Surface Panels */
 .surface-panel {
   background: var(--bg-surface);
@@ -421,7 +468,11 @@ code, pre, kbd, samp {
   background: #070a10;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 32px 96px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+  /* Elevation aura: deep drop, hairline ring, faint emerald bloom. */
+  box-shadow:
+    0 32px 96px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 32px rgba(16, 185, 129, 0.05);
   overflow: hidden;
   width: 100%;
 }
@@ -434,6 +485,190 @@ code, pre, kbd, samp {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* ==========================================================================
+   WORKSTATION SANDBOX — layout shell (DESIGN-003)
+   Layout lives here rather than inline so media queries can reach it.
+   ========================================================================== */
+
+.ws-header {
+  height: 42px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  user-select: none;
+}
+
+.ws-header-left,
+.ws-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ws-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.ws-mission {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 100px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  max-width: 380px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ws-host {
+  display: flex;
+}
+
+/* Long status label by default; short label only on narrow viewports. */
+.ws-status-short {
+  display: none;
+}
+
+.ws-body {
+  display: grid;
+  grid-template-columns: 230px 1fr 250px;
+  min-height: 520px;
+  background: var(--bg-terminal);
+}
+
+/* min-width:0 stops grid children from being sized by their content and
+   forcing the frame wider than the viewport. */
+.ws-sidebar,
+.ws-main,
+.ws-inspector {
+  min-width: 0;
+}
+
+.ws-sidebar {
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-dark);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-main {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-terminal);
+}
+
+.ws-tabs {
+  height: 38px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ws-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ws-inspector {
+  border-left: 1px solid var(--border-subtle);
+  background: var(--bg-dark);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Tablet: drop the inspector into the flow beneath the main pane. */
+@media (max-width: 1024px) {
+  .ws-body {
+    grid-template-columns: 200px 1fr;
+  }
+  .ws-inspector {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .ws-mission {
+    max-width: 260px;
+  }
+}
+
+/* Phone: single column, condensed chrome, no horizontal overflow. */
+@media (max-width: 768px) {
+  .ws-header {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .ws-breadcrumb,
+  .ws-mission,
+  .ws-kbd,
+  .ws-host {
+    display: none;
+  }
+  .ws-chip-label {
+    max-width: 170px;
+  }
+  .ws-status-full {
+    display: none;
+  }
+  .ws-status-short {
+    display: inline;
+  }
+  .ws-body {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .ws-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
 }
 
 .terminal-viewport {
