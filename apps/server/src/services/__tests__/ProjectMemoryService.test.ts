@@ -773,6 +773,266 @@ try {
     .prepare("UPDATE project_intents SET status = 'ARCHIVED' WHERE project_id = ? AND id != ?")
     .run(PROJECT_A, expectedIntentId);
 
+  // --- getProjectBriefing ---------------------------------------------------
+  describe('getProjectBriefing — empty project');
+
+  const PROJECT_C = 'project-c';
+  dbService
+    .getDb()
+    .prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)')
+    .run(PROJECT_C, 'Project C', '/tmp/project-c');
+
+  const emptyBriefing = projectMemoryService.getProjectBriefing(PROJECT_C);
+  equal('empty briefing carries the projectId', emptyBriefing.projectId, PROJECT_C);
+  equal('empty briefing has no active decisions', emptyBriefing.activeDecisions, []);
+  equal('empty briefing has no rules', emptyBriefing.architecturalRules, []);
+  equal('empty briefing has a null intent', emptyBriefing.currentIntent, null);
+  equal('empty briefing has no agent work', emptyBriefing.recentAgentWork, []);
+  equal('empty briefing has no approvals', emptyBriefing.recentApprovals, []);
+  equal(
+    'empty briefing exposes exactly the six briefing keys',
+    Object.keys(emptyBriefing).sort(),
+    [
+      'activeDecisions',
+      'architecturalRules',
+      'currentIntent',
+      'projectId',
+      'recentAgentWork',
+      'recentApprovals'
+    ]
+  );
+
+  describe('getProjectBriefing — populated project');
+
+  // Sessions and approvals have no service API — they are written by AgentService
+  // and ApprovalManager — so the fixtures go in through SQL, exactly as those
+  // services write them.
+  const insertSession = dbService
+    .getDb()
+    .prepare(
+      'INSERT INTO sessions (id, project_id, thread_id, agent_type, status, pid, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+  const insertApproval = dbService
+    .getDb()
+    .prepare(
+      'INSERT INTO approvals (id, project_id, action_id, description, command, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+
+  const base = 1_700_000_000_000;
+  // Seven of each, so the LIMIT 5 is actually exercised.
+  for (let i = 0; i < 7; i++) {
+    insertSession.run(
+      `c-session-${i}`,
+      PROJECT_C,
+      `c-thread-${i}`,
+      i % 2 === 0 ? 'claude' : 'aider',
+      i === 6 ? 'running' : 'exited',
+      1000 + i,
+      base + i * 1000,
+      base + i * 1000 + 500
+    );
+    insertApproval.run(
+      `c-approval-row-${i}`,
+      PROJECT_C,
+      `c-action-${i}`,
+      `Approval ${i}`,
+      `rm -rf /tmp/target-${i}`,
+      i === 6 ? 'pending' : 'approved',
+      base + i * 1000
+    );
+  }
+  // A legacy session written before sessions.thread_id existed.
+  insertSession.run('c-session-legacy', PROJECT_C, null, 'antigravity', 'crashed', null, base - 1000, base - 500);
+
+  const cActive = projectMemoryService.createDecision({
+    projectId: PROJECT_C,
+    title: 'C active decision',
+    summary: 's',
+    rationale: 'r',
+    relatedFiles: ['src/c.ts']
+  });
+  const cArchived = projectMemoryService.createDecision({
+    projectId: PROJECT_C,
+    title: 'C archived decision',
+    summary: 's',
+    rationale: 'r'
+  });
+  projectMemoryService.archiveDecision(cArchived.id);
+  const cRule = projectMemoryService.createRule({
+    projectId: PROJECT_C,
+    title: 'C rule',
+    statement: 'Applies to C.',
+    severity: 'error'
+  });
+  const cIntent = projectMemoryService.createIntent({
+    projectId: PROJECT_C,
+    goal: 'Finish Project C',
+    constraints: ['No new deps'],
+    nonGoals: ['Rewrites']
+  });
+
+  const briefing = projectMemoryService.getProjectBriefing(PROJECT_C);
+
+  equal('briefing includes only ACTIVE decisions', briefing.activeDecisions.length, 1);
+  equal('briefing returns the active decision', briefing.activeDecisions[0].id, cActive.id);
+  equal(
+    'briefing decisions carry their code refs',
+    briefing.activeDecisions[0].codeRefs.length,
+    1
+  );
+  equal('briefing excludes the archived decision',
+    briefing.activeDecisions.some((d: { id: string }) => d.id === cArchived.id),
+    false
+  );
+
+  equal('briefing includes the rules', briefing.architecturalRules.length, 1);
+  equal('briefing rule is the right one', briefing.architecturalRules[0].id, cRule.id);
+  equal('briefing rule keeps its severity', briefing.architecturalRules[0].severity, 'error');
+
+  equal('briefing carries the active intent', briefing.currentIntent.id, cIntent.id);
+  equal('briefing intent keeps its goal', briefing.currentIntent.goal, 'Finish Project C');
+  equal('briefing intent keeps its nonGoals', briefing.currentIntent.nonGoals, ['Rewrites']);
+
+  equal('recentAgentWork is capped at 5', briefing.recentAgentWork.length, 5);
+  equal(
+    'recentAgentWork is ordered by started_at DESC',
+    briefing.recentAgentWork.map((w: { sessionId: string }) => w.sessionId),
+    ['c-session-6', 'c-session-5', 'c-session-4', 'c-session-3', 'c-session-2']
+  );
+  equal('recentAgentWork maps sessionId', briefing.recentAgentWork[0].sessionId, 'c-session-6');
+  equal('recentAgentWork maps threadId', briefing.recentAgentWork[0].threadId, 'c-thread-6');
+  equal('recentAgentWork maps agentType', briefing.recentAgentWork[0].agentType, 'claude');
+  equal('recentAgentWork maps status', briefing.recentAgentWork[0].status, 'running');
+  equal('recentAgentWork maps startedAt', briefing.recentAgentWork[0].startedAt, base + 6000);
+  equal('recentAgentWork maps updatedAt', briefing.recentAgentWork[0].updatedAt, base + 6500);
+  equal(
+    'recentAgentWork exposes exactly the summary keys',
+    Object.keys(briefing.recentAgentWork[0]).sort(),
+    ['agentType', 'sessionId', 'startedAt', 'status', 'threadId', 'updatedAt']
+  );
+
+  equal('recentApprovals is capped at 5', briefing.recentApprovals.length, 5);
+  equal(
+    'recentApprovals is ordered by created_at DESC',
+    briefing.recentApprovals.map((a: { actionId: string }) => a.actionId),
+    ['c-action-6', 'c-action-5', 'c-action-4', 'c-action-3', 'c-action-2']
+  );
+  equal('recentApprovals maps actionId, not the row id', briefing.recentApprovals[0].actionId, 'c-action-6');
+  equal('recentApprovals maps description', briefing.recentApprovals[0].description, 'Approval 6');
+  equal('recentApprovals maps command', briefing.recentApprovals[0].command, 'rm -rf /tmp/target-6');
+  equal('recentApprovals maps status', briefing.recentApprovals[0].status, 'pending');
+  equal('recentApprovals maps createdAt', briefing.recentApprovals[0].createdAt, base + 6000);
+  equal(
+    'recentApprovals exposes exactly the summary keys',
+    Object.keys(briefing.recentApprovals[0]).sort(),
+    ['actionId', 'command', 'createdAt', 'description', 'status']
+  );
+
+  // A NULL thread_id must surface as an absent optional, never as null.
+  const legacyWork = dbService
+    .getDb()
+    .prepare(
+      `SELECT id AS sessionId, thread_id AS threadId, agent_type AS agentType, status,
+              started_at AS startedAt, updated_at AS updatedAt
+         FROM sessions WHERE id = 'c-session-legacy'`
+    )
+    .get();
+  equal('the legacy fixture really has a NULL thread_id', legacyWork.threadId, null);
+
+  // Project C's legacy session is the oldest of eight, so it falls outside the
+  // LIMIT 5 window. Give it its own project to observe how the mapper treats NULL.
+  const PROJECT_LEGACY = 'project-legacy';
+  dbService
+    .getDb()
+    .prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)')
+    .run(PROJECT_LEGACY, 'Legacy', '/tmp/legacy');
+  insertSession.run('legacy-only-session', PROJECT_LEGACY, null, 'antigravity', 'crashed', null, base, base);
+  const legacyOnly = projectMemoryService.getProjectBriefing(PROJECT_LEGACY).recentAgentWork[0];
+  equal('a NULL thread_id is omitted rather than null', 'threadId' in legacyOnly, false);
+  equal(
+    'a NULL thread_id survives JSON serialization as absent',
+    JSON.parse(JSON.stringify(legacyOnly)).threadId,
+    undefined
+  );
+
+  describe('getProjectBriefing — project isolation');
+
+  insertSession.run('b-session-1', PROJECT_B, 'b-thread', 'claude', 'exited', 99, base + 99_000, base + 99_000);
+  insertApproval.run('b-approval-row', PROJECT_B, 'b-action', 'B approval', 'echo b', 'approved', base + 99_000);
+
+  const cBriefing = projectMemoryService.getProjectBriefing(PROJECT_C);
+  const bBriefing = projectMemoryService.getProjectBriefing(PROJECT_B);
+
+  check(
+    'briefing decisions all belong to the queried project',
+    cBriefing.activeDecisions.every((d: { projectId: string }) => d.projectId === PROJECT_C)
+  );
+  check(
+    'briefing rules all belong to the queried project',
+    cBriefing.architecturalRules.every((r: { projectId: string }) => r.projectId === PROJECT_C)
+  );
+  equal(
+    'briefing intent belongs to the queried project',
+    cBriefing.currentIntent.projectId,
+    PROJECT_C
+  );
+  equal(
+    'no Project B session leaks into the Project C briefing',
+    cBriefing.recentAgentWork.some((w: { sessionId: string }) => w.sessionId === 'b-session-1'),
+    false
+  );
+  equal(
+    'no Project B approval leaks into the Project C briefing',
+    cBriefing.recentApprovals.some((a: { actionId: string }) => a.actionId === 'b-action'),
+    false
+  );
+  equal('the Project B briefing sees only its own session', bBriefing.recentAgentWork.length, 1);
+  equal('the Project B briefing session is the B one', bBriefing.recentAgentWork[0].sessionId, 'b-session-1');
+  equal('the Project B briefing sees only its own approval', bBriefing.recentApprovals.length, 1);
+  equal(
+    'no Project C decision leaks into the Project B briefing',
+    bBriefing.activeDecisions.some((d: { id: string }) => d.id === cActive.id),
+    false
+  );
+
+  describe('getProjectBriefing — determinism');
+
+  const run1 = JSON.stringify(projectMemoryService.getProjectBriefing(PROJECT_C));
+  const run2 = JSON.stringify(projectMemoryService.getProjectBriefing(PROJECT_C));
+  const run3 = JSON.stringify(projectMemoryService.getProjectBriefing(PROJECT_C));
+  equal('two briefings of an unchanged database are byte-identical', run1, run2);
+  equal('a third briefing is identical too', run1, run3);
+  check('the briefing is not trivially empty', run1.length > 200, `${run1.length} bytes`);
+
+  // Determinism must hold when every sort key is tied, which is where an
+  // unstable ORDER BY would show up.
+  const tiedTs = base + 500_000;
+  dbService
+    .getDb()
+    .prepare("UPDATE sessions SET started_at = ? WHERE project_id = ?")
+    .run(tiedTs, PROJECT_C);
+  dbService
+    .getDb()
+    .prepare('UPDATE approvals SET created_at = ? WHERE project_id = ?')
+    .run(tiedTs, PROJECT_C);
+  dbService
+    .getDb()
+    .prepare('UPDATE project_decisions SET created_at = ? WHERE project_id = ?')
+    .run(tiedTs, PROJECT_C);
+
+  const tiedRun1 = JSON.stringify(projectMemoryService.getProjectBriefing(PROJECT_C));
+  const tiedRun2 = JSON.stringify(projectMemoryService.getProjectBriefing(PROJECT_C));
+  equal('briefings stay identical when every timestamp is tied', tiedRun1, tiedRun2);
+
+  const tiedSessionOrder = projectMemoryService
+    .getProjectBriefing(PROJECT_C)
+    .recentAgentWork.map((w: { sessionId: string }) => w.sessionId);
+  equal(
+    'tied sessions fall back to id DESC',
+    tiedSessionOrder,
+    [...tiedSessionOrder].sort().reverse()
+  );
+
   // --- Cascade -------------------------------------------------------------
   describe('cascade on project deletion');
 
@@ -781,6 +1041,15 @@ try {
   equal('deleting a project removes its intent', projectMemoryService.getActiveIntent(PROJECT_B), null);
   equal('deleting a project removes its rules', projectMemoryService.listRules(PROJECT_B), []);
   check('Project A memory survives Project B deletion', projectMemoryService.listDecisions(PROJECT_A).length > 0);
+
+  const deletedBriefing = projectMemoryService.getProjectBriefing(PROJECT_B);
+  equal('a deleted project briefs with no decisions', deletedBriefing.activeDecisions, []);
+  equal('a deleted project briefs with no rules', deletedBriefing.architecturalRules, []);
+  equal('a deleted project briefs with a null intent', deletedBriefing.currentIntent, null);
+  // sessions and approvals declare no foreign key on project_id
+  // (docs/p5.0-01-verification-report.md § 2), so their rows outlive the project.
+  equal('session history outlives the deleted project', deletedBriefing.recentAgentWork.length, 1);
+  equal('approval history outlives the deleted project', deletedBriefing.recentApprovals.length, 1);
 } catch (err) {
   failed++;
   console.error('\nUNCAUGHT ERROR:', err);

@@ -7,7 +7,12 @@ import type {
   ArchitecturalRule,
   DecisionStatus,
   DecisionProvenance,
-  ArchitecturalRuleSeverity
+  ArchitecturalRuleSeverity,
+  ProjectBriefing,
+  AgentWorkSummary,
+  AgentWorkStatus,
+  ApprovalSummary,
+  ApprovalOutcome
 } from '@asterim/shared';
 
 /** Row shape returned from the project_decisions table. */
@@ -57,6 +62,25 @@ interface ArchitecturalRuleRow {
   severity: string;
   scope_pattern: string;
   created_at: number;
+}
+
+/** Aliased row shape returned by the briefing's sessions query. */
+interface AgentWorkRow {
+  sessionId: string;
+  threadId: string | null;
+  agentType: string;
+  status: string;
+  startedAt: number;
+  updatedAt: number;
+}
+
+/** Aliased row shape returned by the briefing's approvals query. */
+interface ApprovalRow {
+  actionId: string;
+  description: string;
+  command: string;
+  status: string;
+  createdAt: number;
 }
 
 /** A code anchor supplied when recording a decision. */
@@ -393,6 +417,57 @@ export class ProjectMemoryService {
     return rows.map(mapRule);
   }
 
+  // --- Briefing ---
+
+  /**
+   * Assembles the memory snapshot handed to an agent starting work on a project.
+   *
+   * Fully deterministic: no model calls, no sampling, no clock-dependent content.
+   * Every query carries an explicit total order (`id` breaks timestamp ties), so
+   * two calls against an unchanged database return byte-identical JSON.
+   *
+   * Recent agent work and approvals are read from the existing `sessions` and
+   * `approvals` tables — there is no separate agent-work log (see
+   * docs/p5.0-01-verification-report.md § 2).
+   */
+  public getProjectBriefing(projectId: string): ProjectBriefing {
+    const db = dbService.getDb();
+
+    const activeDecisions = this.listDecisions(projectId, { status: 'ACTIVE' });
+    const architecturalRules = this.listRules(projectId);
+    const currentIntent = this.getActiveIntent(projectId);
+
+    const sessionRows = db
+      .prepare(
+        `SELECT id AS sessionId, thread_id AS threadId, agent_type AS agentType, status,
+                started_at AS startedAt, updated_at AS updatedAt
+           FROM sessions
+          WHERE project_id = ?
+          ORDER BY started_at DESC, id DESC
+          LIMIT 5`
+      )
+      .all(projectId) as unknown as AgentWorkRow[];
+
+    const approvalRows = db
+      .prepare(
+        `SELECT action_id AS actionId, description, command, status, created_at AS createdAt
+           FROM approvals
+          WHERE project_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT 5`
+      )
+      .all(projectId) as unknown as ApprovalRow[];
+
+    return {
+      projectId,
+      activeDecisions,
+      architecturalRules,
+      currentIntent,
+      recentAgentWork: sessionRows.map(mapAgentWork),
+      recentApprovals: approvalRows.map(mapApproval)
+    };
+  }
+
   // --- Private helpers ---
 
   /**
@@ -566,6 +641,36 @@ function mapCodeRef(row: DecisionCodeRefRow): DecisionCodeRef {
     symbolName: row.symbol_name ?? undefined,
     commitHash: row.commit_hash ?? undefined,
     createdAt: row.created_at
+  };
+}
+
+/**
+ * Projects a sessions row into a briefing entry.
+ * thread_id is nullable — the column was added by ALTER TABLE and is NULL on
+ * rows written before it existed — and the domain type uses an optional instead.
+ */
+function mapAgentWork(row: AgentWorkRow): AgentWorkSummary {
+  const summary: AgentWorkSummary = {
+    sessionId: row.sessionId,
+    agentType: row.agentType,
+    status: row.status as AgentWorkStatus,
+    startedAt: row.startedAt,
+    updatedAt: row.updatedAt
+  };
+  if (row.threadId !== null && row.threadId !== undefined) {
+    summary.threadId = row.threadId;
+  }
+  return summary;
+}
+
+/** Projects an approvals row into a briefing entry. */
+function mapApproval(row: ApprovalRow): ApprovalSummary {
+  return {
+    actionId: row.actionId,
+    description: row.description,
+    command: row.command,
+    status: row.status as ApprovalOutcome,
+    createdAt: row.createdAt
   };
 }
 
