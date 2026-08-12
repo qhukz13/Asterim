@@ -1,3 +1,9 @@
+import type {
+  ProjectDecision,
+  ProjectIntent,
+  ArchitecturalRule
+} from './types/memory';
+
 export interface AsterimEvent<T = any> {
   id: string;
   timestamp: number;
@@ -128,6 +134,40 @@ export interface ContextClearedPayload {
   projectId: string;
 }
 
+// --- Project Memory Payloads ---
+
+/** Payload broadcast when a decision is recorded in a project's memory. */
+export interface MemoryDecisionCreatedPayload {
+  projectId: string;
+  decision: ProjectDecision;
+}
+
+/** Payload broadcast when a decision is replaced by a newer one. */
+export interface MemoryDecisionSupersededPayload {
+  projectId: string;
+  /** Id of the decision that was superseded. */
+  decisionId: string;
+  /** Id of the decision that replaced it. */
+  supersededBy: string;
+  /** The replacing decision, when it was created as part of the same operation. */
+  decision?: ProjectDecision;
+}
+
+/** Payload broadcast when a project's active intent changes. */
+export interface MemoryIntentUpdatedPayload {
+  projectId: string;
+  /** The project's intent after the update, or `null` if it was archived without a replacement. */
+  intent: ProjectIntent | null;
+  /** Id of the intent archived by this update, when one was replaced. */
+  previousIntentId?: string;
+}
+
+/** Payload broadcast when an architectural rule is added to a project. */
+export interface MemoryRuleCreatedPayload {
+  projectId: string;
+  rule: ArchitecturalRule;
+}
+
 // Helper types for specific events
 export type AgentLogEvent = AsterimEvent<AgentLogPayload>;
 export type AgentStatusEvent = AsterimEvent<AgentStatusPayload>;
@@ -142,3 +182,7 @@ export type ClientPairEvent = AsterimEvent<ClientPairPayload>;
 export type ServerAuthResultEvent = AsterimEvent<ServerAuthResultPayload>;
 export type ChatMessageEvent = AsterimEvent<ChatMessagePayload>;
 export type ClientChatMessageEvent = AsterimEvent<ClientChatMessagePayload>;
+export type MemoryDecisionCreatedEvent = AsterimEvent<MemoryDecisionCreatedPayload>;
+export type MemoryDecisionSupersededEvent = AsterimEvent<MemoryDecisionSupersededPayload>;
+export type MemoryIntentUpdatedEvent = AsterimEvent<MemoryIntentUpdatedPayload>;
+export type MemoryRuleCreatedEvent = AsterimEvent<MemoryRuleCreatedPayload>;

@@ -7,4 +7,5 @@ export * from './types/account';
 export * from './types/entitlements';
 export * from './types/workspace';
 export * from './types/audit';
+export * from './types/memory';
 
