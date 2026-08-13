@@ -10,7 +10,9 @@
 
 ## 1. Objective
 
-Implement and verify the full End-to-End Cross-Agent Dogfood Scenario across multiple disjoint MCP server processes (Session A $\rightarrow$ Session B $\rightarrow$ Session C), proving cross-session memory retrieval, project isolation, and non-destructive integration with live `~/.asterim/asterim.db`.
+Implement and verify the full End-to-End Cross-Agent Dogfood Scenario across multiple disjoint inish setting up Data Analytics
+
+Add these connectors now or set them up later when the plugin needs accessMCP server processes (Session A $\rightarrow$ Session B $\rightarrow$ Session C), proving cross-session memory retrieval, project isolation, and non-destructive integration with live `~/.asterim/asterim.db`.
 
 ---
 

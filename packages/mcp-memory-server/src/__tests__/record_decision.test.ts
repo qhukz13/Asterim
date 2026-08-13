@@ -424,6 +424,21 @@ async function main(): Promise<void> {
     "'codeRefs[0].filePath' must be a string"
   );
 
+  // Unrecognised keys. The expensive case is a near-miss on an optional key: the
+  // decision would be stored with no anchors and reported as a success.
+  await rejects(
+    'a misspelled relatedFiles key is rejected rather than ignored',
+    { ...body, relatedFile: ['src/auth.ts'] },
+    'Unknown argument for record_decision: relatedFile',
+    'Accepted:'
+  );
+  await rejects(
+    'several unknown keys are reported together',
+    { ...body, foo: 1, bar: 2 },
+    'Unknown arguments for record_decision: foo, bar'
+  );
+  await rejects('an unknown key is rejected even when every required field is valid', { ...body, urgency: 'high' }, 'urgency');
+
   const afterRejections = await decisionCount();
   equal('not one rejected call wrote a decision', afterRejections, beforeRejections);
 

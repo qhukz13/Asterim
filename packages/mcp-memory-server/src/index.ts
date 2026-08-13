@@ -319,10 +319,36 @@ function readConfidence(args: Record<string, unknown> | undefined): number | und
   return value;
 }
 
+/**
+ * Rejects argument keys the tool does not declare.
+ *
+ * Both schemas say `additionalProperties: false`, but the low-level SDK Server does
+ * not enforce it, so without this an unrecognised key is silently ignored. On
+ * `record_decision` that is the expensive case: `relatedFile` instead of
+ * `relatedFiles` records the decision with **no anchors** and reports success, and
+ * the anchors are what make a decision findable by `query_decisions` later. The
+ * agent is told its work was remembered, and it was — minus the part that mattered.
+ */
+function rejectUnknownArguments(tool: Tool, args: Record<string, unknown> | undefined): void {
+  const allowed = Object.keys((tool.inputSchema.properties as Record<string, unknown>) ?? {});
+  const unknown = Object.keys(args ?? {}).filter(key => !allowed.includes(key));
+  if (unknown.length === 0) return;
+  throw new Error(
+    `Unknown argument${unknown.length > 1 ? 's' : ''} for ${tool.name}: ${unknown.join(', ')}. ` +
+      `Accepted: ${allowed.join(', ')}.`
+  );
+}
+
 server.setRequestHandler(CallToolRequestSchema, async request => {
   const { name, arguments: args } = request.params;
 
   try {
+    const tool = TOOLS.find(t => t.name === name);
+    if (!tool) {
+      return toolError(`Unknown tool: ${name}`);
+    }
+    rejectUnknownArguments(tool, args);
+
     switch (name) {
       case 'get_project_briefing': {
         const targetProjectId = readString(args, 'projectId') ?? resolvedProject.id;
