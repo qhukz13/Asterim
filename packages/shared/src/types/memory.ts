@@ -150,3 +150,56 @@ export interface ProjectBriefing {
   /** Most recent approval gates, newest first. */
   recentApprovals: ApprovalSummary[];
 }
+
+// --- Request bodies for the memory REST surface ---
+//
+// These are the wire contract for `/api/v1/projects/:id/memory/*`, shared by the
+// server routes and the web client. They deliberately carry no `projectId`: the
+// route reads it from the URL path. That is what distinguishes them from the
+// service-level `Create*Input` types in `ProjectMemoryService`, which do carry one.
+
+/** A code anchor supplied when recording a decision. */
+export interface CreateCodeRefRequest {
+  filePath?: string;
+  symbolName?: string;
+  commitHash?: string;
+}
+
+/** Body of `POST /api/v1/projects/:id/memory/decisions`. */
+export interface CreateDecisionRequest {
+  title: string;
+  summary: string;
+  rationale: string;
+  constraints?: string[];
+  status?: DecisionStatus;
+  provenance?: DecisionProvenance;
+  /** Clamped to 0–1 by the service. Defaults to 1.0. */
+  confidence?: number;
+  /** Repository-relative paths the decision governs. Persisted as code anchors. */
+  relatedFiles?: string[];
+  codeRefs?: CreateCodeRefRequest[];
+}
+
+/**
+ * Body of `POST /api/v1/projects/:id/memory/decisions/:decisionId/supersede`.
+ *
+ * The fields describe the *replacement* decision; the decision being replaced is
+ * identified by the path, not the body.
+ */
+export type SupersedeDecisionRequest = CreateDecisionRequest;
+
+/** Body of `POST /api/v1/projects/:id/memory/intents`. */
+export interface CreateIntentRequest {
+  goal: string;
+  constraints?: string[];
+  nonGoals?: string[];
+}
+
+/** Body of `POST /api/v1/projects/:id/memory/rules`. */
+export interface CreateRuleRequest {
+  title: string;
+  statement: string;
+  severity?: ArchitecturalRuleSeverity;
+  /** Glob matching the paths the rule applies to. */
+  scopePattern?: string;
+}

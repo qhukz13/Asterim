@@ -16,6 +16,7 @@ import {
   decryptPayload
 } from '@asterim/shared';
 import { useTerminalStore } from '../stores/useTerminalStore';
+import { useMemoryStore, isMemoryEvent } from '../stores/useMemoryStore';
 
 export interface ChatMessage {
   id: string;
@@ -270,6 +271,15 @@ export function useSocket(
         return;
       }
 
+      // Memory events are project-scoped, not thread-scoped, so they are routed
+      // before the thread filter below — a decision belongs to the project whichever
+      // thread happened to be open when an agent recorded it.
+      if (isMemoryEvent(event)) {
+        rawHistoryRef.current.push(event);
+        useMemoryStore.getState().handleMemoryEvent(event);
+        return;
+      }
+
       // Thread-specific filtering
       if (threadIdRef.current && event.payload?.threadId && event.payload.threadId !== threadIdRef.current) {
         rawHistoryRef.current.push(event); // keep in raw history for switching threads
@@ -354,6 +364,10 @@ export function useSocket(
     newSocket.on('file.changed', handleInternalEvent);
     newSocket.on('server.system_status', handleInternalEvent);
     newSocket.on('terminal.data', handleInternalEvent);
+    newSocket.on('memory.decision_created', handleInternalEvent);
+    newSocket.on('memory.decision_superseded', handleInternalEvent);
+    newSocket.on('memory.rule_created', handleInternalEvent);
+    newSocket.on('memory.intent_updated', handleInternalEvent);
 
     socketRef.current = newSocket;
     setSocket(newSocket);

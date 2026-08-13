@@ -42,11 +42,13 @@ Areas where the codebase has drifted from the ideal Product Specification.
 - **Impact**: In glob semantics `*` does not cross path separators. A matcher written against the type comment would apply project-wide rules only to top-level files. No matcher exists yet, so nothing is currently wrong at runtime.
 - **Recommended Action**: Settle the sentinel before rule matching is implemented.
 
-## 7. Memory Events Are Not Forwarded to Clients
+## 7. Memory Event Payloads Are Broadcast and Persisted in Full
 
-- **Current Implementation**: `ProjectMemoryService` publishes four `memory.*` events on the Event Bus, but `socketManager` forwards only a specific set of event types to project rooms, and `memory.*` is not among them.
-- **Expected Behavior**: `ARCHITECTURE.md` § 8 requires memory mutations to be broadcast; a dashboard should react live to a decision recorded over REST.
-- **Recommended Action**: Add the four types to the Socket.IO forwarding set when a memory UI is built. Note that the payloads embed full decision objects with all code refs — cheap in-process, less so over a WebSocket.
+- **Current Implementation**: `socketManager.setupEventBusBridge` subscribes to the catch-all `'*'` channel and routes by payload, not by an allow-list of types: anything carrying a `projectId` is emitted to that project's room and written to the `events` table. The four `memory.*` payloads all carry `projectId`, so they are already forwarded to clients and already persisted. Verified end-to-end on 2026-08-14 against a running server: a decision and a rule created over REST both arrived at a paired Socket.IO client, payload shape `{ projectId, decision }` / `{ projectId, rule }`.
+- **Expected Behavior**: `ARCHITECTURE.md` § 8 requires memory mutations to be broadcast, which is satisfied. What is not specified is the *cost*: these payloads embed full decision objects with every code ref, and they are both sent over the WebSocket and serialised into `events.payload_json`.
+- **Impact**: A decision's full text is duplicated into the event log on every write, and again on every supersede. Cheap today; it grows with decision size and is subject to the same `PruningService` retention as agent telemetry, which was designed for transient logs rather than durable reasoning.
+- **Recommended Action**: Decide whether memory events should carry the full object or only an id the client re-fetches, and whether they should be exempt from event-log persistence given the decision is already durable in `project_decisions`.
+- *(This entry previously stated that `socketManager` forwards only a specific set of types and that `memory.*` was excluded, with the recommended action being to add them. Both were incorrect — no forwarding allow-list exists — and were corrected on 2026-08-14 after the behaviour was verified against a running server. Acting on the old text would have meant adding code duplicating what the catch-all already does.)*
 
 ## 8. Memory Routes Carry No Authorization Beyond the Global Middleware
 

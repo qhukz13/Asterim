@@ -1,151 +1,217 @@
-# Phase 5.1 Dogfood Report
+# Execution Report: P5.2-01 — Project Memory Store & Real-Time Event Integration
 
-## Status
-
-**READY FOR PHASE 5.2**
-
----
-
-## Executive Summary
-
-Phase 5.0 (Project Memory Core) and Phase 5.1 (Cross-Agent MCP Memory Server) were evaluated under a simulated real-world developer and AI-agent pairing workflow. 
-
-Beyond unit and integration tests, we performed a multi-session, multi-process dogfood validation spanning three distinct agent contexts (Claude Code, Antigravity, and Cursor), verifying:
-1. Frictionless startup and automatic project context resolution via CWD longest-prefix matching.
-2. Cross-session continuity: an architectural decision recorded by an agent in Session A was immediately discovered, understood, and respected by a new agent in Session B without human intervention or re-prompting.
-3. Strict project boundary isolation and rejection of cross-project writes from a neighboring workspace.
-4. Concurrency resilience under active database lock contention (verifying the `PRAGMA busy_timeout = 5000` fix).
-5. 100% stdio protocol purity with zero log leakage onto stdout.
-
-The system proves that Asterim Project Memory provides genuine, persistent architectural continuity across disjoint agent sessions.
+**Task ID:** P5.2-01
+**Status:** VERIFIED
+**Date:** 2026-08-14
+**Author:** Claude Code
+**Branch:** `main` (working tree)
 
 ---
 
-## Systems Verified
+## 1. Summary
 
-| Subsystem | Verified Behavior | Status |
-| :--- | :--- | :---: |
-| **`@asterim/mcp-memory-server`** | Stdio JSON-RPC 2.0 transport over Node 22 (`node:sqlite`). Bundle size 54.69 KB. | **VERIFIED** |
-| **`stdio-guard`** | Intercepts `globalThis.console`, routing all database and server logs to `stderr`. | **VERIFIED** |
-| **`resolveProjectContext`** | 4-tier resolution (`--project` $\rightarrow$ `--project-path` $\rightarrow$ `ASTERIM_PROJECT_ID` $\rightarrow$ CWD auto-detection). | **VERIFIED** |
-| **`get_project_briefing`** | Deterministic JSON snapshot containing active decisions, rules, intent, and session history. | **VERIFIED** |
-| **`query_decisions`** | File-anchored lookup (`filePath`) and status lifecycle filtering (`status`). | **VERIFIED** |
-| **`record_decision`** | Write path with agent defaults (`provenance: 'AGENT_STATEMENT'`, `confidence: 0.75`), enum checks, and boundary enforcement. | **VERIFIED** |
-| **`DatabaseService` Concurrency** | SQLite WAL mode + `PRAGMA busy_timeout = 5000` preventing instant `SQLITE_BUSY` lock failures. | **VERIFIED** |
+`useMemoryStore` is implemented with all eight REST actions plus `handleMemoryEvent`, and `useSocket` routes the four `memory.*` events into it. **89/89 assertions** in a new standalone suite; `tsc --noEmit` clean; `pnpm run build` 7/7.
+
+Real-time updating was not taken on trust. A probe against a **running server** — pair by PIN, join the project room, POST a decision over REST — confirmed `memory.decision_created` and `memory.rule_created` arrive at a connected Socket.IO client with `projectId` intact. Acceptance criterion 3 holds end to end, with no backend change.
+
+That probe also settled a contradiction. `blueprint/audit/IMPLEMENTATION_DRIFT.md` § 7 stated that `socketManager` forwards only an allow-list of event types and that `memory.*` was excluded. **No such allow-list exists** — it subscribes to `'*'` and routes by payload. Acting on the old text would have meant adding forwarding code that duplicates what is already there. § 7 has been corrected (§ 6.2).
+
+Two other deviations from the task text, both flagged below: the endpoint prefix is `/api/v1/...`, not `/api/...` (§ 6.1), and the `Create*Input` types the task names are server-internal, so wire-contract types were added to `@asterim/shared` instead (§ 3.2).
 
 ---
 
-## Real MCP Client Validation
+## 2. Files Changed
 
-A real child process executing `packages/mcp-memory-server/dist/index.js` was initialized over stdio JSON-RPC:
-* **Initialize Handshake**: Protocol version `2024-11-05` negotiated successfully; server announced `{"name":"asterim-mcp-memory","version":"0.1.0"}`.
-* **Tool Discovery**: `tools/list` returned all 3 memory tools with complete input schemas and enum constraints.
-* **Metadata & Scoping**: `get_project_briefing` returned project-scoped memory without requiring explicit flags.
+**Created**
 
----
+| File | Lines | Purpose |
+| :-- | --: | :-- |
+| `apps/web/src/stores/useMemoryStore.ts` | 372 | Project Memory state, REST actions, live event application |
+| `apps/web/src/stores/__tests__/useMemoryStore.test.ts` | 390 | Standalone assertion suite with a recording `fetch` stub |
 
-## Session A — Initial Investigation & Architectural Decision
+**Modified**
 
-* **Agent Role**: Claude Code working in `Asterim Core Platform` workspace (`/workspace/asterim-core`).
-* **Actions**:
-  1. Called `get_project_briefing`: received active intent ("Establish local-first cross-agent project memory core") and standing architectural rules ("All MCP memory operations must delegate strictly to ProjectMemoryService"). Active decisions count: 0.
-  2. Called `query_decisions({ filePath: 'apps/server/src/services/AuthService.ts' })`: confirmed no existing decisions governed password hashing.
-  3. Called `record_decision`:
-     - **Title**: *"Adopt Argon2id for User Password Hashing"*
-     - **Summary**: Argon2id memory-hard hashing with 64MB cost and 3 iterations.
-     - **Rationale**: Resists GPU-accelerated dictionary attacks.
-     - **Constraints**: *"Never store or log plaintext passwords"*, *"Provide automatic rehash on login"*.
-     - **Code Refs**: Anchored to `apps/server/src/services/AuthService.ts#hashPassword` and `AuthService.ts#verifyPassword`.
-     - **Confidence**: `0.95`.
-* **Result**: Decision persisted with ID `c4635292-5a2a-456d-8aaf-6f6ae0f3cfc5`, `provenance: 'AGENT_STATEMENT'`, `confidence: 0.95`. Process terminated cleanly.
+| File | Change |
+| :-- | :-- |
+| `apps/web/src/hooks/useSocket.ts` | Four `memory.*` listeners; routed to the store ahead of the thread filter |
+| `packages/shared/src/types/memory.ts` | +5 request-body contract types (§ 3.2) |
+| `apps/web/package.json` | +`tsx` devDependency, so the suite can be run at all |
+| `blueprint/audit/IMPLEMENTATION_DRIFT.md` | § 7 corrected — it described forwarding behaviour that does not exist (§ 6.2) |
+
+`useMemoryStore.ts` was mutated three times for negative controls and restored byte-identically (`md5 36b44896b5b5fb67a53f59d057bf6d5e`).
+
+**Not modified:** no backend route, no database table, no socket authentication. The § 5 prohibitions hold.
 
 ---
 
-## Session B — Subsequent Agent Session (Cross-Session Continuity)
+## 3. Implementation Details
 
-* **Agent Role**: Antigravity re-entering the project in a nested subdirectory (`apps/server/src/services/`) without passing `--project`.
-* **Actions**:
-  1. Auto-resolution automatically matched CWD to `proj-asterim-dogfood` via longest-prefix containment.
-  2. Called `get_project_briefing`: found 1 active decision (*"Adopt Argon2id for User Password Hashing"*) and inherited the constraints.
-  3. Called `query_decisions({ filePath: 'apps/server/src/services/AuthService.ts' })`: immediately returned the Argon2id decision and its anchored code refs.
-  4. Recorded follow-up decision: *"Enforce 15-minute Sliding Expiration for Session Tokens"* with constraint *"Rotate refresh tokens on every renewal"*, anchored to `SessionService.ts`.
-* **Conclusion**: The new agent understood the prior architectural choices and constraints **purely from Asterim Project Memory** without needing the human operator to restate context.
+### 3.1 Store shape and scoping
 
----
+The store holds one project's memory at a time and records which in `projectId`. Every fetch adopts the project it was asked for; `handleMemoryEvent` discards any event whose `payload.projectId` does not match.
 
-## Cross-Agent Validation & Boundary Testing
+Socket rooms are already keyed by project, so a foreign event should never arrive — but the cost of being wrong is displaying one project's decisions as another's, which is precisely the confusion project memory exists to prevent. The guard is three lines and is covered by three assertions.
 
-* **Agent Role**: Cursor simulated working in a separate registered workspace: `Neighbor Service` (`/workspace/neighbor-svc`).
-* **Observations**:
-  1. **Project Isolation**: `get_project_briefing` returned 0 active decisions (zero data leakage from Project Primary).
-  2. **Boundary Enforcement**: Attempted `record_decision` with `projectId: 'proj-asterim-dogfood'`. Call was strictly rejected in-band:
-     `"Cannot record decision for project 'proj-asterim-dogfood' from workspace of project 'proj-asterim-neighbor'."`
-  3. **Input Validation**: Malformed requests (missing required title/summary/rationale, out-of-bounds confidence `150`, unknown argument typo `relatedFile`) were all rejected in-band before transaction opening.
+`fetchBriefing` also adopts `briefing.architecturalRules` and `briefing.currentIntent` into `rules` and `activeIntent`, since the briefing already carries them. A view that wants everything makes one request, not three.
 
----
+### 3.2 Deviation — wire contract types, not the server's `Create*Input`
 
-## Concurrency & Lock Contention Testing
+The task names `CreateDecisionInput`, `CreateRuleInput`, `CreateIntentInput`, `SupersedeDecisionInput`. The first three exist only in `apps/server/src/services/ProjectMemoryService.ts`; the fourth does not exist anywhere. None is exported from `@asterim/shared`.
 
-* **Scenario**: A background writer held an open SQLite write transaction (`BEGIN IMMEDIATE`) on `asterim.db` for 1500ms while an MCP client attempted `record_decision`.
-* **Observed Result**: The MCP client waited 1534ms and succeeded smoothly once the lock cleared, confirming that `PRAGMA busy_timeout = 5000` prevents instant lock crashes.
+The web app cannot import them: reaching into `apps/server` source from the browser bundle is the coupling already recorded as drift § 9, and duplicating them into `apps/web` is the anti-pattern `CLAUDE.md` names explicitly.
 
----
+Five types were therefore added to `packages/shared/src/types/memory.ts` — the correct home for a cross-boundary contract — named `CreateDecisionRequest`, `SupersedeDecisionRequest`, `CreateRuleRequest`, `CreateIntentRequest`, `CreateCodeRefRequest`.
 
-## Developer Experience
+They are **not** renamed copies. The service's `Create*Input` types carry `projectId`; the request bodies do not, because the route reads it from the URL path. That difference is real and is asserted (`the body carries no projectId — the path does`). The `Request` suffix keeps the two distinguishable at a glance, which a same-named pair in two packages would not.
 
-**Score: 8.5 / 10**
+### 3.3 Idempotent application
 
-### Strengths
-* **Zero Configuration for CWD**: Launching MCP from anywhere inside the project workspace automatically binds the right project.
-* **Deterministic & Compact**: The briefing delivers high-signal context (intent, standing rules, active decisions) in under 1 KB of structured JSON, saving substantial context window budget.
-* **Resilient Protocol Handling**: Handled errors return clean in-band JSON-RPC text responses, keeping the client connection alive across validation failures.
+The same decision arrives twice on the happy path — once as the POST response, once as the socket event that write produced. Both `createDecision` and `handleMemoryEvent` therefore **upsert by id** rather than prepend, and re-sort to the server's `created_at DESC, id DESC`. Without this, every write the user makes appears twice in the explorer.
 
-### Opportunities for Improvement
-* **Agent Proactivity**: External LLMs do not inherently know to call `get_project_briefing` on turn 1 unless prompted in `.cursorrules`, `CLAUDE.md`, or custom instructions.
-* **Binary Relocatability**: `dist/index.js` currently requires referencing the absolute path inside the Asterim checkout because `@modelcontextprotocol/sdk` is external.
+`briefing.activeDecisions` is maintained alongside: a decision entering as `ACTIVE` is added, and one leaving `ACTIVE` (superseded, archived) is removed, so the briefing never shows two live decisions where one has just retired the other.
+
+`memory.decision_superseded` carries `decision` only when the replacement was created in the same operation. The handler marks the old decision either way and adds the replacement only when it was actually sent — asserted in both directions.
+
+### 3.4 Socket routing
+
+Memory events are handled **before** the thread filter in `handleInternalEvent`, following the `file.changed` precedent. They are project-scoped, not thread-scoped: a decision belongs to the project whichever thread happened to be open when an agent recorded it. Placed after the filter, they would still pass today (the payloads carry no `threadId`), but only by accident.
+
+### 3.5 Reads vs writes
+
+Fetches swallow their error into `state.error` so a passive view can render it. Writes set `error` **and** reject, because a caller submitting a form needs to know whether it was accepted. Both surface the server's own `{ error }` message — a rejected decision says which field was wrong, which a bare status code would lose.
 
 ---
 
-## Problems Discovered
+## 4. Tests / Verification
 
-### P0 (Blocking)
-* *None*.
+```
+$ pnpm --filter @asterim/web exec tsx src/stores/__tests__/useMemoryStore.test.ts
+  initial state ..................................  7 PASS
+  fetchBriefing .................................. 10 PASS
+  fetchDecisions .................................  3 PASS
+  fetchRules and fetchIntent .....................  6 PASS
+  error handling .................................  6 PASS
+  createDecision ................................. 10 PASS
+  supersedeDecision ..............................  5 PASS
+  createRule and createIntent ....................  7 PASS
+  isMemoryEvent ..................................  6 PASS
+  handleMemoryEvent — decision_created ...........  5 PASS
+  handleMemoryEvent — ordering and scoping .......  4 PASS
+  handleMemoryEvent — decision_superseded ........  6 PASS
+  handleMemoryEvent — rules and intent ...........  7 PASS
+  events before any fetch ........................  2 PASS
+  reset ..........................................  6 PASS
+  89/89 assertions passed                            EXIT=0
 
-### P1 (Significant Value Reduction)
-* **Cross-Process Event Broadcasting**: MCP writes commit to SQLite, but the running Core dashboard does not live-update over WebSocket until page reload because `EventBus` is in-process memory. (Recorded in `blueprint/audit/MISSING_SPECIFICATION.md` § 4).
+$ pnpm --filter @asterim/web exec tsc --noEmit ....  0 errors
+$ pnpm --filter @asterim/web build ...............  built, PWA precache 11 entries
+$ pnpm run build .................................  7 successful, 7 total
+```
 
-### P2 (Improvements)
-* **Standalone Binary Bundling**: Bundle or publish `@asterim/mcp-memory-server` so clients don't depend on the repo's `node_modules`.
-* **Automated CI Concurrency Suite**: Add a multi-process lock contention test into the standard turbo test pipeline.
+**Regression suites** — re-run because `packages/shared` changed:
+
+```
+resolver 42/42 · stdio_scaffold 28/28 · retrieval_tools 71/71
+record_decision 82/82 · dogfood_scenario 62/62
+ProjectMemoryService 217/217 · memory routes 77/77
+```
+
+`eslint` on the three changed web files: 0 errors, 23 warnings — all pre-existing categories in this app (`no-explicit-any` on socket payloads, which `useSocket` already uses throughout).
+
+### 4.1 Acceptance criteria
+
+| # | Criterion | Result |
+| :-- | :-- | :-- |
+| 1 | Store represents the `@asterim/shared` domain models | **Met** — every field typed from shared; no local redefinition |
+| 2 | REST methods call the `/memory/*` endpoints with error handling | **Met** — exact URLs, methods and bodies asserted; server error text surfaced |
+| 3 | Socket listener updates state in real time | **Met** — and verified against a running server (§ 4.3) |
+| 4 | `pnpm run build` 0 errors | **Met** — 7/7 |
+
+### 4.2 The test asserts requests, not just results
+
+The `fetch` stub **records** every call, so the suite checks the exact URL, method, headers and body the store sends — not merely that it did something with the response. A mock that only returned canned data would have passed just as happily with the wrong endpoint prefix, which is the one mistake the task text would have led to.
+
+### 4.3 End-to-end socket verification
+
+A temporary probe started the real server on a temp data dir, paired via `pairing_pin.txt` for a socket token, joined the project room, and created a decision and a rule over REST:
+
+```
+POST /decisions -> 201
+events received over socket: memory.decision_created, memory.rule_created
+payload keys of first: projectId, decision
+projectId present: proj-e2e
+```
+
+This is the claim the whole task rests on, and it was contradicted by the blueprint, so reading the code was not enough. The probe was removed after use.
 
 ---
 
-## Product Value Assessment
+## 5. Negative Controls
 
-Asterim Project Memory successfully solves the **"amnesia between sessions"** problem for AI coding assistants. When multiple agents collaborate on a codebase across sessions, memory shifts from ephemeral conversational context into durable, auditable project infrastructure.
+| # | Mutation | Result | Verdict |
+| :-- | :-- | --: | :-- |
+| A | Endpoint prefix `/api/v1/...` → `/api/...` (the task's stated path) | 80/89 | caught — 9 failures |
+| B | Project scoping guard removed from `handleMemoryEvent` | 86/89 | caught — 3 failures |
+| C | `upsertDecision` becomes a plain append | 87/89 | caught — 2 failures |
 
----
-
-## Phase 5.2 Readiness
-
-**READY FOR PHASE 5.2**
-
-The memory core and MCP layer are production-ready for UI integration. We proceed to Phase 5.2:
-1. Project Decision Explorer UI.
-2. Memory Timeline View.
-3. Re-entry Memory Briefing Card.
+**A** is the most valuable: it is the exact error the task text invites, and nine assertions reject it. **B** confirms the scoping guard is tested and not decorative. **C** shows the echo-duplication case is pinned — the mutation makes every user-made decision appear twice, and the suite says so.
 
 ---
 
-## Evidence
+## 6. Problems Discovered & Concerns
 
-* Verification Script: [`dogfood_gate_verification.ts`](file:///C:/Users/qhukz/.gemini/antigravity/brain/3c7d09d7-4759-482c-8e03-46e6927ede69/scratch/dogfood_gate_verification.ts)
-* Test Suite Runs:
-  - `packages/mcp-memory-server/src/__tests__/dogfood_scenario.test.ts` (49/49 PASS)
-  - `packages/mcp-memory-server/src/__tests__/record_decision.test.ts` (82/82 PASS)
-  - `packages/mcp-memory-server/src/__tests__/retrieval_tools.test.ts` (71/71 PASS)
-  - `packages/mcp-memory-server/src/__tests__/resolver.test.ts` (42/42 PASS)
-  - `packages/mcp-memory-server/src/__tests__/stdio_scaffold.test.ts` (28/28 PASS)
-  - `apps/server/src/services/__tests__/ProjectMemoryService.test.ts` (217/217 PASS)
-  - `apps/server/src/routes/__tests__/memory.test.ts` (77/77 PASS)
-* Full Monorepo Build: 7/7 packages clean (3.98s).
+### 6.1 The task's endpoint prefix is wrong
+
+The task says the routes are under `/api/projects/:projectId/memory` "(or `/memory`)". They are all under **`/api/v1/projects/:id/memory/...`** — eight of them, matching `CLAUDE.md`'s statement that REST routes live under `/api/v1/...`. The store uses `/api/v1`, the tests assert it, and mutation A proves the assertion bites.
+
+### 6.2 `IMPLEMENTATION_DRIFT.md` § 7 described behaviour that does not exist — corrected
+
+The entry read: *"`socketManager` forwards only a specific set of event types to project rooms, and `memory.*` is not among them,"* with the recommended action *"Add the four types to the Socket.IO forwarding set when a memory UI is built."*
+
+`socketManager.setupEventBusBridge` contains no allow-list. It subscribes to `'*'` and routes anything carrying a `projectId` to that project's room. All four memory payloads carry one. Verified against a running server (§ 4.3).
+
+Had I followed the blueprint instead of reading the code, this task would have shipped forwarding logic duplicating what already runs. The entry was rewritten to describe the actual behaviour and retargeted at the real, unspecified issue: those payloads embed **full decision objects with every code ref**, and the same catch-all both broadcasts them and writes them into the `events` table. A decision's full text is duplicated into the event log on every write and again on every supersede — and that log is subject to `PruningService` retention designed for transient agent telemetry, not durable reasoning.
+
+This is the second stale entry found in that file in two tasks (§ 3 last task). The audit documents are being trusted as normative while drifting from the code they describe. **Worth a pass over the remaining entries before Phase 5.2 builds further on them.**
+
+### 6.3 `MemoryStore` is not in `STORE_ARCHITECTURE.md`
+
+`blueprint/STORE_ARCHITECTURE.md` enumerates the permitted stores; `MemoryStore` is not among them, and `CLAUDE.md` requires that hierarchy to be respected and forbids inventing architecture without a Change Proposal.
+
+The store was implemented as assigned — Phase 5.2 is a sanctioned phase and this task explicitly commissions the file — and written to fit the documented pattern rather than beside it. **I did not edit the blueprint**, since that requires a Change Proposal from `.agents/templates/`. Proposed entry, for whoever raises it:
+
+> ### MemoryStore
+> * **Ownership:** Project decisions, architectural rules, active intent, and the re-entry briefing.
+> * **Lifetime:** Exists while a Project is selected.
+> * **Persistence:** SQLite (via `/api/v1/projects/:id/memory/*`).
+> * **Synchronization:** EventBus (`memory.*` over Socket.IO).
+> * **Parent Store:** ProjectStore.
+> * **Responsibilities:** Serving the Decision Explorer and Memory Timeline. *Rule:* holds project-scoped memory only; it never mirrors thread or execution state.
+
+### 6.4 `reset()` is not yet called anywhere
+
+The store exposes `reset()` for project switches, but nothing invokes it — no component consumes the store yet. Until P5.2-02 wires it, switching projects leaves the previous project's decisions in state until a fetch replaces them.
+
+The consequences are bounded: `handleMemoryEvent` rejects foreign events, so nothing *corrupts*. But a view mounted before its first fetch resolves would briefly render the previous project's memory. **`reset()` must be called on project change in P5.2-02** — most naturally from the same effect that triggers `fetchBriefing`.
+
+### 6.5 `@asterim/shared` must be rebuilt before dependents typecheck
+
+`packages/shared/package.json` sets `"main": "src/index.ts"` but `"types": "dist/index.d.ts"`. Adding a type to shared therefore does nothing for consumers until `pnpm --filter @asterim/shared build` regenerates the declarations — `tsc --noEmit` in `apps/web` failed with "has no exported member" until it was rebuilt, despite the source being correct.
+
+Turbo's `dependsOn` handles this for `pnpm run build`, so CI is unaffected. It is a trap for anyone typechecking a single package during development, and it is not documented.
+
+### 6.6 Pre-existing, unchanged
+
+`pnpm run lint` remains red on `@asterim/adapters`; `apps/server` still has 4 `tsc --noEmit` errors. Neither is touched by this task. All figures above are local verification.
+
+---
+
+## 7. Recommended Next Step
+
+Proceed to **P5.2-02 — Decision Explorer UI**. The store is ready to be consumed; three things should land with the first component:
+
+1. **Call `reset()` on project change** (§ 6.4), from the same effect that calls `fetchBriefing`.
+2. **Raise the `STORE_ARCHITECTURE.md` Change Proposal** (§ 6.3). Phase 5.2 will add at least a Memory Timeline and a Re-entry Briefing view; settling where memory sits in the hierarchy before three components depend on it is cheaper than after.
+3. **Decide what the explorer reads.** `fetchBriefing` already returns rules, intent, and *active* decisions in one request. `fetchDecisions` is only needed for non-ACTIVE history — worth being deliberate about, since calling both on mount issues two requests where one suffices.
+
+For the UI itself, `DESIGN_SYSTEM.md` governs: monochrome surfaces, single emerald accent, no gradients. A decision carries `provenance` and `confidence`, and per **DEC-024** those exist precisely so a reviewer can tell what an agent asserted from what a human approved. The explorer should make that distinction visible — an `AGENT_STATEMENT` at 0.75 should not look identical to a `HUMAN_CONFIRMED` at 1.0.
