@@ -1,0 +1,32 @@
+{
+  "name": "@asterim/mcp-memory-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Model Context Protocol server exposing Asterim Project Memory to AI agents over stdio.",
+  "bin": {
+    "asterim-mcp-memory": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@asterim/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "asterim": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@asterim/eslint-config": "workspace:^",
+    "@types/node": "^26.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
