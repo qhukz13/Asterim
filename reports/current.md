@@ -1,245 +1,224 @@
-# Execution Report: P5.1-02 — MCP Memory Server Package & Stdio Scaffold
+# Execution Report: P5.1-03 — Project Context Resolver Engine
 
-**Task ID:** P5.1-02      
+**Task ID:** P5.1-03
 **Status:** VERIFIED
 **Date:** 2026-08-13
 **Author:** Claude Code
-**Branch:** `main` @ `a70288d`
+**Branch:** `main` @ `48c4f7c` (working tree — both files untracked)
 
 ---
 
 ## 1. Summary
 
-Created `@asterim/mcp-memory-server` (`packages/mcp-memory-server`) with its build pipeline, installed `@modelcontextprotocol/sdk@1.30.0` and `zod@4.4.3`, implemented the `stdio-guard.ts` stream isolation module, and scaffolded the stdio MCP entrypoint with a working JSON-RPC handshake and an empty `tools/list`.
+`packages/mcp-memory-server/src/resolver.ts` implements the four-tier project resolution hierarchy (`--project` → `--project-path` → `ASTERIM_PROJECT_ID` → CWD auto-detection) with `path.resolve()` normalization, `path.relative()` segment-safe containment, longest-path specificity ranking, and descriptive failure that lists every registered project. `resolver.test.ts` covers it at **41/41 assertions**, and all four acceptance criteria are met.
 
-The package builds to an executable `dist/index.js` with the `#!/usr/bin/env node` shebang, completes an MCP `initialize` exchange over a real child process, and keeps `process.stdout` free of every non-protocol byte — verified positively **and** by negative control (§ 5.2).
+Verification went beyond re-running the suite: three mutation (negative-control) runs establish which assertions actually hold the implementation up. Two of the three caught their mutation; **one did not**, exposing a coverage gap in the substring-collision case — documented in § 5.1 with a reproduction. The implementation is correct; the *test* for that property is weaker than its name claims.
 
-All four acceptance criteria are met. Two deviations from the specified manifest were necessary and are documented in § 6.
+One defect was found and fixed: the test file introduced **two new ESLint errors**, breaking `turbo run lint` for this package (§ 6.1).
 
 ---
 
 ## 2. Files Changed
 
-**Created**
+**Created (by the P5.1-03 implementation, verified here)**
 
-| File | Purpose |
-| :-- | :-- |
-| `packages/mcp-memory-server/package.json` | Package manifest, `bin`, deps, `engines.node >= 22` |
-| `packages/mcp-memory-server/tsconfig.json` | Extends `tsconfig.base.json`, mirrors `packages/shared` |
-| `packages/mcp-memory-server/tsup.config.ts` | CJS build, shebang banner, externals |
-| `packages/mcp-memory-server/eslint.config.js` | Flat config, matching `packages/shared` |
-| `packages/mcp-memory-server/src/stdio-guard.ts` | Console → stderr rebind |
-| `packages/mcp-memory-server/src/index.ts` | MCP server entrypoint over stdio |
-| `packages/mcp-memory-server/src/__tests__/stdio_scaffold.test.ts` | Spawned-process protocol test |
+| File | Lines | Purpose |
+| :-- | --: | :-- |
+| `packages/mcp-memory-server/src/resolver.ts` | 176 | Resolution engine + argv parser |
+| `packages/mcp-memory-server/src/__tests__/resolver.test.ts` | 341 | Standalone assertion suite |
 
-**Modified**
+**Modified during verification**
 
 | File | Change |
 | :-- | :-- |
-| `pnpm-lock.yaml` | `pnpm install` — 47 packages added for the SDK and its deps |
+| `packages/mcp-memory-server/src/__tests__/resolver.test.ts` | +2 `eslint-disable-next-line` comments with justification (§ 6.1) |
 
-**Not modified:** no file in `apps/server`, `packages/shared`, or `packages/adapters` was touched; no DDL was altered; no memory tools or project resolution were implemented.
+`resolver.ts` was mutated three times for negative controls and restored byte-identically each time (`md5 ef37a63d1ed6a990e349aec56c42a643` confirmed against a pre-mutation copy). **No file outside `packages/mcp-memory-server` was touched.** No DDL altered, no MCP tools implemented — the § 5 prohibitions hold.
 
 ---
 
 ## 3. Implementation Details
 
-### 3.1 SDK wiring
+### 3.1 The four tiers
 
-`@modelcontextprotocol/sdk@1.30.0` resolved and installed cleanly. Although the SDK is `type: "module"`, it ships `require` conditions for every subpath, so the package stays **CommonJS** like the rest of the repo. Verified against the installed artifact before writing any code:
+Each tier resolves and returns; there is no fallthrough on failure. Passing `--project no-such-id` throws rather than silently degrading to CWD detection — correct, since a caller who named a project explicitly and got a *different* one is the exact failure Phase 5.0 guards against everywhere else. Precedence is asserted pairwise in the suite (id > path > env > cwd), not merely per-tier.
 
-```
-require('@modelcontextprotocol/sdk/server/index.js') → { Server }
-require('@modelcontextprotocol/sdk/server/stdio.js') → { StdioServerTransport }
-require('@modelcontextprotocol/sdk/types.js')        → { ListToolsRequestSchema, … }
-```
-
-The entrypoint uses the **low-level `Server`** rather than `McpServer`, since the scaffold needs only capability negotiation and a request handler; `McpServer`'s zod-based tool registration belongs with the tools in P5.1-04/05. Server metadata is `name: 'asterim-mcp-memory'`, `version: '0.1.0'`, with `capabilities: { tools: {} }` declared now so clients negotiate tool support during `initialize`. `ListToolsRequestSchema` returns `{ tools: [] }`.
-
-`SIGINT`/`SIGTERM` handlers call `server.close()` behind a re-entrancy flag and exit 0.
-
-### 3.2 Build configuration
-
-`tsup.config.ts` mirrors `apps/server/tsup.config.ts`:
-
-- `format: ['cjs']`, `target: 'node22'`, shebang banner.
-- `noExternal: ['@asterim/shared', 'asterim']` — workspace packages ship raw TypeScript, so they must be **bundled**; left external, the emitted `require()` would resolve to a `.ts` file at runtime and fail.
-- `external: ['node:sqlite', '@modelcontextprotocol/sdk']` — `node:sqlite` is a builtin, and keeping the SDK external avoids inlining `express`/`hono`, which the stdio path never loads.
-
-Result: **19.57 KB**, mode `-rwxr-xr-x`, containing `DatabaseService` and **zero** Fastify or Socket.IO references — the clean dependency closure P5.1-01 predicted, confirmed in the emitted artifact.
-
-### 3.3 Stdio guard
+### 3.2 Containment (`matchByPath`)
 
 ```ts
-globalThis.console = new console.Console(process.stderr, process.stderr);
+const rel = path.relative(normalized, target);
+return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 ```
 
-Rebinding the whole console rather than patching `console.log` alone also covers `info`, `debug`, `dir`, `table`, and `group`, which Node likewise routes to stdout — so no future log line in any imported module can reach the protocol stream.
+`rel === ''` is the project root itself; anything descending into it yields a relative path with no `..` prefix. `path.isAbsolute(rel)` covers the Windows cross-drive case, where `path.relative` returns an absolute path instead of `..`.
 
-Placement is the load-bearing detail. `import './stdio-guard'` is the **first** import in `index.ts`; imports hoist but execute in source order, so a guard listed first runs first. The emitted bundle confirms the ordering survives bundling:
+Specificity ranking is `sort((a, b) => b.normalized.length - a.normalized.length)`, taking `[0]`. Length is a valid proxy for depth here because all candidates already contain the target, so they are necessarily ancestors of one another and the longest is the deepest.
 
-```
-line 27: globalThis.console = new console.Console(process.stderr, process.stderr)
-line 30: require("@modelcontextprotocol/sdk/server/index.js")
-line 56: console.log(`[Database] Using database at: ${this.dbPath}`)
-```
+### 3.3 Deviation from the written task — `--project-path` uses containment, not equality
 
-The entrypoint deliberately imports `dbService` and prints its `dbPath` to stderr. That serves two purposes: it is genuine operator diagnostics (the first thing to check when an agent reports unfamiliar memory), and it forces `DatabaseService` to load so the guard is exercised for real rather than nominally — which is what makes the test in § 5 non-vacuous.
+Task § 4 specifies Priority 2 as "Resolve path and match against the `projects` table". The implementation routes it through the same `matchByPath` used for CWD, so `--project-path /workspace/projects/asterim-core/apps` resolves to the project rather than failing.
+
+This is a deliberate superset and is asserted explicitly (`'an explicit path pointing into a project resolves to that project'`). It is the more useful behaviour — an operator pointing at a subdirectory means the enclosing project — and it cannot resolve anything an equality match would have rejected as ambiguous, since longest-match still applies. Flagged because it is a documented deviation, not because it is in doubt.
 
 ---
 
 ## 4. Tests / Verification
 
+All commands run from the repository root on `main`.
+
 ```
-$ pnpm install
-Packages: +47   Done in 12.3s   EXIT=0
+$ pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/resolver.test.ts
+  CWD auto-detection ............................ 13 PASS
+  segment-safe containment .......................  2 PASS
+  explicit --project <id> ........................  3 PASS
+  explicit --project-path <path> .................  5 PASS
+  ASTERIM_PROJECT_ID .............................  6 PASS
+  failure messaging ..............................  1 PASS
+  argv parsing ...................................  9 PASS
+  no registered projects .........................  2 PASS
+  41/41 assertions passed                            EXIT=0
+
+$ tsc -p packages/mcp-memory-server/tsconfig.json --noEmit
+  0 errors                                           EXIT=0
 
 $ pnpm --filter @asterim/mcp-memory-server build
-CJS dist/index.js 19.57 KB
-CJS ⚡️ Build success in 28ms   EXIT=0
-
-$ pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/stdio_scaffold.test.ts
-
-build artifact
-  PASS  dist/index.js exists
-  PASS  the bundle starts with the node shebang
-  PASS  the bundle is marked executable
-  PASS  the stdio guard is emitted before the SDK is required
-  PASS  the stdio guard is emitted before the DatabaseService log
-  PASS  no Fastify or Socket.IO reached the bundle
-
-stdio transport handshake
-  PASS  the server did not exit during handshake
-  PASS  the first stdout line is valid JSON
-  PASS  the response is JSON-RPC 2.0
-  PASS  the response correlates to request id 1
-  PASS  the response is a result, not an error
-  PASS  serverInfo.name is asterim-mcp-memory
-  PASS  serverInfo.version is 0.1.0
-  PASS  a protocol version was negotiated
-  PASS  tools capability is advertised
-  PASS  tools/list returned a parseable frame
-  PASS  the tools/list response correlates to request id 2
-  PASS  the tools/list response is a result, not an error
-  PASS  the scaffold exposes no tools yet
-
-stdout purity
-  PASS  every stdout line parses as JSON
-  PASS  every stdout frame is a JSON-RPC 2.0 message
-  PASS  stdout contains no raw log text
-
-the guard is actually doing work
-  PASS  the DatabaseService log was emitted — to stderr
-  PASS  the server announced readiness on stderr
-  PASS  the database was opened inside the temp directory
-  PASS  the temp database file was created
-
-graceful shutdown
-  PASS  the server exits cleanly on SIGTERM
-  PASS  shutdown was logged to stderr
-
-28/28 assertions passed   EXIT=0
+  CJS dist/index.js 19.57 KB                         EXIT=0
 
 $ pnpm run build
-Tasks:    7 successful, 7 total   EXIT=0
+  Tasks: 7 successful, 7 total                       EXIT=0
+
+$ eslint src/   (in packages/mcp-memory-server)
+  0 problems                                         EXIT=0   [after the § 6.1 fix]
 ```
 
-The new package joined the turbo pipeline automatically (6 → 7 tasks) with no config change, as P5.1-01 predicted.
+**Regression check** — the P5.1-02 suite was re-run to confirm the new module did not disturb the stdio scaffold:
 
-### 4.1 Supporting checks
+```
+$ pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/stdio_scaffold.test.ts
+  28/28 assertions passed                            EXIT=0
+```
 
-| Check | Result |
-| :-- | :-- |
-| `tsc -p packages/mcp-memory-server/tsconfig.json --noEmit` | 0 errors |
-| `eslint src/` in the new package | 0 problems |
-| `ProjectMemoryService.test.ts` (Phase 5.0 regression) | 217/217 |
-| `memory.test.ts` (Phase 5.0 regression) | 77/77 |
+### 4.1 Acceptance criteria
 
-The two Phase 5.0 suites were re-run because `pnpm install` rewrote the lockfile; neither is affected.
+| # | Criterion | Result |
+| :-- | :-- | :-- |
+| 1 | Four-tier hierarchy implemented | **Met** — each tier asserted, plus pairwise precedence |
+| 2 | Normalization, segment-safe containment, longest-path fully covered | **Met with one caveat** — see § 5.1 |
+| 3 | `resolver.test.ts` passes 100% of assertions | **Met** — 41/41 |
+| 4 | `pnpm run build` completes with 0 errors | **Met** — 7/7 tasks |
 
 ---
 
-## 5. Evidence That the Test Is Not Vacuous
+## 5. Negative Controls — Which Assertions Actually Hold This Up
 
-This deserves calling out, because the acceptance criterion — "stdout produces clean JSON-RPC with zero stray logging" — is satisfiable by a build in which nothing ever logs.
+A suite that is green tells you nothing until you know it can go red. Each of the three load-bearing rules was individually broken, the suite re-run, and the file restored.
 
-### 5.1 Positive control
+| # | Mutation | Suite result | Verdict |
+| :-- | :-- | --: | :-- |
+| A | `path.relative` containment → raw `target.startsWith(normalized)` | 40/41 | **weak** — 1 catch |
+| B | Longest-match `.sort()` removed | 27/41 | **strong** — 14 catches |
+| C | Stored-path `path.resolve()` removed | **41/41** | **no catch** |
 
-The test asserts that stderr **does** contain `[Database] Using database at`, that the readiness line appears, and that `asterim.db` was actually created in the temp directory. If `DatabaseService` had not loaded, those three assertions fail and the clean-stdout result is correctly reported as meaningless.
+### 5.1 Control A — the substring-collision test does not test substring collision
 
-### 5.2 Negative control
-
-The guard import was temporarily removed, the package rebuilt, and the suite re-run:
+Replacing segment-safe containment with `startsWith` was caught by exactly one assertion, and not the one named for it:
 
 ```
-  FAIL  the stdio guard is emitted before the SDK is required
-  FAIL  the stdio guard is emitted before the DatabaseService log
-  FAIL  the first stdout line is valid JSON
-        — "[Database] Using database at: /tmp/asterim-mcp-stdio-zZ09Um/asterim.db"
-  FAIL  the tools/list response correlates to request id 2 — expected 2, got 1
-  FAIL  every stdout line parses as JSON
-  FAIL  every stdout frame is a JSON-RPC 2.0 message
-  FAIL  stdout contains no raw log text
-  FAIL  the DatabaseService log was emitted — to stderr
-12/21 assertions passed   EXIT=1
+FAIL  a path outside every project does not match by prefix
+      — expected a throw, but the call succeeded
+PASS  a sibling sharing a name prefix is not swallowed by the shorter project   <-- still green
 ```
 
-The database log becomes the **first stdout frame**, desynchronising every subsequent response (`tools/list` correlates to id 1 instead of 2) — precisely the corruption P5.1-01 predicted. The guard was then restored, rebuilt, and re-verified at 28/28.
+The sibling assertion stays green under the bug because the fixture registers **both** `asterim-core` and `asterim-core-legacy`. With `startsWith`, the cwd `…/asterim-core-legacy/deep/path` matches both — and the longest-match sort then picks `asterim-core-legacy` anyway. The sort masks the broken containment, so the assertion cannot fail for the reason its name gives.
+
+The genuinely dangerous shape is the one the fixture never builds: the sibling directory exists on disk but is **not** a registered project. Reproduced against the mutated resolver:
+
+```
+cwd = /workspace/projects/asterim-core-legacy/src
+only registered project = /workspace/projects/asterim-core
+RESOLVED to proj-core (/workspace/projects/asterim-core)   <-- WRONG
+```
+
+An agent running in an unregistered sibling directory would write its decisions into the neighbouring project's memory. **The shipped implementation is correct and returns a throw here** — the gap is in coverage, not behaviour. One assertion closes it: seed only the shorter sibling and assert the longer path throws.
+
+The `/workspace/projects-elsewhere/thing` assertion is what currently carries this property, and it does so incidentally — it catches prefix matching against the *ancestor* row, not between siblings.
+
+### 5.2 Control C — one normalization is redundant
+
+Removing `path.resolve()` from the stored project path left the suite fully green, including `'the ancestor root itself resolves despite its stored trailing slash'`. That assertion passes either way, because `path.relative()` normalizes its own arguments — `path.relative('/workspace/projects/', '/workspace/projects')` is already `''`.
+
+So the trailing-slash requirement from the P5.1-01 audit is satisfied by `path.relative`, and the explicit `path.resolve()` on the stored path affects only the sort key's length. That is harmless (a trailing slash adds 1 character, while any deeper project path adds at least 2, so it cannot invert the ranking), and the call is worth keeping as defence in depth. Recorded because the assertion's name overstates what it proves.
+
+### 5.3 Control B — specificity ranking is genuinely well covered
+
+Removing the sort collapsed 14 assertions across four groups, every one reporting `got "proj-ancestor"`. This is the property the P5.1-02 report singled out as failing "by default, not as a corner case" on the live database, and the suite is decisive about it.
 
 ---
 
 ## 6. Problems Discovered & Concerns
 
-### 6.1 `@types/node@^20.0.0` cannot typecheck this package — changed to `^26.0.0`
+### 6.1 Two new ESLint errors — FIXED
 
-The task specified `"@types/node": "^20.0.0"`. That version predates `node:sqlite`, and the package transitively imports `DatabaseService`, which does `import type { DatabaseSync } from 'node:sqlite'`:
+The test file's deliberate `require()` calls tripped the repo's flat config:
 
 ```
-$ tsc -p tsconfig.json --noEmit
-../../apps/server/src/services/DatabaseService.ts(1,35):
-  error TS2307: Cannot find module 'node:sqlite' or its corresponding type declarations.
+src/__tests__/resolver.test.ts
+  27:23  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+  28:64  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+✖ 2 problems
 ```
 
-`tsup`/esbuild does not typecheck, so the **build passes either way** and no acceptance criterion depended on this — but the package would have been un-typecheckable in an editor or CI from day one, and P5.1-03 will import more of the same source.
+`turbo run lint` runs `lint` in every workspace package, so this made `@asterim/mcp-memory-server` fail a CI gate that P5.1-02 left clean.
 
-Changed to `^26.0.0`, matching both packages this one depends on (`apps/server` and `@asterim/shared` are already `^26.0.0`). Typecheck is now clean. Flagging rather than burying it, since it is a deviation from the written task.
+The `require()` is *correct and necessary* — `DatabaseService` exports a singleton constructed at import time, and ESM bindings hoist above the `ASTERIM_DATA_DIR` assignment, which would open the user's real `~/.asterim/asterim.db` instead of the temp fixture. Converting to `await import()` is not available either: the package is CommonJS, so top-level await will not compile.
 
-### 6.2 `tsx` added to devDependencies
+Fixed with two targeted `eslint-disable-next-line` comments carrying the reason, matching existing precedent in `apps/server/src/services/__tests__/ProjectMemoryService.test.ts:1042`. Package lint is now 0 problems.
 
-The task's own verification command #3 is `pnpm --filter @asterim/mcp-memory-server exec tsx …`, but `tsx` was not in the specified devDependency list, so that command could not run. Added at `^4.22.4` to match `apps/server`. No new download — it was already in the store.
+### 6.2 The resolver is not reachable from the entrypoint
 
-### 6.3 `eslint.config.js` added
+`src/index.ts` contains no reference to `resolver`, and the built bundle is unchanged at **19.57 KB** with zero occurrences of `resolveProjectContext`. The module is exercised only by its test.
 
-`turbo run lint` invokes `lint` in every workspace package. Without a flat config the new package would fail the repo-wide lint task. The file is two lines, copied verbatim from `packages/shared/eslint.config.js`.
+This is correct per task § 5 — wiring belongs with the tools in P5.1-04 — but it means acceptance criterion 4 (`pnpm run build` passes) provides **no coverage of this module whatsoever**; it type-checks under `tsc --noEmit` and is validated by the suite alone. Worth stating plainly so the green build is not read as more than it is.
 
-### 6.4 The `asterim` deep-import is undocumented coupling
+Consequence for P5.1-04: `parseResolveOptionsFromArgv(process.argv.slice(2))` must be called in `index.ts`, and a resolution failure must be surfaced on **stderr** and exit non-zero — throwing an uncaught exception whose stack reaches stdout would corrupt the JSON-RPC stream that P5.1-02's stdio guard exists to protect.
 
-The task selected Option B from the P5.1-01 audit — depend on the `asterim` workspace package. It works, and tsup bundles the source correctly. But `apps/server` declares no `exports` map and its `"main"` is `dist/index.js`, the **bundled Fastify server that calls `listen()`**. The import `asterim/src/services/DatabaseService` therefore reaches past the package's public surface into its source tree.
+### 6.3 `--project` consumes the following token unconditionally
 
-Nothing in either manifest records this. If anyone later adds an `exports` field to `apps/server` — a normal, well-intentioned change — this package breaks with a confusing resolution error. **Recommend a one-line entry in `blueprint/audit/IMPLEMENTATION_DRIFT.md`**, or the `packages/memory-core` extraction (audit Option C) when the phase has room.
+`read()` returns `argv[i + 1]` whenever `arg === '--project'`, without checking whether that token is itself a flag:
 
-### 6.5 The binary is not standalone
+```
+parseResolveOptionsFromArgv(['--project', '--project-path', '/w/p'])
+  → { explicitProjectId: '--project-path' }
+```
 
-`dist/index.js` keeps `@modelcontextprotocol/sdk` external, so it requires the repo's `node_modules` at runtime. That is correct for `claude mcp add` pointing at an absolute path inside the repo, which is the Phase 5.1 use case, but the binary cannot be copied elsewhere. Worth deciding before P5.1-08 documents installation.
+The result is a loud, correctly-formatted "does not match any registered project" error rather than a wrong resolution, so the blast radius is a confusing message — not misrouted memory. Low priority, but a one-line guard (`next && !next.startsWith('--')`) would remove it. Not covered by the suite.
 
-Relatedly, `asterim-mcp-memory` is **not** linked into root `node_modules/.bin`, because pnpm links a package's bin into its *dependents* and nothing depends on this package. MCP clients invoke by absolute path, so this is expected rather than a defect.
+Relatedly, `--project=` with an empty value is silently ignored (the `if (id)` truthiness check), falling through to CWD detection. Same reasoning: safe, mildly surprising.
 
-### 6.6 Pre-existing, unrelated
+### 6.4 One assertion is not portable to Windows
 
-`pnpm run lint` still fails with 38 errors in `apps/server` files untouched by Phase 5.0/5.1, so CI (`lint` + `build`) remains red on `main`. Every build result in this report is local verification.
+Line 149 compares a resolved path against a POSIX literal:
+
+```ts
+equal('the resolved path is normalized', resolveProjectContext({ cwd: '/workspace/projects' }).path, '/workspace/projects');
+```
+
+On Windows `path.resolve('/workspace/projects')` yields `C:\workspace\projects`, so this assertion fails there. The containment logic itself is portable — every fixture path picks up the same drive prefix, so relative containment and ranking are unaffected — and all other assertions compare ids, not paths.
+
+This matters because `tasks/current.md` references files as `file:///c:/Projects/Asterim/…`, indicating the orchestrator runs on Windows. **All results in this report are from Linux** (`/home/qhukz/Documents/Projects/Asterim`). Fix is `path.resolve('/workspace/projects')` on the expected side of the comparison.
+
+### 6.5 Carried forward from P5.1-02, still open
+
+- **6.4 (prior report)** — the `asterim/src/services/DatabaseService` deep import reaches past `apps/server`'s public surface, and `resolver.ts` now relies on it too. Still unrecorded in `blueprint/audit/IMPLEMENTATION_DRIFT.md`; the recommendation stands, with one more dependent than before.
+- **6.6 (prior report)** — repo-wide `pnpm run lint` remains red on `main` from pre-existing violations. Confirmed again this run: `@asterim/adapters` fails with 24 errors / 25 warnings (`no-useless-escape` in regex literals), which halts the turbo lint pipeline before `asterim`'s known 38 errors are reached. Untouched by and unrelated to Phase 5.0/5.1. Every result above is local verification; **CI is not green on `main` and P5.1-03 does not change that.**
 
 ---
 
 ## 7. Recommended Next Step
 
-Proceed to **P5.1-03 — Project Context Resolver**. The scaffold is ready to receive it: `dbService` is already imported and its path proven honoured via `ASTERIM_DATA_DIR`.
+Proceed to **P5.1-04 — MCP Memory Tools**. Before it, two small items from this verification are worth folding in:
 
-Carry these findings from the P5.1-01 audit (§ 5) into the resolver, all confirmed against the live `~/.asterim/asterim.db`:
+1. **Close the § 5.1 coverage gap** — one assertion seeding only the shorter sibling and expecting a throw. It is the one property here whose failure mode is silent cross-project memory writes, and it is currently the only rule not actually pinned by a test.
+2. **Fix the § 6.4 assertion** for Windows, since the orchestrator runs there and the suite would report a spurious failure on first run.
 
-1. **Normalize paths.** One project is stored as `/home/qhukz/Documents/Projects/` with a trailing slash; `process.cwd()` never has one, so exact string matching can never resolve it.
-2. **Prefer the longest match.** `/home/qhukz/Documents/Projects/` is an ancestor of every other project on this machine, so first-hit traversal returns the wrong project by default, not as a corner case.
-3. **Use segment-safe containment,** not `startsWith` — otherwise `…/Asterim` matches a sibling `…/AsterimOld`.
-4. **Do not require the path to exist on disk;** one stored path predates a rename.
-5. **Fail loudly when nothing matches.** Silently defaulting to the first project would let an agent write a decision into the wrong project's memory — the one property Phase 5.0 enforced at every other layer.
-
-Suggested addition to the P5.1-03 test suite: a fixture database reproducing the nested-project and trailing-slash cases above, since both are present in real user data today and neither is caught by a happy-path test.
+For P5.1-04 itself, carrying from § 6.2: call `resolveProjectContext` once at startup in `index.ts`, cache the result for the process lifetime, and route resolution failure to stderr with a non-zero exit — never to stdout. The resolved `ResolvedProject.id` is what every memory tool must scope its queries by; nothing downstream should re-derive it from `process.cwd()`.
