@@ -1,6 +1,6 @@
-# Execution Report: P5.3-02 — Interactive Decision Supersede & Archive UI Dialogs
+# Execution Report: P5.3-03 — Architectural Rules & Intent Management UI
 
-**Task ID:** P5.3-02
+**Task ID:** P5.3-03
 **Phase:** Phase 5.3 — Decision Lifecycle & Memory Curation UI
 **Status:** VERIFIED
 **Date:** 2026-08-14
@@ -11,11 +11,13 @@
 
 ## 1. Summary
 
-Decisions can now be superseded, marked stale, reactivated, and archived from both the Explorer and the Timeline. Supersede and Archive open dialogs; Mark stale and Reactivate apply immediately.
+Rules and intent are now curated from the UI: `CreateRuleModal` and `UpdateIntentModal`, reachable from the Explorer's panels and from the Re-entry Briefing, with empty states that make the *first* rule and the *first* intent reachable. `supersededBy` resolves to the counterpart's title in the Explorer, closing the inconsistency raised in P5.3-02 § 6.2.
 
-**+41 assertions** (99/99 and 95/95 in the two component suites), every other suite unchanged, `tsc` clean, `pnpm run build` 7/7, plus screenshots of the controls and the archive confirmation.
+**+56 assertions** (116/116 and 134/134), all other suites unchanged, `tsc` clean, `pnpm run build` 7/7, with screenshots.
 
-The controls live in **one shared component** rather than being written into each view. That is the load-bearing decision here: two copies would drift the moment either view gained an action, and one of the negative controls (§ 5.3) is specifically a parity check that catches exactly that.
+Three mutation runs. **Two of them survived**, and both exposed assertions of mine that were passing for the wrong reason — one comparing against an unfiltered view, one matching the component's own placeholder text (§ 5). Both are fixed and now fail as they should. A third gap led to extracting a pure helper so an untestable claim became testable (§ 5.4).
+
+A structural prerequisite came first: the Explorer and Timeline were **mutually importing** each other, and resolving titles would have deepened that. The shared pure helpers now live in their own module (§ 3.1).
 
 ---
 
@@ -25,93 +27,89 @@ The controls live in **one shared component** rather than being written into eac
 
 | File | Lines | Purpose |
 | :-- | --: | :-- |
-| `apps/web/src/components/memory/DecisionActions.tsx` | 153 | `availableActions` rule + the shared control strip |
-| `apps/web/src/components/memory/SupersedeDecisionModal.tsx` | 268 | Replacement capture, pre-populated |
-| `apps/web/src/components/memory/ArchiveDecisionModal.tsx` | 174 | Archive confirmation |
-| `docs/screenshots/p5.3-02/{decision-actions,archive-confirm}-1440.png` | — | Visual evidence |
+| `apps/web/src/components/memory/decisionHelpers.ts` | 96 | `anchorLabels`, `provenanceLabel`, `buildLineage` — extracted to break the import cycle |
+| `apps/web/src/components/memory/CreateRuleModal.tsx` | 268 | Rule capture, severity, scope pattern |
+| `apps/web/src/components/memory/UpdateIntentModal.tsx` | 232 | Intent capture, pre-populated |
+| `docs/screenshots/p5.3-03/{curation-panels,add-rule-dialog}-1440.png` | — | Visual evidence |
 
 **Modified**
 
 | File | Change |
 | :-- | :-- |
-| `apps/web/src/components/memory/DecisionExplorer.tsx` | `DecisionCard` takes `projectId` and renders `DecisionActions`; passes `projectId` to the timeline |
-| `apps/web/src/components/memory/MemoryTimelineView.tsx` | `projectId` prop; `TimelineEntry` renders `DecisionActions` |
-| `apps/web/src/components/memory/__tests__/DecisionExplorer.test.ts` | +21 assertions |
-| `apps/web/src/components/memory/__tests__/MemoryTimeline.test.ts` | +29 assertions |
+| `DecisionExplorer.tsx` | Title resolution on cards; Update/Set intent and Add rule controls; empty states; `initialStatusFilter` test affordance; imports helpers |
+| `MemoryTimelineView.tsx` | Imports helpers, re-exports `buildLineage` |
+| `ReentryBriefingCard.tsx` | Optional `projectId` enabling the same two controls |
+| `SupersedeDecisionModal.tsx` | Imports `anchorLabels` from the helper module |
+| Both component test suites | +56 assertions; two corrected (§ 5) |
 
-`DecisionActions.tsx` and `SupersedeDecisionModal.tsx` were mutated for negative controls and restored byte-identically (`md5 4a62ad69…`, `b94eb9d5…`).
+Four files were mutated for negative controls and restored byte-identically.
 
-**Not modified:** no backend route, no MCP server, no deletion path — every retirement is a status transition. The § 5 prohibitions hold.
+**Not modified:** no schema, no REST route, no component removed. The § 5 prohibitions hold.
 
 ---
 
 ## 3. Implementation Details
 
-### 3.1 One rule, one component
+### 3.1 Breaking a cycle that the task required touching
+
+`DecisionExplorer` imported `MemoryTimelineView` (the component), and `MemoryTimelineView` imported `anchorLabels`/`provenanceLabel` back from `DecisionExplorer`. That already worked only by accident of module evaluation order.
+
+Resolving titles in the Explorer needs `buildLineage`, which lived in `MemoryTimelineView` — so doing it the direct way would have added a **value** dependency to a cycle that previously only carried functions. The three pure helpers now live in `decisionHelpers.ts`, which imports nothing local and therefore cannot participate in a cycle. Both components re-export what they used to own, so every existing importer and test kept working unchanged.
+
+This was not tidying for its own sake: it is the prerequisite for the task's third requirement.
+
+### 3.2 Title resolution, built from the full list
 
 ```ts
-export function availableActions(decision: ProjectDecision): DecisionAction[] {
-  switch (decision.status) {
-    case 'ACTIVE': return ['supersede', 'stale', 'archive'];
-    case 'STALE':  return ['reactivate', 'supersede', 'archive'];
-    default:       return [];
-  }
-}
+const lineage = useMemo(() => buildLineage(decisions), [decisions]);
 ```
 
-`DecisionActions` owns its own dialog state and calls the store directly, so both views get identical behaviour by rendering the same element. It returns `null` when there are no actions **or when `projectId` is null**, so a control that would call the store with a null id never renders.
+Deliberately `decisions`, not `visible`. A decision's counterpart is frequently filtered out — filtering to `ACTIVE` hides every superseded decision by definition — and it is still the thing the surviving card's link should name. Mutation A (§ 5.1) is exactly this substitution.
 
-### 3.2 Terminal states are terminal *in the UI only*
+Unresolved links keep the raw id and render it in monospace, so an identifier never masquerades as a title. The id is preserved as the `title` attribute in both cases.
 
-`SUPERSEDED` and `ARCHIVED` offer nothing. The REST surface can still move them and the timeline still shows them — this is a UI judgement, not a data one.
+### 3.3 Empty states are where curation actually starts
 
-The reason is specific to supersession: offering "Reactivate" on a decision that another decision has already replaced would produce **two live decisions contradicting each other, from one click**, with no prompt and nothing in the system to flag the conflict. Reviving a retired position is a real decision and should go through recording one. Archived decisions are grouped with them for consistency; reactivating those is safe in principle, and § 7 suggests where to put it if it is wanted.
+The Explorer previously rendered nothing when a project had no intent, and `RuleList` returned `null` with no rules. Both were dead ends: the first rule and the first intent were unreachable from the UI.
 
-### 3.3 Archive is confirmed; stale is not
+Both now render with a control and a sentence explaining what the thing is for. The Briefing card does the same. Without a `projectId` all controls disappear and the panels stay read-only — asserted in both suites.
 
-Archiving is the only action whose effect is invisible where it matters: the decision leaves every future agent briefing, so the next session is simply never told about it, and nothing announces that absence. The dialog states all three consequences explicitly — retired from briefings, kept in the timeline, nothing deleted — and its escape is labelled "Keep it" rather than "Cancel", because the question is about the decision, not the dialog.
+### 3.4 The intent dialog says what it actually does
 
-`Mark stale` / `Reactivate` apply directly. They are one click apart from each other in both directions, so a confirmation would be ceremony.
+There is no update path underneath: `createIntent` archives whatever was active and writes a new row. A correction and a change of direction are the same operation.
 
-### 3.4 The supersede dialog carries the old decision forward
+So the dialog changes its wording with the situation — "Set project intent" / "Set intent" when there is none, "Update project intent" / "Replace intent" plus *"Saving archives the current intent and makes this the active one"* when there is. Pre-population is what makes a small correction practical; saying "archives" rather than "updates" is what stops it being a surprise.
 
-Constraints and related files are pre-populated, because a replacement usually inherits most of what it replaces and retyping constraints from memory is how they quietly get dropped.
+### 3.5 Severity colour
 
-`initialRelatedFiles` does slightly more than read `relatedFiles`. That field is derived from *file-only* code refs, so a decision anchored to `src/auth.ts#hashPassword` has an empty `relatedFiles` and would lose its anchor on being superseded. The helper folds anchor paths back in, strips the symbol, and skips symbol-only anchors so a bare `hashPassword` is never mistaken for a filename. Four assertions cover those cases.
-
-### 3.5 Palette: amber for retirement
-
-`DESIGN_SYSTEM.md` calls for monochrome plus a single emerald accent, and P5.2-02 stayed strictly inside that. This task specifies amber for archive/stale, and `tokens.css` already defines `--color-state-paused: #f59e0b`, used elsewhere in the app (the disconnection banner).
-
-Reading these together: emerald is the *interactive* accent — the primary action, what is in force — while the state colours are a separate documented axis. Retirement is not a primary action and should not look like one, so the archive confirm button is an amber outline rather than a filled emerald button. An assertion pins that it is **not** the emerald primary (`#042114`, the emerald button's text colour), so a future refactor cannot quietly make archiving look like the happy path.
+`error` → red, `warning` → amber, and **`info` stays neutral** rather than taking the blue the task offered as an alternative. `tokens.css` has no blue in its state set, and introducing a third hue into panels the design system asks to keep monochrome-plus-state would be the "cliché" the task's § 2 warns against. `info` is not a warning; neutral says that.
 
 ---
 
 ## 4. Tests / Verification
 
 ```
-DecisionExplorer.test.ts ........  99/99   (was 78, +21)
-MemoryTimeline.test.ts .........  95/95   (was 66, +29)
+DecisionExplorer.test.ts ....... 116/116   (was 99, +17)
+MemoryTimeline.test.ts ......... 134/134   (was 95, +39)
 useMemoryStore.test.ts ......... 113/113
 memory.test.ts (routes) ........  98/98
 ProjectMemoryService.test.ts ... 231/231
 
-tsc --noEmit  0 errors  ·  eslint  0 errors, 44 warnings  ·  pnpm run build  7/7
+tsc --noEmit  0 errors  ·  eslint  0 errors, 60 warnings  ·  pnpm run build  7/7
 ```
 
 ### 4.1 Acceptance criteria
 
 | # | Criterion | Result |
 | :-- | :-- | :-- |
-| 1 | Supersede launchable from active decisions in both views | **Met** — rendered controls asserted in both, plus a parity assertion |
-| 2 | Dialog pre-populates and creates the replacement | **Pre-population met** (9 assertions); **creation partly verified** — see § 6.1 |
-| 3 | Archive confirms and marks `ARCHIVED` | **Dialog met** (8 assertions); **the write partly verified** — § 6.1 |
-| 4 | Stale / Reactivate toggle without dialogs | **Met** — `actionNeedsConfirmation` asserted for all four; controls render per status |
-| 5 | Build and typecheck clean | **Met** |
+| 1 | Add rules with title, statement, severity, scope | **Dialog and defaults met**; the submit path itself untested — § 6.1 |
+| 2 | Set/update intent with pre-population and non-goals | **Met** — pre-population asserted with a corrected fixture (§ 5.2) |
+| 3 | Both views resolve superseded links to titles | **Met** — Timeline since P5.2-03, Explorer now, both asserted and visible in the capture |
+| 4 | Build and typecheck clean | **Met** |
 
 ### 4.2 Visual QA
 
-`docs/screenshots/p5.3-02/`. The capture shows all three cases at once: the ACTIVE card offering Supersede / Mark stale / Archive, the STALE card offering Reactivate / Supersede / Archive, and the SUPERSEDED card offering nothing while keeping its lineage line. Amber reads as caution without shouting; the emerald stays on Record decision and the ACTIVE badge.
+`docs/screenshots/p5.3-03/`. The capture shows the intent panel with **Update intent**, the rules panel with **Add rule** and per-rule severity (`error` in red, `info` neutral), and both directions of the resolved lineage: *"Supersedes Hash passwords with bcrypt"* on the active decision and *"Superseded by Hash passwords with Argon2id"* on the retired one — where P5.3-02's capture showed a bare `d1`.
 
 ---
 
@@ -119,68 +117,82 @@ tsc --noEmit  0 errors  ·  eslint  0 errors, 44 warnings  ·  pnpm run build  7
 
 | # | Mutation | Result | Verdict |
 | :-- | :-- | --: | :-- |
-| A | Terminal states return the full action list | 96/99 + 94/95 | caught — 4 failures across both suites |
-| B | Supersede dialog stops pre-populating | 92/95 | caught — 3 failures |
-| C | `DecisionActions` removed from the Timeline only | 89/95 | caught — 6 failures |
+| A | `buildLineage(visible)` instead of `buildLineage(decisions)` | **survived** → 115/116 after fixing | **exposed a vacuous assertion** |
+| B | Intent dialog stops pre-populating | **survived** → 127/130 after fixing | **exposed a vacuous assertion** |
+| C | Severity colours collapsed; blank scope stops defaulting | 129/130 | half caught — the other half was untestable (§ 5.4) |
 
-### 5.1 Control A
+### 5.1 Control A — the assertion never filtered anything
 
-Making `SUPERSEDED`/`ARCHIVED` mutable fails in both suites — the logic assertions and the rendered-card assertions independently. This is the § 3.2 rule, and it is the one whose violation produces contradictory live decisions.
+My first "lineage resolves across the whole list, not the filtered view" assertion rendered with default filters, where `visible === decisions`. It could not distinguish the two.
 
-### 5.2 Control B
+`DecisionExplorerViewProps` gained `initialStatusFilter`, mirroring the existing `initialMode`, so a render test can reach a genuinely filtered view. The assertion now filters to `ACTIVE` — which hides the superseded counterpart entirely — and is preceded by a guard confirming the filter really took effect (`Showing 1 of 2`, counterpart text absent) so it cannot silently stop filtering later. Under the mutation it now fails.
 
-Emptying the pre-populated fields fails three assertions, including the one checking constraints are joined one-per-line. Criterion 2's pre-population requirement is pinned rather than assumed.
+### 5.2 Control B — the fixture matched the placeholders
 
-### 5.3 Control C — the parity assertion earns its place
+Worse, and instructive. The intent pre-population assertions read:
 
-Removing `DecisionActions` from the Timeline while leaving the Explorer untouched fails six assertions, including:
-
-```
-FAIL  the same decision offers the same actions in both views
-      — expected [], got ["Supersede","Mark stale","Archive"]
+```ts
+check('the goal is pre-populated', updateHtml.includes('Migrate authentication to Argon2id'));
+check('constraints are pre-populated one per line', updateHtml.includes('No downtime\nExisting sessions stay valid'));
 ```
 
-That assertion renders one identical decision through both views and compares which labels appear. It exists because "add the same controls to two components" is exactly the requirement that rots — and it fails on divergence in either direction, not just this one.
+Every one of those strings is also the component's **placeholder text**, which I wrote. So the assertions matched the placeholder attributes and passed with the fields completely empty. Three assertions, all testing nothing.
+
+The fixture now uses values unlike any placeholder ("Retire the legacy billing importer", "Keep the CSV export byte-identical"), with a comment recording why. Under the mutation all three fail.
+
+This is a failure mode worth naming beyond this task: **a fixture that reuses the component's own example text cannot distinguish a populated field from an empty one.** The same shape would apply to any placeholder-bearing form in this codebase.
+
+### 5.3 Control C — colour caught, default not
+
+The severity half failed immediately. The scope-pattern half did not, because the fallback lived inside the submit handler, which no test can reach without a DOM.
+
+### 5.4 Extracting `resolveScopePattern`
+
+Rather than leave "blank means project-wide" as an untested claim behind a click, the fallback moved into an exported pure function. Four assertions cover empty, whitespace-only, supplied, and untrimmed input; re-running the mutation now fails two of them. It is a small example of the general workaround for § 6.1 — pull decisions out of handlers until the handler is only wiring.
 
 ---
 
 ## 6. Problems Discovered & Concerns
 
-### 6.1 The writes themselves are still not exercised
+### 6.1 The submit handlers remain untested — fourth task running
 
-Every dialog is rendered, every control is asserted present or absent, and `parseList` / `initialRelatedFiles` / `availableActions` are tested directly. But **no test clicks anything**: `onClick`, the submit handler, and the store call inside it are typed and rendered, never run. There is still no DOM test environment (raised P5.2-02 § 6.3, unchanged).
+Both new dialogs render, validate their disabled state, and pre-populate correctly. Neither has its `onSubmit` executed by any test, because there is still no DOM environment (raised P5.2-02 § 6.3; carried through P5.2-03, P5.3-02, and now here).
 
-So criteria 2 and 3 are marked **partly verified**. What *is* verified: the store actions they call are covered by `useMemoryStore.test.ts` (24 assertions added in P5.3-01), and the endpoint beneath those by `memory.test.ts` (21). The untested span is the wiring — that this button calls that action with these arguments.
+What that leaves unverified is narrow but real: that `CreateRuleModal` calls `createRule` with the assembled object, and `UpdateIntentModal` calls `createIntent` with the parsed lists. The store actions themselves are covered, and § 5.4 shows the pattern for clawing individual decisions back into testable functions — but that is a workaround, and each task adds more surface it does not cover.
 
-The gap has now been carried through three UI tasks and is the reason a plausible-looking regression could ship green. It is the single highest-value thing Phase 5.3 could fix, and it is a repo-level decision (`jsdom` + a renderer), not something to slip into a feature task.
+Four consecutive reports have now ended with this paragraph. It is the single change that would most improve confidence in this phase's output.
 
-### 6.2 The Explorer shows a raw id where the Timeline shows a title
+### 6.2 Rules cannot be edited or removed
 
-Visible in the screenshot: the superseded card reads **"Superseded by d1"**. The Timeline resolves the same link to "Replaced by Hash passwords with Argon2id", because `buildLineage` looks the counterpart up in the decision list; `DecisionCard` was written in P5.2-02 before that helper existed and prints `decision.supersededBy` directly.
+`ProjectMemoryService` exposes `createRule` and `listRules` and nothing else — no update, no delete, no status. So a rule with a typo is permanent, and a rule that stops applying stays in every future agent briefing forever.
 
-Now that both views sit side by side under one toggle, the same relationship reads as a title in one and an opaque id in the other. The fix is small — pass the decision list into `DecisionCard` and reuse `buildLineage` — but it is beyond this task's scope, which asked only that terminal decisions render lineage read-only, which they do.
+Decisions got a full lifecycle in P5.3-01/02 precisely because retiring them matters. Rules are stated to be *stronger* than decisions — "rules you must not break" — and have no retirement path at all. This is a gap in the domain model rather than the UI, and it will look like a UI omission to the first user who makes a typo.
 
-### 6.3 Reactivating an archived decision has no route in the UI
+### 6.3 A project can never return to having no intent
 
-§ 3.2 removes all actions from terminal states, so an archived decision cannot be brought back from the interface, even though `updateDecisionStatus` supports it and the archive dialog **tells the user it can be reactivated** ("it can be reactivated from the decision history").
+`createIntent` archives the previous intent and writes a new one; there is no way to clear it. The briefing renders "No intent has been set" as a first-class state, and after the first save that state becomes permanently unreachable.
 
-That sentence is currently a promise about the REST API. Either the dialog's wording should be narrowed, or archived — not superseded — decisions should regain a Reactivate control. I left the capability out rather than the sentence, because the sentence is what makes archiving feel safe, and § 7 proposes where the control belongs.
+Raised as a suggestion in P5.3-02 § 7 and now concrete: the UI makes intent-setting easy and intent-clearing impossible. Either the empty state should be reachable again, or it should be understood as first-run-only.
 
 ### 6.4 Carried forward
 
-- **`MemoryStore` still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3) — seven components now.
-- **Service-layer boundary asymmetry** (P5.3-01 § 6.2): `supersedeDecision` validates the project inside the service and throws; `updateDecisionStatus` does not. The supersede and archive dialogs now call both, so a cross-project failure surfaces differently depending on which the user chose. Nothing in the UI can trigger it today, but it is the kind of divergence that becomes a bug when the relay adds a second client.
-- **`supersededBy` remains bidirectional** (drift § 4). The supersede dialog now creates these links from the UI, so the field has gained a writer as well as two readers.
-- `pnpm run lint` remains red on `@asterim/adapters`; `apps/server` still has 4 pre-existing `tsc` errors. All figures local.
+- **`MemoryStore` still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3) — nine components now.
+- **`supersededBy` remains bidirectional** (drift § 4). Both views now resolve it correctly, so the *display* problem is solved — the underlying two-meanings-one-field problem is not, and `buildLineage` remains the single place that reads `status` to compensate.
+- **Service boundary asymmetry** (P5.3-01 § 6.2), unchanged.
+- `pnpm run lint` red on `@asterim/adapters`; `apps/server` has 4 pre-existing `tsc` errors. All figures local.
 
 ---
 
 ## 7. Recommended Next Step
 
-Proceed to **P5.3-03 — Rules & Intent Curation UI**. Three things to carry in:
+Phase 5.3 has delivered what it set out to: decisions have a full lifecycle, rules and intent can be curated, and memory is legible in two views. Before calling it complete, two things are worth closing because they are cheap now and awkward later:
 
-1. **Reuse `DecisionActions`' shape, not its code.** Rules and intents have their own lifecycles (an intent is archived by its successor; a rule has severity but no status). A parallel `availableActions` per entity, each with a parity assertion, keeps them honest without forcing one abstraction over three different domains.
-2. **Settle § 6.3 while archiving is fresh.** A Reactivate control on `ARCHIVED` — but not `SUPERSEDED` — is a two-line change to `availableActions`, and it makes the archive dialog's promise true. That distinction is also a genuinely useful piece of product reasoning to record.
-3. **Intent has no delete or archive path at all.** `createIntent` archives the previous one implicitly, so a project can never return to having *no* intent once one is set. Worth deciding before the UI makes that shape visible, since the briefing already renders "No intent has been set" as a first-class state that becomes unreachable after the first write.
+1. **A DOM test environment** (§ 6.1). Not a feature task — a repo decision that retires the "partly verified" qualifier from four reports and covers the handlers the next phase will only add more of.
+2. **Rule retirement** (§ 6.2). A rule that cannot be withdrawn is a worse problem than a decision that cannot be, because rules are the stronger claim. It needs a service method and a route before any UI, so it belongs in a backend slice rather than being improvised in a component.
 
-And the standing recommendation from § 6.1: **a DOM test environment would retire the "partly verified" qualifier from this report and the last two.** Every UI task in this phase has ended with the same untested span, and it grows with each one.
+**For Phase 5.4 or 6**, the natural next subject is the gap between the two halves of what has been built: an agent records decisions through MCP, a human curates them through this UI, and *neither knows what the other did*. Specifically —
+
+- Agent writes still do not reach the running Core's event bus (`MISSING_SPECIFICATION.md` § 4, open since P5.1-05), so a decision recorded by an agent does not appear in this UI until a refetch.
+- Nothing surfaces *which* agent session produced a decision, though `AGENT_STATEMENT` provenance and `recentAgentWork` both exist and could be joined.
+
+Closing the first is the prerequisite for the memory UI feeling live rather than periodically correct, and it is the oldest unaddressed item in the phase.

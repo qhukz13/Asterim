@@ -1,35 +1,14 @@
 import React, { useState } from 'react';
-import type { ProjectDecision } from '@asterim/shared';
+import type { ProjectIntent } from '@asterim/shared';
 import { useMemoryStore } from '../../stores/useMemoryStore';
 import { parseList } from './RecordDecisionModal';
-import { anchorLabels } from './decisionHelpers';
 
-/**
- * The related-file list a supersede dialog should start from.
- *
- * `relatedFiles` is derived from file-only code refs, so it misses paths that
- * carry a symbol. Falling back to the decision's anchors — minus the symbol part,
- * which is not a file — keeps a decision anchored to `src/auth.ts#hashPassword`
- * from losing its anchor when it is replaced.
- */
-export function initialRelatedFiles(decision: ProjectDecision): string[] {
-  const files = new Set<string>(decision.relatedFiles ?? []);
-  for (const label of anchorLabels(decision)) {
-    const [filePath] = label.split('#');
-    // A symbol-only anchor has no path; `anchorLabels` renders it as the bare
-    // symbol, which must not be mistaken for a file.
-    const isSymbolOnly = !label.includes('#') && !label.includes('/') && !label.includes('.');
-    if (filePath && !isSymbolOnly) files.add(filePath);
-  }
-  return Array.from(files);
-}
-
-export interface SupersedeDecisionModalProps {
+export interface UpdateIntentModalProps {
   projectId: string;
-  /** The decision being replaced. */
-  decision: ProjectDecision;
+  /** The intent in force, or null when the project has none yet. */
+  currentIntent: ProjectIntent | null;
   onClose: () => void;
-  onSuperseded?: (replacementId: string) => void;
+  onSaved?: (intentId: string) => void;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -55,24 +34,24 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: '0.06em'
 };
 
-export function SupersedeDecisionModal({
-  projectId,
-  decision,
-  onClose,
-  onSuperseded
-}: SupersedeDecisionModalProps) {
-  const [title, setTitle] = useState('');
-  const [summary, setSummary] = useState('');
-  const [rationale, setRationale] = useState('');
-  // Pre-populated: a replacement usually inherits most of what it replaces, and
-  // retyping constraints from memory is how they quietly get dropped.
-  const [constraints, setConstraints] = useState((decision.constraints ?? []).join('\n'));
-  const [relatedFiles, setRelatedFiles] = useState(initialRelatedFiles(decision).join('\n'));
+/**
+ * Sets the project's current intent.
+ *
+ * There is no "edit" underneath this: `createIntent` archives whatever was active
+ * and writes a new row, so a correction and a change of direction are the same
+ * operation. Pre-populating the fields is what makes a correction practical, and
+ * the dialog says plainly that the previous intent is being retired rather than
+ * amended — the archived one stays readable in history either way.
+ */
+export function UpdateIntentModal({ projectId, currentIntent, onClose, onSaved }: UpdateIntentModalProps) {
+  const [goal, setGoal] = useState(currentIntent?.goal ?? '');
+  const [constraints, setConstraints] = useState((currentIntent?.constraints ?? []).join('\n'));
+  const [nonGoals, setNonGoals] = useState((currentIntent?.nonGoals ?? []).join('\n'));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit =
-    title.trim().length > 0 && summary.trim().length > 0 && rationale.trim().length > 0 && !submitting;
+  const isFirst = currentIntent === null;
+  const canSubmit = goal.trim().length > 0 && !submitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,19 +59,15 @@ export function SupersedeDecisionModal({
     setSubmitting(true);
     setError(null);
     try {
-      const replacement = await useMemoryStore.getState().supersedeDecision(projectId, decision.id, {
-        title: title.trim(),
-        summary: summary.trim(),
-        rationale: rationale.trim(),
+      const intent = await useMemoryStore.getState().createIntent(projectId, {
+        goal: goal.trim(),
         constraints: parseList(constraints),
-        relatedFiles: parseList(relatedFiles),
-        provenance: 'HUMAN_CONFIRMED',
-        confidence: 1.0
+        nonGoals: parseList(nonGoals)
       });
-      onSuperseded?.(replacement.id);
+      onSaved?.(intent.id);
       onClose();
     } catch (err) {
-      setError((err as Error).message || 'Could not supersede the decision');
+      setError((err as Error).message || 'Could not save the intent');
       setSubmitting(false);
     }
   };
@@ -115,7 +90,7 @@ export function SupersedeDecisionModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Supersede decision"
+        aria-label={isFirst ? 'Set project intent' : 'Update project intent'}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => {
           if (e.key === 'Escape') onClose();
@@ -141,80 +116,59 @@ export function SupersedeDecisionModal({
             color: 'var(--color-text-primary)'
           }}
         >
-          Supersede decision
+          {isFirst ? 'Set project intent' : 'Update project intent'}
         </h2>
         <p style={{ margin: '4px 0 var(--spacing-5)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-          Replacing{' '}
-          <span style={{ color: 'var(--color-text-primary)' }}>{decision.title}</span>. The old decision stays in
-          the timeline, marked superseded and linked to this one.
+          {isFirst
+            ? 'What this project is currently trying to achieve. Every agent session reads it before starting work.'
+            : 'Saving archives the current intent and makes this the active one. The old intent stays in history.'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
           <div>
-            <label style={labelStyle} htmlFor="supersede-title">
-              New title
-            </label>
-            <input
-              id="supersede-title"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="Hash passwords with Argon2id"
-              autoFocus
-              style={fieldStyle}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle} htmlFor="supersede-summary">
-              What is decided now
+            <label style={labelStyle} htmlFor="intent-goal">
+              Goal
             </label>
             <textarea
-              id="supersede-summary"
-              value={summary}
-              onChange={e => setSummary(e.target.value)}
+              id="intent-goal"
+              value={goal}
+              onChange={e => setGoal(e.target.value)}
               rows={2}
+              placeholder="Migrate authentication to Argon2id across the server and relay"
+              autoFocus
               style={{ ...fieldStyle, resize: 'vertical' }}
             />
           </div>
 
           <div>
-            <label style={labelStyle} htmlFor="supersede-rationale">
-              Why the previous decision no longer holds
+            <label style={labelStyle} htmlFor="intent-constraints">
+              Constraints — one per line
             </label>
             <textarea
-              id="supersede-rationale"
-              value={rationale}
-              onChange={e => setRationale(e.target.value)}
-              rows={3}
-              placeholder="What changed since it was made."
-              style={{ ...fieldStyle, resize: 'vertical' }}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle} htmlFor="supersede-constraints">
-              Constraints — carried over, edit as needed
-            </label>
-            <textarea
-              id="supersede-constraints"
+              id="intent-constraints"
               value={constraints}
               onChange={e => setConstraints(e.target.value)}
               rows={2}
+              placeholder={'No downtime\nExisting sessions stay valid'}
               style={{ ...fieldStyle, resize: 'vertical' }}
             />
           </div>
 
           <div>
-            <label style={labelStyle} htmlFor="supersede-files">
-              Files this governs — carried over, edit as needed
+            <label style={labelStyle} htmlFor="intent-nongoals">
+              Not doing — one per line
             </label>
             <textarea
-              id="supersede-files"
-              value={relatedFiles}
-              onChange={e => setRelatedFiles(e.target.value)}
+              id="intent-nongoals"
+              value={nonGoals}
+              onChange={e => setNonGoals(e.target.value)}
               rows={2}
-              style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'var(--font-family-mono)', fontSize: 'var(--font-size-xs)' }}
+              placeholder={'Changing the session token format'}
+              style={{ ...fieldStyle, resize: 'vertical' }}
             />
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              Naming what is out of scope is the part that stops an agent widening the work.
+            </p>
           </div>
 
           {error && (
@@ -266,7 +220,7 @@ export function SupersedeDecisionModal({
                 transition: 'background var(--transition-fast)'
               }}
             >
-              {submitting ? 'Replacing…' : 'Replace decision'}
+              {submitting ? 'Saving…' : isFirst ? 'Set intent' : 'Replace intent'}
             </button>
           </div>
         </form>

@@ -1,35 +1,53 @@
 import React, { useState } from 'react';
-import type { ProjectDecision } from '@asterim/shared';
+import type { ArchitecturalRuleSeverity } from '@asterim/shared';
 import { useMemoryStore } from '../../stores/useMemoryStore';
-import { parseList } from './RecordDecisionModal';
-import { anchorLabels } from './decisionHelpers';
+
+/** Severities offered by the form, in the order they are shown. */
+export const RULE_SEVERITIES: readonly ArchitecturalRuleSeverity[] = ['warning', 'error', 'info'];
+
+/** What each severity means to whoever reads the rule later. */
+export const SEVERITY_HINTS: Record<ArchitecturalRuleSeverity, string> = {
+  error: 'Breaking this is a defect. Agents must not do it.',
+  warning: 'Deviating needs a reason, and the reason should be recorded.',
+  info: 'Context worth knowing. Not enforced.'
+};
 
 /**
- * The related-file list a supersede dialog should start from.
+ * The colour a severity carries.
  *
- * `relatedFiles` is derived from file-only code refs, so it misses paths that
- * carry a symbol. Falling back to the decision's anchors — minus the symbol part,
- * which is not a file — keeps a decision anchored to `src/auth.ts#hashPassword`
- * from losing its anchor when it is replaced.
+ * `info` stays neutral rather than taking a colour of its own: it is not a
+ * warning, and giving it one would put three competing hues in a panel the design
+ * system asks to keep monochrome apart from state.
  */
-export function initialRelatedFiles(decision: ProjectDecision): string[] {
-  const files = new Set<string>(decision.relatedFiles ?? []);
-  for (const label of anchorLabels(decision)) {
-    const [filePath] = label.split('#');
-    // A symbol-only anchor has no path; `anchorLabels` renders it as the bare
-    // symbol, which must not be mistaken for a file.
-    const isSymbolOnly = !label.includes('#') && !label.includes('/') && !label.includes('.');
-    if (filePath && !isSymbolOnly) files.add(filePath);
+export function severityColor(severity: ArchitecturalRuleSeverity): string {
+  switch (severity) {
+    case 'error':
+      return 'var(--color-state-error)';
+    case 'warning':
+      return 'var(--color-state-paused)';
+    default:
+      return 'var(--color-text-muted)';
   }
-  return Array.from(files);
 }
 
-export interface SupersedeDecisionModalProps {
+/** The scope pattern stored when the field is left blank. */
+export const DEFAULT_SCOPE_PATTERN = '*';
+
+/**
+ * The scope pattern a rule is stored with.
+ *
+ * Pulled out of the submit handler so it can be tested: with no DOM environment
+ * the handler itself never runs, and "blank means project-wide" would otherwise
+ * be an untested claim sitting behind a click.
+ */
+export function resolveScopePattern(input: string): string {
+  return input.trim() || DEFAULT_SCOPE_PATTERN;
+}
+
+export interface CreateRuleModalProps {
   projectId: string;
-  /** The decision being replaced. */
-  decision: ProjectDecision;
   onClose: () => void;
-  onSuperseded?: (replacementId: string) => void;
+  onCreated?: (ruleId: string) => void;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -55,24 +73,15 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: '0.06em'
 };
 
-export function SupersedeDecisionModal({
-  projectId,
-  decision,
-  onClose,
-  onSuperseded
-}: SupersedeDecisionModalProps) {
+export function CreateRuleModal({ projectId, onClose, onCreated }: CreateRuleModalProps) {
   const [title, setTitle] = useState('');
-  const [summary, setSummary] = useState('');
-  const [rationale, setRationale] = useState('');
-  // Pre-populated: a replacement usually inherits most of what it replaces, and
-  // retyping constraints from memory is how they quietly get dropped.
-  const [constraints, setConstraints] = useState((decision.constraints ?? []).join('\n'));
-  const [relatedFiles, setRelatedFiles] = useState(initialRelatedFiles(decision).join('\n'));
+  const [statement, setStatement] = useState('');
+  const [severity, setSeverity] = useState<ArchitecturalRuleSeverity>('warning');
+  const [scopePattern, setScopePattern] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit =
-    title.trim().length > 0 && summary.trim().length > 0 && rationale.trim().length > 0 && !submitting;
+  const canSubmit = title.trim().length > 0 && statement.trim().length > 0 && !submitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,19 +89,16 @@ export function SupersedeDecisionModal({
     setSubmitting(true);
     setError(null);
     try {
-      const replacement = await useMemoryStore.getState().supersedeDecision(projectId, decision.id, {
+      const rule = await useMemoryStore.getState().createRule(projectId, {
         title: title.trim(),
-        summary: summary.trim(),
-        rationale: rationale.trim(),
-        constraints: parseList(constraints),
-        relatedFiles: parseList(relatedFiles),
-        provenance: 'HUMAN_CONFIRMED',
-        confidence: 1.0
+        statement: statement.trim(),
+        severity,
+        scopePattern: resolveScopePattern(scopePattern)
       });
-      onSuperseded?.(replacement.id);
+      onCreated?.(rule.id);
       onClose();
     } catch (err) {
-      setError((err as Error).message || 'Could not supersede the decision');
+      setError((err as Error).message || 'Could not add the rule');
       setSubmitting(false);
     }
   };
@@ -115,14 +121,14 @@ export function SupersedeDecisionModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Supersede decision"
+        aria-label="Add architectural rule"
         onClick={e => e.stopPropagation()}
         onKeyDown={e => {
           if (e.key === 'Escape') onClose();
         }}
         style={{
           width: '100%',
-          maxWidth: '560px',
+          maxWidth: '520px',
           maxHeight: '100%',
           overflowY: 'auto',
           background: 'var(--color-surface-3)',
@@ -141,80 +147,76 @@ export function SupersedeDecisionModal({
             color: 'var(--color-text-primary)'
           }}
         >
-          Supersede decision
+          Add architectural rule
         </h2>
         <p style={{ margin: '4px 0 var(--spacing-5)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-          Replacing{' '}
-          <span style={{ color: 'var(--color-text-primary)' }}>{decision.title}</span>. The old decision stays in
-          the timeline, marked superseded and linked to this one.
+          A standing constraint. Every agent session reads these before it starts work.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
           <div>
-            <label style={labelStyle} htmlFor="supersede-title">
-              New title
+            <label style={labelStyle} htmlFor="rule-title">
+              Title
             </label>
             <input
-              id="supersede-title"
+              id="rule-title"
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="Hash passwords with Argon2id"
+              placeholder="Enforce service isolation"
               autoFocus
               style={fieldStyle}
             />
           </div>
 
           <div>
-            <label style={labelStyle} htmlFor="supersede-summary">
-              What is decided now
+            <label style={labelStyle} htmlFor="rule-statement">
+              The rule, as a directive
             </label>
             <textarea
-              id="supersede-summary"
-              value={summary}
-              onChange={e => setSummary(e.target.value)}
-              rows={2}
-              style={{ ...fieldStyle, resize: 'vertical' }}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle} htmlFor="supersede-rationale">
-              Why the previous decision no longer holds
-            </label>
-            <textarea
-              id="supersede-rationale"
-              value={rationale}
-              onChange={e => setRationale(e.target.value)}
+              id="rule-statement"
+              value={statement}
+              onChange={e => setStatement(e.target.value)}
               rows={3}
-              placeholder="What changed since it was made."
+              placeholder="All MCP memory operations must delegate to ProjectMemoryService."
               style={{ ...fieldStyle, resize: 'vertical' }}
             />
           </div>
 
           <div>
-            <label style={labelStyle} htmlFor="supersede-constraints">
-              Constraints — carried over, edit as needed
+            <label style={labelStyle} htmlFor="rule-severity">
+              Severity
             </label>
-            <textarea
-              id="supersede-constraints"
-              value={constraints}
-              onChange={e => setConstraints(e.target.value)}
-              rows={2}
-              style={{ ...fieldStyle, resize: 'vertical' }}
-            />
+            <select
+              id="rule-severity"
+              value={severity}
+              onChange={e => setSeverity(e.target.value as ArchitecturalRuleSeverity)}
+              style={{ ...fieldStyle, cursor: 'pointer' }}
+            >
+              {RULE_SEVERITIES.map(value => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: severityColor(severity) }}>
+              {SEVERITY_HINTS[severity]}
+            </p>
           </div>
 
           <div>
-            <label style={labelStyle} htmlFor="supersede-files">
-              Files this governs — carried over, edit as needed
+            <label style={labelStyle} htmlFor="rule-scope">
+              Scope pattern — optional
             </label>
-            <textarea
-              id="supersede-files"
-              value={relatedFiles}
-              onChange={e => setRelatedFiles(e.target.value)}
-              rows={2}
-              style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'var(--font-family-mono)', fontSize: 'var(--font-size-xs)' }}
+            <input
+              id="rule-scope"
+              value={scopePattern}
+              onChange={e => setScopePattern(e.target.value)}
+              placeholder={DEFAULT_SCOPE_PATTERN}
+              style={{ ...fieldStyle, fontFamily: 'var(--font-family-mono)', fontSize: 'var(--font-size-xs)' }}
             />
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              Which paths the rule covers. Left blank it applies project-wide.
+            </p>
           </div>
 
           {error && (
@@ -266,7 +268,7 @@ export function SupersedeDecisionModal({
                 transition: 'background var(--transition-fast)'
               }}
             >
-              {submitting ? 'Replacing…' : 'Replace decision'}
+              {submitting ? 'Adding…' : 'Add rule'}
             </button>
           </div>
         </form>

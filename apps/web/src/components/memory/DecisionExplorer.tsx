@@ -11,6 +11,13 @@ import { RecordDecisionModal } from './RecordDecisionModal';
 import { MemoryTimelineView } from './MemoryTimelineView';
 import { ReentryBriefingCard } from './ReentryBriefingCard';
 import { DecisionActions } from './DecisionActions';
+import { CreateRuleModal, severityColor } from './CreateRuleModal';
+import { UpdateIntentModal } from './UpdateIntentModal';
+import { anchorLabels, provenanceLabel, buildLineage } from './decisionHelpers';
+import type { Lineage } from './decisionHelpers';
+
+// Re-exported so existing importers (and tests) keep their current entry point.
+export { anchorLabels, provenanceLabel } from './decisionHelpers';
 import { IconFileCode, IconPlus, IconSearch, IconShield, IconTarget, IconUser, IconBot } from '../icons/Icons';
 
 /** Status pills offered in the filter bar. `all` is the default. */
@@ -66,44 +73,6 @@ export function filterDecisions(decisions: ProjectDecision[], filters: DecisionF
   });
 }
 
-/** Splits a decision's anchors into displayable `path#symbol` labels, deduplicated. */
-export function anchorLabels(decision: ProjectDecision): string[] {
-  const labels = (decision.codeRefs ?? [])
-    .map(ref => {
-      if (ref.filePath && ref.symbolName) return `${ref.filePath}#${ref.symbolName}`;
-      return ref.filePath || ref.symbolName || '';
-    })
-    .filter(Boolean);
-
-  // relatedFiles are derived from file-only code refs, so they are usually already
-  // covered above. Include any that are not, without duplicating a path.
-  for (const file of decision.relatedFiles ?? []) {
-    if (!labels.some(l => l === file || l.startsWith(`${file}#`))) labels.push(file);
-  }
-  return labels;
-}
-
-/**
- * How a decision entered memory, rendered so a reviewer can weigh it at a glance.
- *
- * DEC-024 exists precisely so an agent's unprompted assertion is distinguishable
- * from something a human approved. That distinction is worth nothing if the UI
- * renders both identically, so human-confirmed decisions carry the accent and
- * agent statements stay neutral — the accent means "a person stood behind this".
- */
-export function provenanceLabel(decision: ProjectDecision): { text: string; isHuman: boolean } {
-  const percent = Math.round((decision.confidence ?? 0) * 100);
-  switch (decision.provenance) {
-    case 'HUMAN_CONFIRMED':
-      return { text: `Human · ${percent}%`, isHuman: true };
-    case 'REPOSITORY_EVIDENCE':
-      return { text: `Repository · ${percent}%`, isHuman: false };
-    case 'INFERRED':
-      return { text: `Inferred · ${percent}%`, isHuman: false };
-    default:
-      return { text: `Agent · ${percent}%`, isHuman: false };
-  }
-}
 
 function formatDate(ms: number): string {
   try {
@@ -121,6 +90,20 @@ const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-2)',
   border: '1px solid var(--color-border-subtle)',
   borderRadius: 'var(--radius-md)'
+};
+
+/** The quiet control that sits in a panel header. */
+const panelActionStyle: React.CSSProperties = {
+  height: '24px',
+  padding: '0 10px',
+  background: 'transparent',
+  border: '1px solid var(--color-border-subtle)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--color-text-secondary)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 'var(--font-weight-medium)' as any,
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)'
 };
 
 const labelStyle: React.CSSProperties = {
@@ -199,10 +182,21 @@ function ProvenanceBadge({ decision }: { decision: ProjectDecision }) {
   );
 }
 
-function DecisionCard({ decision, projectId }: { decision: ProjectDecision; projectId: string | null }) {
+function DecisionCard({
+  decision,
+  projectId,
+  lineage
+}: {
+  decision: ProjectDecision;
+  projectId: string | null;
+  lineage?: Lineage;
+}) {
   const [showRationale, setShowRationale] = useState(false);
   const anchors = anchorLabels(decision);
   const constraints = decision.constraints ?? [];
+  // Either direction of the bidirectional `supersededBy` link resolves to the
+  // same place: the counterpart decision, named rather than numbered.
+  const link = lineage?.replacedBy ?? lineage?.replaces;
 
   return (
     <article style={{ ...panelStyle, padding: 'var(--spacing-4)' }}>
@@ -345,8 +339,16 @@ function DecisionCard({ decision, projectId }: { decision: ProjectDecision; proj
           }}
         >
           {decision.status === 'SUPERSEDED' ? 'Superseded by' : 'Supersedes'}{' '}
-          <span style={{ fontFamily: 'var(--font-family-mono)', color: 'var(--color-text-secondary)' }}>
-            {decision.supersededBy}
+          <span
+            title={decision.supersededBy}
+            style={{
+              // A resolved counterpart reads as prose; an unresolved one is a raw
+              // id and is set in mono so it is obviously an identifier.
+              fontFamily: link?.resolved ? undefined : 'var(--font-family-mono)',
+              color: 'var(--color-text-secondary)'
+            }}
+          >
+            {link?.title ?? decision.supersededBy}
           </span>
         </div>
       )}
@@ -354,11 +356,28 @@ function DecisionCard({ decision, projectId }: { decision: ProjectDecision; proj
   );
 }
 
-function IntentCard({ goal, constraints, nonGoals }: { goal: string; constraints: string[]; nonGoals: string[] }) {
+function IntentCard({
+  goal,
+  constraints,
+  nonGoals,
+  onEdit
+}: {
+  goal: string;
+  constraints: string[];
+  nonGoals: string[];
+  onEdit?: () => void;
+}) {
   return (
     <div style={{ ...panelStyle, padding: 'var(--spacing-4)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', ...labelStyle }}>
-        <IconTarget size={12} /> Current intent
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', ...labelStyle }}>
+          <IconTarget size={12} /> Current intent
+        </span>
+        {onEdit && (
+          <button type="button" onClick={onEdit} style={panelActionStyle}>
+            Update intent
+          </button>
+        )}
       </div>
       <p
         style={{
@@ -398,20 +417,36 @@ function IntentCard({ goal, constraints, nonGoals }: { goal: string; constraints
   );
 }
 
-function RuleList({ rules }: { rules: ArchitecturalRule[] }) {
-  if (rules.length === 0) return null;
+function RuleList({ rules, onAdd }: { rules: ArchitecturalRule[]; onAdd?: () => void }) {
+  if (rules.length === 0 && !onAdd) return null;
   return (
     <div style={{ ...panelStyle, padding: 'var(--spacing-4)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', ...labelStyle }}>
-        <IconShield size={12} /> Standing rules ({rules.length})
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', ...labelStyle }}>
+          <IconShield size={12} /> Standing rules ({rules.length})
+        </span>
+        {onAdd && (
+          <button type="button" onClick={onAdd} style={panelActionStyle}>
+            Add rule
+          </button>
+        )}
       </div>
-      <ul style={{ margin: 'var(--spacing-2) 0 0', paddingLeft: 'var(--spacing-4)' }}>
-        {rules.map(rule => (
-          <li key={rule.id} style={{ fontSize: 'var(--font-size-sm)', lineHeight: 'var(--line-height-normal)', color: 'var(--color-text-secondary)' }}>
-            <span style={{ color: 'var(--color-text-primary)' }}>{rule.title}</span> — {rule.statement}
-          </li>
-        ))}
-      </ul>
+      {rules.length === 0 ? (
+        <p style={{ margin: 'var(--spacing-2) 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+          No standing rules yet. Rules are the constraints every agent session is held to.
+        </p>
+      ) : (
+        <ul style={{ margin: 'var(--spacing-2) 0 0', paddingLeft: 'var(--spacing-4)' }}>
+          {rules.map(rule => (
+            <li key={rule.id} style={{ fontSize: 'var(--font-size-sm)', lineHeight: 'var(--line-height-normal)', color: 'var(--color-text-secondary)' }}>
+              <span style={{ color: 'var(--color-text-primary)' }}>{rule.title}</span> — {rule.statement}
+              <span style={{ marginLeft: '6px', fontSize: 'var(--font-size-xs)', color: severityColor(rule.severity) }}>
+                {rule.severity}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -434,6 +469,8 @@ export interface DecisionExplorerViewProps extends DecisionExplorerProps {
   error: string | null;
   /** Initial lens. Exposed so a render test can reach the timeline. */
   initialMode?: MemoryMode;
+  /** Initial status pill. Exposed so a render test can reach a filtered view. */
+  initialStatusFilter?: StatusFilter;
 }
 
 /**
@@ -455,18 +492,25 @@ export function DecisionExplorerView({
   briefing,
   loading,
   error,
-  initialMode = 'explorer'
+  initialMode = 'explorer',
+  initialStatusFilter = 'all'
 }: DecisionExplorerViewProps) {
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('all');
+  const [status, setStatus] = useState<StatusFilter>(initialStatusFilter);
   const [filePath, setFilePath] = useState('');
   const [recording, setRecording] = useState(false);
+  const [editingIntent, setEditingIntent] = useState(false);
+  const [addingRule, setAddingRule] = useState(false);
   const [mode, setMode] = useState<MemoryMode>(initialMode);
 
   const visible = useMemo(
     () => filterDecisions(decisions, { query, status, filePath }),
     [decisions, query, status, filePath]
   );
+
+  // Built from the full list, not the filtered one: a decision's counterpart may
+  // be filtered out of view while still being the thing its link should name.
+  const lineage = useMemo(() => buildLineage(decisions), [decisions]);
 
   const filtersActive = query.trim() !== '' || filePath.trim() !== '' || status !== 'all';
 
@@ -577,20 +621,32 @@ export function DecisionExplorerView({
 
       {mode === 'timeline' ? (
         <>
-          <ReentryBriefingCard briefing={briefing} />
+          <ReentryBriefingCard briefing={briefing} projectId={projectId} />
           <MemoryTimelineView decisions={decisions} projectId={projectId} />
         </>
       ) : (
         <>
-      {activeIntent && (
+      {activeIntent ? (
         <IntentCard
           goal={activeIntent.goal}
           constraints={activeIntent.constraints ?? []}
           nonGoals={activeIntent.nonGoals ?? []}
+          onEdit={projectId ? () => setEditingIntent(true) : undefined}
         />
+      ) : (
+        projectId && (
+          <div style={{ ...panelStyle, padding: 'var(--spacing-4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+            <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+              No intent set. Say what this project is currently trying to achieve.
+            </span>
+            <button type="button" onClick={() => setEditingIntent(true)} style={panelActionStyle}>
+              Set intent
+            </button>
+          </div>
+        )
       )}
 
-      <RuleList rules={rules} />
+      <RuleList rules={rules} onAdd={projectId ? () => setAddingRule(true) : undefined} />
 
       {/* Filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', alignItems: 'center' }}>
@@ -710,7 +766,12 @@ export function DecisionExplorerView({
             </div>
           )}
           {visible.map(decision => (
-            <DecisionCard key={decision.id} decision={decision} projectId={projectId} />
+            <DecisionCard
+              key={decision.id}
+              decision={decision}
+              projectId={projectId}
+              lineage={lineage.get(decision.id)}
+            />
           ))}
         </div>
       )}
@@ -720,6 +781,16 @@ export function DecisionExplorerView({
 
       {recording && projectId && (
         <RecordDecisionModal projectId={projectId} onClose={() => setRecording(false)} />
+      )}
+      {editingIntent && projectId && (
+        <UpdateIntentModal
+          projectId={projectId}
+          currentIntent={activeIntent}
+          onClose={() => setEditingIntent(false)}
+        />
+      )}
+      {addingRule && projectId && (
+        <CreateRuleModal projectId={projectId} onClose={() => setAddingRule(false)} />
       )}
     </div>
   );

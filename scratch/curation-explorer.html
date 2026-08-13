@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><style>:root {
+  /* ==========================================
+     Surfaces (Neutral Slate 4-Tier Elevation Stack)
+     ========================================== */
+  --color-surface-0: #0b0c0e; /* Deep Canvas (Underlay) */
+  --color-surface-1: #121417; /* Primary Panel Surface (TopBar, Sidebar, Workspace) */
+  --color-surface-2: #191c20; /* Elevated Interactive / Sub-panel Surface */
+  --color-surface-3: #22262c; /* Active Selection / Floating Modal / Dropdown */
+
+  --color-bg-base: var(--color-surface-0);
+  --color-bg-elevated: var(--color-surface-1);
+  --color-bg-overlay: rgba(11, 12, 14, 0.88);
+
+  /* ==========================================
+     Borders (Sub-Pixel Hairlines & Inset Highlights)
+     ========================================== */
+  --color-border-subtle: rgba(255, 255, 255, 0.06); /* 1px Vertical Hairline Splitters */
+  --color-border-default: rgba(255, 255, 255, 0.12); /* Card & Control Boundaries */
+  --color-border-strong: rgba(255, 255, 255, 0.20); /* Hover & Focus Boundaries */
+  --color-border-hover: rgba(255, 255, 255, 0.28);
+  --color-border-focus: var(--color-accent-primary);
+
+  /* ==========================================
+     Text & Typography Hierarchy (WCAG AAA Compliant)
+     ========================================== */
+  --color-text-primary: #f1f5f9;   /* High-Contrast Primary Body (#f1f5f9 vs #121417 = 13.8:1) */
+  --color-text-secondary: #94a3b8; /* Secondary Labels & Structural Text (#94a3b8 vs #121417 = 6.2:1) */
+  --color-text-muted: #64748b;     /* Timestamps & Secondary Metadata (#64748b vs #121417 = 3.8:1) */
+  --color-text-contrast: #ffffff;
+
+  /* ==========================================
+     High-Precision Emerald Engineering Accent
+     ========================================== */
+  --color-accent-primary: #10b981;
+  --color-accent-hover: #34d399;
+  --color-accent-subtle: rgba(16, 185, 129, 0.12);
+  --color-accent-glow: rgba(16, 185, 129, 0.25);
+
+  /* ==========================================
+     Agent Execution States
+     ========================================== */
+  --color-state-working: #10b981;
+  --color-state-working-bg: rgba(16, 185, 129, 0.12);
+
+  --color-state-paused: #f59e0b;
+  --color-state-paused-bg: rgba(245, 158, 11, 0.12);
+
+  --color-state-waiting: #a855f7;
+  --color-state-waiting-bg: rgba(168, 85, 247, 0.12);
+
+  --color-state-completed: #10b981;
+  --color-state-completed-bg: rgba(16, 185, 129, 0.12);
+
+  --color-state-error: #ef4444;
+  --color-state-error-bg: rgba(239, 68, 68, 0.12);
+
+  /* Legacy Semantic Mappings */
+  --color-success-primary: var(--color-state-completed);
+  --color-warning-primary: var(--color-state-paused);
+  --color-error-primary: var(--color-state-error);
+
+  /* ==========================================
+     Typography Scale & Line Heights (PR8 Targets)
+     ========================================== */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Explicit PR8 Target Scale */
+  --font-size-xs: 12px;   /* Timestamps, Caps, Secondary Badges */
+  --font-size-sm: 13.5px; /* Monospace Code Logs, Sub-labels, Secondary Lists */
+  --font-size-md: 15px;   /* Core Body Paragraphs, Chat Bubbles, Inputs */
+  --font-size-lg: 16px;   /* Panel Titles, Tab Headers, Section Subheads */
+  --font-size-xl: 20px;   /* Main Page / Thread Title */
+
+  /* Measurable Line-Heights & Font Features */
+  --line-height-tight: 1.25;  /* Headers & Compact Badges */
+  --line-height-normal: 1.55; /* Extended Paragraph Body Text */
+  --line-height-code: 1.50;   /* Monospace Code & Terminal Output */
+  --line-height-relaxed: 1.65; /* Relaxed Ergonomic Reading */
+
+  --font-variant-num: tabular-nums;
+  --font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ==========================================
+     Spacing Scale (4px Base Grid)
+     ========================================== */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+
+  /* ==========================================
+     Control Heights (PR8 Standards)
+     ========================================== */
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;  /* Primary Action Buttons (Send, New Project) */
+  --control-height-input: 48px; /* Chat Input Area */
+
+  /* ==========================================
+     Border Radii
+     ========================================== */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* ==========================================
+     Shadows & Elevations
+     ========================================== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.65);
+  --shadow-focus: 0 0 0 2px var(--color-accent-glow);
+
+  /* ==========================================
+     Z-Index Layering
+     ========================================== */
+  --z-index-base: 1;
+  --z-index-dropdown: 100;
+  --z-index-sticky: 200;
+  --z-index-overlay: 1000;
+  --z-index-modal: 1050;
+  --z-index-toast: 2000;
+
+  /* ==========================================
+     Motion & Transition Physics (PR10 Standards)
+     ========================================== */
+  --ease-out-cubic: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --active-scale: scale(0.98);
+
+  /* ==========================================
+     Layout Dimensions
+     ========================================== */
+  --nav-height: 48px;
+  --sidebar-nav-width: 240px;
+  --sidebar-session-width: 240px;
+}
+
+  html,body{height:100%}#root{height:100%;display:flex;flex-direction:column}*{box-sizing:border-box}
+  body{margin:0;background:var(--color-surface-1);color:var(--color-text-primary);font-family:var(--font-family-sans);-webkit-font-smoothing:antialiased}
+  h2,h3,p,ul{margin:0}ul{padding-left:18px}button,select,input,textarea{font-family:inherit}</style></head><body><div id="root"><div style="display:flex;flex-direction:column;gap:var(--spacing-4);padding:var(--spacing-6);height:100%;overflow-y:auto;box-sizing:border-box"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--spacing-4)"><div><h2 style="margin:0;font-size:var(--font-size-xl);font-weight:var(--font-weight-semibold);color:var(--color-text-primary)">Project Memory</h2><p style="margin:4px 0 0;font-size:var(--font-size-sm);color:var(--color-text-secondary)">2 decisions · 2 rules</p></div><div style="display:flex;align-items:center;gap:var(--spacing-2)"><div role="tablist" aria-label="Memory view" style="display:flex;gap:2px;padding:2px;background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md)"><button type="button" role="tab" aria-selected="true" style="height:28px;padding:0 var(--spacing-3);background:var(--color-surface-3);border:none;border-radius:var(--radius-sm);color:var(--color-text-primary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;text-transform:capitalize;transition:all var(--transition-fast)">explorer</button><button type="button" role="tab" aria-selected="false" style="height:28px;padding:0 var(--spacing-3);background:transparent;border:none;border-radius:var(--radius-sm);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;text-transform:capitalize;transition:all var(--transition-fast)">timeline</button></div><button type="button" style="display:inline-flex;align-items:center;gap:6px;height:var(--control-height-md);padding:0 var(--spacing-4);background:var(--color-accent-primary);color:#042114;border:none;border-radius:var(--radius-md);font-size:var(--font-size-sm);font-weight:var(--font-weight-semibold);cursor:pointer;transition:background var(--transition-fast)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Record decision</button></div></div><div style="background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:var(--spacing-4)"><div style="display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-3)"><span style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg> Current intent</span><button type="button" style="height:24px;padding:0 10px;background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">Update intent</button></div><p style="margin:var(--spacing-2) 0 0;font-size:var(--font-size-md);color:var(--color-text-primary);line-height:var(--line-height-normal)">Migrate authentication to Argon2id across the server and relay</p><div style="display:flex;flex-wrap:wrap;gap:var(--spacing-6);margin-top:var(--spacing-3)"><div><div style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em">Constraints</div><ul style="margin:6px 0 0;padding-left:var(--spacing-4)"><li style="font-size:var(--font-size-sm);color:var(--color-text-secondary)">No downtime</li></ul></div><div><div style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em">Not doing</div><ul style="margin:6px 0 0;padding-left:var(--spacing-4)"><li style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Changing the session token format</li></ul></div></div></div><div style="background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:var(--spacing-4)"><div style="display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-3)"><span style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Standing rules (2)</span><button type="button" style="height:24px;padding:0 10px;background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">Add rule</button></div><ul style="margin:var(--spacing-2) 0 0;padding-left:var(--spacing-4)"><li style="font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)"><span style="color:var(--color-text-primary)">No credentials in the repository</span> — Secrets are read from the environment; never commit them.<span style="margin-left:6px;font-size:var(--font-size-xs);color:var(--color-state-error)">error</span></li><li style="font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)"><span style="color:var(--color-text-primary)">Prefer node:sqlite</span> — Avoid adding a native database driver.<span style="margin-left:6px;font-size:var(--font-size-xs);color:var(--color-text-muted)">info</span></li></ul></div><div style="display:flex;flex-wrap:wrap;gap:var(--spacing-2);align-items:center"><label style="position:relative;display:inline-flex;align-items:center;flex:1 1 240px"><span style="position:absolute;left:10px;display:inline-flex;color:var(--color-text-muted)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></span><input type="search" placeholder="Search decisions" aria-label="Search decisions" style="width:100%;height:var(--control-height-sm);padding:0 var(--spacing-3) 0 30px;background:var(--color-surface-1);border:1px solid var(--color-border-default);border-radius:var(--radius-md);color:var(--color-text-primary);font-size:var(--font-size-sm);box-sizing:border-box" value=""/></label><input type="text" placeholder="Filter by file path" aria-label="Filter by file path" style="flex:1 1 200px;height:var(--control-height-sm);padding:0 var(--spacing-3);background:var(--color-surface-1);border:1px solid var(--color-border-default);border-radius:var(--radius-md);color:var(--color-text-primary);font-family:var(--font-family-mono);font-size:var(--font-size-xs);box-sizing:border-box" value=""/><div style="display:flex;gap:4px"><button type="button" aria-pressed="true" style="height:var(--control-height-sm);padding:0 var(--spacing-3);background:var(--color-surface-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-full);color:var(--color-text-primary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">All</button><button type="button" aria-pressed="false" style="height:var(--control-height-sm);padding:0 var(--spacing-3);background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-full);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">ACTIVE</button><button type="button" aria-pressed="false" style="height:var(--control-height-sm);padding:0 var(--spacing-3);background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-full);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">SUPERSEDED</button><button type="button" aria-pressed="false" style="height:var(--control-height-sm);padding:0 var(--spacing-3);background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-full);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">ARCHIVED</button><button type="button" aria-pressed="false" style="height:var(--control-height-sm);padding:0 var(--spacing-3);background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-full);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast)">STALE</button></div></div><div style="display:flex;flex-direction:column;gap:var(--spacing-3)"><article style="background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:var(--spacing-4)"><div style="display:flex;align-items:flex-start;gap:var(--spacing-3)"><h3 style="margin:0;flex:1;min-width:0;font-size:var(--font-size-lg);font-weight:var(--font-weight-semibold);color:var(--color-text-primary);line-height:var(--line-height-tight)">Hash passwords with Argon2id</h3><span style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);letter-spacing:0.04em;padding:2px 8px;border-radius:var(--radius-full);color:var(--color-accent-primary);background:var(--color-accent-subtle);border:1px solid var(--color-accent-subtle)">ACTIVE</span></div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-2);margin-top:var(--spacing-2)"><span title="Provenance: HUMAN_CONFIRMED · Confidence: 100%" style="display:inline-flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);padding:2px 8px;border-radius:var(--radius-full);color:var(--color-accent-primary);background:var(--color-accent-subtle);border:1px solid var(--color-accent-subtle)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Human · 100%<span aria-hidden="true" style="width:32px;height:2px;border-radius:1px;background:rgba(255,255,255,0.10);overflow:hidden"><span style="display:block;width:100%;height:100%;background:var(--color-accent-primary)"></span></span></span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums">Aug 14, 2026</span></div><p style="margin:var(--spacing-3) 0 0;font-size:var(--font-size-md);line-height:var(--line-height-normal);color:var(--color-text-primary)">Argon2id, 64 MiB memory cost, 3 iterations.</p><div style="margin-top:var(--spacing-3)"><button type="button" aria-expanded="false" style="background:transparent;border:none;padding:0;cursor:pointer;color:var(--color-text-secondary);font-size:var(--font-size-sm);font-weight:var(--font-weight-medium)">+ Why this was decided</button></div><div style="margin-top:var(--spacing-4)"><div style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em">Anchored to</div><div style="display:flex;flex-wrap:wrap;gap:var(--spacing-2);margin-top:var(--spacing-2)"><span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:var(--radius-sm);background:rgba(255,255,255,0.04);border:1px solid var(--color-border-subtle);font-family:var(--font-family-mono);font-size:var(--font-size-xs);color:var(--color-text-secondary)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="10 13 8 15 10 17"></polyline><polyline points="14 13 16 15 14 17"></polyline></svg>apps/server/src/services/AuthService.ts</span></div></div><div style="margin-top:var(--spacing-3)"><div style="display:flex;flex-wrap:wrap;gap:6px"><button type="button" aria-label="Supersede: Hash passwords with Argon2id" style="height:26px;padding:0 10px;background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast);opacity:1">Supersede</button><button type="button" aria-label="Mark stale: Hash passwords with Argon2id" style="height:26px;padding:0 10px;background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);color:var(--color-state-paused);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast);opacity:1">Mark stale</button><button type="button" aria-label="Archive: Hash passwords with Argon2id" style="height:26px;padding:0 10px;background:transparent;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);color:var(--color-state-paused);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;transition:all var(--transition-fast);opacity:1">Archive</button></div></div><div style="margin-top:var(--spacing-4);padding-top:var(--spacing-3);border-top:1px solid var(--color-border-subtle);font-size:var(--font-size-xs);color:var(--color-text-muted)">Supersedes <span title="d2" style="color:var(--color-text-secondary)">Hash passwords with bcrypt</span></div></article><article style="background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:var(--spacing-4)"><div style="display:flex;align-items:flex-start;gap:var(--spacing-3)"><h3 style="margin:0;flex:1;min-width:0;font-size:var(--font-size-lg);font-weight:var(--font-weight-semibold);color:var(--color-text-primary);line-height:var(--line-height-tight)">Hash passwords with bcrypt</h3><span style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);letter-spacing:0.04em;padding:2px 8px;border-radius:var(--radius-full);color:var(--color-text-muted);background:rgba(255,255,255,0.04);border:1px solid var(--color-border-subtle)">SUPERSEDED</span></div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-2);margin-top:var(--spacing-2)"><span title="Provenance: REPOSITORY_EVIDENCE · Confidence: 90%" style="display:inline-flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);padding:2px 8px;border-radius:var(--radius-full);color:var(--color-text-secondary);background:rgba(255,255,255,0.04);border:1px solid var(--color-border-subtle)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8.01" y2="16"></line><line x1="16" y1="16" x2="16.01" y2="16"></line></svg>Repository · 90%<span aria-hidden="true" style="width:32px;height:2px;border-radius:1px;background:rgba(255,255,255,0.10);overflow:hidden"><span style="display:block;width:90%;height:100%;background:var(--color-text-muted)"></span></span></span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums">Aug 8, 2026</span></div><p style="margin:var(--spacing-3) 0 0;font-size:var(--font-size-md);line-height:var(--line-height-normal);color:var(--color-text-primary)">bcrypt at cost factor 12.</p><div style="margin-top:var(--spacing-3)"><button type="button" aria-expanded="false" style="background:transparent;border:none;padding:0;cursor:pointer;color:var(--color-text-secondary);font-size:var(--font-size-sm);font-weight:var(--font-weight-medium)">+ Why this was decided</button></div><div style="margin-top:var(--spacing-4);padding-top:var(--spacing-3);border-top:1px solid var(--color-border-subtle);font-size:var(--font-size-xs);color:var(--color-text-muted)">Superseded by <span title="d1" style="color:var(--color-text-secondary)">Hash passwords with Argon2id</span></div></article></div></div></div></body></html>

@@ -1,7 +1,12 @@
 import React from 'react';
 import type { ProjectDecision } from '@asterim/shared';
-import { anchorLabels, provenanceLabel } from './DecisionExplorer';
+import { anchorLabels, provenanceLabel, buildLineage } from './decisionHelpers';
+import type { Lineage } from './decisionHelpers';
 import { DecisionActions } from './DecisionActions';
+
+// Re-exported so existing importers (and tests) keep their current entry point.
+export { buildLineage } from './decisionHelpers';
+export type { Lineage, LineageLink } from './decisionHelpers';
 
 /** One day's worth of decisions, newest day first, newest decision first within it. */
 export interface TimelineGroup {
@@ -54,50 +59,6 @@ export function groupDecisionsByDay(decisions: ProjectDecision[]): TimelineGroup
   return ordered;
 }
 
-/** One end of a supersession link, resolved to a title where the counterpart is loaded. */
-export interface LineageLink {
-  id: string;
-  title: string;
-  /** False when only the id is known, because the other decision is not in view. */
-  resolved: boolean;
-}
-
-export interface Lineage {
-  /** The decision that replaced this one. */
-  replacedBy?: LineageLink;
-  /** The decision this one replaced. */
-  replaces?: LineageLink;
-}
-
-/**
- * Resolves each decision's supersession links.
- *
- * `supersededBy` carries two opposite meanings depending on `status`: on a
- * SUPERSEDED decision it names the replacement, and on the ACTIVE replacement it
- * names what was replaced. That is recorded as drift in
- * `blueprint/audit/IMPLEMENTATION_DRIFT.md` § 4; until it is split into two fields,
- * a consumer has to read `status` to know which way the link points, and this is
- * the one place in the UI that does so.
- */
-export function buildLineage(decisions: ProjectDecision[]): Map<string, Lineage> {
-  const byId = new Map(decisions.map(d => [d.id, d]));
-  const link = (id: string): LineageLink => {
-    const target = byId.get(id);
-    return target ? { id, title: target.title, resolved: true } : { id, title: id, resolved: false };
-  };
-
-  const lineage = new Map<string, Lineage>();
-  for (const decision of decisions) {
-    if (!decision.supersededBy) continue;
-    lineage.set(
-      decision.id,
-      decision.status === 'SUPERSEDED'
-        ? { replacedBy: link(decision.supersededBy) }
-        : { replaces: link(decision.supersededBy) }
-    );
-  }
-  return lineage;
-}
 
 // --- Rendering ---
 

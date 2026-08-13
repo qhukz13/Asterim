@@ -384,6 +384,105 @@ async function main(): Promise<void> {
   check('it is a modal dialog', archiveHtml.includes('role="dialog"'));
   check('the confirm control is not the emerald primary', !archiveHtml.includes('#042114'), 'archive is not a happy path');
 
+  // --- Rule and intent curation ---------------------------------------------
+  describe('CreateRuleModal');
+
+  const ruleMod = await import('../CreateRuleModal');
+  const { severityColor, RULE_SEVERITIES, SEVERITY_HINTS, DEFAULT_SCOPE_PATTERN, resolveScopePattern, CreateRuleModal } =
+    ruleMod;
+
+  equal('warning is offered first, as the default', RULE_SEVERITIES[0], 'warning');
+  equal('all three severities are offered', [...RULE_SEVERITIES].sort(), ['error', 'info', 'warning']);
+  equal('every severity explains itself', Object.keys(SEVERITY_HINTS).sort(), ['error', 'info', 'warning']);
+  equal('error is red', severityColor('error'), 'var(--color-state-error)');
+  equal('warning is amber', severityColor('warning'), 'var(--color-state-paused)');
+  equal('info stays neutral', severityColor('info'), 'var(--color-text-muted)');
+  equal('a blank scope means project-wide', DEFAULT_SCOPE_PATTERN, '*');
+  equal('an empty scope field resolves to the default', resolveScopePattern(''), '*');
+  equal('a whitespace-only scope field resolves to the default', resolveScopePattern('   '), '*');
+  equal('a supplied scope is kept', resolveScopePattern('apps/server/**'), 'apps/server/**');
+  equal('a supplied scope is trimmed', resolveScopePattern('  src/**  '), 'src/**');
+
+  const ruleHtml = renderToStaticMarkup(
+    React.createElement(CreateRuleModal, { projectId: 'p', onClose: () => {} })
+  );
+  check('the dialog is titled', ruleHtml.includes('Add architectural rule'));
+  check('it says who reads these', ruleHtml.includes('Every agent session reads these'));
+  check('it has a title field', ruleHtml.includes('id="rule-title"'));
+  check('a statement field', ruleHtml.includes('id="rule-statement"'));
+  check('a severity select', ruleHtml.includes('id="rule-severity"') && ruleHtml.includes('<select'));
+  check('a scope pattern field', ruleHtml.includes('id="rule-scope"'));
+  check('severity defaults to warning', ruleHtml.includes('value="warning" selected') || ruleHtml.includes('selected=""'));
+  check('the default severity hint is shown', ruleHtml.includes(SEVERITY_HINTS.warning));
+  check('the scope field shows its default as a placeholder', ruleHtml.includes('placeholder="*"'));
+  check('it is a modal dialog', ruleHtml.includes('role="dialog"') && ruleHtml.includes('aria-modal="true"'));
+  check('submit starts disabled', ruleHtml.includes('disabled'));
+
+  describe('UpdateIntentModal');
+
+  const intentMod = await import('../UpdateIntentModal');
+  const { UpdateIntentModal } = intentMod;
+
+  // Deliberately unlike the component's placeholder text. An earlier version of
+  // this fixture reused the placeholders verbatim, so every "pre-populated"
+  // assertion below passed against the placeholder and proved nothing.
+  const existing = intent({
+    goal: 'Retire the legacy billing importer',
+    constraints: ['Keep the CSV export byte-identical', 'Ship behind a flag'],
+    nonGoals: ['Touching the invoice PDF renderer']
+  });
+  const updateHtml = renderToStaticMarkup(
+    React.createElement(UpdateIntentModal, { projectId: 'p', currentIntent: existing, onClose: () => {} })
+  );
+  check('it is titled as an update', updateHtml.includes('Update project intent'));
+  check('the goal is pre-populated', updateHtml.includes('Retire the legacy billing importer'));
+  check(
+    'constraints are pre-populated one per line',
+    updateHtml.includes('Keep the CSV export byte-identical\nShip behind a flag')
+  );
+  check('non-goals are pre-populated', updateHtml.includes('Touching the invoice PDF renderer'));
+  check(
+    'it says the previous intent is archived, not amended',
+    updateHtml.includes('archives the current intent'),
+    'createIntent has no update path — the user should know'
+  );
+  check('the submit label says replace', updateHtml.includes('Replace intent'));
+
+  const firstHtml = renderToStaticMarkup(
+    React.createElement(UpdateIntentModal, { projectId: 'p', currentIntent: null, onClose: () => {} })
+  );
+  check('with no intent it is titled as setting one', firstHtml.includes('Set project intent'));
+  check('and does not threaten to archive anything', !firstHtml.includes('archives the current intent'));
+  check('the submit label says set', firstHtml.includes('Set intent'));
+  check('the goal field starts empty', firstHtml.includes('id="intent-goal"'));
+
+  describe('curation controls in the briefing card');
+
+  const editableBriefing = renderToStaticMarkup(
+    React.createElement(briefingMod.ReentryBriefingCard, {
+      briefing: briefing({ currentIntent: intent(), architecturalRules: [rule()] }),
+      now: NOW,
+      projectId: 'p'
+    })
+  );
+  check('the briefing offers Update intent', editableBriefing.includes('Update intent'));
+  check('and Add rule', editableBriefing.includes('Add rule'));
+
+  const emptyEditable = renderToStaticMarkup(
+    React.createElement(briefingMod.ReentryBriefingCard, {
+      briefing: briefing(),
+      now: NOW,
+      projectId: 'p'
+    })
+  );
+  check('with no intent the briefing offers Set intent', emptyEditable.includes('Set intent'));
+  check('the rules section appears even when empty, so the first can be added', emptyEditable.includes('Add rule'));
+  check('and says there are none yet', emptyEditable.includes('No standing rules yet'));
+
+  const readOnlyBriefing = renderBriefing(briefing({ currentIntent: intent(), architecturalRules: [rule()] }));
+  check('without a project the briefing is read-only', !readOnlyBriefing.includes('Update intent') && !readOnlyBriefing.includes('Add rule'));
+  check('but still renders its content', readOnlyBriefing.includes('Migrate authentication to Argon2id'));
+
   // --- relativeTime ----------------------------------------------------------
   describe('relativeTime');
 

@@ -420,6 +420,81 @@ async function main(): Promise<void> {
     'the field is bidirectional — see IMPLEMENTATION_DRIFT.md § 4'
   );
 
+  describe('supersededBy resolves to a title');
+
+  const oldDecision = decision({ id: 'old', title: 'Hash passwords with bcrypt', status: 'SUPERSEDED', supersededBy: 'new' });
+  const newDecision = decision({ id: 'new', title: 'Hash passwords with Argon2id', status: 'ACTIVE', supersededBy: 'old' });
+  const pairHtml = render({ decisions: [oldDecision, newDecision] });
+
+  check('the superseded card names its replacement', pairHtml.includes('Superseded by'));
+  check('and by title, not id', pairHtml.includes('Superseded by</span> <span title="new">Hash passwords with Argon2id') || pairHtml.includes('Hash passwords with Argon2id</span>'));
+  check('the replacement names what it replaced', pairHtml.includes('Supersedes'));
+  check('the raw id is kept as a tooltip', pairHtml.includes('title="new"') && pairHtml.includes('title="old"'));
+
+  // The counterpart is not loaded: the id is all there is, and it should look
+  // like an identifier rather than pretend to be a title.
+  const orphanHtml = render({ decisions: [decision({ id: 'a', status: 'SUPERSEDED', supersededBy: 'not-loaded' })] });
+  check('an unresolved link still shows the id', orphanHtml.includes('not-loaded'));
+  check('and sets it in mono so it reads as an identifier', orphanHtml.includes('font-family:var(--font-family-mono)'));
+
+  // A filtered-out counterpart must still resolve. Filtering to ACTIVE hides the
+  // superseded decision entirely, so the surviving card can only name it if
+  // lineage was built from the full list rather than the visible one.
+  const filteredHtml = renderToStaticMarkup(
+    React.createElement(explorer.DecisionExplorerView, {
+      projectId: 'p',
+      decisions: [oldDecision, newDecision],
+      rules: [],
+      activeIntent: null,
+      briefing: null,
+      loading: false,
+      error: null,
+      initialStatusFilter: 'ACTIVE' as const
+    })
+  );
+  check(
+    'the filter really hid the counterpart',
+    !filteredHtml.includes('bcrypt at cost factor') && filteredHtml.includes('Showing 1 of 2'),
+    'the fixture must actually be filtered for the next assertion to mean anything'
+  );
+  check(
+    'lineage still resolves the hidden counterpart by title',
+    filteredHtml.includes('Hash passwords with bcrypt'),
+    'lineage must be built from the full list, not the visible one'
+  );
+
+  describe('curation controls');
+
+  const curatable = render({ decisions: [], rules: [rule()], activeIntent: intent() });
+  check('the intent panel offers Update intent', curatable.includes('Update intent'));
+  check('the rules panel offers Add rule', curatable.includes('Add rule'));
+
+  const noIntentHtml = render({ decisions: [], rules: [], activeIntent: null });
+  check('with no intent the panel offers Set intent', noIntentHtml.includes('Set intent'));
+  check('and explains what an intent is for', noIntentHtml.includes('No intent set'));
+  check('with no rules the panel still offers Add rule', noIntentHtml.includes('Add rule'));
+  check('and says why rules matter', noIntentHtml.includes('No standing rules yet'));
+
+  const readOnlyPanels = renderToStaticMarkup(
+    React.createElement(explorer.DecisionExplorerView, {
+      projectId: null,
+      decisions: [],
+      rules: [rule()],
+      activeIntent: intent(),
+      briefing: null,
+      loading: false,
+      error: null
+    })
+  );
+  check('without a project the intent panel is read-only', !readOnlyPanels.includes('Update intent'));
+  check('and no rule can be added', !readOnlyPanels.includes('Add rule'));
+
+  const severityHtml = render({
+    decisions: [],
+    rules: [rule({ id: 'r1', severity: 'error' }), rule({ id: 'r2', severity: 'info' })]
+  });
+  check('rule severity is shown', severityHtml.includes('error') && severityHtml.includes('info'));
+
   describe('render — intent and rules');
 
   const contextHtml = render({ decisions: [decision()], rules: [rule()], activeIntent: intent() });

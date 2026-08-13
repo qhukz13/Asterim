@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { AgentWorkSummary, ApprovalSummary, ProjectBriefing } from '@asterim/shared';
 import { IconActivity, IconShield, IconTarget, IconCheck, IconAlert } from '../icons/Icons';
+import { CreateRuleModal } from './CreateRuleModal';
+import { UpdateIntentModal } from './UpdateIntentModal';
 
 /**
  * Formats a timestamp as a short relative age.
@@ -49,6 +51,20 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--color-text-muted)',
   textTransform: 'uppercase',
   letterSpacing: '0.06em'
+};
+
+/** The quiet control that sits in a briefing section header. */
+const briefingActionStyle: React.CSSProperties = {
+  height: '24px',
+  padding: '0 10px',
+  background: 'transparent',
+  border: '1px solid var(--color-border-subtle)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--color-text-secondary)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 'var(--font-weight-medium)' as any,
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)'
 };
 
 const rowStyle: React.CSSProperties = {
@@ -121,6 +137,8 @@ export interface ReentryBriefingCardProps {
   briefing: ProjectBriefing | null;
   /** Injectable clock, so relative ages are deterministic under test. */
   now?: number;
+  /** Supplying a project turns the intent and rules sections into editable ones. */
+  projectId?: string | null;
 }
 
 /**
@@ -131,12 +149,14 @@ export interface ReentryBriefingCardProps {
  * with the current intent, how many rules are in force, and what the last sessions
  * and approvals actually were. The decisions themselves live in the timeline below.
  */
-export function ReentryBriefingCard({ briefing, now }: ReentryBriefingCardProps) {
+export function ReentryBriefingCard({ briefing, now, projectId = null }: ReentryBriefingCardProps) {
   // Read the clock once per mount rather than on every render: calling Date.now()
   // in the render body is impure, and a value that shifts between renders would
   // make the relative ages flicker as unrelated state changes.
   const [mountedAt] = useState(() => Date.now());
   const clock = now ?? mountedAt;
+  const [editingIntent, setEditingIntent] = useState(false);
+  const [addingRule, setAddingRule] = useState(false);
 
   if (!briefing) {
     return (
@@ -152,8 +172,15 @@ export function ReentryBriefingCard({ briefing, now }: ReentryBriefingCardProps)
   return (
     <div style={{ ...panelStyle, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
       <div>
-        <div style={labelStyle}>
-          <IconTarget size={12} /> Where this project stands
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+          <span style={labelStyle}>
+            <IconTarget size={12} /> Where this project stands
+          </span>
+          {projectId && (
+            <button type="button" onClick={() => setEditingIntent(true)} style={briefingActionStyle}>
+              {currentIntent ? 'Update intent' : 'Set intent'}
+            </button>
+          )}
         </div>
         <p
           style={{
@@ -171,10 +198,17 @@ export function ReentryBriefingCard({ briefing, now }: ReentryBriefingCardProps)
         </p>
       </div>
 
-      {architecturalRules.length > 0 && (
+      {(architecturalRules.length > 0 || projectId) && (
         <div>
-          <div style={labelStyle}>
-            <IconShield size={12} /> Rules you must not break
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+            <span style={labelStyle}>
+              <IconShield size={12} /> Rules you must not break
+            </span>
+            {projectId && (
+              <button type="button" onClick={() => setAddingRule(true)} style={briefingActionStyle}>
+                Add rule
+              </button>
+            )}
           </div>
           <ul style={{ margin: 'var(--spacing-2) 0 0', paddingLeft: 'var(--spacing-4)' }}>
             {architecturalRules.slice(0, 3).map(rule => (
@@ -186,6 +220,11 @@ export function ReentryBriefingCard({ briefing, now }: ReentryBriefingCardProps)
           {architecturalRules.length > 3 && (
             <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
               and {architecturalRules.length - 3} more
+            </p>
+          )}
+          {architecturalRules.length === 0 && (
+            <p style={{ margin: 'var(--spacing-2) 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+              No standing rules yet.
             </p>
           )}
         </div>
@@ -229,6 +268,17 @@ export function ReentryBriefingCard({ briefing, now }: ReentryBriefingCardProps)
           </div>
         )}
       </div>
+
+      {editingIntent && projectId && (
+        <UpdateIntentModal
+          projectId={projectId}
+          currentIntent={currentIntent}
+          onClose={() => setEditingIntent(false)}
+        />
+      )}
+      {addingRule && projectId && (
+        <CreateRuleModal projectId={projectId} onClose={() => setAddingRule(false)} />
+      )}
     </div>
   );
 }
