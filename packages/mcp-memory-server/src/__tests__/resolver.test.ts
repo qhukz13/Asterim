@@ -69,6 +69,11 @@ function describe(name: string): void {
 
 function cleanup(): void {
   try {
+    dbService.getDb().close();
+  } catch {
+    /* ignore if already closed */
+  }
+  try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     console.log(`\n[cleanup] removed ${tmpDir}`);
   } catch (err) {
@@ -148,7 +153,7 @@ try {
 
   const resolved = resolveProjectContext({ cwd: CORE_PATH });
   equal('the resolved project carries its name', resolved.name, 'Asterim Core');
-  equal('the resolved path is normalized', resolveProjectContext({ cwd: '/workspace/projects' }).path, '/workspace/projects');
+  equal('the resolved path is normalized', resolveProjectContext({ cwd: '/workspace/projects' }).path, path.resolve('/workspace/projects'));
   equal(
     'the resolved object exposes exactly id, name and path',
     Object.keys(resolved).sort(),
@@ -163,6 +168,11 @@ try {
     'a sibling sharing a name prefix is not swallowed by the shorter project',
     resolveProjectContext({ cwd: '/workspace/projects/asterim-core-legacy/deep/path' }).id,
     LEGACY_ID
+  );
+  equal(
+    'an unregistered sibling sharing a prefix falls back to the ancestor, not the shorter sibling',
+    resolveProjectContext({ cwd: '/workspace/projects/asterim-core-unregistered/src' }).id,
+    ANCESTOR_ID
   );
   throwsMatching(
     'a path outside every project does not match by prefix',
@@ -215,7 +225,7 @@ try {
   throwsMatching(
     'an unmatched explicit path throws and lists the registered projects',
     () => resolveProjectContext({ explicitProjectPath: '/somewhere/else' }),
-    [/--project-path '\/somewhere\/else'/, /Registered projects:/]
+    [/--project-path/, /somewhere/, /else/, /Registered projects:/]
   );
 
   // --- Environment variable -------------------------------------------------
@@ -260,7 +270,8 @@ try {
     'an unmatched CWD throws with remediation and the project list',
     () => resolveProjectContext({ cwd: '/tmp/definitely-not-a-project' }),
     [
-      /Could not determine the Asterim project for '\/tmp\/definitely-not-a-project'/,
+      /Could not determine the Asterim project for/,
+      /definitely-not-a-project/,
       /--project <id>/,
       /--project-path <path>/,
       /ASTERIM_PROJECT_ID/,

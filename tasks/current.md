@@ -1,6 +1,6 @@
-# Current Task: P5.1-03 — Project Context Resolver Engine
+# Current Task: P5.1-04 — MCP Memory Retrieval Tools
 
-**Task ID:** P5.1-03  
+**Task ID:** P5.1-04  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -10,19 +10,17 @@
 
 ## 1. Objective
 
-Implement the project context resolution engine in `packages/mcp-memory-server/src/resolver.ts` to reliably determine the active Asterim project for the MCP process via CLI flags, environment variables, or normalized longest-prefix CWD auto-detection against SQLite.
+Implement and register the first two Project Memory retrieval tools (`get_project_briefing` and `query_decisions`) in `@asterim/mcp-memory-server`, wire project context resolution at startup in `src/index.ts`, and verify execution via stdio JSON-RPC tool calls against `ProjectMemoryService`.
 
 ---
 
-## 2. Context & Findings from P5.1-01 & P5.1-02
+## 2. Context & Requirements
 
-* `ProjectManager` does not have a `getProjectByPath` method.
-* The live `~/.asterim/asterim.db` contains nested paths (e.g. an ancestor directory registered alongside specific repositories) and trailing slashes.
-* The resolution engine must:
-  1. **Normalize all paths** via `path.resolve()` (stripping trailing slashes and resolving relative segments).
-  2. **Use segment-safe containment** (`path.relative(projectPath, cwd)`) rather than raw `startsWith` to prevent substring collisions (e.g. `/AsterimOld` matching `/Asterim`).
-  3. **Select the longest matching path** when multiple candidates match (most specific project root wins over broad ancestor directories).
-  4. **Fail loudly and descriptively** if no project matches, listing known registered projects. Never silently pick an arbitrary project.
+* The server must resolve the active project at startup using `resolveProjectContext` and `parseResolveOptionsFromArgv(process.argv.slice(2))`. If resolution fails, output the error to `stderr` and exit 1 (never let unhandled exceptions escape to stdout).
+* Tools must translate MCP parameters, delegate directly to `ProjectMemoryService` without duplicating queries or business logic, and return standard MCP `CallToolResult` responses.
+* `get_project_briefing`: Calls `projectMemoryService.getProjectBriefing(targetProjectId)`.
+* `query_decisions`: Calls `projectMemoryService.findRelevantDecisions(targetProjectId, filePath)` if `filePath` is supplied, else `projectMemoryService.listDecisions(targetProjectId, { status })`.
+* Errors must be caught and returned as `{ isError: true, content: [{ type: 'text', text: '...' }] }` rather than throwing and dropping the stdio transport connection.
 
 ---
 
@@ -30,62 +28,57 @@ Implement the project context resolution engine in `packages/mcp-memory-server/s
 
 Inspect:
 * [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts)
-* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
-* [`apps/server/src/services/ProjectManager.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectManager.ts)
-* [`docs/p5.1-01-audit-report.md`](file:///c:/Projects/Asterim/docs/p5.1-01-audit-report.md) § 5
+* [`packages/mcp-memory-server/src/resolver.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/resolver.ts)
+* [`apps/server/src/services/ProjectMemoryService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectMemoryService.ts)
+* [`packages/shared/src/types/memory.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/memory.ts)
+* [`docs/phase5-1-task-plan.md`](file:///c:/Projects/Asterim/docs/phase5-1-task-plan.md) § 2
 * [`reports/current.md`](file:///c:/Projects/Asterim/reports/current.md)
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Resolver Implementation (`packages/mcp-memory-server/src/resolver.ts`)**:
-   - Define and export interface:
-     ```typescript
-     export interface ResolvedProject {
-       id: string;
-       name: string;
-       path: string;
-     }
-
-     export interface ResolveOptions {
-       explicitProjectId?: string;
-       explicitProjectPath?: string;
-       cwd?: string;
-     }
-     ```
-   - Implement `resolveProjectContext(options?: ResolveOptions): ResolvedProject`:
-     - **Priority 1**: `explicitProjectId` (from CLI `--project <id>` or option). Query `SELECT id, name, path FROM projects WHERE id = ?`. Throw if not found.
-     - **Priority 2**: `explicitProjectPath` (from CLI `--project-path <path>` or option). Resolve path and match against `projects` table.
-     - **Priority 3**: `process.env.ASTERIM_PROJECT_ID`. Query `projects` table by id. Throw if invalid.
-     - **Priority 4**: **CWD Auto-Detection**:
-       - `targetCwd = path.resolve(options?.cwd || process.cwd())`
-       - Query all projects: `SELECT id, name, path FROM projects`.
-       - For each project, compute `normalizedProjectPath = path.resolve(p.path)`.
-       - Calculate `rel = path.relative(normalizedProjectPath, targetCwd)`.
-       - Match if `rel === ''` (exact match) OR (`!rel.startsWith('..') && !path.isAbsolute(rel)` - subfolder of project).
-       - Sort matches by `normalizedProjectPath.length DESC` and pick the first (longest / most specific path).
-     - **Fallback**: If no match found, throw a formatted error listing all registered project names and paths.
-2. **Unit Test Suite (`packages/mcp-memory-server/src/__tests__/resolver.test.ts`)**:
-   - Create isolated temp SQLite database using `DatabaseService`.
-   - Seed test projects:
-     - Project 1 (Ancestor): `/workspace/projects/` (with trailing slash)
-     - Project 2 (Specific): `/workspace/projects/asterim-core`
-     - Project 3 (Sibling): `/workspace/projects/asterim-core-legacy`
-   - Test Cases:
-     - Exact match on Project 2.
-     - Nested subfolder CWD (`/workspace/projects/asterim-core/apps/server/src`) resolves to Project 2 (not Project 1).
-     - Trailing slash input normalizes correctly.
-     - Sibling directory (`/workspace/projects/asterim-core-legacy`) resolves to Project 3.
-     - Explicit `--project <id>` resolution.
-     - Explicit `ASTERIM_PROJECT_ID` env resolution.
-     - Unknown path / unknown project throws descriptive error.
+1. **Server Entrypoint (`packages/mcp-memory-server/src/index.ts`)**:
+   - Parse CLI arguments on startup: `parseResolveOptionsFromArgv(process.argv.slice(2))`.
+   - Call `resolveProjectContext(options)` inside `main()`.
+   - Catch resolution errors: write message to `console.error` and exit 1.
+   - Register `ListToolsRequestSchema` handler advertising:
+     - `get_project_briefing` with description and schema (`projectId?: string`).
+     - `query_decisions` with description and schema (`filePath?: string`, `status?: string`, `projectId?: string`).
+   - Register `CallToolRequestSchema` handler:
+     - Route `get_project_briefing`:
+       - `targetProjectId = args?.projectId || resolvedProject.id`
+       - Calls `projectMemoryService.getProjectBriefing(targetProjectId)`
+       - Returns `{ content: [{ type: 'text', text: JSON.stringify({ briefing }, null, 2) }] }`
+     - Route `query_decisions`:
+       - `targetProjectId = args?.projectId || resolvedProject.id`
+       - If `args?.filePath`: calls `projectMemoryService.findRelevantDecisions(targetProjectId, args.filePath)`
+       - Else: calls `projectMemoryService.listDecisions(targetProjectId, { status: args?.status })`
+       - Returns `{ content: [{ type: 'text', text: JSON.stringify({ decisions }, null, 2) }] }`
+     - Unknown tool name: returns `{ isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] }`
+     - Wrap handler execution in try/catch to return `{ isError: true, content: [{ type: 'text', text: String(err) }] }`.
+2. **Tool Retrieval Test Suite (`packages/mcp-memory-server/src/__tests__/retrieval_tools.test.ts`)**:
+   - Spawn server binary with `--project <testProjectId>` and `ASTERIM_DATA_DIR` pointing to temp directory.
+   - Seed temp database with:
+     - Project row (`id`, `name`, `path`).
+     - 2 decisions (1 active with code ref pointing to `src/auth.ts`, 1 archived).
+     - 1 architectural rule.
+     - 1 active project intent.
+   - Test JSON-RPC `tools/list`:
+     - Asserts `get_project_briefing` and `query_decisions` are listed with valid parameter schemas.
+   - Test JSON-RPC `tools/call` for `get_project_briefing`:
+     - Asserts response is successful (not `isError`).
+     - Asserts JSON parsed body contains active decisions, rule, intent, and summary arrays.
+   - Test JSON-RPC `tools/call` for `query_decisions`:
+     - Test `filePath: "src/auth.ts"` returns the matching decision.
+     - Test `status: "ACTIVE"` returns only active decisions.
+     - Test query on non-existent project returns empty array or handled error.
 
 ---
 
 ## 5. Explicitly Forbidden Changes
 
-* Do **NOT** implement the MCP tools (`get_project_briefing`, `query_decisions`, `record_decision`) yet — reserved for P5.1-04 and P5.1-05.
+* Do **NOT** implement `record_decision` yet — reserved for P5.1-05.
 * Do **NOT** modify existing services in `apps/server` or `packages/shared`.
 * Do **NOT** alter existing database DDL schemas.
 
@@ -93,17 +86,19 @@ Inspect:
 
 ## 6. Acceptance Criteria
 
-1. `resolveProjectContext` correctly implements the 4-tier resolution hierarchy.
-2. Normalization, segment-safe containment, and longest-path matching rules are fully covered.
-3. Unit test suite `resolver.test.ts` passes 100% of assertions.
-4. `pnpm run build` completes with 0 errors across all monorepo packages.
+1. `tools/list` returns `get_project_briefing` and `query_decisions` with complete schemas.
+2. `tools/call` for `get_project_briefing` delegates to `projectMemoryService.getProjectBriefing` and returns deterministic briefing JSON.
+3. `tools/call` for `query_decisions` delegates to `findRelevantDecisions` (when `filePath` is set) or `listDecisions` (when `status` is set).
+4. Errors are caught and returned safely as MCP error payloads without crashing stdio transport.
+5. Unit test suite `retrieval_tools.test.ts` passes 100% of assertions.
+6. `pnpm run build` completes with 0 errors across all monorepo packages.
 
 ---
 
 ## 7. Verification Commands
 
 ```bash
-pnpm --filter asterim exec tsx ../../packages/mcp-memory-server/src/__tests__/resolver.test.ts
+pnpm --filter asterim exec tsx ../../packages/mcp-memory-server/src/__tests__/retrieval_tools.test.ts
 pnpm --filter @asterim/mcp-memory-server build
 pnpm run build
 ```
@@ -113,11 +108,11 @@ pnpm run build
 ## 8. Required Report Format
 
 Upon completion, write the execution result directly to `reports/current.md` using the standard format:
-* **Task ID**: P5.1-03
+* **Task ID**: P5.1-04
 * **Status**: `IMPLEMENTED` / `VERIFIED` / `BLOCKED`
-* **Summary**: Summary of resolver implementation and test coverage
+* **Summary**: Summary of tool implementations and stdio integration
 * **Files Changed**: List of files created/modified
-* **Implementation Details**: Details on path resolution and specificity ranking
+* **Implementation Details**: Details on request routing and error handling
 * **Tests / Verification**: Output of test execution and build commands
 * **Problems Discovered & Concerns**: Any issues encountered
-* **Recommended Next Step**: Recommendation for P5.1-04
+* **Recommended Next Step**: Recommendation for P5.1-05
