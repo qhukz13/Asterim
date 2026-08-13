@@ -1045,6 +1045,7 @@ try {
   const MEMORY_EVENT_TYPES = [
     'memory.decision_created',
     'memory.decision_superseded',
+    'memory.decision_updated',
     'memory.intent_updated',
     'memory.rule_created'
   ];
@@ -1109,6 +1110,40 @@ try {
   equal('the rule payload carries the projectId', captured[0].event.payload.projectId, PROJECT_E);
   equal('the rule payload carries the rule', captured[0].event.payload.rule.id, eventRule.id);
   equal('the rule payload keeps the severity', captured[0].event.payload.rule.severity, 'info');
+
+  // memory.decision_updated — a lifecycle move with no replacement
+  captured.length = 0;
+  const lifecycleDecision = projectMemoryService.createDecision({
+    projectId: PROJECT_E,
+    title: 'E decision for status changes',
+    summary: 's',
+    rationale: 'r'
+  });
+  captured.length = 0;
+
+  const staledByEvent = projectMemoryService.updateDecisionStatus(lifecycleDecision.id, 'STALE');
+  equal('updateDecisionStatus publishes exactly one event', captured.length, 1);
+  // Read through optional chaining: if the publish is ever dropped, `captured[0]`
+  // is undefined and a direct access would throw, aborting every assertion below.
+  equal('the event type is memory.decision_updated', captured[0]?.event?.type, 'memory.decision_updated');
+  equal('the event source is system:memory', captured[0]?.event?.source, 'system:memory');
+  equal('the updated payload carries the projectId', captured[0]?.event?.payload?.projectId, PROJECT_E);
+  equal('the updated payload carries the decision', captured[0]?.event?.payload?.decision?.id, lifecycleDecision.id);
+  equal('the payload decision holds the new status', captured[0]?.event?.payload?.decision?.status, 'STALE');
+  equal('the payload reports the previous status', captured[0]?.event?.payload?.previousStatus, 'ACTIVE');
+  equal('the returned decision matches the payload', staledByEvent.status, 'STALE');
+
+  captured.length = 0;
+  projectMemoryService.archiveDecision(lifecycleDecision.id);
+  equal('archiveDecision publishes through the same path', captured.length, 1);
+  equal('and reports the type as decision_updated', captured[0]?.event?.type, 'memory.decision_updated');
+  equal('and carries ARCHIVED as the new status', captured[0]?.event?.payload?.decision?.status, 'ARCHIVED');
+  equal('and STALE as the previous one', captured[0]?.event?.payload?.previousStatus, 'STALE');
+
+  captured.length = 0;
+  projectMemoryService.updateDecisionStatus(lifecycleDecision.id, 'ARCHIVED');
+  equal('a no-op transition still publishes, because updated_at moved', captured.length, 1);
+  equal('with previousStatus equal to the new one', captured[0]?.event?.payload?.previousStatus, 'ARCHIVED');
 
   // memory.intent_updated — first intent has no predecessor
   captured.length = 0;

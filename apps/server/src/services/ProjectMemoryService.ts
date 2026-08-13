@@ -16,6 +16,7 @@ import type {
   ApprovalOutcome,
   MemoryDecisionCreatedPayload,
   MemoryDecisionSupersededPayload,
+  MemoryDecisionUpdatedPayload,
   MemoryIntentUpdatedPayload,
   MemoryRuleCreatedPayload
 } from '@asterim/shared';
@@ -301,6 +302,17 @@ export class ProjectMemoryService {
     if (!updated) {
       throw new Error(`[ProjectMemoryService] Decision ${id} could not be read back after update`);
     }
+
+    // Published after the write commits, like every other memory event. Carries the
+    // previous status so a subscriber can tell what moved without holding the old
+    // copy — the difference between "archived" and "un-staled" is not recoverable
+    // from the new state alone.
+    this.publishMemoryEvent<MemoryDecisionUpdatedPayload>('memory.decision_updated', {
+      projectId: updated.projectId,
+      decision: updated,
+      previousStatus: existing.status
+    });
+
     return updated;
   }
 

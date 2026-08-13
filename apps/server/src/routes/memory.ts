@@ -121,6 +121,54 @@ export default async function memoryRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /api/v1/projects/:id/memory/decisions/:decisionId/status
+   * Body: { status: DecisionStatus }
+   *
+   * The one lifecycle transition that stands alone: archiving a decision, or
+   * marking it stale, without another decision taking its place. Supersession has
+   * its own endpoint because it writes two rows.
+   */
+  fastify.patch(
+    '/api/v1/projects/:id/memory/decisions/:decisionId/status',
+    async (request: any, reply) => {
+      const { id, decisionId } = request.params;
+      const { status } = request.body || {};
+
+      if (!status) {
+        reply.code(400);
+        return { error: 'status is required' };
+      }
+
+      if (!DECISION_STATUSES.includes(status)) {
+        reply.code(400);
+        return { error: `Invalid status '${status}'. Expected one of: ${DECISION_STATUSES.join(', ')}` };
+      }
+
+      try {
+        // Scope check before the write. `updateDecisionStatus` takes an id alone
+        // and would happily retire a decision belonging to another project, so
+        // this route is the only thing standing between a caller and that.
+        const existing = projectMemoryService.getDecision(decisionId);
+        if (!existing) {
+          reply.code(404);
+          return { error: `Decision ${decisionId} not found` };
+        }
+        if (existing.projectId !== id) {
+          // Deliberately does not name the owning project: the caller has no
+          // business learning where a decision it cannot see actually lives.
+          // See blueprint/audit/IMPLEMENTATION_DRIFT.md § 8.
+          reply.code(400);
+          return { error: `Decision ${decisionId} does not belong to project ${id}` };
+        }
+
+        return { decision: projectMemoryService.updateDecisionStatus(decisionId, status as DecisionStatus) };
+      } catch (err) {
+        return replyForServiceError(err, reply);
+      }
+    }
+  );
+
+  /**
    * GET /api/v1/projects/:id/memory/briefing
    */
   fastify.get('/api/v1/projects/:id/memory/briefing', async (request: any, reply) => {

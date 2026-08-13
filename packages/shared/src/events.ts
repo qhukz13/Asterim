@@ -1,7 +1,8 @@
 import type {
   ProjectDecision,
   ProjectIntent,
-  ArchitecturalRule
+  ArchitecturalRule,
+  DecisionStatus
 } from './types/memory';
 
 export interface AsterimEvent<T = any> {
@@ -153,6 +154,21 @@ export interface MemoryDecisionSupersededPayload {
   decision?: ProjectDecision;
 }
 
+/**
+ * Payload broadcast when a decision moves to another lifecycle state.
+ *
+ * Distinct from `memory.decision_superseded`, which describes one decision being
+ * replaced by another. This covers a status change on its own — archiving,
+ * marking stale — where nothing takes the decision's place.
+ */
+export interface MemoryDecisionUpdatedPayload {
+  projectId: string;
+  /** The decision as it now stands. */
+  decision: ProjectDecision;
+  /** The status it held before this change, so a client can tell what moved. */
+  previousStatus: DecisionStatus;
+}
+
 /** Payload broadcast when a project's active intent changes. */
 export interface MemoryIntentUpdatedPayload {
   projectId: string;
@@ -184,5 +200,6 @@ export type ChatMessageEvent = AsterimEvent<ChatMessagePayload>;
 export type ClientChatMessageEvent = AsterimEvent<ClientChatMessagePayload>;
 export type MemoryDecisionCreatedEvent = AsterimEvent<MemoryDecisionCreatedPayload>;
 export type MemoryDecisionSupersededEvent = AsterimEvent<MemoryDecisionSupersededPayload>;
+export type MemoryDecisionUpdatedEvent = AsterimEvent<MemoryDecisionUpdatedPayload>;
 export type MemoryIntentUpdatedEvent = AsterimEvent<MemoryIntentUpdatedPayload>;
 export type MemoryRuleCreatedEvent = AsterimEvent<MemoryRuleCreatedPayload>;

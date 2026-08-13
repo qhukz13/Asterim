@@ -8,6 +8,7 @@ import type {
   DecisionStatus,
   MemoryDecisionCreatedPayload,
   MemoryDecisionSupersededPayload,
+  MemoryDecisionUpdatedPayload,
   MemoryIntentUpdatedPayload,
   MemoryRuleCreatedPayload,
   ProjectBriefing,
@@ -46,6 +47,12 @@ interface MemoryState {
     decisionId: string,
     data: SupersedeDecisionRequest
   ) => Promise<ProjectDecision>;
+  updateDecisionStatus: (
+    projectId: string,
+    decisionId: string,
+    status: DecisionStatus
+  ) => Promise<ProjectDecision>;
+  archiveDecision: (projectId: string, decisionId: string) => Promise<ProjectDecision>;
   createRule: (projectId: string, data: CreateRuleRequest) => Promise<ArchitecturalRule>;
   createIntent: (projectId: string, data: CreateIntentRequest) => Promise<ProjectIntent>;
 
@@ -59,6 +66,7 @@ interface MemoryState {
 const MEMORY_EVENT_TYPES = [
   'memory.decision_created',
   'memory.decision_superseded',
+  'memory.decision_updated',
   'memory.rule_created',
   'memory.intent_updated'
 ] as const;
@@ -147,6 +155,8 @@ type MemoryData = Omit<
   | 'fetchIntent'
   | 'createDecision'
   | 'supersedeDecision'
+  | 'updateDecisionStatus'
+  | 'archiveDecision'
   | 'createRule'
   | 'createIntent'
   | 'handleMemoryEvent'
@@ -280,6 +290,29 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
+  updateDecisionStatus: async (projectId, decisionId, status) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(
+        memoryUrl(projectId, `/decisions/${encodeURIComponent(decisionId)}/status`),
+        { method: 'PATCH', headers: authHeaders(true), body: JSON.stringify({ status }) }
+      );
+      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Updating the decision');
+      set(state => ({
+        loading: false,
+        decisions: upsertDecision(state.decisions, decision),
+        briefing: applyDecisionToBriefing(state.briefing, decision)
+      }));
+      return decision;
+    } catch (err) {
+      set({ loading: false, error: (err as Error).message });
+      throw err;
+    }
+  },
+
+  archiveDecision: (projectId, decisionId) =>
+    get().updateDecisionStatus(projectId, decisionId, 'ARCHIVED'),
+
   createRule: async (projectId, data) => {
     set({ loading: true, error: null });
     try {
@@ -341,6 +374,19 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       case 'memory.decision_created': {
         const { decision } = event.payload as MemoryDecisionCreatedPayload;
         if (!decision) return;
+        set(state => ({
+          decisions: upsertDecision(state.decisions, decision),
+          briefing: applyDecisionToBriefing(state.briefing, decision)
+        }));
+        return;
+      }
+
+      case 'memory.decision_updated': {
+        const { decision } = event.payload as MemoryDecisionUpdatedPayload;
+        if (!decision) return;
+        // applyDecisionToBriefing drops it from activeDecisions when the new
+        // status is anything but ACTIVE, and reinstates it when a decision is
+        // moved back — both directions matter, since STALE is reversible.
         set(state => ({
           decisions: upsertDecision(state.decisions, decision),
           briefing: applyDecisionToBriefing(state.briefing, decision)

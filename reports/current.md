@@ -1,6 +1,7 @@
-# Execution Report: P5.2-03 — Workspace Navigation Overflow Fix & Memory Timeline / Re-entry Briefing
+# Execution Report: P5.3-01 — Decision Status Lifecycle REST Endpoint & Store Actions
 
-**Task ID:** P5.2-03
+**Task ID:** P5.3-01
+**Phase:** Phase 5.3 — Decision Lifecycle & Memory Curation UI
 **Status:** VERIFIED
 **Date:** 2026-08-14
 **Author:** Claude Code
@@ -10,120 +11,110 @@
 
 ## 1. Summary
 
-**Part A** — the reported bug is fixed, and it was **reproduced and measured** rather than accepted from the diagnosis. That mattered: the stated root cause is half right. `.workspace-main-content` already had `min-width: 0`; the missing piece was on the tab strip itself, and `overflow-x: auto` alone would not have helped. Measured before: the Environment tab's right edge sat at x=932 against a container ending at x=780, with `scrollWidth === clientWidth` — **there was no overflow to scroll**. After: the strip is constrained, scrolling moves it 176px, and the tab lands at x=756 ≤ 780.
+The status lifecycle is exposed end to end: `PATCH /api/v1/projects/:id/memory/decisions/:decisionId/status` validates the status, enforces the project boundary, and returns the updated decision; `ProjectMemoryService.updateDecisionStatus` now publishes `memory.decision_updated` carrying the previous status; and `useMemoryStore` gained `updateDecisionStatus` / `archiveDecision` plus live handling of the new event.
 
-**Part B** — `MemoryTimelineView` and `ReentryBriefingCard` are implemented, with an Explorer/Timeline toggle in the Memory view. **66/66** new assertions, 78/78 and 89/89 existing still green, `tsc` clean, `pnpm run build` 7/7, and a captured screenshot of the timeline.
+**+59 assertions** across three suites, all green, with every other suite in the repo re-run unchanged. `tsc` clean, `pnpm run build` 7/7.
 
-Two findings worth reading: a negative control **survived** and exposed a vacuous assertion of mine (§ 5.2), and the repo's React-compiler lint rule caught a real impurity in my first draft (§ 6.2).
+Three mutation runs confirm the new code is genuinely covered — and two of them exposed a flaw in the **test harnesses**, not the implementation: assertions that threw on missing data, aborting the run and hiding every check after them (§ 5.4). Both files now read defensively.
 
 ---
 
 ## 2. Files Changed
 
-**Created**
-
-| File | Lines | Purpose |
-| :-- | --: | :-- |
-| `apps/web/src/components/memory/MemoryTimelineView.tsx` | 268 | Chronological timeline, day grouping, supersession lineage |
-| `apps/web/src/components/memory/ReentryBriefingCard.tsx` | 232 | Session handover: intent, rules, recent agent work, recent approvals |
-| `apps/web/src/components/memory/__tests__/MemoryTimeline.test.ts` | 285 | Logic + render assertions for both |
-| `docs/screenshots/p5.2-03/{nav-before,nav-after,memory-timeline-1440}.png` | — | Visual evidence |
-| `scratch/nav-repro.js`, `scratch/shoot-nav.js`, `scratch/shoot-timeline.js` | — | Reproduction harness, kept so the measurements are repeatable |
-
-**Modified**
-
 | File | Change |
 | :-- | :-- |
-| `apps/web/src/styles/layout.css` | `.view-navigation`, `.view-navigation-tabs`, `.view-navigation-actions` rules |
-| `apps/web/src/App.tsx` | Tab strip and actions row given those classes |
-| `apps/web/src/components/memory/DecisionExplorer.tsx` | `briefing` prop, `MemoryMode` toggle, timeline branch |
-| `apps/web/src/components/memory/__tests__/DecisionExplorer.test.ts` | Updated for the new required prop |
+| `packages/shared/src/events.ts` | `MemoryDecisionUpdatedPayload` + `MemoryDecisionUpdatedEvent`; `DecisionStatus` import |
+| `apps/server/src/services/ProjectMemoryService.ts` | `updateDecisionStatus` publishes `memory.decision_updated` |
+| `apps/server/src/routes/memory.ts` | `PATCH …/decisions/:decisionId/status` |
+| `apps/web/src/stores/useMemoryStore.ts` | `updateDecisionStatus`, `archiveDecision`, `memory.decision_updated` handling |
+| `apps/web/src/hooks/useSocket.ts` | Listener for the new event type |
+| `apps/server/src/routes/__tests__/memory.test.ts` | +21 assertions; defensive reads (§ 5.4) |
+| `apps/server/src/services/__tests__/ProjectMemoryService.test.ts` | +14 assertions; defensive reads (§ 5.4) |
+| `apps/web/src/stores/__tests__/useMemoryStore.test.ts` | +24 assertions |
 
-`MemoryTimelineView.tsx` and `ReentryBriefingCard.tsx` were each mutated for negative controls and restored byte-identically (`md5 87f62f8d…` and `74642800…`).
+Three source files were mutated for negative controls and restored byte-identically (`md5 d7920c72…`, `139ca81d…`, `bc7342f0…`).
 
-**Not modified:** no tab removed, no route altered, no CSS framework added. The § 5 prohibitions hold.
+**Not modified:** no existing endpoint altered or removed; no cross-project modification permitted. The § 5 prohibitions hold.
 
 ---
 
 ## 3. Implementation Details
 
-### Part A — why `overflow-x: auto` alone was not the fix
+### 3.1 The event carries what the new state cannot
 
-A flex item defaults to `min-width: auto`, which means it grows to fit its content and simply extends past its parent. An `overflow-x` on an element that is never narrower than its content does nothing: there is no overflow. Both rules are needed, and in that order of reasoning:
-
-```css
-.view-navigation      { min-width: 0; max-width: 100%; overflow: hidden; }
-.view-navigation-tabs { flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; … }
+```ts
+this.publishMemoryEvent<MemoryDecisionUpdatedPayload>('memory.decision_updated', {
+  projectId: updated.projectId,
+  decision: updated,
+  previousStatus: existing.status
+});
 ```
 
-Tabs get `flex-shrink: 0` so labels are never compressed into ambiguity, and `.view-navigation-actions` gets `flex-shrink: 0` so the right-hand actions never steal space from the tabs. The scrollbar is styled thin against `--color-border-strong`, consistent with the token set.
+`previousStatus` is the part worth arguing for. A subscriber receiving only the new state can see *that* a decision is now `ARCHIVED`, but not whether it was retired from active use or merely moved out of `STALE` — and those read very differently in a timeline. The service already holds `existing` for its not-found check, so carrying it costs nothing.
 
-The rules went into `layout.css` rather than more inline styles, because they need `::-webkit-scrollbar` pseudo-elements, which inline styles cannot express. `layout.css` is imported in `main.tsx`, so the classes apply app-wide.
+`archiveDecision` delegates to `updateDecisionStatus`, so it publishes through the same path — asserted, so the delegation cannot be quietly replaced with a direct write that skips the event.
 
-### Part B — timeline
+### 3.2 The route is the only project guard
 
-`groupDecisionsByDay` buckets by a **local-time** `YYYY-MM-DD` key: a decision recorded at 23:30 belongs to that working day for the person reading it, whatever UTC calls it. Days sort newest first; within a day, decisions sort newest first with `id` breaking ties, matching the server's `created_at DESC, id DESC`.
+`updateDecisionStatus(id, status)` takes a decision id alone and will happily retire a decision in any project. The scope check therefore lives in the route:
 
-`buildLineage` resolves supersession in both directions and is the one place in the UI that reads `status` to disambiguate `supersededBy` — the bidirectional field recorded as drift § 4. On a `SUPERSEDED` decision the field names the replacement (`Replaced by …`); on the `ACTIVE` replacement it names what was replaced (`Replaces …`). When the counterpart is not loaded, the link falls back to the raw id and is flagged `resolved: false` so the UI can render it as an id rather than pretend it is a title.
+```ts
+const existing = projectMemoryService.getDecision(decisionId);
+if (!existing) { reply.code(404); … }
+if (existing.projectId !== id) { reply.code(400); … }
+```
 
-Visually the timeline is a rail: filled node for what is in force, hollow for what is not, superseded titles struck through and dimmed. The screenshot shows both lineage directions on the same page.
+This is the same shape as the MCP write boundary (DEC-023): **one line of application code with no database-level backstop**. Mutation A removes it and a cross-project archive succeeds silently.
 
-### Part B — re-entry briefing
+The rejection message names the decision and the *requested* project, and deliberately **not** the owning project. `IMPLEMENTATION_DRIFT.md` § 8 records that the existing supersede route leaks the owner's id in exactly this situation; there was no reason to repeat it. An assertion pins the non-disclosure so it cannot regress.
 
-Deliberately **not** a second Decision Explorer. It answers "where did we leave off": current intent, counts in force, the first three rules, then the two projections nothing has rendered until now — `recentAgentWork` (agent type, status, abbreviated session id, relative age) and `recentApprovals` (description, outcome, relative age), with pending approvals called out in the accent.
+### 3.3 Deviation — payload placed in `events.ts`, not `types/memory.ts`
 
-Ages are relative (`5m ago`, `1d ago`) rather than absolute, because the question is recency, not wall-clock. The clock is injectable so tests assert exact strings.
+The task specifies `packages/shared/src/types/memory.ts`. The other four `Memory*Payload` interfaces all live in `packages/shared/src/events.ts`, alongside every other event payload; `types/memory.ts` holds domain types and the REST request bodies. Splitting one payload away from its four siblings would make the set harder to find, not easier, so it went with them. Both are re-exported from the package root, so no consumer can tell the difference.
 
-The briefing appears in **timeline** mode only. In explorer mode the intent and rules already have their own cards; showing both would duplicate them. Explorer answers "what governs this file"; timeline answers "how did this project change its mind, and where did we stop".
+### 3.4 Store
+
+`updateDecisionStatus` PATCHes and then upserts through the same `upsertDecision` / `applyDecisionToBriefing` helpers the other write paths use, so `briefing.activeDecisions` stays correct in **both** directions — a decision leaving `ACTIVE` drops out, and one returning to `ACTIVE` reappears. That reversibility matters: `STALE` is not a terminal state.
+
+`archiveDecision` is a one-line delegation rather than a second fetch path, and the test asserts it sends `{ status: 'ARCHIVED' }` to the same endpoint.
+
+No change was needed in `socketManager`: it forwards on the catch-all by payload `projectId` rather than an allow-list, as verified end to end in P5.2-01 § 4.3. The new event reaches clients by virtue of carrying `projectId`.
 
 ---
 
 ## 4. Tests / Verification
 
-### 4.1 Part A — measured, not asserted
-
-A reproduction harness renders the real shell structure (`layout.css` + `tokens.css`, sidebars, six tabs, inspector at its 500px maximum) at a 1280px viewport, then scrolls the strip as a user would:
-
 ```
-BEFORE
-  at rest        canScroll=false  scrollLeft=0    lastTabRight=932  mainRight=780  reachable=false
-  scrolled       canScroll=false  scrollLeft=0    lastTabRight=932  mainRight=780  reachable=false
+apps/server
+  memory.test.ts .................  98/98    (was 77, +21)
+  ProjectMemoryService.test.ts ... 231/231   (was 217, +14)
 
-AFTER
-  at rest        canScroll=true   scrollLeft=0    lastTabRight=932  mainRight=780  reachable=false
-  scrolled       canScroll=true   scrollLeft=176  lastTabRight=756  mainRight=780  reachable=true
-```
+apps/web
+  useMemoryStore.test.ts ......... 113/113   (was 89, +24)
+  DecisionExplorer.test.ts .......  78/78
+  MemoryTimeline.test.ts .........  66/66
 
-Before, scrolling is a no-op and the tab is stranded 152px under the inspector. After, the strip scrolls and the tab becomes reachable. Captures in `docs/screenshots/p5.2-03/nav-{before,after}.png`.
+packages/mcp-memory-server (regression, shared changed)
+  resolver 42/42 · record_decision 82/82 · dogfood_scenario 62/62
 
-### 4.2 Part B
-
-```
-$ pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/MemoryTimeline.test.ts
-  groupDecisionsByDay ............................  9 PASS
-  buildLineage ...................................  8 PASS
-  render — timeline ..............................  9 PASS
-  relativeTime ...................................  8 PASS
-  isPendingApproval ..............................  4 PASS
-  render — re-entry briefing ..................... 12 PASS
-  render — briefing edge cases ...................  9 PASS
-  the Memory view switches modes .................  7 PASS
-  66/66 assertions passed                           EXIT=0
-
-DecisionExplorer.test.ts   78/78      useMemoryStore.test.ts   89/89
-tsc --noEmit  0 errors  ·  eslint  0 errors, 41 warnings  ·  pnpm run build  7/7
+tsc --noEmit (web)  0 errors   ·   eslint  0 errors, 2 warnings
+pnpm --filter @asterim/shared build  ok   ·   pnpm run build  7 successful, 7 total
 ```
 
-Timeline screenshot: `docs/screenshots/p5.2-03/memory-timeline-1440.png` — both lineage directions, day headings, agent work and approvals with relative ages, monochrome with the emerald reserved for what is in force.
+`apps/server` still reports its **4 pre-existing** `tsc --noEmit` errors (`AuthController`, `AgentService`, `ContextService`, `GeminiProvider`). Confirmed none is in a file this task touched.
 
-### 4.3 Acceptance criteria
+### 4.1 Acceptance criteria
 
 | # | Criterion | Result |
 | :-- | :-- | :-- |
-| 1 | Tab bar scrollable, no tab inaccessible | **Met** — measured before/after (§ 4.1) |
-| 2 | Chronological ordering with clear supersession | **Met** — 17 assertions, both directions rendered |
-| 3 | Briefing shows `recentAgentWork` and `recentApprovals` | **Met** — 21 assertions incl. empty states |
-| 4 | Build and typecheck clean | **Met** — 7/7, 0 errors |
+| 1 | PATCH validates, enforces boundaries, updates SQLite, publishes | **Met** — 21 route assertions incl. persistence re-read; publish asserted in the service suite |
+| 2 | Store exposes both actions and maintains `briefing.activeDecisions` | **Met** — both directions asserted |
+| 3 | Socket event updates state in real time | **Met at the store layer** — see § 6.1 for what is and is not proven |
+| 4 | Build and regressions pass | **Met** — 7/7, every suite green |
+
+### 4.2 The endpoint tests check persistence, not just the response
+
+After each transition the suite re-reads through `GET /decisions?status=…` and `GET /briefing`, so a handler that returned a plausible object without writing would fail. It also asserts the round trip `ACTIVE → STALE → ACTIVE → ARCHIVED`, that `updatedAt` moves forward, and that a rejected cross-project write left the decision exactly as it was.
 
 ---
 
@@ -131,70 +122,73 @@ Timeline screenshot: `docs/screenshots/p5.2-03/memory-timeline-1440.png` — bot
 
 | # | Mutation | Result | Verdict |
 | :-- | :-- | --: | :-- |
-| A | `buildLineage` stops reading `status`, always emits `replacedBy` | 61/65 | caught — 4 failures |
-| B | Day groups no longer sorted | **65/65 → survived** | **exposed a vacuous assertion** |
-| C | Briefing ignores `recentAgentWork` | 61/65 | caught — 4 failures |
+| A | Route's cross-project check removed | 94/98 | caught — 4 failures |
+| B | `updateDecisionStatus` publishes nothing | 218/231 | caught — 13 failures |
+| C | Store's `decision_updated` ignores the briefing | 112/113 | caught — 1 failure |
 
-### 5.1 Control A — the drift-4 trap
+### 5.1 Control A
 
-Removing the `status` check collapses both directions into "Replaced by", so the active decision claims it was replaced by the very decision it superseded. Four assertions fail, including the rendered `Replaces` text. This is the trap the bidirectional field sets for every consumer, and it is now pinned.
+Without the guard, `PATCH /projects/B/decisions/<A's decision>/status` returns **200** and the write lands. Four assertions fail, including the one confirming the decision was untouched afterwards. This is the boundary the task's § 5 forbids crossing, and it rests entirely on those two lines.
 
-### 5.2 Control B survived, and that was my fault
+### 5.2 Control B
 
-Deleting the day sort changed nothing: **65/65 still passed**. The assertion `groups are ordered newest day first` was reading a fixture that was already in newest-first order, so `Map` insertion order happened to equal sorted order. It was asserting the fixture, not the function.
+Dropping the publish fails all thirteen event assertions, including the `archiveDecision` delegation and the previous-status field. Criterion 1's "publishes `memory.decision_updated`" is therefore pinned rather than assumed.
 
-A second assertion now feeds the same three days deliberately out of order (`oldest, newest, middle`). With it in place the mutation fails as it should:
+### 5.3 Control C
 
-```
-FAIL  groups are sorted, not merely kept in arrival order
-      — expected ["2026-08-14","2026-08-13","2026-08-07"], got ["2026-08-07","2026-08-14","2026-08-13"]
-```
+Removing `applyDecisionToBriefing` from the event handler leaves the decision list correct but the briefing stale — an archived decision keeps showing as active. One assertion catches it, which is thin but exact; the same helper is already covered from three other call sites.
 
-Same class of defect as the three found earlier in this phase: a test that stops testing without going red. The only reason it surfaced is that the mutation was run.
+### 5.4 Two controls exposed brittle test harnesses
+
+Under mutations A and B the suites reported **91** and **185** assertions instead of 98 and 231. They were not failing early by design — an assertion **threw**:
+
+- `crossProject.json().error.includes(...)` — `error` is absent when the guard passes the request through, so `.includes` threw on `undefined`.
+- `captured[0].event.type` — `captured` is empty when nothing is published, so the property access threw.
+
+In both cases `main()` unwound to the catch and every subsequent assertion silently never ran. The mutations were still caught, but the reports understated the damage and would have hidden any *unrelated* regression further down the file.
+
+Both are now read defensively (`String(x ?? '')`, optional chaining). Re-run under the same mutations they report 94/98 and 218/231 — the full suite executes and every consequence is visible.
+
+This is worth recording as a harness-wide concern: these standalone scripts have no per-assertion isolation, so **any** assertion that dereferences possibly-absent data can mask the rest of its file. The pattern appears elsewhere in these suites.
 
 ---
 
 ## 6. Problems Discovered & Concerns
 
-### 6.1 The stated root cause was partly wrong
+### 6.1 Criterion 3 is verified at the store, not across a socket
 
-The task attributes the bug to `view-navigation` lacking `min-width: 0`, `overflow-x: auto`, and container scroll handling. `.workspace-main-content` — the container that actually needed it — **already had `min-width: 0`** (`layout.css:156`). The missing constraint was one level down, on the tab strip.
+The store applies `memory.decision_updated` correctly (7 assertions), `useSocket` registers the listener, and P5.2-01 proved end to end that a `memory.*` event with a `projectId` reaches a connected client. Composing those three is strong evidence, but **no test in this task drives an actual socket**, so "across connected clients" rests on that composition rather than on a direct observation.
 
-The distinction is not pedantic. Adding `overflow-x: auto` to the strip *without* `min-width: 0` produces exactly the "before" measurement: the element never becomes narrower than its content, so no overflow exists and the scrollbar never appears. A fix that looked right would have shipped, and the user would have reported the same bug again.
+The P5.2-01 probe that did drive a real socket was temporary. If cross-client sync is going to be claimed repeatedly, it is worth making that probe a standing test rather than re-deriving the argument each phase.
 
-### 6.2 The React compiler lint rule caught a real impurity
+### 6.2 The service still has no project scoping
 
-My first `ReentryBriefingCard` defaulted the clock as `now = Date.now()` in the parameter list. ESLint rejected it:
+`updateDecisionStatus(id, status)` and `archiveDecision(id)` are callable with a bare decision id from anywhere in the process. Today the REST route is the only caller and it checks; nothing structurally prevents the next caller from not checking.
 
-```
-error  Cannot call impure function during render
-`Date.now` is an impure function. Calling an impure function can produce unstable
-results that update unpredictably when the component happens to re-render.
-```
+`supersedeDecision` takes the opposite approach — it validates `projectId` **inside** the service and throws on a mismatch. Two adjacent methods on the same service now differ in where the boundary is enforced, and the weaker of the two is the one the new endpoint depends on. Worth aligning before P5.3-02 adds UI that calls both.
 
-Correct, and not cosmetic: the ages would shift on any unrelated re-render. Replaced with `useState(() => Date.now())`, read once per mount. Worth knowing that this rule is active in `apps/web` — it is stricter than the rest of the repo's lint config and will catch this class of thing in future UI work.
+### 6.3 A no-op transition still publishes
 
-### 6.3 The briefing is only as fresh as the last fetch
+`updateDecisionStatus(id, 'ARCHIVED')` on an already-`ARCHIVED` decision writes `updated_at`, so it publishes an event whose `previousStatus` equals the new status. Deliberate — the row genuinely changed — and asserted, but a client rendering "moved from X to Y" should expect `X === Y`. Cheap to filter at the UI layer; recorded so it is a known shape rather than a surprise.
 
-`ReentryBriefingCard` renders `briefing`, which `fetchBriefing` populates on project change. `handleMemoryEvent` keeps `briefing.activeDecisions`, `architecturalRules` and `currentIntent` current, but **`recentAgentWork` and `recentApprovals` have no live update path** — no `memory.*` event carries them, and they derive from the `sessions` and `approvals` tables.
+### 6.4 `apps/server/pairing_pin.txt` shows as modified
 
-So a session that starts, or an approval that resolves, while the Memory view is open will not appear until the project is switched or the app reloaded. Not a defect against this task, which asked for them to be displayed, but it is a stale-data path in the one view whose purpose is telling you what just happened. Closing it means either re-fetching the briefing on `agent.status`/`approval` events, or a periodic refresh.
+The file is tracked in git and rewritten by `PairingService` on construction, so running the server-side suites dirties it. Not caused by this task's changes and not reverted, but a tracked file that every test run modifies is noise in every diff. It probably belongs in `.gitignore`.
 
-### 6.4 Carried forward, still open
+### 6.5 Carried forward
 
-- **`MemoryStore` is still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3). Four components now depend on it. Needs a Change Proposal; the drafted entry is in that report.
-- **No DOM test environment** (P5.2-02 § 6.3). The mode toggle, the status pills and the modal submit path are still rendered-and-typed but not clicked. The `initialMode` prop exists so render tests can reach timeline mode — a workaround for the missing environment, not a substitute.
-- **`supersededBy` is still bidirectional** (drift § 4). The timeline is now the second consumer reading `status` to disambiguate it, after the explorer card. The entry's note that a fix is "cheapest before a client is written against the API" is now two clients out of date.
-- `pnpm run lint` remains red on `@asterim/adapters`; `apps/server` still has 4 pre-existing `tsc` errors. All figures here are local verification.
+- **`MemoryStore` is still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3) — now four components and eleven actions deep.
+- **`supersededBy` is still bidirectional** (drift § 4). The new endpoint does not touch it, but P5.3-02's supersede dialog will.
+- **No DOM test environment** (P5.2-02 § 6.3).
+- `pnpm run lint` remains red on `@asterim/adapters`. All figures here are local verification.
 
 ---
 
 ## 7. Recommended Next Step
 
-Phase 5.2's three vertical slices are in place: store, explorer, timeline + briefing. Before wrapping the milestone:
+Proceed to **P5.3-02 — Interactive Supersede & Archive UI Dialogs**. The store now exposes every write the UI needs: `createDecision`, `supersedeDecision`, `updateDecisionStatus`, `archiveDecision`. Four things to settle with it:
 
-1. **Verify Part A in the running app.** My measurement uses a faithful reproduction of the shell, not the app itself — the classes, CSS, and structure are the real ones, but the app requires pairing and a project to reach that screen. The reported symptom is fixed in the reproduction; a five-second check with the inspector dragged wide would confirm it end to end, and that is worth doing since it is a user-reported bug.
-2. **Close § 6.3 or state it.** The briefing is the view most likely to be read as live.
-3. **Raise the two blueprint items** — the `MemoryStore` entry (§ 6.4) and the `supersedes` field split (drift § 4). Both have been deferred through three tasks and both get more expensive with each consumer.
-
-For **Phase 5.3**, the obvious gap is that the memory UI is read-mostly: decisions can be recorded and browsed, but not superseded, archived, or edited from the interface. `supersedeDecision` exists in the store and on the REST surface with no UI. A supersede flow launched from the timeline — where the lineage is already the primary structure — is the natural next slice, and it would exercise the one write path that the explorer's Record modal does not.
+1. **Archive needs confirmation; status changes do not.** Archiving is the one action that removes a decision from every agent briefing — it is what a future session will *not* be told. A plain menu item is too quiet for that; `STALE` and back is reversible and can be immediate.
+2. **Launch supersede from the timeline.** Lineage is already the primary structure there (`buildLineage`), and superseding is the act that creates a link — doing it where the chain is visible is the natural placement. It is also the write path the Record modal does not exercise.
+3. **Align the service boundary** (§ 6.2) before the UI calls both methods, so a supersede and an archive fail the same way for the same reason.
+4. **Decide what an archived decision looks like** in the explorer. Right now the status filter can surface it, but the default `all` view mixes retired decisions with live ones at equal weight — which works against the reason for archiving something in the first place.

@@ -74,6 +74,7 @@ async function main(): Promise<void> {
 
   const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload });
   const get = (url: string) => app.inject({ method: 'GET', url });
+  const patch = (url: string, payload: unknown) => app.inject({ method: 'PATCH', url, payload });
 
   // --- Decisions: create --------------------------------------------------
   describe('POST /memory/decisions');
@@ -287,6 +288,103 @@ async function main(): Promise<void> {
   equal('an untouched project still briefs with 200', emptyBriefing.statusCode, 200);
   equal('an untouched project has no decisions', emptyBriefing.json().briefing.activeDecisions, []);
   equal('an untouched project has a null intent', emptyBriefing.json().briefing.currentIntent, null);
+
+  // --- Decisions: status lifecycle -----------------------------------------
+  describe('PATCH /memory/decisions/:decisionId/status');
+
+  const lifecycle = await post(`/api/v1/projects/${PROJECT_A}/memory/decisions`, {
+    title: 'A decision that will be retired',
+    summary: 's',
+    rationale: 'r'
+  });
+  const lifecycleId = lifecycle.json().decision.id;
+  equal('it starts ACTIVE', lifecycle.json().decision.status, 'ACTIVE');
+
+  const toStale = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`,
+    { status: 'STALE' }
+  );
+  equal('a valid transition returns 200', toStale.statusCode, 200);
+  equal('the response carries the updated decision', toStale.json().decision.id, lifecycleId);
+  equal('the new status is applied', toStale.json().decision.status, 'STALE');
+  equal('the decision stays in its project', toStale.json().decision.projectId, PROJECT_A);
+  check(
+    'updated_at moves forward',
+    toStale.json().decision.updatedAt >= lifecycle.json().decision.updatedAt,
+    `${toStale.json().decision.updatedAt} vs ${lifecycle.json().decision.updatedAt}`
+  );
+
+  const persisted = await get(`/api/v1/projects/${PROJECT_A}/memory/decisions?status=STALE`);
+  equal('the change is persisted, not just echoed', persisted.json().decisions.map((d: any) => d.id), [lifecycleId]);
+
+  const briefingAfterStale = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing`);
+  check(
+    'a non-ACTIVE decision drops out of the briefing',
+    !briefingAfterStale.json().briefing.activeDecisions.some((d: any) => d.id === lifecycleId)
+  );
+
+  const backToActive = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`,
+    { status: 'ACTIVE' }
+  );
+  equal('a decision can be moved back to ACTIVE', backToActive.json().decision.status, 'ACTIVE');
+  const briefingAfterRestore = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing`);
+  check(
+    'and reappears in the briefing',
+    briefingAfterRestore.json().briefing.activeDecisions.some((d: any) => d.id === lifecycleId)
+  );
+
+  const archived = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`,
+    { status: 'ARCHIVED' }
+  );
+  equal('archiving works through the same endpoint', archived.json().decision.status, 'ARCHIVED');
+
+  const noStatus = await patch(`/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`, {});
+  equal('a missing status returns 400', noStatus.statusCode, 400);
+  check('the 400 says status is required', /status is required/.test(noStatus.json().error));
+
+  const unknownStatus = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`,
+    { status: 'RETIRED' }
+  );
+  equal('an unrecognised status returns 400', unknownStatus.statusCode, 400);
+  check('the 400 lists the valid statuses', /ACTIVE, STALE, SUPERSEDED, ARCHIVED/.test(unknownStatus.json().error));
+
+  const lowercase = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/${lifecycleId}/status`,
+    { status: 'active' }
+  );
+  equal('status matching is case-sensitive', lowercase.statusCode, 400);
+
+  const missingDecision = await patch(
+    `/api/v1/projects/${PROJECT_A}/memory/decisions/no-such-decision/status`,
+    { status: 'ARCHIVED' }
+  );
+  equal('an unknown decision returns 404', missingDecision.statusCode, 404);
+
+  // The decision exists, but belongs to Project A. Asking as Project B must fail.
+  const crossProject = await patch(
+    `/api/v1/projects/${PROJECT_B}/memory/decisions/${lifecycleId}/status`,
+    { status: 'ACTIVE' }
+  );
+  equal('a cross-project status change returns 400', crossProject.statusCode, 400);
+  // Read defensively: if the guard ever regresses the body has no `error` at all,
+  // and an assertion that throws would abort the run and hide every check after it.
+  const crossError = String(crossProject.json().error ?? '');
+  check('the error names the decision', crossError.includes(lifecycleId), crossError);
+  check(
+    'and does not disclose the owning project',
+    crossError.length > 0 && !crossError.includes(PROJECT_A),
+    'see blueprint/audit/IMPLEMENTATION_DRIFT.md § 8'
+  );
+
+  const stillArchived = await get(`/api/v1/projects/${PROJECT_A}/memory/decisions?status=ARCHIVED`);
+  check(
+    'the rejected cross-project write changed nothing',
+    stillArchived.json().decisions.some((d: any) => d.id === lifecycleId),
+    'the decision should still be ARCHIVED'
+  );
 
   // --- Project isolation over HTTP -----------------------------------------
   describe('project isolation over HTTP');

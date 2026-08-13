@@ -366,6 +366,7 @@ export function useSocket(
     newSocket.on('terminal.data', handleInternalEvent);
     newSocket.on('memory.decision_created', handleInternalEvent);
     newSocket.on('memory.decision_superseded', handleInternalEvent);
+    newSocket.on('memory.decision_updated', handleInternalEvent);
     newSocket.on('memory.rule_created', handleInternalEvent);
     newSocket.on('memory.intent_updated', handleInternalEvent);
 

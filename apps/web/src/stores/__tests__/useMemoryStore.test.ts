@@ -295,6 +295,102 @@ async function main(): Promise<void> {
   equal('both decisions are held', store().decisions.length, 2);
   equal('the briefing now lists only the replacement', store().briefing?.activeDecisions.map((d: ProjectDecision) => d.id), ['dec-replacement']);
 
+  describe('updateDecisionStatus and archiveDecision');
+
+  store().reset();
+  respond({ briefing: briefing({ activeDecisions: [decision()] }) });
+  await store().fetchBriefing(PROJECT);
+  respond({ decisions: [decision()] });
+  await store().fetchDecisions(PROJECT);
+
+  respond({ decision: decision({ status: 'STALE' }) });
+  const staled = await store().updateDecisionStatus(PROJECT, 'dec-1', 'STALE');
+  equal(
+    'it PATCHes the status endpoint',
+    lastRequest().url,
+    `/api/v1/projects/${PROJECT}/memory/decisions/dec-1/status`
+  );
+  equal('it uses PATCH', lastRequest().method, 'PATCH');
+  equal('the body carries only the status', lastRequest().body, { status: 'STALE' });
+  equal('the updated decision is returned', staled.status, 'STALE');
+  equal('local state reflects the new status', store().decisions[0].status, 'STALE');
+  equal('and it is dropped from the briefing', store().briefing?.activeDecisions, []);
+  equal('without duplicating the decision', store().decisions.length, 1);
+
+  respond({ decision: decision({ status: 'ACTIVE' }) });
+  await store().updateDecisionStatus(PROJECT, 'dec-1', 'ACTIVE');
+  equal('moving back to ACTIVE restores it to the briefing', store().briefing?.activeDecisions.map((d: ProjectDecision) => d.id), ['dec-1']);
+
+  respond({ decision: decision({ status: 'ARCHIVED' }) });
+  const archived = await store().archiveDecision(PROJECT, 'dec-1');
+  equal('archiveDecision sends ARCHIVED', lastRequest().body, { status: 'ARCHIVED' });
+  equal('it targets the same endpoint', lastRequest().url, `/api/v1/projects/${PROJECT}/memory/decisions/dec-1/status`);
+  equal('and returns the archived decision', archived.status, 'ARCHIVED');
+  equal('which leaves the briefing', store().briefing?.activeDecisions, []);
+
+  respond({ error: "Decision dec-1 does not belong to project other" }, 400);
+  let statusThrew = false;
+  try {
+    await store().updateDecisionStatus(PROJECT, 'dec-1', 'ACTIVE');
+  } catch (err) {
+    statusThrew = (err as Error).message.includes('does not belong');
+  }
+  check('a rejected status change throws', statusThrew);
+  equal('and surfaces the server message', store().error, 'Decision dec-1 does not belong to project other');
+  equal('while leaving the decision as it was', store().decisions[0].status, 'ARCHIVED');
+
+  describe('handleMemoryEvent — decision_updated');
+
+  store().reset();
+  respond({ briefing: briefing({ activeDecisions: [decision()] }) });
+  await store().fetchBriefing(PROJECT);
+  respond({ decisions: [decision()] });
+  await store().fetchDecisions(PROJECT);
+
+  check('the event type is recognised', isMemoryEvent({ type: 'memory.decision_updated' }));
+
+  store().handleMemoryEvent(
+    event('memory.decision_updated', {
+      projectId: PROJECT,
+      decision: decision({ status: 'ARCHIVED' }),
+      previousStatus: 'ACTIVE'
+    })
+  );
+  equal('a live status change is applied', store().decisions[0].status, 'ARCHIVED');
+  equal('and removes it from the briefing', store().briefing?.activeDecisions, []);
+  equal('without adding a second copy', store().decisions.length, 1);
+
+  store().handleMemoryEvent(
+    event('memory.decision_updated', {
+      projectId: PROJECT,
+      decision: decision({ status: 'ACTIVE' }),
+      previousStatus: 'ARCHIVED'
+    })
+  );
+  equal('a reversal restores it to the briefing', store().briefing?.activeDecisions.map((d: ProjectDecision) => d.id), ['dec-1']);
+  equal('and updates the stored status', store().decisions[0].status, 'ACTIVE');
+
+  store().handleMemoryEvent(
+    event('memory.decision_updated', {
+      projectId: OTHER_PROJECT,
+      decision: decision({ id: 'foreign', projectId: OTHER_PROJECT, status: 'ARCHIVED' }),
+      previousStatus: 'ACTIVE'
+    })
+  );
+  equal("another project's status change is ignored", store().decisions.length, 1);
+
+  // A decision the client has never seen, updated remotely: it should appear
+  // rather than be dropped, since the payload carries the whole decision.
+  store().handleMemoryEvent(
+    event('memory.decision_updated', {
+      projectId: PROJECT,
+      decision: decision({ id: 'unseen', status: 'STALE' }),
+      previousStatus: 'ACTIVE'
+    })
+  );
+  equal('an unseen decision arriving via an update is added', store().decisions.length, 2);
+  check('and stays out of the briefing while non-ACTIVE', !store().briefing?.activeDecisions.some((d: ProjectDecision) => d.id === 'unseen'));
+
   describe('createRule and createIntent');
 
   store().reset();
