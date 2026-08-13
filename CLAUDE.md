@@ -7,11 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repo is Architecture-First. `blueprint/` is the normative Source of Truth; the code is the implementation of it.
 
 - Before non-trivial work, read `blueprint/AI_CONTEXT.md` — it holds the Source of Truth Matrix mapping a domain (architecture, UI, git, business, engineering) to the one document that governs it.
-- Full operating rules live in `.agents/AGENT_RULES.md` and `.agents/TASK_WORKFLOW.md`; the completion bar is `.agents/DEFINITION_OF_DONE.md`.
+- Full operating rules live in `AGENTS.md`, `.agents/AGENT_RULES.md`, and `.agents/TASK_WORKFLOW.md`; the completion bar is `.agents/DEFINITION_OF_DONE.md`.
 - Do not invent architecture, subsystems, dependencies, or product behavior. If the spec must change, write a Change Proposal from `.agents/templates/` instead of quietly changing the implementation.
 - Never duplicate Blueprint rationale into code comments or `.agents/` — reference the domain document instead.
 
-Root-level working files (not the Blueprint): `tasks.md` (current phase checklist), `decisions.md` (DEC-0XX record), `product-bugs.md`. Phase/PR/design work also produces a written report in `docs/` (e.g. `docs/phase4-5-roadmap.md`, `docs/design-00X-report.md`) — a chat summary alone doesn't close such a task.
+## Task Assignment & Reporting Protocol
+
+This repository uses a human-controlled Antigravity (Orchestrator) ↔ Claude Code (Execution) workflow:
+
+1. **Active Task**: Claude Code reads `tasks/current.md` as the single authoritative task assigned by Antigravity.
+2. **Execution Scope**: Execute only the task defined in `tasks/current.md`. Do not invent additional tasks or make changes outside the task scope.
+3. **Execution Report**: Write the task execution result directly to `reports/current.md` (overwriting for each new task).
+4. **No Random Docs**: Do not create arbitrary new report files in `docs/`. Existing `docs/` files are historical milestone records.
+5. **Status Labels**: Reports must clearly distinguish `IMPLEMENTED`, `VERIFIED`, `BLOCKED`, `NOT IMPLEMENTED`. "Implemented" is not the same as "Verified".
 
 ## Commands
 
