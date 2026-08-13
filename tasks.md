@@ -214,11 +214,13 @@
 
 ---
 
+---
+
 # Phase 5.0 — Project Memory Core (DONE)
 
 See `docs/phase5-0-completion-report.md`. 365 assertions across 3 suites, 0 failures.
 
-- [x] P5.0-01 Architecture & existing identity verification (`docs/p5.0-01-verification-report.md`)
+- [x] P5.0-01 Architecture & existing identity verification
 - [x] P5.0-02 Shared memory types in `@asterim/shared`
 - [x] P5.0-03 SQLite schema: 4 tables, 7 indexes, WAL
 - [x] P5.0-04 `ProjectMemoryService` persistence core
@@ -227,7 +229,57 @@ See `docs/phase5-0-completion-report.md`. 365 assertions across 3 suites, 0 fail
 - [x] P5.0-07 EventBus integration (4 `memory.*` events)
 - [x] P5.0-08 REST surface at `/api/v1/projects/:id/memory/*`
 - [x] P5.0-09 Full verification & Blueprint synchronization
-- [ ] Open decisions before a client is built: `supersededBy` direction, `relatedFiles` storage, cross-project error disclosure (`blueprint/audit/IMPLEMENTATION_DRIFT.md` §§ 4–8)
+
+# Phase 5.1 — Cross-Agent MCP Memory Server (DONE)
+
+See `docs/phase5-1-completion-report.md`. 566+ assertions passed.
+
+- [x] P5.1-01 Foundation & stdio isolation (`packages/mcp-memory-server`)
+- [x] P5.1-02 Project auto-resolution from CWD (4-tier resolver)
+- [x] P5.1-03 Memory briefing tool (`get_project_briefing`)
+- [x] P5.1-04 Decision query & recording tools (`query_decisions`, `record_decision`)
+- [x] P5.1-05 Multi-agent project boundary isolation & DEC-023/024 enforcement
+- [x] P5.1-06 SQLite multi-process busy timeout (`PRAGMA busy_timeout = 5000;`)
+- [x] P5.1-07 Cross-agent dogfooding verification gate
+
+# Phase 5.2 — Project Decision Explorer & Memory UI (DONE)
+
+See `docs/phase5-2-completion-report.md`. 233 assertions across 3 suites.
+
+- [x] P5.2-01 `useMemoryStore.ts` & Socket.IO event routing
+- [x] P5.2-02 `DecisionExplorer.tsx` & `RecordDecisionModal.tsx`
+- [x] P5.2-03 `MemoryTimelineView.tsx` & `ReentryBriefingCard.tsx` + topbar overflow fix
+
+# Phase 5.3 — Decision Lifecycle & Memory Curation UI (DONE)
+
+See `docs/phase5-3-completion-report.md`. 692 assertions across full memory battery.
+
+- [x] P5.3-01 `PATCH .../status` REST endpoint & `memory.decision_updated` EventBus event
+- [x] P5.3-02 `DecisionActions.tsx`, `SupersedeDecisionModal.tsx`, `ArchiveDecisionModal.tsx`
+- [x] P5.3-03 `CreateRuleModal.tsx`, `UpdateIntentModal.tsx`, `decisionHelpers.ts`, title resolution
+
+# Phase 5.4 — Intelligent Memory & Continuous Governance (PLANNED)
+
+See `docs/phase5-4-task-plan.md`.
+
+- [ ] **P5.4-01: Cross-Process Memory Event Relay & Live Sync**
+  - [ ] Implement `ServerRegistry` writing `~/.asterim/server.json` on startup with loopback token.
+  - [ ] Implement `POST /api/v1/internal/memory-events` loopback endpoint on Core Server.
+  - [ ] Implement MCP relay client in `packages/mcp-memory-server` notifying Core on writes.
+  - [ ] Verify 0ms UI update when external terminal agent records a decision via MCP stdio.
+- [ ] **P5.4-02: Git Staleness & Drift Engine**
+  - [ ] Implement `GitDriftDetector` in `apps/server/src/services/git/GitDriftDetector.ts`.
+  - [ ] Calculate `FILE_MODIFIED`, `FILE_DELETED`, `SYMBOL_NOT_FOUND` against working tree.
+  - [ ] Expose drift status in `getProjectBriefing` and render visual caution badges in UI.
+- [ ] **P5.4-03: Decision Extraction Queue & Candidate Review UI**
+  - [ ] Add `candidate_decisions` table to SQLite schema.
+  - [ ] Implement `DecisionExtractor` analyzing session logs/tool invocations upon completion.
+  - [ ] Implement Candidate Decision review drawer in UI with 1-click Approve / Reject.
+- [ ] **P5.4-04: Relevance Ranking, Scoped Briefings & Noise Reduction**
+  - [ ] Implement path-proximity ranking and token-budget bounding in `getProjectBriefing`.
+  - [ ] Scope architectural rules by `scopePattern` against target files.
+
+---
 
 # Phase 5 — SaaS Foundation & Beta Release Tasks
 
@@ -235,6 +287,7 @@ See `docs/phase5-0-completion-report.md`. 365 assertions across 3 suites, 0 fail
   - [ ] Implement `SSH_AUTH_SOCK` socket auto-discovery and inheritance in `GitProvider.ts`.
   - [ ] Implement global `credential.helper` resolution and non-interactive Git credential provider integration.
   - [ ] Implement automatic silent retry & format conversion (HTTPS <-> SSH) on initial push failure.
+
 
 
 

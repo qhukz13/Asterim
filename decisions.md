@@ -151,3 +151,36 @@
 * **Impact**:
   - Applies to any future MCP server in this repository, not only the memory server.
   - Argument validation belongs in the MCP package rather than downstream, so that a malformed request produces a corrective message and no partial write.
+
+---
+
+## DEC-026: Cross-Process Memory Event Relay — Local Loopback Notification
+
+* **Date**: August 14, 2026
+* **Status**: Approved Architecture Decision
+* **Context**: The MCP memory server runs as an independent external subprocess (spawned by Claude Code, Cursor, or CLI) communicating with SQLite directly in WAL mode. Because the Core server's `EventBus` is an in-memory `EventEmitter`, writes made by external MCP processes commit immediately to disk but do not trigger the Core `EventBus` or Socket.IO push to connected web browsers until manual page refresh.
+* **Decision**: Adopt a lightweight, zero-dependency local loopback notification bridge:
+  1. Core server writes an active connection descriptor (`~/.asterim/server.json`) upon startup, containing its local URL and an ephemeral loopback auth token.
+  2. Core exposes loopback endpoint `POST /api/v1/internal/memory-events` guarded by the token.
+  3. MCP memory server checks for `~/.asterim/server.json` after successful writes. If found, it fires a fire-and-forget loopback POST.
+  4. Core server verifies loopback auth and republishes the event onto `EventBus` -> `SocketManager` -> Web UI.
+  5. If Core server is not running, MCP continues immediately with 0 delay and zero errors.
+* **Rationale**: Preserves 100% local-first, zero-setup simplicity without introducing heavyweight external IPC daemons (Redis, ZeroMQ, RabbitMQ).
+* **Impact**:
+  - Web UI gains instant 0ms updates when external agents record decisions via MCP.
+  - Zero performance impact when running headless CLI agents without the web UI.
+
+---
+
+## DEC-027: Non-Destructive Git Drift Detection & Staged Decision Candidate Queue
+
+* **Date**: August 14, 2026
+* **Status**: Approved Architecture Decision
+* **Context**: As codebases evolve, anchored code references in `decision_code_refs` can drift due to file edits, renames, deletions, and refactors. Furthermore, agents making decisions in sessions should be captured without allowing autonomous unconfirmed LLM writes to directly pollute authoritative project memory.
+* **Decision**:
+  1. **Non-Destructive Drift**: `GitDriftDetector` computes drift status against working tree diffs (`FILE_MODIFIED`, `FILE_DELETED`, `SYMBOL_NOT_FOUND`) and flags decisions visually in Explorer/Timeline and briefings. Human-confirmed decisions are **never** automatically deleted or mutated.
+  2. **Staged Extraction Queue**: Automated decision extraction populates a dedicated `candidate_decisions` staging table with `status: 'PENDING'`. Only human operator confirmation (`POST .../approve`) transitions candidate decisions into active `project_decisions` with `provenance: 'HUMAN_CONFIRMED'` and `confidence: 1.0`.
+* **Rationale**: Guarantees memory integrity, prevents destructive data loss, and eliminates compounding LLM hallucination loops across sessions.
+* **Impact**:
+  - Human governance remains the authoritative quality gate for project memory.
+  - Engineers receive clear visual drift alerts when code changes outpace recorded architectural decisions.
