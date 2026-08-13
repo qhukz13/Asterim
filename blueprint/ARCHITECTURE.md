@@ -17,12 +17,15 @@ graph TD
     Laptop <-->|WebSockets/REST| API
     UI[Client Web App] <-->|WebSockets/REST| API[Core Server Desktop]
     API <--> Bus[Event Bus]
+    API <--> Memory[Project Memory]
     Bus <--> State[State Manager]
     Bus <--> AdapterManager[Adapter Manager]
     Bus <--> GitService[Git Subsystem]
     GitService <--> GitCLI[Local git binary]
     AdapterManager <--> Aider[Aider Process]
     AdapterManager <--> Claude[Claude Process]
+    Memory -->|publishes| Bus
+    Memory <--> DB
     State <--> DB[(Embedded Storage)]
 
     API <-.->|Secure Tunnel| Relay[Cloud Relay Server]
@@ -84,6 +87,65 @@ The translation layer isolating the Core from third-party tools.
 
 - **Requirements**: The system MUST provide a secure way to tunnel local WebSocket connections to the public internet for remote management, without opening local firewall ports.
 - **Level 4 Current Implementation**: Not yet built. Architecture will likely utilize reverse WebSockets or a persistent TCP tunnel.
+
+## 8. Project Memory
+
+The subsystem that gives a Project continuity across Threads, agents, and processes. Domain entities are specified in `DOMAIN_MODEL.md` § Project Memory.
+
+- **Requirements**:
+  - The system MUST persist project-scoped decisions, their code anchors, the current project intent, and standing architectural rules.
+  - Memory MUST be strictly scoped by Project. No read path MAY return records belonging to another Project.
+  - The system MUST be able to assemble a **ProjectBriefing** — the memory snapshot handed to an agent beginning work.
+  - A briefing MUST be deterministic. The same stored state MUST produce a byte-identical briefing, which requires every query to define a total order rather than relying on timestamps alone.
+  - A briefing MUST NOT be produced by a language model, sampling, or any non-reproducible summarization.
+  - Recent agent activity in a briefing MUST be derived from existing AgentExecution and Approval records. A parallel activity log MUST NOT be introduced.
+  - Decision supersession MUST be atomic: a decision is never left `SUPERSEDED` without its replacement existing.
+  - A Project MUST have at most one `ACTIVE` intent; archive-and-replace MUST be atomic.
+  - Retired decisions MUST be retained, never deleted. Memory MUST cascade only on Project deletion.
+  - Memory mutations MUST be published on the Event Bus.
+  - The persistence layer MUST reject writes that reference a non-existent Project.
+
+- **Level 4 Current Implementation**: `ProjectMemoryService.ts`, a singleton over four SQLite tables — `project_decisions`, `decision_code_refs`, `project_intents`, `architectural_rules` — with `ON DELETE CASCADE` to `projects(id)`. Multi-statement writes run in explicit transactions. Enum-like columns are validated in the service, since SQLite cannot add a `CHECK` constraint to an existing table. Types are shared through `@asterim/shared` (`packages/shared/src/types/memory.ts`).
+
+- **Alternatives Considered**: A vector store with embedding-based retrieval; a model-generated rolling summary; Markdown files in the repository.
+
+- **Trade-offs**: Relational storage with exact-match relevance lookup cannot find a decision phrased differently from the query, which embeddings would. In exchange it is deterministic, auditable, costs no tokens, adds no dependency, and cannot invent a decision that was never recorded. Markdown files would be human-editable and diffable but offer no scoping, no transactional lifecycle, and no query surface.
+
+- **Reasoning**: Memory is the input to an agent's reasoning, so reproducibility outranks recall. A briefing that varies between identical runs makes agent behaviour impossible to debug. Approximate retrieval MAY be layered on later as an additional index; it MUST NOT replace the deterministic core.
+
+### 8.1 REST Surface
+
+All routes are project-scoped; `projectId` is taken from the path and MUST NOT be read from the request body.
+
+| Method | Route                                                         | Purpose                                        |
+| :----- | :------------------------------------------------------------ | :--------------------------------------------- |
+| POST   | `/api/v1/projects/:id/memory/decisions`                       | Record a decision                              |
+| GET    | `/api/v1/projects/:id/memory/decisions?status=`               | List decisions, optionally by lifecycle status |
+| POST   | `/api/v1/projects/:id/memory/decisions/:decisionId/supersede` | Replace a decision                             |
+| GET    | `/api/v1/projects/:id/memory/briefing`                        | Assemble the ProjectBriefing                   |
+| POST   | `/api/v1/projects/:id/memory/intents`                         | Set the current intent                         |
+| GET    | `/api/v1/projects/:id/memory/intents/active`                  | Read the current intent                        |
+| POST   | `/api/v1/projects/:id/memory/rules`                           | Add an architectural rule                      |
+| GET    | `/api/v1/projects/:id/memory/rules`                           | List architectural rules                       |
+
+Route handlers MUST remain thin: no SQL and no lifecycle logic. They validate request shape, delegate to `ProjectMemoryService`, and translate service errors into status codes (`404` for an absent Project or decision, `400` for unacceptable input).
+
+- **Level 4 Current Implementation**: `apps/server/src/routes/memory.ts`, registered in `apps/server/src/index.ts`.
+
+### 8.2 Event Contract
+
+Memory mutations publish on the Event Bus with `source: 'system:memory'`:
+
+| Type                         | Payload                                             |
+| :--------------------------- | :-------------------------------------------------- |
+| `memory.decision_created`    | `{ projectId, decision }`                           |
+| `memory.decision_superseded` | `{ projectId, decisionId, supersededBy, decision }` |
+| `memory.intent_updated`      | `{ projectId, intent, previousIntentId? }`          |
+| `memory.rule_created`        | `{ projectId, rule }`                               |
+
+Events MUST be published only after the originating write has committed, so a subscriber can never observe a change that is subsequently rolled back.
+
+Because the Event Bus dispatches synchronously (ADR-008), the subsystem MUST tolerate hostile subscribers: a subscriber that throws MUST NOT surface as a failure to the caller of a write that already committed, and a subscriber that writes memory in reaction to a memory event MUST NOT recurse without bound. Any future subscription MUST NOT listen on the literal `'*'` channel, which would deliver the subsystem its own events.
 
 ## Future Evolution
 

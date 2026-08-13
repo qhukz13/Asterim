@@ -14,6 +14,11 @@ The fundamental concepts of Asterim follow this hierarchy:
   - **Workstations**
   - **Projects**
     - **Git Subsystem**
+    - **Project Memory**
+      - **ProjectDecision**
+        - **DecisionCodeRef**
+      - **ProjectIntent**
+      - **ArchitecturalRule**
     - **Threads**
       - **Context**
       - **AgentExecution**
@@ -62,15 +67,15 @@ Implemented via `WorkstationConfig` and `mDNSService.ts`. Currently primarily us
 #### Purpose
 Bounds the context of an agent's work to a specific software repository or directory.
 #### Responsibilities
-- **Owns:** The absolute path on the Workstation, the Git Subsystem, and Threads.
+- **Owns:** The absolute path on the Workstation, the Git Subsystem, Project Memory, and Threads.
 - **Never owns:** Agent configuration (owned by Workspace/Thread) or actual agent processes (owned by AgentExecution).
 #### Lifecycle
 - **Created:** By the user adding a local folder.
 - **Changed:** When renamed or relocated.
-- **Destroyed:** When the user removes the project from the Workspace.
+- **Destroyed:** When the user removes the project from the Workspace. Deleting a Project MUST remove its Project Memory.
 #### Relationships
 - **Parent:** Workspace.
-- **Children:** Git Subsystem, Threads.
+- **Children:** Git Subsystem, Project Memory, Threads.
 #### Current State
 Fully implemented in `ProjectManager.ts` and the `projects` table.
 
@@ -191,6 +196,129 @@ Implemented in `ApprovalManager.ts` and the `approvals` table.
 
 ---
 
+## Project Memory
+
+Project Memory is the durable reasoning layer of a Project. Where Context answers *"what is the agent looking at right now"*, Project Memory answers *"what has this project already decided, and why"*. Context is scoped to a Thread and is transient; Memory is scoped to the Project and outlives every Thread, agent, and process within it.
+
+Its purpose is continuity: an agent starting work weeks after the last one MUST be able to recover the project's established decisions, standing rules, and current objective without a human re-explaining them.
+
+### Project Memory (aggregate)
+#### Purpose
+The set of durable, project-scoped knowledge that survives Threads: decisions and their code anchors, the current intent, and standing architectural rules.
+#### Responsibilities
+- **Owns:** ProjectDecisions, ProjectIntents, ArchitecturalRules, and the derivation of the ProjectBriefing.
+- **Never owns:** Transient working state (owned by Context), conversation history (owned by Events), or agent process state (owned by AgentExecution).
+#### Lifecycle
+- **Created:** Implicitly. A Project always has a Memory; it simply starts empty.
+- **Changed:** When a decision, intent, or rule is recorded or transitions state.
+- **Destroyed:** With the Project. Memory MUST cascade on Project deletion.
+#### Relationships
+- **Parent:** Project.
+- **Children:** ProjectDecision, ProjectIntent, ArchitecturalRule.
+#### Design Requirements
+Project Memory MUST support:
+- **Project scoping:** No query MAY return memory belonging to another Project.
+- **Determinism:** Reads MUST be reproducible. Ordering MUST be total, never dependent on insertion timing at millisecond resolution.
+- **Provenance:** Every decision MUST record how it entered memory, so a human-confirmed decision is distinguishable from an inferred one.
+- **Synchronization:** Changes MUST be broadcast on the Event Bus.
+- **Auditability:** Superseded and archived decisions MUST be retained, never deleted.
+#### Current State
+Implemented in `ProjectMemoryService.ts` over four tables (`project_decisions`, `decision_code_refs`, `project_intents`, `architectural_rules`), exposed at `/api/v1/projects/:id/memory/*`. See `ARCHITECTURE.md` § 8.
+
+### ProjectDecision
+#### Purpose
+A durable architectural or product decision, recorded with the reasoning behind it. This is the atom of Project Memory.
+#### Responsibilities
+- **Owns:** Title, summary, rationale, the constraints it imposes, its lifecycle status, its provenance, a confidence score, and its code anchors.
+- **Never owns:** The code that implements it (only references to it).
+#### Lifecycle
+- **Created:** `ACTIVE`, when recorded by a user or an agent.
+- **Changed:**
+  - `ACTIVE → STALE` — still in force, but the repository no longer matches the evidence behind it.
+  - `ACTIVE → SUPERSEDED` — replaced by a newer decision, which the `supersededBy` link names.
+  - `ACTIVE → ARCHIVED` — retired without a replacement.
+- **Destroyed:** Never by lifecycle. Only when the parent Project is deleted. A retired decision is part of the project's reasoning history.
+#### Relationships
+- **Parent:** Project (via Project Memory).
+- **Children:** DecisionCodeRef.
+#### Design Requirements
+- Superseding MUST be atomic: a decision is never left `SUPERSEDED` without a replacement existing.
+- Only `ACTIVE` decisions appear in a ProjectBriefing or a relevance lookup.
+#### Current State
+Implemented as the `project_decisions` table and the `ProjectDecision` type in `@asterim/shared`.
+
+### DecisionCodeRef
+#### Purpose
+Anchors a decision to the repository, so that a decision can be found by the file an agent is about to touch rather than only by browsing a list.
+#### Responsibilities
+- **Owns:** An optional file path, symbol name, and commit hash.
+- **Never owns:** File contents or git history (owned by the Git Subsystem).
+#### Lifecycle
+- **Created:** With its decision.
+- **Changed:** Immutable.
+- **Destroyed:** With its decision.
+#### Relationships
+- **Parent:** ProjectDecision.
+- **Children:** None.
+#### Current State
+Implemented as the `decision_code_refs` table, indexed by both `decision_id` and `file_path`.
+
+### ProjectIntent
+#### Purpose
+What the Project is currently trying to achieve. Distinct from a decision: an intent is the objective in flight, a decision is a conclusion already reached.
+#### Responsibilities
+- **Owns:** The goal, the constraints the work must respect, and explicit non-goals.
+- **Never owns:** Task breakdown or scheduling.
+#### Lifecycle
+- **Created:** `ACTIVE`, when set by the user.
+- **Changed:** Setting a new intent archives the previous one in the same operation.
+- **Destroyed:** With the Project.
+#### Relationships
+- **Parent:** Project (via Project Memory).
+- **Children:** None.
+#### Design Requirements
+- A Project MUST have at most one `ACTIVE` intent. The archive-and-replace MUST be atomic.
+#### Current State
+Implemented as the `project_intents` table and the `ProjectIntent` type in `@asterim/shared`.
+
+### ArchitecturalRule
+#### Purpose
+A standing constraint agents MUST observe while working in the Project — the project's own operating rules, expressed as data rather than as prose in a prompt.
+#### Responsibilities
+- **Owns:** The rule statement, its severity, and the path scope it applies to.
+- **Never owns:** Enforcement. A rule is a declaration; acting on it belongs to the agent or the approval gate.
+#### Lifecycle
+- **Created:** When recorded by the user.
+- **Changed:** Currently create-only.
+- **Destroyed:** With the Project.
+#### Relationships
+- **Parent:** Project (via Project Memory).
+- **Children:** None.
+#### Current State
+Implemented as the `architectural_rules` table and the `ArchitecturalRule` type in `@asterim/shared`.
+
+### ProjectBriefing
+#### Purpose
+The memory snapshot handed to an agent beginning work on a Project. It is the mechanism by which continuity is actually delivered — everything else in Project Memory exists so that this object can be assembled.
+#### Responsibilities
+- **Owns:** Nothing. It is a derived read model, never persisted.
+- **Composed of:** The Project's `ACTIVE` decisions, its architectural rules, its current intent, its recent AgentExecutions, and its recent Approvals.
+#### Lifecycle
+- **Created:** On request.
+- **Changed:** Never — it is a value, not an entity.
+- **Destroyed:** Immediately after use.
+#### Relationships
+- **Parent:** Project.
+- **Children:** None.
+#### Design Requirements
+- A briefing MUST be deterministic: the same database state MUST produce a byte-identical briefing.
+- A briefing MUST NOT be produced by a language model or any sampling process. It is assembled by query.
+- Recent agent work and approvals MUST be read from the existing AgentExecution and Approval records. A parallel activity log MUST NOT be introduced.
+#### Current State
+Implemented as `ProjectMemoryService.getProjectBriefing()` and the `ProjectBriefing` type in `@asterim/shared`. Reads `sessions` and `approvals` directly.
+
+---
+
 ## Domain Rules & Justifications
 
 ### Why does Context belong to Thread instead of Project?
@@ -204,6 +332,15 @@ A Thread represents the persistent, long-lived mission (the "conversation" and "
 
 ### Why do Approvals belong to Threads?
 Approvals are blocking requests made by an agent during its execution to achieve a specific thread's goal. They are part of the timeline of events for that task.
+
+### Why does Project Memory belong to Project instead of Thread?
+This is the mirror image of the Context rule. Context is scoped to a Thread precisely because parallel agents must not overwrite each other's working sets. Memory is scoped to the Project for the opposite reason: a decision reached in one Thread MUST bind every other Thread in the repository. Scoping memory to a Thread would mean each parallel agent re-deriving — and potentially contradicting — conclusions the project already reached, which is the exact failure Project Memory exists to prevent. Memory also outlives the Thread that produced it; Threads are deleted, decisions are not.
+
+### Why is a ProjectBriefing assembled by query rather than summarized by a model?
+A briefing is the input to an agent's reasoning, so it must be reproducible and auditable. A model-generated summary would be neither: the same project state could yield different briefings, and a user could not tell whether an agent misbehaved because of a bad decision record or a bad summary of it. Assembling by query also means the briefing costs no tokens and cannot hallucinate a decision that was never recorded.
+
+### Why does ProjectBriefing read AgentExecutions and Approvals directly?
+Those records already exist and are written on every agent start, exit, crash, and approval gate. Introducing a parallel "agent work log" for the briefing would duplicate that data, create a second thing to keep in sync, and add a write to the agent hot path. The briefing is a read model over records the system already keeps.
 
 ---
 

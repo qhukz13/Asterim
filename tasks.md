@@ -214,6 +214,21 @@
 
 ---
 
+# Phase 5.0 — Project Memory Core (DONE)
+
+See `docs/phase5-0-completion-report.md`. 365 assertions across 3 suites, 0 failures.
+
+- [x] P5.0-01 Architecture & existing identity verification (`docs/p5.0-01-verification-report.md`)
+- [x] P5.0-02 Shared memory types in `@asterim/shared`
+- [x] P5.0-03 SQLite schema: 4 tables, 7 indexes, WAL
+- [x] P5.0-04 `ProjectMemoryService` persistence core
+- [x] P5.0-05 Decision lifecycle & deterministic ordering
+- [x] P5.0-06 Deterministic `getProjectBriefing()`
+- [x] P5.0-07 EventBus integration (4 `memory.*` events)
+- [x] P5.0-08 REST surface at `/api/v1/projects/:id/memory/*`
+- [x] P5.0-09 Full verification & Blueprint synchronization
+- [ ] Open decisions before a client is built: `supersededBy` direction, `relatedFiles` storage, cross-project error disclosure (`blueprint/audit/IMPLEMENTATION_DRIFT.md` §§ 4–8)
+
 # Phase 5 — SaaS Foundation & Beta Release Tasks
 
 - [ ] **PR 1: Zero-Friction Git Credentials & SSH Auto-Detection**
