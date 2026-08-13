@@ -125,6 +125,7 @@ import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
 import gitRoutes from './routes/git';
 import memoryRoutes from './routes/memory';
+import internalRoutes from './routes/internal';
 import { projectMemoryService } from './services/ProjectMemoryService';
 
 const start = async () => {
@@ -153,6 +154,7 @@ const start = async () => {
     await fastify.register(contextRoutes);
     console.log('[DEBUG] Registering memoryRoutes');
     await fastify.register(memoryRoutes);
+    await fastify.register(internalRoutes);
 
     // Project Memory Core: register EventBus subscriptions once, before the
     // server starts accepting requests that could publish memory events.
@@ -162,6 +164,15 @@ const start = async () => {
     console.log('[DEBUG] fastify.listen...');
     await fastify.listen({ port, host: '::' });
     console.log(`[Server] Asterim server listening on port ${port}`);
+
+    // Tell other Asterim processes on this machine how to reach us, so an MCP
+    // memory write in a separate process can be relayed onto this EventBus
+    // (DEC-026). Written after listen() so the descriptor never advertises a
+    // port that is not yet accepting connections.
+    const { serverRegistry } = await import('./services/ServerRegistry');
+    serverRegistry.publish(port);
+    serverRegistry.registerCleanup();
+    console.log('[Server] Loopback relay descriptor written to', serverRegistry.filePath);
 
     // Session and Approval Recovery (P0-004)
     const { agentService } = await import('./services/AgentService');

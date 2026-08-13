@@ -16,6 +16,7 @@ import {
 } from 'asterim/src/services/ProjectMemoryService';
 import type { CreateCodeRefInput } from 'asterim/src/services/ProjectMemoryService';
 import { parseResolveOptionsFromArgv, resolveProjectContext } from './resolver';
+import { notifyCoreServer } from './relay-client';
 import type { ResolvedProject } from './resolver';
 
 const SERVER_NAME = 'asterim-mcp-memory';
@@ -393,6 +394,17 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           confidence: readConfidence(args) ?? AGENT_DEFAULTS.confidence,
           status: readEnum(args, 'status', DECISION_STATUSES) ?? AGENT_DEFAULTS.status,
           provenance: readEnum(args, 'provenance', DECISION_PROVENANCES) ?? AGENT_DEFAULTS.provenance
+        });
+
+        // Tell the Core server, if one is running on this machine, so an open
+        // dashboard updates now rather than on its next fetch (DEC-026). Not
+        // awaited: the decision is already committed, and the agent's call must
+        // not wait on a UI that may not exist.
+        void notifyCoreServer({
+          type: 'memory.decision_created',
+          source: `mcp:${SERVER_NAME}`,
+          timestamp: Date.now(),
+          payload: { projectId: resolvedProject.id, decision }
         });
 
         return toolResult({ decision });

@@ -10,7 +10,8 @@ import fs from 'fs';
  * Resolves the Asterim data directory.
  * Priority: ASTERIM_DATA_DIR env var → ~/.asterim
  */
-function resolveDataDir(): string {
+/** The directory holding asterim.db and the loopback descriptor. */
+export function resolveDataDir(): string {
   const envDir = process.env.ASTERIM_DATA_DIR;
   if (envDir) {
     return path.resolve(envDir);

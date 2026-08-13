@@ -26,6 +26,15 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       return;
     }
 
+    // Loopback-only internal endpoints carry their own credential (the ephemeral
+    // token in server.json) and are checked for a loopback source address in the
+    // route itself. They are exempt here because the caller is another Asterim
+    // process on this machine, which has no user session to present — without
+    // this the relay would 401 whenever NODE_ENV=production. See DEC-026.
+    if (request.url.startsWith('/api/v1/internal/')) {
+      return;
+    }
+
     const defaultDevUser: AccessTokenPayload = {
       sub: 'usr_dev',
       acc: 'acc_dev',
