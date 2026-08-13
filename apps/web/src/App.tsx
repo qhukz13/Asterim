@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
-import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle } from './components/icons/Icons';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar } from './components/icons/Icons';
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { SessionSidebar } from './components/SessionSidebar';
@@ -19,6 +19,7 @@ import { useProjects, Project } from './hooks/useProjects';
 import { useWorkstations } from './hooks/useWorkstations';
 import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
+import { DecisionExplorer } from './components/memory/DecisionExplorer';
 import { ContextView } from './components/workspace/ContextView';
 import { EnvironmentSettingsView } from './components/environment/EnvironmentSettingsView';
 import { AISettings } from './components/AISettings';
@@ -581,6 +582,27 @@ function ProjectWorkspace({
             <IconGitBranch size={15} /> Changes
           </button>
           <button
+            className={`nav-btn ${activeTab === 'memory' ? 'active' : ''}`}
+            style={{
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'memory' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'memory' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderBottom: activeTab === 'memory' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onClick={() => setActiveTab('memory')}
+          >
+            <IconStar size={15} /> Memory
+          </button>
+          <button
             className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
             style={{
               padding: '8px 18px',
@@ -742,6 +764,9 @@ function ProjectWorkspace({
       {/* Persistent Views (Mounted constantly to preserve local state like inputs) */}
       <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <ChangesView socket={socket} projectId={project.id} activeBackendUrl={activeBackendUrl} />
+      </div>
+      <div style={{ display: activeTab === 'memory' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+        <DecisionExplorer projectId={project.id} />
       </div>
       <div style={{ display: activeTab === 'workspace' || activeTab === 'environment' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <EnvironmentSettingsView />
