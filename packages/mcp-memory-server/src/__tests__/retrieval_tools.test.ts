@@ -148,6 +148,11 @@ function textOf(response: RpcResponse): string {
 function cleanup(): void {
   if (child && !child.killed) child.kill('SIGTERM');
   try {
+    dbService.getDb().close();
+  } catch {
+    /* ignore if already closed */
+  }
+  try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     console.log(`\n[cleanup] removed ${tmpDir}`);
   } catch (err) {
