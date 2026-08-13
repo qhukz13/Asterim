@@ -212,9 +212,9 @@ async function main(): Promise<void> {
     // Their behaviour is covered by retrieval_tools.test.ts — this only pins the
     // fact that tools/list answers over the transport at all.
     equal(
-      'tools/list reports the registered retrieval tools',
+      'tools/list reports the registered memory tools',
       (toolsResponse.result?.tools as { name: string }[] | undefined)?.map(t => t.name).sort(),
-      ['get_project_briefing', 'query_decisions']
+      ['get_project_briefing', 'query_decisions', 'record_decision']
     );
   }
 

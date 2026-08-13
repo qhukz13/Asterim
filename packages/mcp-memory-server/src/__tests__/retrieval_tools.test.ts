@@ -349,11 +349,11 @@ async function main(): Promise<void> {
 
   const listed = await request('tools/list', {});
   const tools = listed.result?.tools ?? [];
-  equal('two tools are advertised', tools.length, 2);
+  equal('three tools are advertised', tools.length, 3);
   equal(
-    'the tool names are get_project_briefing and query_decisions',
+    'the tool names are the three memory tools',
     tools.map(t => t.name).sort(),
-    ['get_project_briefing', 'query_decisions']
+    ['get_project_briefing', 'query_decisions', 'record_decision']
   );
   check('every tool carries a description', tools.every(t => typeof t.description === 'string' && t.description.length > 0));
 
@@ -377,7 +377,7 @@ async function main(): Promise<void> {
     ['ACTIVE', 'ARCHIVED', 'STALE', 'SUPERSEDED']
   );
   check(
-    'neither tool declares a required parameter',
+    'neither retrieval tool declares a required parameter',
     !briefingTool?.inputSchema?.required && !queryTool?.inputSchema?.required
   );
 
@@ -485,9 +485,12 @@ async function main(): Promise<void> {
   // --- Error handling -------------------------------------------------------
   describe('error handling');
 
-  const unknownTool = await callTool('record_decision', {});
+  // Must be a name no tool will ever claim. This probe was `record_decision` until
+  // P5.1-05 registered it, at which point the call still returned isError — for a
+  // missing title — and the assertion silently stopped testing dispatch.
+  const unknownTool = await callTool('forget_everything', {});
   equal('an unknown tool returns isError', unknownTool.result?.isError, true);
-  check('the unknown-tool message names the tool', textOf(unknownTool).includes('record_decision'), textOf(unknownTool));
+  check('the unknown-tool message names the tool', textOf(unknownTool).includes('forget_everything'), textOf(unknownTool));
   check('an unknown tool is not a JSON-RPC protocol error', unknownTool.error === undefined, JSON.stringify(unknownTool.error));
 
   const badStatus = await callTool('query_decisions', { status: 'active' });
