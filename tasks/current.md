@@ -1,6 +1,6 @@
-# Current Task: P5.1-02 — MCP Memory Server Package & Stdio Scaffold
+# Current Task: P5.1-03 — Project Context Resolver Engine
 
-**Task ID:** P5.1-02  
+**Task ID:** P5.1-03  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -10,71 +10,82 @@
 
 ## 1. Objective
 
-Create the `@asterim/mcp-memory-server` package (`packages/mcp-memory-server`), configure the build pipeline and dependencies (`@modelcontextprotocol/sdk`, `zod`), implement the `stdio-guard.ts` stream isolation module, and scaffold the stdio MCP server entrypoint with a working JSON-RPC handshake.
+Implement the project context resolution engine in `packages/mcp-memory-server/src/resolver.ts` to reliably determine the active Asterim project for the MCP process via CLI flags, environment variables, or normalized longest-prefix CWD auto-detection against SQLite.
 
 ---
 
-## 2. Context & Findings from P5.1-01
+## 2. Context & Findings from P5.1-01 & P5.1-02
 
-* `@modelcontextprotocol/sdk` must be installed at `^1.30.0` along with `zod@^4.4.3`.
-* `node:sqlite` in `DatabaseService` outputs `[Database] Using database at...` to `console.log`. Over stdio transport, this corrupts JSON-RPC message frames on `process.stdout`.
-* `src/stdio-guard.ts` must execute as the **first import** in the entrypoint to redirect `globalThis.console` to `process.stderr` before any service or SDK module loads.
-* The package must produce a standalone executable binary (`dist/index.js`) with shebang banner `#!/usr/bin/env node` for invocation by Claude Code (`claude mcp add`) and other MCP clients.
+* `ProjectManager` does not have a `getProjectByPath` method.
+* The live `~/.asterim/asterim.db` contains nested paths (e.g. an ancestor directory registered alongside specific repositories) and trailing slashes.
+* The resolution engine must:
+  1. **Normalize all paths** via `path.resolve()` (stripping trailing slashes and resolving relative segments).
+  2. **Use segment-safe containment** (`path.relative(projectPath, cwd)`) rather than raw `startsWith` to prevent substring collisions (e.g. `/AsterimOld` matching `/Asterim`).
+  3. **Select the longest matching path** when multiple candidates match (most specific project root wins over broad ancestor directories).
+  4. **Fail loudly and descriptively** if no project matches, listing known registered projects. Never silently pick an arbitrary project.
 
 ---
 
 ## 3. Repository Evidence & Relevant Files
 
 Inspect:
-* [`packages/adapters/package.json`](file:///c:/Projects/Asterim/packages/adapters/package.json)
-* [`packages/shared/package.json`](file:///c:/Projects/Asterim/packages/shared/package.json)
-* [`apps/server/package.json`](file:///c:/Projects/Asterim/apps/server/package.json)
-* [`apps/server/tsup.config.ts`](file:///c:/Projects/Asterim/apps/server/tsup.config.ts)
-* [`tsconfig.base.json`](file:///c:/Projects/Asterim/tsconfig.base.json)
-* [`docs/p5.1-01-audit-report.md`](file:///c:/Projects/Asterim/docs/p5.1-01-audit-report.md)
+* [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts)
+* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`apps/server/src/services/ProjectManager.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectManager.ts)
+* [`docs/p5.1-01-audit-report.md`](file:///c:/Projects/Asterim/docs/p5.1-01-audit-report.md) § 5
 * [`reports/current.md`](file:///c:/Projects/Asterim/reports/current.md)
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Package Setup (`packages/mcp-memory-server/package.json`)**:
-   - Package name: `"@asterim/mcp-memory-server"`, version `"0.1.0"`, `"private": true`.
-   - Binary entrypoint: `"bin": { "asterim-mcp-memory": "./dist/index.js" }`.
-   - Node engine: `"engines": { "node": ">=22" }`.
-   - Dependencies:
-     - `"@modelcontextprotocol/sdk": "^1.30.0"`
-     - `"zod": "^4.4.3"`
-     - `"@asterim/shared": "workspace:*"`
-     - `"asterim": "workspace:*"` (for in-process access to `ProjectMemoryService` and `DatabaseService`)
-   - Dev dependencies: `"tsup": "^8.0.0"`, `"typescript": "^5.4.0"`, `"@types/node": "^20.0.0"`.
-   - Scripts: `"build": "tsup"`, `"dev": "tsup --watch"`.
-2. **Build Configuration**:
-   - `packages/mcp-memory-server/tsconfig.json` extending `../../tsconfig.base.json`.
-   - `packages/mcp-memory-server/tsup.config.ts` configuring CommonJS build, bundling entrypoint `src/index.ts`, externalizing `node:sqlite`, and injecting shebang `#!/usr/bin/env node`.
-3. **Stdio Protocol Guard (`packages/mcp-memory-server/src/stdio-guard.ts`)**:
-   - Redirect all console methods to `stderr`:
+1. **Resolver Implementation (`packages/mcp-memory-server/src/resolver.ts`)**:
+   - Define and export interface:
      ```typescript
-     globalThis.console = new console.Console(process.stderr, process.stderr);
+     export interface ResolvedProject {
+       id: string;
+       name: string;
+       path: string;
+     }
+
+     export interface ResolveOptions {
+       explicitProjectId?: string;
+       explicitProjectPath?: string;
+       cwd?: string;
+     }
      ```
-4. **Server Entrypoint (`packages/mcp-memory-server/src/index.ts`)**:
-   - Must start with: `import './stdio-guard';`
-   - Initialize MCP Server using `@modelcontextprotocol/sdk` (`Server` with `StdioServerTransport` or `McpServer`).
-   - Declare server metadata: `name: 'asterim-mcp-memory'`, `version: '0.1.0'`.
-   - Connect transport to stdio and handle graceful shutdown on `SIGINT` and `SIGTERM`.
-5. **Stdio Protocol Verification Test (`packages/mcp-memory-server/src/__tests__/stdio_scaffold.test.ts`)**:
-   - Spawns the server binary with `ASTERIM_DATA_DIR` directed to a temp directory.
-   - Sends an MCP `initialize` request via stdin:
-     `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}`
-   - Asserts that stdout receives **strictly valid JSON-RPC frames** and 0 raw console log lines.
-   - Cleans up child process and temp directory.
+   - Implement `resolveProjectContext(options?: ResolveOptions): ResolvedProject`:
+     - **Priority 1**: `explicitProjectId` (from CLI `--project <id>` or option). Query `SELECT id, name, path FROM projects WHERE id = ?`. Throw if not found.
+     - **Priority 2**: `explicitProjectPath` (from CLI `--project-path <path>` or option). Resolve path and match against `projects` table.
+     - **Priority 3**: `process.env.ASTERIM_PROJECT_ID`. Query `projects` table by id. Throw if invalid.
+     - **Priority 4**: **CWD Auto-Detection**:
+       - `targetCwd = path.resolve(options?.cwd || process.cwd())`
+       - Query all projects: `SELECT id, name, path FROM projects`.
+       - For each project, compute `normalizedProjectPath = path.resolve(p.path)`.
+       - Calculate `rel = path.relative(normalizedProjectPath, targetCwd)`.
+       - Match if `rel === ''` (exact match) OR (`!rel.startsWith('..') && !path.isAbsolute(rel)` - subfolder of project).
+       - Sort matches by `normalizedProjectPath.length DESC` and pick the first (longest / most specific path).
+     - **Fallback**: If no match found, throw a formatted error listing all registered project names and paths.
+2. **Unit Test Suite (`packages/mcp-memory-server/src/__tests__/resolver.test.ts`)**:
+   - Create isolated temp SQLite database using `DatabaseService`.
+   - Seed test projects:
+     - Project 1 (Ancestor): `/workspace/projects/` (with trailing slash)
+     - Project 2 (Specific): `/workspace/projects/asterim-core`
+     - Project 3 (Sibling): `/workspace/projects/asterim-core-legacy`
+   - Test Cases:
+     - Exact match on Project 2.
+     - Nested subfolder CWD (`/workspace/projects/asterim-core/apps/server/src`) resolves to Project 2 (not Project 1).
+     - Trailing slash input normalizes correctly.
+     - Sibling directory (`/workspace/projects/asterim-core-legacy`) resolves to Project 3.
+     - Explicit `--project <id>` resolution.
+     - Explicit `ASTERIM_PROJECT_ID` env resolution.
+     - Unknown path / unknown project throws descriptive error.
 
 ---
 
 ## 5. Explicitly Forbidden Changes
 
-* Do **NOT** implement the individual memory tools (`get_project_briefing`, `query_decisions`, `record_decision`) yet — reserved for P5.1-04 and P5.1-05.
-* Do **NOT** implement project identity resolution yet — reserved for P5.1-03.
+* Do **NOT** implement the MCP tools (`get_project_briefing`, `query_decisions`, `record_decision`) yet — reserved for P5.1-04 and P5.1-05.
 * Do **NOT** modify existing services in `apps/server` or `packages/shared`.
 * Do **NOT** alter existing database DDL schemas.
 
@@ -82,9 +93,9 @@ Inspect:
 
 ## 6. Acceptance Criteria
 
-1. `packages/mcp-memory-server` is configured, installed, and builds cleanly with `pnpm --filter @asterim/mcp-memory-server build`.
-2. `dist/index.js` is generated with executable shebang `#!/usr/bin/env node`.
-3. `stdio_scaffold.test.ts` passes: stdout produces clean JSON-RPC initialize response with zero stray logging text.
+1. `resolveProjectContext` correctly implements the 4-tier resolution hierarchy.
+2. Normalization, segment-safe containment, and longest-path matching rules are fully covered.
+3. Unit test suite `resolver.test.ts` passes 100% of assertions.
 4. `pnpm run build` completes with 0 errors across all monorepo packages.
 
 ---
@@ -92,9 +103,8 @@ Inspect:
 ## 7. Verification Commands
 
 ```bash
-pnpm install
+pnpm --filter asterim exec tsx ../../packages/mcp-memory-server/src/__tests__/resolver.test.ts
 pnpm --filter @asterim/mcp-memory-server build
-pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/stdio_scaffold.test.ts
 pnpm run build
 ```
 
@@ -103,11 +113,11 @@ pnpm run build
 ## 8. Required Report Format
 
 Upon completion, write the execution result directly to `reports/current.md` using the standard format:
-* **Task ID**: P5.1-02
+* **Task ID**: P5.1-03
 * **Status**: `IMPLEMENTED` / `VERIFIED` / `BLOCKED`
-* **Summary**: Summary of package creation and stdio transport setup
+* **Summary**: Summary of resolver implementation and test coverage
 * **Files Changed**: List of files created/modified
-* **Implementation Details**: Details on SDK wiring and stdio guard
+* **Implementation Details**: Details on path resolution and specificity ranking
 * **Tests / Verification**: Output of test execution and build commands
 * **Problems Discovered & Concerns**: Any issues encountered
-* **Recommended Next Step**: Recommendation for P5.1-03
+* **Recommended Next Step**: Recommendation for P5.1-04

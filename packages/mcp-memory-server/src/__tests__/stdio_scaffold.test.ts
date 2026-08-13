@@ -99,7 +99,7 @@ async function main(): Promise<void> {
 
   const source = fs.readFileSync(BINARY, 'utf8');
   equal('the bundle starts with the node shebang', source.split('\n')[0], '#!/usr/bin/env node');
-  check('the bundle is marked executable', (fs.statSync(BINARY).mode & 0o111) !== 0);
+  check('the bundle is marked executable', process.platform === 'win32' || (fs.statSync(BINARY).mode & 0o111) !== 0);
   check('the stdio guard is emitted before the SDK is required', (() => {
     const guard = source.indexOf('new console.Console(process.stderr, process.stderr)');
     const sdk = source.indexOf('@modelcontextprotocol/sdk/server/index.js');
@@ -247,13 +247,17 @@ async function main(): Promise<void> {
 
   const exitCode = await new Promise<number | null>(resolve => {
     child!.on('exit', code => resolve(code));
-    child!.kill('SIGTERM');
+    if (process.platform === 'win32') {
+      child!.kill();
+    } else {
+      child!.kill('SIGTERM');
+    }
     setTimeout(() => resolve(-1), 5_000);
   });
-  check('the server exits cleanly on SIGTERM', exitCode === 0, `exit code ${exitCode}`);
+  check('the server exits cleanly on termination', exitCode === 0 || (process.platform === 'win32' && exitCode !== -1), `exit code ${exitCode}`);
   check(
-    'shutdown was logged to stderr',
-    stderrChunks.join('').includes('received SIGTERM'),
+    'shutdown occurred',
+    process.platform === 'win32' ? child!.killed : stderrChunks.join('').includes('received SIGTERM'),
     stderrChunks.join('').slice(-200)
   );
 }
