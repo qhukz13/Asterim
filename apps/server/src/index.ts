@@ -124,6 +124,8 @@ import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
 import gitRoutes from './routes/git';
+import memoryRoutes from './routes/memory';
+import { projectMemoryService } from './services/ProjectMemoryService';
 
 const start = async () => {
   try {
@@ -149,6 +151,12 @@ const start = async () => {
     await fastify.register(aiRoutes);
     console.log('[DEBUG] Registering contextRoutes');
     await fastify.register(contextRoutes);
+    console.log('[DEBUG] Registering memoryRoutes');
+    await fastify.register(memoryRoutes);
+
+    // Project Memory Core: register EventBus subscriptions once, before the
+    // server starts accepting requests that could publish memory events.
+    projectMemoryService.initEventBusListeners();
 
     const port = parseInt(process.env.PORT || '3000', 10);
     console.log('[DEBUG] fastify.listen...');

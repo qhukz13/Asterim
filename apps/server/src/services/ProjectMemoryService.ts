@@ -131,14 +131,15 @@ export interface CreateRuleInput {
   scopePattern?: string;
 }
 
-const DECISION_STATUSES: readonly DecisionStatus[] = ['ACTIVE', 'STALE', 'SUPERSEDED', 'ARCHIVED'];
-const DECISION_PROVENANCES: readonly DecisionProvenance[] = [
+/** Runtime companions to the shared string unions, which erase at compile time. */
+export const DECISION_STATUSES: readonly DecisionStatus[] = ['ACTIVE', 'STALE', 'SUPERSEDED', 'ARCHIVED'];
+export const DECISION_PROVENANCES: readonly DecisionProvenance[] = [
   'HUMAN_CONFIRMED',
   'REPOSITORY_EVIDENCE',
   'AGENT_STATEMENT',
   'INFERRED'
 ];
-const RULE_SEVERITIES: readonly ArchitecturalRuleSeverity[] = ['error', 'warning', 'info'];
+export const RULE_SEVERITIES: readonly ArchitecturalRuleSeverity[] = ['error', 'warning', 'info'];
 
 /**
  * Persistence layer for the Project Memory Core: decisions, their code anchors,
