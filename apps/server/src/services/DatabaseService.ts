@@ -46,6 +46,20 @@ export class DatabaseService {
       console.warn('[Database] Could not enable WAL journal mode; continuing with the default journal.');
     }
 
+    // Wait for a competing writer instead of failing on contact. WAL keeps readers
+    // out of the way, but writers still serialize, and SQLite's default timeout is
+    // zero — a second writer gets SQLITE_BUSY within a millisecond. That matters
+    // because the Core is not the only process writing this file: each MCP memory
+    // server (packages/mcp-memory-server) opens it too, and a decision an agent
+    // recorded while the Core happened to be mid-write would simply be lost.
+    // Unlike journal_mode, this is a per-connection setting, so it is re-applied
+    // by every process that constructs a DatabaseService.
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000;');
+    } catch {
+      console.warn('[Database] Could not set busy_timeout; concurrent writes may fail immediately.');
+    }
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,

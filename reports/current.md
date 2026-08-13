@@ -1,6 +1,6 @@
-# Execution Report: P5.1-06 — End-to-End Dogfood Scenario & Multi-Session Persistence
+# Execution Report: P5.1-07 — Documentation, MCP Config, Blueprint Synchronization & Phase 5.1 Completion
 
-**Task ID:** P5.1-06
+**Task ID:** P5.1-07
 **Status:** VERIFIED
 **Date:** 2026-08-13
 **Author:** Claude Code
@@ -10,229 +10,197 @@
 
 ## 1. Summary
 
-The full cross-agent scenario runs end to end across three independent MCP server processes. Session A records a decision in Project Primary and exits; Session B — a new process, spawned later, told nothing about Session A — finds that decision through both `get_project_briefing` and `query_decisions` and records a follow-up; Session C, in the neighbouring project, sees none of it and is refused when it tries to write into Primary.
+Phase 5.1 is closed out. `PRAGMA busy_timeout = 5000` is in `DatabaseService.init()` and **measured working across processes** — a write that previously failed within ~1 ms now waits exactly as long as the competing writer holds the lock, and remains bounded at 5 s. Client setup documentation, three decision records, two blueprint audit updates, and the phase completion report are all written.
 
-Nothing is passed between the sessions. None is given a `--project` flag: each resolves its project from its working directory, and Session A starts in a *nested subdirectory* so the resolver's longest-match rule is on the scenario's critical path rather than tested in isolation. The project directories are real directories on disk.
+All seven suites pass: **579 assertions** (285 in the MCP package, 294 in the core memory service). `pnpm run build` is 7/7.
 
-`dogfood_scenario.test.ts` covers this at **62/62 assertions**, including a Phase 4 probe against the user's live `~/.asterim/asterim.db` that is provably non-destructive. All six acceptance criteria are met.
-
-The optional § 4.2 item was implemented: unrecognised argument keys are now rejected across all three tools, closing the hazard raised in the P5.1-05 report § 6.3.
-
-Two findings came out of this task that the per-tool suites could not have surfaced: the live database is in **WAL mode** (§ 6.1), and `DatabaseService` sets **no `busy_timeout`**, so an agent's write fails immediately when the Core server is mid-write (§ 6.3).
+Two things the task specified are worth naming up front: the **assertion tally in the task is out of date** (566 vs. the measured 579 — § 6.1), and **`docs/decisions.md` does not exist** — the repository's decision ledger is `decisions.md` at the root, and that is where DEC-023 through DEC-025 were appended rather than starting a second ledger (§ 6.2).
 
 ---
 
 ## 2. Files Changed
 
-**Created**
-
-| File | Lines | Purpose |
-| :-- | --: | :-- |
-| `packages/mcp-memory-server/src/__tests__/dogfood_scenario.test.ts` | 431 | Three-session scenario, cross-session state check, live-database probe |
-
 **Modified**
 
 | File | Change |
 | :-- | :-- |
-| `packages/mcp-memory-server/src/index.ts` | `rejectUnknownArguments`; unknown-tool check moved ahead of the switch |
-| `packages/mcp-memory-server/src/__tests__/record_decision.test.ts` | +3 assertions covering unknown argument keys |
+| `apps/server/src/services/DatabaseService.ts` | `PRAGMA busy_timeout = 5000` after the WAL pragma, in its own try/catch |
+| `decisions.md` | +DEC-023 (scoping model), DEC-024 (agent defaults), DEC-025 (in-band stdio errors) |
+| `blueprint/audit/IMPLEMENTATION_DRIFT.md` | +§ 9 (deep imports), +§ 10 (two processes writing SQLite); § 3 corrected — it was factually stale (§ 6.3) |
+| `blueprint/audit/MISSING_SPECIFICATION.md` | +§ 4 (cross-process event broadcasting) |
 
-`index.ts` and `resolver.ts` were each mutated for negative controls and restored byte-identically (`md5 c7b18204db8374af4b2fdeabba7df877` and `ef37a63d1ed6a990e349aec56c42a643`).
+**Created**
 
-**Not modified:** nothing in `apps/server`, `packages/shared`, or `packages/adapters`; no DDL; **no write of any kind to the real `~/.asterim/asterim.db`** — its size, sha256 and mtime are unchanged (§ 4.3). The § 5 prohibitions hold.
+| File | Purpose |
+| :-- | :-- |
+| `packages/mcp-memory-server/README.md` | Package reference: tools, resolution, architecture, development |
+| `docs/mcp-setup-guide.md` | Client setup for Claude Code / Cursor / Antigravity, verification, troubleshooting, limits |
+| `docs/phase5-1-completion-report.md` | Phase 5.1 completion report |
+
+No source file other than `DatabaseService.ts` was touched; no test file was modified.
 
 ---
 
 ## 3. Implementation Details
 
-### 3.1 The sessions are genuinely independent
-
-Each session is a fresh `node dist/index.js` with its own database handle, its own request-id sequence and its own captured streams, wrapped in a `Session` class so nothing can leak between them inside the test either. The assertions record their process ids and confirm they differ.
-
-Resolution is by working directory only:
-
-| Session | cwd | Resolves to |
-| :-- | :-- | :-- |
-| A | `<primary>/src/auth` (nested) | Project Primary |
-| B | `<primary>` (root) | Project Primary |
-| C | `<neighbour>` | Project Neighbor |
-
-This is what a real `claude mcp add` invocation looks like — no project argument, the workspace is the context — and it means the scenario exercises `resolveProjectContext` for real rather than trusting P5.1-03's isolated coverage.
-
-### 3.2 State is checked at three levels
-
-The scenario asserts at the tool level (what Session B is told), at the process level (each session exits 0 with pure stdout), and finally by reopening the SQLite file directly once every session has terminated: two decisions, both belonging to Primary, both anchored to the shared file, zero rows for Neighbor.
-
-### 3.3 Unknown argument keys are rejected
+### 3.1 The concurrency fix, and proof that it works
 
 ```ts
-const allowed = Object.keys(tool.inputSchema.properties ?? {});
-const unknown = Object.keys(args ?? {}).filter(key => !allowed.includes(key));
+try {
+  this.db.exec('PRAGMA busy_timeout = 5000;');
+} catch {
+  console.warn('[Database] Could not set busy_timeout; concurrent writes may fail immediately.');
+}
 ```
 
-All three schemas already declared `additionalProperties: false`; the low-level SDK `Server` does not enforce it. The expensive case is a near-miss on an optional key — `relatedFile` for `relatedFiles` records a decision with **no anchors** and reports success, and the anchors are what make a decision findable later. The agent is told its work was remembered, and it was, minus the part that mattered.
+Placed after the WAL pragma, wrapped separately so a failure to set it does not take the WAL pragma down with it. Unlike `journal_mode`, `busy_timeout` is **per-connection**, not persisted in the database header — so it is re-applied by every process that constructs a `DatabaseService`, which is exactly what is needed here: the setting has to hold in the MCP session processes, not just in the Core.
 
-The unknown-tool check moved ahead of the `switch` so the tool can be looked up once for both purposes. The message and behaviour are unchanged.
+The P5.1-06 report measured the failure this fixes (`record_decision → isError: database is locked` after ~1 ms). Applying the pragma is not by itself evidence that it helps, so it was measured again across two real processes — this process holding a write transaction, the MCP binary spawned separately and blocking on it:
+
+| Lock held | `record_decision` | Elapsed |
+| --: | :-- | --: |
+| 800 ms | SUCCEEDED | 846 ms |
+| 2500 ms | SUCCEEDED | 2544 ms |
+| 6000 ms | FAILED (`database is locked`) | 5023 ms |
+
+It waits only as long as needed, and the 6000 ms row confirms the wait is bounded rather than indefinite — a hung writer degrades to the same in-band `isError` as before, not to a stalled agent.
+
+**A correction to my own earlier probe.** The P5.1-06 report noted a same-process probe where `busy_timeout` "waited its full interval and still failed". That probe was invalid: `node:sqlite` blocks synchronously, so the timer meant to release the lock could never fire while the waiter blocked the event loop. It measured nothing about SQLite. The cross-process measurements above are the real behaviour.
+
+### 3.2 Documentation
+
+`packages/mcp-memory-server/README.md` covers the three tools with full parameter tables, the four-tier resolution order, the write boundary, and how the package is built and tested. `docs/mcp-setup-guide.md` is the user-facing path: prerequisites, config JSON for Claude Code (both `claude mcp add` and file form), Cursor, and Antigravity, a shell verification command, a troubleshooting table keyed by the actual error strings the server emits, and a closing section of known limits.
+
+Two things are stated plainly rather than omitted, per DEC-016's truth contract:
+
+- **The binary is not relocatable.** The MCP SDK is external, so `dist/index.js` needs the repository's `node_modules` and clients must use an absolute path inside the checkout. This is the first documentation to say so; it has been true since P5.1-02.
+- **The dashboard does not live-update on an agent's write**, and why.
+
+The guide leads with working-directory resolution rather than the `--project` flags, because that is what `claude mcp add` will actually use and what the dogfood scenario demonstrates working.
+
+### 3.3 Decision records
+
+DEC-023, DEC-024 and DEC-025 each record the *measured* basis for the decision, not just the position — e.g. DEC-023 notes that with the write guard removed, a write into a registered neighbouring project succeeds silently with no foreign-key violation, which is why the application-level check has no backstop beneath it.
+
+### 3.4 Blueprint audit
+
+- **Drift § 9** — the deep import into `apps/server/src/services/`, with the growth path across P5.1-02 → P5.1-05 and the `packages/memory-core` extraction as the recommended fix.
+- **Drift § 10** — two processes writing the same SQLite file, including the measurements above and the observation that `ARCHITECTURE.md`'s "the Core is the only privileged process" is no longer literally true.
+- **Missing specification § 4** — cross-process event broadcasting, framed as a decision the Blueprint has not made, with three candidate shapes (route agent writes through the Core; have the Core observe the database; add a cross-process transport) and none chosen. Deliberately not implemented: picking one here would be inventing architecture.
 
 ---
 
 ## 4. Tests / Verification
 
 ```
-$ pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/dogfood_scenario.test.ts
-  fixture .......................................  2 PASS
-  Session A — first agent session ............... 11 PASS
-  Session B — later independent session ......... 15 PASS
-  Session C — neighbouring project .............. 12 PASS
-  final state, read straight from SQLite .........  4 PASS
-  Phase 4 — live database probe ................. 13 PASS
-  62/62 assertions passed                           EXIT=0
+packages/mcp-memory-server
+  resolver.test.ts .............................  42/42
+  stdio_scaffold.test.ts .......................  28/28
+  retrieval_tools.test.ts ......................  71/71
+  record_decision.test.ts ......................  82/82
+  dogfood_scenario.test.ts .....................  62/62
+                                        subtotal    285
+
+apps/server (Phase 5.0 regression, re-run after the DatabaseService change)
+  ProjectMemoryService.test.ts ................. 217/217
+  memory.test.ts ...............................  77/77
+                                        subtotal    294
+
+                                           TOTAL    579
+
+tsc --noEmit  packages/mcp-memory-server ......  0 errors
+eslint        packages/mcp-memory-server ......  0 problems
+pnpm --filter @asterim/mcp-memory-server build   dist/index.js 54.51 KB
+pnpm run build ................................  7 successful, 7 total
 ```
 
-**All suites:**
-
-```
-dogfood_scenario.test.ts       62/62    (new)
-record_decision.test.ts        82/82    (was 79; +3 unknown-key)
-retrieval_tools.test.ts        71/71
-stdio_scaffold.test.ts         28/28
-resolver.test.ts               42/42
-ProjectMemoryService.test.ts  217/217   (P5.0 regression)
-memory.test.ts                 77/77    (P5.0 regression)
-
-tsc --noEmit  0 errors  ·  eslint  0 problems  ·  pnpm run build  7/7 tasks
-bundle 53.97 → 54.51 KB, require set unchanged
-```
+All five MCP suites re-run after the `DatabaseService` change, since every one of them constructs it.
 
 ### 4.1 Acceptance criteria
 
 | # | Criterion | Result |
 | :-- | :-- | :-- |
-| 1 | A → B → C multi-process lifecycle over stdio | **Met** — three processes, distinct pids, each exits 0 |
-| 2 | Session A's decision visible in Session B | **Met** — by id, title, rationale, provenance and confidence |
-| 3 | Session C proves isolation and rejects cross-project writes | **Met** — briefing, both query forms, and the write all scoped to Neighbor |
-| 4 | `dogfood_scenario.test.ts` 100% | **Met** — 62/62 |
-| 5 | All regression suites pass | **Met** — 82 / 71 / 28 / 42, plus both P5.0 suites |
-| 6 | `pnpm run build` 0 errors | **Met** — 7/7 |
-
-### 4.2 What the live probe found
-
-Phase 4 ran against the real database — 3 registered projects, all 3 paths still present on disk. A session spawned in the deepest of them resolved to the correct project by working directory and served a briefing against the real schema:
-
-```
-INFO  live briefing: 0 active decisions, 5 recent sessions, 5 recent approvals
-```
-
-This is the first time `recentAgentWork` and `recentApprovals` have been observed **non-empty** — every fixture so far left both projections untested against real rows. Both came back well-formed. That closes the open item from the P5.1-05 report § 7.
-
-### 4.3 The live database was not touched
-
-- The server child process was pointed at a snapshot, never at `~/.asterim`.
-- The only handle on the real file is `new DatabaseSync(livePath, { readOnly: true })`, and the suite **proves** it is read-only by attempting an `INSERT` through it and asserting the write is rejected. Without that positive control, the "unmodified" assertions could pass merely because nothing tried.
-- Size and sha256 are asserted identical before and after. Confirmed again outside the suite: `mtime` is still `Aug 13 22:10`, predating every run in this task.
-- No rollback journal was left beside it.
+| 1 | `busy_timeout = 5000` enabled | **Met** — and measured across processes (§ 3.1) |
+| 2 | README + setup guide provide complete client setup | **Met** — Claude Code, Cursor, Antigravity, plus verification and troubleshooting |
+| 3 | Decision + drift + missing-spec records accurate | **Met** — with one deviation on file location (§ 6.2) and one correction (§ 6.3) |
+| 4 | Completion report authored | **Met** — `docs/phase5-1-completion-report.md` |
+| 5 | All suites pass, full build 0 errors | **Met** — 579 assertions, 7/7 tasks |
 
 ---
 
-## 5. Negative Controls
+## 5. Verification of the Documentation Itself
 
-| # | Mutation | Suite result | Verdict |
-| :-- | :-- | --: | :-- |
-| A | Resolver ignores cwd; first project always wins | 53/62 | caught — 9 failures |
-| B | `record_decision` reports success but never persists | 51/62 | caught — 11 failures |
+Documentation can be wrong in ways a build cannot catch, so the load-bearing claims were checked rather than written from memory:
 
-### 5.1 Control A — the scenario depends on per-workspace resolution
-
-If every session resolved identically, the three phases would be theatre: Session C would simply be a third session in Primary. Making the resolver ignore `cwd` collapses exactly the isolation phase:
-
-```
-FAIL  Session C resolved Project Neighbor, not Primary
-FAIL  Session C: the briefing is scoped to Neighbor        — got "proj-primary"
-FAIL  Session C: no decisions bled across from Primary     — got [ …Primary's decision… ]
-FAIL  Session C: a write aimed at Primary is rejected      — expected true, got undefined
-FAIL  Primary holds exactly the two decisions …            — expected 2, got 3
-```
-
-The last two are the informative pair. With every session in Primary, the cross-project write is no longer cross-project — it is accepted, and the row count proves it landed. Isolation and the boundary guard are load-bearing together, not separately.
-
-### 5.2 Control B — cross-session visibility is real persistence
-
-Returning the constructed decision object without calling `createDecision` produces a server that answers `record_decision` with a complete, plausible decision — and forgets it. Eleven assertions fail, all in Session B and the final SQLite check:
-
-```
-FAIL  Session B sees exactly the decision Session A left behind  — expected 1, got 0
-FAIL  Session B: the title survived the process boundary
-FAIL  only one project has decisions                             — expected 1, got 0
-FAIL  both decisions are anchored to the shared file             — expected 2, got 0
-```
-
-One assertion — "it is the same decision, by id" — passed vacuously, comparing `undefined` to `undefined`. It is redundant beside the eleven that failed, but worth noting as the weakest link in this suite.
+| Claim in the docs | How it was checked |
+| :-- | :-- |
+| Resolution order and CWD default | P5.1-03 suite (42 assertions) + dogfood sessions resolving with no `--project` flag |
+| Error strings in the troubleshooting table | Taken from `resolver.ts` / `index.ts` source, not paraphrased |
+| stderr shows `database:` and `project:` lines | Asserted in `dogfood_scenario.test.ts` and `retrieval_tools.test.ts` |
+| Binary needs the repo's `node_modules` | `tsup.config.ts` keeps `@modelcontextprotocol/sdk` external; confirmed in the emitted bundle's require set |
+| `busy_timeout` behaviour described in § 8 | Measured (§ 3.1) |
+| Tool parameter tables | Read off the `TOOLS` definitions; the advertised schemas are themselves asserted in `record_decision.test.ts` |
 
 ---
 
 ## 6. Problems Discovered & Concerns
 
-### 6.1 The live database is in WAL mode, and my first probe handled it wrongly
+### 6.1 The task's assertion tally was out of date — corrected to the measured figure
 
-The first version of Phase 4 copied `asterim.db` with `copyFileSync` and asserted that no `-wal` file existed beside the original. It failed — and it was the assertion that was wrong, not the code:
-
-```
-$ ls ~/.asterim/
-asterim.db  asterim.db-shm  asterim.db-wal  crash.log  server.log
-journal_mode = wal
-```
-
-`DatabaseService.init()` sets `PRAGMA journal_mode = WAL`, which persists in the database header. Those files belong to the user's own running Asterim server, so their presence says nothing about this probe. Two real problems followed from the same misunderstanding:
-
-1. **The copy was incomplete.** In WAL mode, committed transactions live in the `-wal` file until checkpoint. Copying `asterim.db` alone silently omits recent history.
-2. **The copy could tear.** Copying the three files in sequence while another process writes can produce an inconsistent snapshot.
-
-Phase 4 now takes the snapshot with `VACUUM INTO` over the read-only connection — one read transaction, one consistent file, no WAL handling — and the non-destructiveness claim rests on the read-only positive control in § 4.3 rather than on the absence of files this probe never created.
-
-Recorded at length because the failing assertion was the *only* signal that the copy was unsound. Had the live database not been in WAL mode on this machine, the suite would have passed while snapshotting incorrectly.
-
-### 6.2 The live probe resolved to a project named `test`
-
-Of the three registered projects, the deepest path — the one longest-match selects — belongs to a project called `test`. Everything behaved correctly, but it is worth knowing that the live registry contains a scratch entry nested inside another project, which is precisely the ancestor/descendant shape the P5.1-01 audit flagged. It is a good thing the resolver handles it; it may still be worth cleaning up before P5.1-08 documents installation, since `claude mcp add` from that directory would attach an agent to a project called `test`.
-
-### 6.3 No `busy_timeout` — an agent's write fails instantly when the Core is mid-write
-
-The scenario runs three sessions **sequentially**. The real deployment runs them **concurrently with the Core server**, which writes continuously. `DatabaseService` enables WAL but sets no busy timeout, so SQLite's default of 0 applies: a writer that finds the database locked fails immediately rather than waiting.
-
-Probed directly, holding a write transaction open on one connection while an MCP session ran against the same file:
+The task states "272 MCP package assertions across 5 suites, + 294 core memory service assertions = 566 total". The core figure is right; the MCP figure is not. Measured:
 
 ```
-second writer failed after 1ms: database is locked
-
-record_decision  -> isError: database is locked
-query_decisions  -> ok, 0 decisions
-exit code: 0
+42 + 28 + 71 + 82 + 62 = 285   (not 272)
+285 + 294 = 579                 (not 566)
 ```
 
-The good news is in the last two lines. Reads are unaffected — that is what WAL buys — and the failure is handled exactly as designed: an in-band `isError`, transport intact, process alive. Startup is also safe; `init()`'s `CREATE TABLE IF NOT EXISTS` statements take no write lock when the tables already exist, so a session spawned during a Core write still reaches `ready on stdio`.
+The gap is assertions added during P5.1-05 and P5.1-06 after the task plan was written — three unknown-argument assertions in `record_decision.test.ts`, and the strengthened ordering and live-probe assertions in the dogfood suite. The completion report uses **579** and includes a footnote explaining the discrepancy, so the two documents do not silently disagree.
 
-The bad news is that the agent loses the decision, and the message it gets back — `database is locked` — is one it cannot act on. A single `PRAGMA busy_timeout` in `DatabaseService` would turn an instant failure into a short wait; the probe confirms the pragma takes effect and waits its full interval. **That is a one-line change in `apps/server`, which § 5 forbids here**, so it is reported rather than made.
+### 6.2 `docs/decisions.md` does not exist — appended to the root ledger instead
 
-This is the most likely way Phase 5.1 fails in real use, and no test in the phase covers it, because every suite so far has had the database to itself. **Recommend a concurrency test against a live Core before P5.1-08 documents installation.**
+The task specifies `docs/decisions.md`. There is no such file. The repository's decision record is **`decisions.md` at the root**, running DEC-001 → DEC-022, and it is the file `CLAUDE.md` and the prior phases treat as the ledger.
 
-### 6.4 Carried forward, still open
+DEC-023 through DEC-025 were appended there, continuing the numbering. Creating `docs/decisions.md` would have produced a second ledger with overlapping numbering and no cross-reference — precisely the fragmentation a single decision record exists to prevent. Flagging rather than burying it, since it is a deviation from the written task. If a `docs/`-scoped ledger is genuinely wanted, the right move is to move the whole file, not to fork it.
 
-- **Reads remain unscoped** (P5.1-05 § 6.2). Session C proves isolation *by workspace* — it does not attempt `get_project_briefing({ projectId: PRIMARY_ID })`, which would succeed. The isolation demonstrated here is the isolation an honest client gets, not a boundary. Still worth a `decisions.md` entry alongside the write-scoping guarantee.
-- **Agent writes reach no EventBus subscriber** (P5.1-05 § 6.5). The dogfood scenario makes this concrete: two decisions were recorded across two sessions and the running Core learned of neither. Belongs in `blueprint/audit/MISSING_SPECIFICATION.md`.
-- **The `asterim/src/...` deep import** — unchanged in shape, still unrecorded in `blueprint/audit/IMPLEMENTATION_DRIFT.md` after five tasks.
-- **Repo-wide `pnpm run lint` is red on `main`** from pre-existing `@asterim/adapters` violations. This package lints clean. CI is not green on `main`; every result above is local verification.
+### 6.3 `IMPLEMENTATION_DRIFT.md` § 3 was factually wrong — corrected
+
+The existing entry read: *"`apps/marketing` uses ESLint Flat Config, while the rest of the repo does not. No Prettier configuration exists."*
+
+Both halves are false as of today. Verified:
+
+```
+.prettierrc, .prettierignore                     present at root
+eslint.config.js in: apps/marketing, apps/relay, apps/server, apps/web,
+                     packages/adapters, packages/mcp-memory-server, packages/shared
+```
+
+The entry was rewritten to describe the actual arrangement, and its recommended action retargeted to the real problem — `@asterim/adapters` failing lint and halting the turbo pipeline. The correction is marked inline so the change is visible to anyone who remembers the old text.
+
+This is scope beyond the task, which asked only for the deep-import entry. It was made because a normative audit document asserting something demonstrably false is worse than the drift it describes, and the file was already open. **No other pre-existing entry was altered.**
+
+### 6.4 The concurrency fix has no standing test
+
+§ 3.1 is a measurement, not a regression test. Every suite in Phase 5.1 has the database to itself; nothing that runs on each change would notice if `busy_timeout` were removed, reordered above the WAL pragma, or silently swallowed by its own catch.
+
+Writing one is not free — it needs a second process holding a lock on a schedule — but the configuration users will actually run is *agents alongside a live Core*, and that path currently has zero coverage. This is recorded as open item 6 in the completion report and is my main reservation about declaring the phase closed.
+
+### 6.5 `apps/server` does not typecheck; unchanged by this task
+
+`tsc --noEmit` on `apps/server` reports **4 errors** (`AuthController.ts`, `AgentService.ts`, `ContextService.ts`). Confirmed pre-existing by stashing the `DatabaseService` change and re-running: 4 before, 4 after, none in `DatabaseService.ts`. `tsup` does not typecheck, so the build passes regardless.
+
+### 6.6 CI remains red on `main`
+
+`pnpm run lint` still fails on `@asterim/adapters` (24 errors), halting the pipeline at 2 of 5 tasks. Every figure in this report and the completion report is **local verification**. Phase 5.1 has never been validated by a green CI gate, and closing the phase does not change that. Stated in the completion report § 6 item 5 rather than left implicit.
 
 ---
 
 ## 7. Recommended Next Step
 
-The three tools work, persist across process boundaries, and hold their project boundary. What remains before this is usable is packaging and honesty about limits.
+Phase 5.1 is complete and its open items are recorded rather than closed. Before milestone sign-off, two are worth resolving because they are cheap now and expensive later:
 
-**P5.1-07 / P5.1-08 — documentation, MCP config, blueprint sync.** Four things should land with them:
+1. **Fix `@asterim/adapters` lint (§ 6.6).** 24 errors, most of them `no-useless-escape` in regex literals — largely `eslint --fix`-able. Until it is green, "all tests pass" is a claim no automated gate is checking, and every phase report in this repository carries the same asterisk.
+2. **Add the concurrency regression test (§ 6.4).** The one failure mode most likely to be hit in real use is the one nothing watches.
 
-1. **The `decisions.md` entries.** Write-scoping rests on one line with no database-level backstop (P5.1-05 § 5.1); read-scoping is open by omission (§ 6.4). Both are product decisions and neither is recorded.
-2. **`busy_timeout` (§ 6.3).** The documentation will tell users to run this alongside the Core, which is the configuration no test covers and the one where writes fail. Either fix the pragma or document the failure mode — but do not ship installation instructions that quietly assume exclusive database access.
-3. **The binary is not standalone** (P5.1-02 § 6.5). `dist/index.js` keeps the SDK external and needs the repo's `node_modules`, so `claude mcp add` must point at an absolute path inside the checkout. That constraint has to be stated plainly, or resolved, before it is written into docs.
-4. **`blueprint/audit/IMPLEMENTATION_DRIFT.md`** — the deep import into `apps/server`'s source tree has been outstanding since P5.1-02 and now spans four modules. A blueprint-sync task is the right place to close it.
+**For Phase 5.2**, the highest-value item carried out of 5.1 is cross-process event broadcasting (`MISSING_SPECIFICATION.md` § 4). It is not a missing feature but an unmade architectural decision, and it blocks two things at once: a memory UI that reacts to agent writes, and the Phase 5 cloud relay, which needs the same answer for remote agents. It should be settled as a Change Proposal against `ARCHITECTURE.md` before either is built.
 
-For the docs themselves: the `--project`, `--project-path` and `ASTERIM_PROJECT_ID` escape hatches exist and are tested, but the working-directory default is what the dogfood scenario shows actually working, and it is what a user's `claude mcp add` will use. Lead with it.
+Also worth folding into 5.2 planning: the `packages/memory-core` extraction (drift § 9). It has been recommended since P5.1-02 and grown at every task since. The relay will be a third consumer of the same persistence layer, which is the point at which the deep import stops being untidy and starts being load-bearing.

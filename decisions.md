@@ -106,3 +106,48 @@
 * **Impact**:
   - `docs/phase4-5-visual-audit-v2.md`, `docs/asterim-marketing-art-direction.md`, and `docs/phase4-5-experience-redesign-v2.md` created.
   - Visual verification standard enforced.
+
+---
+
+## DEC-023: Project Memory Scoping Model — Strict Write Boundaries, Default-Scoped Reads
+
+* **Date**: August 13, 2026
+* **Status**: Approved Architectural Constraint
+* **Context**: `@asterim/mcp-memory-server` runs as an independent process per agent session, scoped to one project resolved at startup (CLI flag, environment variable, or working directory). All three memory tools accept an optional `projectId`. Phase 5.1 had to decide whether that parameter selects a *default* or defines a *boundary*, and the answer differs between reads and writes.
+* **Decision**: Adopt an **asymmetric scoping model**:
+  1. **Writes are bounded.** `record_decision` accepts `projectId` only when it equals the resolved project. Any other value — registered or not — is refused in band with `Cannot record decision for project 'X' from workspace of project 'Y'`, before validation and before a transaction opens.
+  2. **Reads are defaulted, not bounded.** `get_project_briefing` and `query_decisions` fall back to the resolved project when `projectId` is absent, but will return another project's memory when explicitly asked for it by id.
+  3. **Resolution never guesses.** When no project matches, the server exits non-zero listing the registered projects rather than selecting one.
+* **Rationale**: A misdirected write is unrecoverable from inside the process — the decision lands in another project's memory and reads as that project's own history from then on. A misdirected read is merely information disclosure on a local, single-user database. Verified during P5.1-05: with the write guard removed, a write into a *registered* neighbouring project succeeds silently, with no foreign-key violation and no error. **The application-level check is the only enforcement; there is no database-level backstop.**
+* **Impact**:
+  - The write boundary rests on one condition in `packages/mcp-memory-server/src/index.ts` and must not be weakened without replacing it.
+  - The read asymmetry is a deliberate, recorded position and not an oversight. It must be revisited before the Phase 5 multi-tenant cloud relay, where the same boundary question recurs with a materially different threat model.
+
+---
+
+## DEC-024: Agent Memory Defaults — `AGENT_STATEMENT` Provenance at 0.75 Confidence
+
+* **Date**: August 13, 2026
+* **Status**: Approved Domain Default
+* **Context**: `ProjectMemoryService.insertDecision` defaults `provenance` to `HUMAN_CONFIRMED` and `confidence` to `1.0`. Those defaults are correct for the REST surface, where a human is on the other end of the request. They are wrong for an MCP agent writing unprompted.
+* **Decision**: `record_decision` applies its own defaults when the caller omits them: `provenance: 'AGENT_STATEMENT'`, `confidence: 0.75`, `status: 'ACTIVE'`. An agent may raise `provenance` to `HUMAN_CONFIRMED` only when the user actually confirmed the decision, as stated in the tool description.
+* **Rationale**: `provenance` is the field a reviewer uses to decide how much weight a remembered decision deserves. Inheriting the service default would record an agent's unprompted assertion as human-confirmed at maximum confidence — the strongest provenance in the domain awarded to the weakest evidence — and would erase the distinction the field exists to carry. Verified during P5.1-05: removing the override stores exactly that, in both the tool response and the persisted row.
+* **Impact**:
+  - Memory review can separate what an agent asserted from what a human approved.
+  - Out-of-range `confidence` is **rejected** rather than clamped: `clampConfidence` maps values above 1 to `1.0`, so an agent meaning "75%" and sending `75` would have its guess stored as maximum confidence, the inverse of what it expressed.
+
+---
+
+## DEC-025: In-Band Error Handling for stdio JSON-RPC Stability
+
+* **Date**: August 13, 2026
+* **Status**: Approved Engineering Standard
+* **Context**: The MCP memory server speaks JSON-RPC over stdio. `process.stdout` is the protocol channel; a single non-protocol byte on it desynchronises every subsequent response. A thrown request handler additionally surfaces as a protocol-level error, which hands the model nothing it can act on.
+* **Decision**: Three rules for this transport:
+  1. **stdout carries protocol frames only.** `src/stdio-guard.ts` rebinds `globalThis.console` to `stderr` as the first executed import, before `DatabaseService` logs from its singleton constructor. Diagnostics — database path, resolved project — go to stderr.
+  2. **Tool failures are returned, not thrown.** Every handler path returns `{ isError: true, content: [{ type: 'text', text }] }` so the transport survives and the model receives a message it can correct against.
+  3. **Startup failures precede the transport.** Project resolution runs before `server.connect()`, so an unresolvable project exits `1` with an empty stdout rather than answering a request it is about to abandon.
+* **Rationale**: This is the local expression of the standing rule in `blueprint/ARCHITECTURE.md` that adapter and tool failures must never take down the Core. Verified by negative control in P5.1-02 (removing the guard makes a database log the first stdout frame, desynchronising every response) and in P5.1-04 (removing the handler `try/catch` turns four validation failures into protocol errors).
+* **Impact**:
+  - Applies to any future MCP server in this repository, not only the memory server.
+  - Argument validation belongs in the MCP package rather than downstream, so that a malformed request produces a corrective message and no partial write.

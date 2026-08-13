@@ -16,9 +16,10 @@ Areas where the codebase has drifted from the ideal Product Specification.
 
 ## 3. Linting & Formatting
 
-- **Current Implementation**: `apps/marketing` uses ESLint Flat Config, while the rest of the repo does not. No Prettier configuration exists.
+- **Current Implementation**: Every workspace now carries its own flat `eslint.config.js` re-exporting the shared `@asterim/eslint-config`, and `.prettierrc` / `.prettierignore` exist at the monorepo root. There is no root `eslint.config.js`; `turbo run lint` fans out to the per-package configs instead.
 - **Expected Behavior**: Strict Monorepo Rules per `ENGINEERING.md`.
-- **Recommended Action**: Enforce a global `eslint.config.js` and `prettierrc` at the monorepo root.
+- **Impact**: `pnpm run lint` currently fails on `@asterim/adapters` (24 errors, mostly `no-useless-escape` in regex literals), which halts the turbo pipeline before later packages are linted. CI (`lint` + `build`) is therefore red on `main` independently of any feature work.
+- **Recommended Action**: Fix or explicitly waive the `@asterim/adapters` violations so the lint gate is meaningful again. *(This entry previously stated that only `apps/marketing` used ESLint and that no Prettier configuration existed; both were out of date as of 2026-08-13 and have been corrected.)*
 
 ## 4. `supersededBy` Carries Two Opposite Meanings
 
@@ -53,3 +54,27 @@ Areas where the codebase has drifted from the ideal Product Specification.
 - **Expected Behavior**: Project-scoped resources should enforce workspace membership, and error messages should not disclose the existence or ownership of resources outside the caller's scope.
 - **Impact**: Shared with `projects.ts` and `context.ts`, so this is a subsystem-wide gap rather than one introduced by Project Memory — but memory is the first store to hold durable, sensitive project reasoning.
 - **Recommended Action**: Apply the existing guards to project-scoped routes as a group, and return a generic 404 for cross-project references.
+
+## 9. `packages/mcp-memory-server` Deep-Imports `apps/server` Source
+
+- **Current Implementation**: The MCP memory server depends on the `asterim` workspace package and imports from its **source tree**, past any public surface:
+
+  ```ts
+  import { dbService }           from 'asterim/src/services/DatabaseService';
+  import { projectMemoryService,
+           DECISION_STATUSES,
+           DECISION_PROVENANCES } from 'asterim/src/services/ProjectMemoryService';
+  import type { CreateCodeRefInput } from 'asterim/src/services/ProjectMemoryService';
+  ```
+
+  `apps/server` declares no `exports` map, and its `"main"` is `dist/index.js` — the bundled Fastify server that calls `listen()`. The deep path is the only way to reach these modules without starting a web server, and `tsup` bundles the reached source correctly (`noExternal: ['@asterim/shared', 'asterim']`), so the emitted binary contains `DatabaseService` and `ProjectMemoryService` with no Fastify or Socket.IO.
+- **Expected Behavior**: A package consumed by two runtimes should expose a declared surface. Persistence and domain logic that both the Core and out-of-process tools need should not live behind an application entrypoint.
+- **Impact**: Nothing records this coupling in either manifest. Adding an `exports` field to `apps/server` — a normal, well-intentioned change — breaks the MCP server with a confusing resolution error. The surface has grown at every Phase 5.1 task: one module at P5.1-02, two at P5.1-03/04, four symbols across two modules at P5.1-05.
+- **Recommended Action**: Extract a `packages/memory-core` holding `DatabaseService` and `ProjectMemoryService`, consumed by both `apps/server` and `packages/mcp-memory-server`. Until then, add an explicit note to both `package.json` files so the coupling is discoverable from the manifests rather than only from the imports.
+
+## 10. Two Processes Write the Same SQLite File
+
+- **Current Implementation**: `~/.asterim/asterim.db` is opened read-write by the Core server *and* by every MCP memory server process an agent spawns. Each constructs its own `DatabaseService`, and each therefore runs `init()` — `PRAGMA journal_mode = WAL`, the idempotent `CREATE TABLE IF NOT EXISTS` block, and the try/catch-wrapped `ALTER TABLE` statements — against a file another process may be writing.
+- **Expected Behavior**: `ARCHITECTURE.md` describes the Core as "the only privileged process" owning SQLite. That is no longer literally true, and the specification has not caught up.
+- **Impact**: Measured on 2026-08-13. WAL keeps readers clear, so `get_project_briefing` and `query_decisions` are unaffected by a concurrent Core write. Writers still serialize, and SQLite's default busy timeout is zero — before Phase 5.1, `record_decision` failed within ~1 ms with `database is locked` whenever the Core held the write lock, losing the decision. `PRAGMA busy_timeout = 5000` (added in P5.1-07) makes the writer wait instead: measured across processes, a lock held 800 ms resolved in 846 ms and one held 2500 ms in 2544 ms, while a 6000 ms hold still failed, bounded at 5023 ms. Startup is unaffected — `CREATE TABLE IF NOT EXISTS` takes no write lock when the tables already exist.
+- **Recommended Action**: Update `ARCHITECTURE.md` to describe SQLite as a shared local store with the Core as its primary writer, and state the concurrency contract (WAL, bounded busy timeout, in-band failure on timeout) rather than leaving it as an implementation detail. If sustained multi-writer load ever becomes normal, route agent writes through the Core over IPC instead of widening the timeout.
