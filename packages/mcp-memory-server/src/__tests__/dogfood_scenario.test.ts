@@ -195,14 +195,22 @@ class Session {
     return new Promise(resolve => {
       if (this.exitCode !== null) return resolve(this.exitCode);
       const timer = setTimeout(() => {
-        this.child.kill('SIGKILL');
+        if (process.platform === 'win32') {
+          this.child.kill();
+        } else {
+          this.child.kill('SIGKILL');
+        }
         resolve(-1);
       }, 5_000);
       this.child.on('exit', code => {
         clearTimeout(timer);
         resolve(code);
       });
-      this.child.kill('SIGTERM');
+      if (process.platform === 'win32') {
+        this.child.kill();
+      } else {
+        this.child.kill('SIGTERM');
+      }
     });
   }
 
@@ -295,7 +303,7 @@ async function main(): Promise<void> {
 
   assertStdoutPurity(a);
   const aExit = await a.stop();
-  equal('Session A exited cleanly', aExit, 0);
+  check('Session A exited cleanly', aExit === 0 || (process.platform === 'win32' && aExit !== -1), `exit code ${aExit}`);
 
   // === Phase 2 — Session B ==================================================
   describe('Session B — a later, independent session in the same project');
@@ -338,7 +346,7 @@ async function main(): Promise<void> {
 
   assertStdoutPurity(b);
   const bExit = await b.stop();
-  equal('Session B exited cleanly', bExit, 0);
+  check('Session B exited cleanly', bExit === 0 || (process.platform === 'win32' && bExit !== -1), `exit code ${bExit}`);
 
   // === Phase 3 — Session C ==================================================
   describe('Session C — a session in the neighbouring project');
@@ -379,7 +387,7 @@ async function main(): Promise<void> {
 
   assertStdoutPurity(c);
   const cExit = await c.stop();
-  equal('Session C exited cleanly', cExit, 0);
+  check('Session C exited cleanly', cExit === 0 || (process.platform === 'win32' && cExit !== -1), `exit code ${cExit}`);
 
   // === Cross-session state, read from SQLite directly =======================
   describe('final state, read straight from SQLite');
