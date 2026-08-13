@@ -155,3 +155,65 @@
   position: relative;
   min-width: 0;
 }
+
+/* ==========================================
+   View Navigation (Chat / Terminal / Changes / Memory / Settings / Environment)
+   ==========================================
+   The tab strip must stay reachable when the main content is squeezed — a narrow
+   window, or the Inspector dragged out to its 500px maximum. Two things are needed
+   and neither works alone:
+
+   `min-width: 0` on the strip, because a flex item's default `min-width: auto`
+   lets it grow to its content and simply extend past the parent. Measured before
+   this rule: main content 540px wide ending at x=780, strip 668px wide, the
+   Environment tab's right edge at x=932 — 152px underneath the Inspector, with
+   scrollWidth === clientWidth, so there was no overflow to scroll.
+
+   `overflow-x: auto` on top of that, which only becomes meaningful once the strip
+   is actually constrained. */
+.view-navigation {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.view-navigation-tabs {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.view-navigation-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.view-navigation-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.view-navigation-tabs::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+
+.view-navigation-tabs::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+}
+
+/* Tabs keep their full label rather than compressing into ambiguity. */
+.view-navigation-tabs > .nav-btn {
+  flex-shrink: 0;
+}
+
+/* Right-hand actions never collapse, and never take space from the tabs. */
+.view-navigation-actions {
+  flex-shrink: 0;
+}

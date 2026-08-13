@@ -144,6 +144,7 @@ function render(state: {
       decisions: state.decisions ?? [],
       rules: state.rules ?? [],
       activeIntent: state.activeIntent ?? null,
+      briefing: null,
       loading: state.loading ?? false,
       error: state.error ?? null
     })
@@ -380,6 +381,7 @@ async function main(): Promise<void> {
       decisions: [],
       rules: [],
       activeIntent: null,
+      briefing: null,
       loading: false,
       error: null
     })

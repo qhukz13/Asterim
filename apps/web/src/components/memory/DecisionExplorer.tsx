@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { ArchitecturalRule, ProjectDecision, ProjectIntent, DecisionStatus } from '@asterim/shared';
+import type {
+  ArchitecturalRule,
+  ProjectBriefing,
+  ProjectDecision,
+  ProjectIntent,
+  DecisionStatus
+} from '@asterim/shared';
 import { useMemoryStore } from '../../stores/useMemoryStore';
 import { RecordDecisionModal } from './RecordDecisionModal';
+import { MemoryTimelineView } from './MemoryTimelineView';
+import { ReentryBriefingCard } from './ReentryBriefingCard';
 import { IconFileCode, IconPlus, IconSearch, IconShield, IconTarget, IconUser, IconBot } from '../icons/Icons';
 
 /** Status pills offered in the filter bar. `all` is the default. */
@@ -411,12 +419,18 @@ export interface DecisionExplorerProps {
   projectId: string | null;
 }
 
+/** Which lens the Memory view is showing. */
+export type MemoryMode = 'explorer' | 'timeline';
+
 export interface DecisionExplorerViewProps extends DecisionExplorerProps {
   decisions: ProjectDecision[];
   rules: ArchitecturalRule[];
   activeIntent: ProjectIntent | null;
+  briefing: ProjectBriefing | null;
   loading: boolean;
   error: string | null;
+  /** Initial lens. Exposed so a render test can reach the timeline. */
+  initialMode?: MemoryMode;
 }
 
 /**
@@ -435,13 +449,16 @@ export function DecisionExplorerView({
   decisions,
   rules,
   activeIntent,
+  briefing,
   loading,
-  error
+  error,
+  initialMode = 'explorer'
 }: DecisionExplorerViewProps) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [filePath, setFilePath] = useState('');
   const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState<MemoryMode>(initialMode);
 
   const visible = useMemo(
     () => filterDecisions(decisions, { query, status, filePath }),
@@ -488,6 +505,33 @@ export function DecisionExplorerView({
             {rules.length === 1 ? '' : 's'}
           </p>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+        <div role="tablist" aria-label="Memory view" style={{ display: 'flex', gap: '2px', padding: '2px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)' }}>
+          {(['explorer', 'timeline'] as MemoryMode[]).map(value => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={mode === value}
+              onClick={() => setMode(value)}
+              style={{
+                height: '28px',
+                padding: '0 var(--spacing-3)',
+                background: mode === value ? 'var(--color-surface-3)' : 'transparent',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                color: mode === value ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 'var(--font-weight-medium)' as any,
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+                transition: 'all var(--transition-fast)'
+              }}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => setRecording(true)}
@@ -509,6 +553,7 @@ export function DecisionExplorerView({
         >
           <IconPlus size={13} /> Record decision
         </button>
+        </div>
       </div>
 
       {error && (
@@ -527,6 +572,13 @@ export function DecisionExplorerView({
         </div>
       )}
 
+      {mode === 'timeline' ? (
+        <>
+          <ReentryBriefingCard briefing={briefing} />
+          <MemoryTimelineView decisions={decisions} />
+        </>
+      ) : (
+        <>
       {activeIntent && (
         <IntentCard
           goal={activeIntent.goal}
@@ -660,6 +712,9 @@ export function DecisionExplorerView({
         </div>
       )}
 
+        </>
+      )}
+
       {recording && projectId && (
         <RecordDecisionModal projectId={projectId} onClose={() => setRecording(false)} />
       )}
@@ -677,6 +732,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
   const decisions = useMemoryStore(s => s.decisions);
   const rules = useMemoryStore(s => s.rules);
   const activeIntent = useMemoryStore(s => s.activeIntent);
+  const briefing = useMemoryStore(s => s.briefing);
   const loading = useMemoryStore(s => s.loading);
   const error = useMemoryStore(s => s.error);
 
@@ -696,6 +752,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
       decisions={decisions}
       rules={rules}
       activeIntent={activeIntent}
+      briefing={briefing}
       loading={loading}
       error={error}
     />

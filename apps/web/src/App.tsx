@@ -514,7 +514,7 @@ function ProjectWorkspace({
           borderBottom: '1px solid var(--color-border-default)'
         }}
       >
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="view-navigation-tabs">
           {/* Future Thread Timeline (Execution History) Placeholder */}
           {/* <ThreadTimeline threadId={activeThreadId} /> */}
           <button
@@ -646,7 +646,7 @@ function ProjectWorkspace({
           </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="view-navigation-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {activeTab === 'chat' && messages.length > 0 && (
             <button className="clear-chat-btn" onClick={clearMessages} title="Clear Chat History">
               🧹 Clear Chat

@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><style>:root {
+  /* ==========================================
+     Surfaces (Neutral Slate 4-Tier Elevation Stack)
+     ========================================== */
+  --color-surface-0: #0b0c0e; /* Deep Canvas (Underlay) */
+  --color-surface-1: #121417; /* Primary Panel Surface (TopBar, Sidebar, Workspace) */
+  --color-surface-2: #191c20; /* Elevated Interactive / Sub-panel Surface */
+  --color-surface-3: #22262c; /* Active Selection / Floating Modal / Dropdown */
+
+  --color-bg-base: var(--color-surface-0);
+  --color-bg-elevated: var(--color-surface-1);
+  --color-bg-overlay: rgba(11, 12, 14, 0.88);
+
+  /* ==========================================
+     Borders (Sub-Pixel Hairlines & Inset Highlights)
+     ========================================== */
+  --color-border-subtle: rgba(255, 255, 255, 0.06); /* 1px Vertical Hairline Splitters */
+  --color-border-default: rgba(255, 255, 255, 0.12); /* Card & Control Boundaries */
+  --color-border-strong: rgba(255, 255, 255, 0.20); /* Hover & Focus Boundaries */
+  --color-border-hover: rgba(255, 255, 255, 0.28);
+  --color-border-focus: var(--color-accent-primary);
+
+  /* ==========================================
+     Text & Typography Hierarchy (WCAG AAA Compliant)
+     ========================================== */
+  --color-text-primary: #f1f5f9;   /* High-Contrast Primary Body (#f1f5f9 vs #121417 = 13.8:1) */
+  --color-text-secondary: #94a3b8; /* Secondary Labels & Structural Text (#94a3b8 vs #121417 = 6.2:1) */
+  --color-text-muted: #64748b;     /* Timestamps & Secondary Metadata (#64748b vs #121417 = 3.8:1) */
+  --color-text-contrast: #ffffff;
+
+  /* ==========================================
+     High-Precision Emerald Engineering Accent
+     ========================================== */
+  --color-accent-primary: #10b981;
+  --color-accent-hover: #34d399;
+  --color-accent-subtle: rgba(16, 185, 129, 0.12);
+  --color-accent-glow: rgba(16, 185, 129, 0.25);
+
+  /* ==========================================
+     Agent Execution States
+     ========================================== */
+  --color-state-working: #10b981;
+  --color-state-working-bg: rgba(16, 185, 129, 0.12);
+
+  --color-state-paused: #f59e0b;
+  --color-state-paused-bg: rgba(245, 158, 11, 0.12);
+
+  --color-state-waiting: #a855f7;
+  --color-state-waiting-bg: rgba(168, 85, 247, 0.12);
+
+  --color-state-completed: #10b981;
+  --color-state-completed-bg: rgba(16, 185, 129, 0.12);
+
+  --color-state-error: #ef4444;
+  --color-state-error-bg: rgba(239, 68, 68, 0.12);
+
+  /* Legacy Semantic Mappings */
+  --color-success-primary: var(--color-state-completed);
+  --color-warning-primary: var(--color-state-paused);
+  --color-error-primary: var(--color-state-error);
+
+  /* ==========================================
+     Typography Scale & Line Heights (PR8 Targets)
+     ========================================== */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Explicit PR8 Target Scale */
+  --font-size-xs: 12px;   /* Timestamps, Caps, Secondary Badges */
+  --font-size-sm: 13.5px; /* Monospace Code Logs, Sub-labels, Secondary Lists */
+  --font-size-md: 15px;   /* Core Body Paragraphs, Chat Bubbles, Inputs */
+  --font-size-lg: 16px;   /* Panel Titles, Tab Headers, Section Subheads */
+  --font-size-xl: 20px;   /* Main Page / Thread Title */
+
+  /* Measurable Line-Heights & Font Features */
+  --line-height-tight: 1.25;  /* Headers & Compact Badges */
+  --line-height-normal: 1.55; /* Extended Paragraph Body Text */
+  --line-height-code: 1.50;   /* Monospace Code & Terminal Output */
+  --line-height-relaxed: 1.65; /* Relaxed Ergonomic Reading */
+
+  --font-variant-num: tabular-nums;
+  --font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ==========================================
+     Spacing Scale (4px Base Grid)
+     ========================================== */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+
+  /* ==========================================
+     Control Heights (PR8 Standards)
+     ========================================== */
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;  /* Primary Action Buttons (Send, New Project) */
+  --control-height-input: 48px; /* Chat Input Area */
+
+  /* ==========================================
+     Border Radii
+     ========================================== */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* ==========================================
+     Shadows & Elevations
+     ========================================== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.65);
+  --shadow-focus: 0 0 0 2px var(--color-accent-glow);
+
+  /* ==========================================
+     Z-Index Layering
+     ========================================== */
+  --z-index-base: 1;
+  --z-index-dropdown: 100;
+  --z-index-sticky: 200;
+  --z-index-overlay: 1000;
+  --z-index-modal: 1050;
+  --z-index-toast: 2000;
+
+  /* ==========================================
+     Motion & Transition Physics (PR10 Standards)
+     ========================================== */
+  --ease-out-cubic: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --active-scale: scale(0.98);
+
+  /* ==========================================
+     Layout Dimensions
+     ========================================== */
+  --nav-height: 48px;
+  --sidebar-nav-width: 240px;
+  --sidebar-session-width: 240px;
+}
+
+    html,body{height:100%}#root{height:100%;display:flex;flex-direction:column}*{box-sizing:border-box}
+    body{margin:0;background:var(--color-surface-1);color:var(--color-text-primary);font-family:var(--font-family-sans);-webkit-font-smoothing:antialiased}
+    h2,h3,p,ul{margin:0}ul{padding-left:18px}</style></head><body><div id="root"><div style="display:flex;flex-direction:column;gap:var(--spacing-4);padding:var(--spacing-6);height:100%;overflow-y:auto;box-sizing:border-box"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--spacing-4)"><div><h2 style="margin:0;font-size:var(--font-size-xl);font-weight:var(--font-weight-semibold);color:var(--color-text-primary)">Project Memory</h2><p style="margin:4px 0 0;font-size:var(--font-size-sm);color:var(--color-text-secondary)">3 decisions · 0 rules</p></div><div style="display:flex;align-items:center;gap:var(--spacing-2)"><div role="tablist" aria-label="Memory view" style="display:flex;gap:2px;padding:2px;background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md)"><button type="button" role="tab" aria-selected="false" style="height:28px;padding:0 var(--spacing-3);background:transparent;border:none;border-radius:var(--radius-sm);color:var(--color-text-secondary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;text-transform:capitalize;transition:all var(--transition-fast)">explorer</button><button type="button" role="tab" aria-selected="true" style="height:28px;padding:0 var(--spacing-3);background:var(--color-surface-3);border:none;border-radius:var(--radius-sm);color:var(--color-text-primary);font-size:var(--font-size-xs);font-weight:var(--font-weight-medium);cursor:pointer;text-transform:capitalize;transition:all var(--transition-fast)">timeline</button></div><button type="button" style="display:inline-flex;align-items:center;gap:6px;height:var(--control-height-md);padding:0 var(--spacing-4);background:var(--color-accent-primary);color:#042114;border:none;border-radius:var(--radius-md);font-size:var(--font-size-sm);font-weight:var(--font-weight-semibold);cursor:pointer;transition:background var(--transition-fast)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Record decision</button></div></div><div style="background:var(--color-surface-2);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:var(--spacing-4);display:flex;flex-direction:column;gap:var(--spacing-4)"><div><div style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg> Where this project stands</div><p style="margin:var(--spacing-2) 0 0;font-size:var(--font-size-md);line-height:var(--line-height-normal);color:var(--color-text-primary)">Migrate authentication to Argon2id across the server and relay</p><p style="margin:var(--spacing-2) 0 0;font-size:var(--font-size-xs);color:var(--color-text-muted)">2 active decisions · 2 standing rules in force</p></div><div><div style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Rules you must not break</div><ul style="margin:var(--spacing-2) 0 0;padding-left:var(--spacing-4)"><li style="font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)">Secrets are read from the environment; never commit them.</li><li style="font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)">A commit requires explicit user approval.</li></ul></div><div><div style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Recent agent work</div><div style="margin-top:var(--spacing-2)"><div style="display:flex;align-items:baseline;gap:var(--spacing-2);padding:5px 0;font-size:var(--font-size-sm);color:var(--color-text-secondary);border-top:1px solid var(--color-border-subtle)"><span style="color:var(--color-accent-primary);font-weight:var(--font-weight-medium);min-width:84px">claude</span><span style="color:var(--color-accent-primary);font-size:var(--font-size-xs)">running</span><span style="flex:1"></span><span title="sess-9f3a21c4" style="font-family:var(--font-family-mono);font-size:var(--font-size-xs);color:var(--color-text-muted)">sess-9f3</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums;min-width:58px;text-align:right">just now</span></div><div style="display:flex;align-items:baseline;gap:var(--spacing-2);padding:5px 0;font-size:var(--font-size-sm);color:var(--color-text-secondary);border-top:1px solid var(--color-border-subtle)"><span style="color:var(--color-text-primary);font-weight:var(--font-weight-medium);min-width:84px">aider</span><span style="color:var(--color-text-muted);font-size:var(--font-size-xs)">stopped</span><span style="flex:1"></span><span title="sess-1b77de02" style="font-family:var(--font-family-mono);font-size:var(--font-size-xs);color:var(--color-text-muted)">sess-1b7</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums;min-width:58px;text-align:right">12h ago</span></div></div></div><div><div style="display:flex;align-items:center;gap:6px;font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Recent approvals<span style="color:var(--color-accent-primary);letter-spacing:0;text-transform:none">· 1 still waiting</span></div><div style="margin-top:var(--spacing-2)"><div style="display:flex;align-items:baseline;gap:var(--spacing-2);padding:5px 0;font-size:var(--font-size-sm);color:var(--color-text-secondary);border-top:1px solid var(--color-border-subtle)"><span style="display:inline-flex;align-items:center;padding-top:2px;color:var(--color-accent-primary)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></span><span style="flex:1;min-width:0;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Run the database migration against ~/.asterim/asterim.db</span><span style="font-size:var(--font-size-xs);color:var(--color-accent-primary);font-weight:var(--font-weight-semibold)">pending</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums;min-width:58px;text-align:right">just now</span></div><div style="display:flex;align-items:baseline;gap:var(--spacing-2);padding:5px 0;font-size:var(--font-size-sm);color:var(--color-text-secondary);border-top:1px solid var(--color-border-subtle)"><span style="display:inline-flex;align-items:center;padding-top:2px;color:var(--color-text-muted)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span><span style="flex:1;min-width:0;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Force push to main</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">denied</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-variant-numeric:tabular-nums;min-width:58px;text-align:right">1d ago</span></div></div></div></div><div style="display:flex;flex-direction:column;gap:var(--spacing-5)"><section><div style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--spacing-3)">August 14, 2026</div><div style="display:flex;gap:var(--spacing-3)"><div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:5px"><span aria-hidden="true" style="width:8px;height:8px;border-radius:var(--radius-full);background:var(--color-accent-primary);border:1px solid var(--color-accent-primary)"></span><span aria-hidden="true" style="flex:1;width:1px;background:var(--color-border-subtle);margin-top:4px"></span></div><div style="flex:1;min-width:0;padding-bottom:var(--spacing-5);opacity:1"><div style="display:flex;align-items:baseline;gap:var(--spacing-2);flex-wrap:wrap"><span style="font-size:var(--font-size-md);font-weight:var(--font-weight-semibold);color:var(--color-text-primary);text-decoration-color:var(--color-border-strong)">Set a 15-minute expiration for session tokens</span><span style="font-size:var(--font-size-xs);color:var(--color-accent-primary)">ACTIVE</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Agent · 75%</span></div><p style="margin:4px 0 0;font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)">Session tokens expire 15 minutes after issue.</p></div></div><div style="display:flex;gap:var(--spacing-3)"><div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:5px"><span aria-hidden="true" style="width:8px;height:8px;border-radius:var(--radius-full);background:var(--color-accent-primary);border:1px solid var(--color-accent-primary)"></span><span aria-hidden="true" style="flex:1;width:1px;background:var(--color-border-subtle);margin-top:4px"></span></div><div style="flex:1;min-width:0;padding-bottom:var(--spacing-5);opacity:1"><div style="display:flex;align-items:baseline;gap:var(--spacing-2);flex-wrap:wrap"><span style="font-size:var(--font-size-md);font-weight:var(--font-weight-semibold);color:var(--color-text-primary);text-decoration-color:var(--color-border-strong)">Hash passwords with Argon2id</span><span style="font-size:var(--font-size-xs);color:var(--color-accent-primary)">ACTIVE</span><span style="font-size:var(--font-size-xs);color:var(--color-accent-primary)">Human · 100%</span></div><p style="margin:4px 0 0;font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)">Argon2id, 64 MiB memory cost, 3 iterations.</p><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"><span style="font-family:var(--font-family-mono);font-size:var(--font-size-xs);color:var(--color-text-muted)">apps/server/src/services/AuthService.ts</span></div><div style="display:flex;align-items:baseline;gap:6px;margin-top:var(--spacing-2);padding-top:var(--spacing-2);border-top:1px solid var(--color-border-subtle);font-size:var(--font-size-xs);color:var(--color-text-muted)"><span aria-hidden="true">↰</span><span>Replaces</span><span title="d3" style="color:var(--color-text-secondary)">Hash passwords with bcrypt</span></div></div></div></section><section><div style="font-size:var(--font-size-xs);font-weight:var(--font-weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--spacing-3)">August 8, 2026</div><div style="display:flex;gap:var(--spacing-3)"><div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:5px"><span aria-hidden="true" style="width:8px;height:8px;border-radius:var(--radius-full);background:transparent;border:1px solid var(--color-border-strong)"></span><span aria-hidden="true" style="flex:1;width:1px;background:var(--color-border-subtle);margin-top:4px"></span></div><div style="flex:1;min-width:0;padding-bottom:var(--spacing-5);opacity:0.72"><div style="display:flex;align-items:baseline;gap:var(--spacing-2);flex-wrap:wrap"><span style="font-size:var(--font-size-md);font-weight:var(--font-weight-semibold);color:var(--color-text-primary);text-decoration:line-through;text-decoration-color:var(--color-border-strong)">Hash passwords with bcrypt</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">SUPERSEDED</span><span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Repository · 90%</span></div><p style="margin:4px 0 0;font-size:var(--font-size-sm);line-height:var(--line-height-normal);color:var(--color-text-secondary)">bcrypt at cost factor 12.</p><div style="display:flex;align-items:baseline;gap:6px;margin-top:var(--spacing-2);padding-top:var(--spacing-2);border-top:1px solid var(--color-border-subtle);font-size:var(--font-size-xs);color:var(--color-text-muted)"><span aria-hidden="true">↳</span><span>Replaced by</span><span title="d1" style="color:var(--color-text-secondary)">Hash passwords with Argon2id</span></div></div></div></section></div></div></div></body></html>
