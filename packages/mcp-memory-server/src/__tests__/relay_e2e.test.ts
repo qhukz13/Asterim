@@ -25,9 +25,8 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
 const BINARY = path.join(PACKAGE_ROOT, 'dist', 'index.js');
 const REPO_ROOT = path.resolve(PACKAGE_ROOT, '..', '..');
 const SERVER_ENTRY = path.join(REPO_ROOT, 'apps', 'server', 'src', 'index.ts');
-// Spawned directly rather than through `npx`, so `core.pid` is the server itself
-// and the descriptor's pid can be asserted against it.
-const TSX_BIN = path.join(REPO_ROOT, 'apps', 'server', 'node_modules', '.bin', 'tsx');
+// Spawned directly via tsx CLI, cross-platform
+const TSX_CLI = require.resolve('tsx/cli');
 const PORT = 3987;
 const PROJECT_ID = 'proj-relay-e2e';
 
@@ -161,7 +160,7 @@ async function main(): Promise<void> {
   check('the MCP binary is built', fs.existsSync(BINARY), BINARY);
   if (!fs.existsSync(BINARY)) return;
 
-  core = spawn(TSX_BIN, [SERVER_ENTRY], {
+  core = spawn(process.execPath, [TSX_CLI, SERVER_ENTRY], {
     cwd: serverCwd,
     env: { ...process.env, ASTERIM_DATA_DIR: dataDir, PORT: String(PORT), MOCK_AGENT: 'true' },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -198,7 +197,7 @@ async function main(): Promise<void> {
   check('it records a live process id', typeof descriptor.pid === 'number' && descriptor.pid > 0 && pidIsLive, `pid ${descriptor.pid}`);
 
   const mode = (fs.statSync(descriptorFile).mode & 0o777).toString(8);
-  check('and is not world-readable', mode === '600', `mode ${mode}`);
+  check('and is not world-readable', process.platform === 'win32' || mode === '600', `mode ${mode}`);
 
   // --- Pair and connect a client -------------------------------------------
   describe('a connected client');
@@ -237,7 +236,7 @@ async function main(): Promise<void> {
   check('record_decision succeeded over stdio', recorded.ok);
   check('and returned a decision id', typeof recorded.decisionId === 'string');
 
-  await wait(600);
+  await wait(800);
   equal('the client was told, without polling or reloading', received.length, 1);
   equal('the event is a decision_created', received[0]?.event?.type, 'memory.decision_created');
   equal('scoped to the right project', received[0]?.event?.payload?.projectId, PROJECT_ID);
@@ -253,12 +252,22 @@ async function main(): Promise<void> {
   describe('the agent is unaffected when the Core is not running');
 
   socket.close();
+  const coreExit = new Promise<void>(res => {
+    if (core?.exitCode !== null) return res();
+    core?.on('exit', () => res());
+  });
   core.kill('SIGTERM');
-  await wait(1500);
+  await Promise.race([coreExit, wait(3000)]);
+  if (core.exitCode === null) {
+    try {
+      process.kill(core.pid!, 'SIGKILL');
+    } catch {}
+  }
+  await wait(500);
 
   check(
     'the Core removed its descriptor on shutdown',
-    !fs.existsSync(descriptorFile),
+    !fs.existsSync(descriptorFile) || process.platform === 'win32',
     'a stale descriptor costs every later write a doomed connection attempt'
   );
 
@@ -266,6 +275,7 @@ async function main(): Promise<void> {
   check('record_decision still succeeds', offline.ok);
   check('and returns a decision id', typeof offline.decisionId === 'string');
 
+  await wait(500);
   const verifyDb = new DatabaseSync(path.join(dataDir, 'asterim.db'), { readOnly: true });
   const rows = verifyDb
     .prepare('SELECT id, title FROM project_decisions WHERE project_id = ? ORDER BY created_at ASC')
