@@ -61,6 +61,16 @@ function describe(name: string): void {
 }
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asterim-mcp-stdio-'));
+process.env.ASTERIM_DATA_DIR = tmpDir;
+
+// Since P5.1-04 the server resolves a project at startup and exits 1 if it cannot,
+// so this test must seed one before spawning. The database is opened here only to
+// insert that row, then closed, leaving the child process to open it on its own.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- must load after ASTERIM_DATA_DIR is set
+const { dbService } = require('asterim/src/services/DatabaseService');
+
+const FIXTURE_PROJECT_ID = 'proj-stdio-scaffold';
+
 let child: ChildProcessWithoutNullStreams | null = null;
 
 function cleanup(): void {
@@ -114,10 +124,16 @@ async function main(): Promise<void> {
 
   describe('stdio transport handshake');
 
+  dbService
+    .getDb()
+    .prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)')
+    .run(FIXTURE_PROJECT_ID, 'Stdio Scaffold Fixture', '/workspace/projects/stdio-scaffold');
+  dbService.getDb().close();
+
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
 
-  child = spawn(process.execPath, [BINARY], {
+  child = spawn(process.execPath, [BINARY, '--project', FIXTURE_PROJECT_ID], {
     cwd: PACKAGE_ROOT,
     env: { ...process.env, ASTERIM_DATA_DIR: tmpDir },
     stdio: ['pipe', 'pipe', 'pipe']
@@ -192,7 +208,14 @@ async function main(): Promise<void> {
   if (toolsResponse) {
     equal('the tools/list response correlates to request id 2', toolsResponse.id, 2);
     check('the tools/list response is a result, not an error', toolsResponse.error === undefined, JSON.stringify(toolsResponse.error));
-    equal('the scaffold exposes no tools yet', toolsResponse.result?.tools, []);
+    // P5.1-02 asserted an empty list here; P5.1-04 registered the retrieval tools.
+    // Their behaviour is covered by retrieval_tools.test.ts — this only pins the
+    // fact that tools/list answers over the transport at all.
+    equal(
+      'tools/list reports the registered retrieval tools',
+      (toolsResponse.result?.tools as { name: string }[] | undefined)?.map(t => t.name).sort(),
+      ['get_project_briefing', 'query_decisions']
+    );
   }
 
   describe('stdout purity');
