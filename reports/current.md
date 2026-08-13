@@ -1,6 +1,6 @@
-# Execution Report: P5.3-01 — Decision Status Lifecycle REST Endpoint & Store Actions
+# Execution Report: P5.3-02 — Interactive Decision Supersede & Archive UI Dialogs
 
-**Task ID:** P5.3-01
+**Task ID:** P5.3-02
 **Phase:** Phase 5.3 — Decision Lifecycle & Memory Curation UI
 **Status:** VERIFIED
 **Date:** 2026-08-14
@@ -11,110 +11,107 @@
 
 ## 1. Summary
 
-The status lifecycle is exposed end to end: `PATCH /api/v1/projects/:id/memory/decisions/:decisionId/status` validates the status, enforces the project boundary, and returns the updated decision; `ProjectMemoryService.updateDecisionStatus` now publishes `memory.decision_updated` carrying the previous status; and `useMemoryStore` gained `updateDecisionStatus` / `archiveDecision` plus live handling of the new event.
+Decisions can now be superseded, marked stale, reactivated, and archived from both the Explorer and the Timeline. Supersede and Archive open dialogs; Mark stale and Reactivate apply immediately.
 
-**+59 assertions** across three suites, all green, with every other suite in the repo re-run unchanged. `tsc` clean, `pnpm run build` 7/7.
+**+41 assertions** (99/99 and 95/95 in the two component suites), every other suite unchanged, `tsc` clean, `pnpm run build` 7/7, plus screenshots of the controls and the archive confirmation.
 
-Three mutation runs confirm the new code is genuinely covered — and two of them exposed a flaw in the **test harnesses**, not the implementation: assertions that threw on missing data, aborting the run and hiding every check after them (§ 5.4). Both files now read defensively.
+The controls live in **one shared component** rather than being written into each view. That is the load-bearing decision here: two copies would drift the moment either view gained an action, and one of the negative controls (§ 5.3) is specifically a parity check that catches exactly that.
 
 ---
 
 ## 2. Files Changed
 
+**Created**
+
+| File | Lines | Purpose |
+| :-- | --: | :-- |
+| `apps/web/src/components/memory/DecisionActions.tsx` | 153 | `availableActions` rule + the shared control strip |
+| `apps/web/src/components/memory/SupersedeDecisionModal.tsx` | 268 | Replacement capture, pre-populated |
+| `apps/web/src/components/memory/ArchiveDecisionModal.tsx` | 174 | Archive confirmation |
+| `docs/screenshots/p5.3-02/{decision-actions,archive-confirm}-1440.png` | — | Visual evidence |
+
+**Modified**
+
 | File | Change |
 | :-- | :-- |
-| `packages/shared/src/events.ts` | `MemoryDecisionUpdatedPayload` + `MemoryDecisionUpdatedEvent`; `DecisionStatus` import |
-| `apps/server/src/services/ProjectMemoryService.ts` | `updateDecisionStatus` publishes `memory.decision_updated` |
-| `apps/server/src/routes/memory.ts` | `PATCH …/decisions/:decisionId/status` |
-| `apps/web/src/stores/useMemoryStore.ts` | `updateDecisionStatus`, `archiveDecision`, `memory.decision_updated` handling |
-| `apps/web/src/hooks/useSocket.ts` | Listener for the new event type |
-| `apps/server/src/routes/__tests__/memory.test.ts` | +21 assertions; defensive reads (§ 5.4) |
-| `apps/server/src/services/__tests__/ProjectMemoryService.test.ts` | +14 assertions; defensive reads (§ 5.4) |
-| `apps/web/src/stores/__tests__/useMemoryStore.test.ts` | +24 assertions |
+| `apps/web/src/components/memory/DecisionExplorer.tsx` | `DecisionCard` takes `projectId` and renders `DecisionActions`; passes `projectId` to the timeline |
+| `apps/web/src/components/memory/MemoryTimelineView.tsx` | `projectId` prop; `TimelineEntry` renders `DecisionActions` |
+| `apps/web/src/components/memory/__tests__/DecisionExplorer.test.ts` | +21 assertions |
+| `apps/web/src/components/memory/__tests__/MemoryTimeline.test.ts` | +29 assertions |
 
-Three source files were mutated for negative controls and restored byte-identically (`md5 d7920c72…`, `139ca81d…`, `bc7342f0…`).
+`DecisionActions.tsx` and `SupersedeDecisionModal.tsx` were mutated for negative controls and restored byte-identically (`md5 4a62ad69…`, `b94eb9d5…`).
 
-**Not modified:** no existing endpoint altered or removed; no cross-project modification permitted. The § 5 prohibitions hold.
+**Not modified:** no backend route, no MCP server, no deletion path — every retirement is a status transition. The § 5 prohibitions hold.
 
 ---
 
 ## 3. Implementation Details
 
-### 3.1 The event carries what the new state cannot
+### 3.1 One rule, one component
 
 ```ts
-this.publishMemoryEvent<MemoryDecisionUpdatedPayload>('memory.decision_updated', {
-  projectId: updated.projectId,
-  decision: updated,
-  previousStatus: existing.status
-});
+export function availableActions(decision: ProjectDecision): DecisionAction[] {
+  switch (decision.status) {
+    case 'ACTIVE': return ['supersede', 'stale', 'archive'];
+    case 'STALE':  return ['reactivate', 'supersede', 'archive'];
+    default:       return [];
+  }
+}
 ```
 
-`previousStatus` is the part worth arguing for. A subscriber receiving only the new state can see *that* a decision is now `ARCHIVED`, but not whether it was retired from active use or merely moved out of `STALE` — and those read very differently in a timeline. The service already holds `existing` for its not-found check, so carrying it costs nothing.
+`DecisionActions` owns its own dialog state and calls the store directly, so both views get identical behaviour by rendering the same element. It returns `null` when there are no actions **or when `projectId` is null**, so a control that would call the store with a null id never renders.
 
-`archiveDecision` delegates to `updateDecisionStatus`, so it publishes through the same path — asserted, so the delegation cannot be quietly replaced with a direct write that skips the event.
+### 3.2 Terminal states are terminal *in the UI only*
 
-### 3.2 The route is the only project guard
+`SUPERSEDED` and `ARCHIVED` offer nothing. The REST surface can still move them and the timeline still shows them — this is a UI judgement, not a data one.
 
-`updateDecisionStatus(id, status)` takes a decision id alone and will happily retire a decision in any project. The scope check therefore lives in the route:
+The reason is specific to supersession: offering "Reactivate" on a decision that another decision has already replaced would produce **two live decisions contradicting each other, from one click**, with no prompt and nothing in the system to flag the conflict. Reviving a retired position is a real decision and should go through recording one. Archived decisions are grouped with them for consistency; reactivating those is safe in principle, and § 7 suggests where to put it if it is wanted.
 
-```ts
-const existing = projectMemoryService.getDecision(decisionId);
-if (!existing) { reply.code(404); … }
-if (existing.projectId !== id) { reply.code(400); … }
-```
+### 3.3 Archive is confirmed; stale is not
 
-This is the same shape as the MCP write boundary (DEC-023): **one line of application code with no database-level backstop**. Mutation A removes it and a cross-project archive succeeds silently.
+Archiving is the only action whose effect is invisible where it matters: the decision leaves every future agent briefing, so the next session is simply never told about it, and nothing announces that absence. The dialog states all three consequences explicitly — retired from briefings, kept in the timeline, nothing deleted — and its escape is labelled "Keep it" rather than "Cancel", because the question is about the decision, not the dialog.
 
-The rejection message names the decision and the *requested* project, and deliberately **not** the owning project. `IMPLEMENTATION_DRIFT.md` § 8 records that the existing supersede route leaks the owner's id in exactly this situation; there was no reason to repeat it. An assertion pins the non-disclosure so it cannot regress.
+`Mark stale` / `Reactivate` apply directly. They are one click apart from each other in both directions, so a confirmation would be ceremony.
 
-### 3.3 Deviation — payload placed in `events.ts`, not `types/memory.ts`
+### 3.4 The supersede dialog carries the old decision forward
 
-The task specifies `packages/shared/src/types/memory.ts`. The other four `Memory*Payload` interfaces all live in `packages/shared/src/events.ts`, alongside every other event payload; `types/memory.ts` holds domain types and the REST request bodies. Splitting one payload away from its four siblings would make the set harder to find, not easier, so it went with them. Both are re-exported from the package root, so no consumer can tell the difference.
+Constraints and related files are pre-populated, because a replacement usually inherits most of what it replaces and retyping constraints from memory is how they quietly get dropped.
 
-### 3.4 Store
+`initialRelatedFiles` does slightly more than read `relatedFiles`. That field is derived from *file-only* code refs, so a decision anchored to `src/auth.ts#hashPassword` has an empty `relatedFiles` and would lose its anchor on being superseded. The helper folds anchor paths back in, strips the symbol, and skips symbol-only anchors so a bare `hashPassword` is never mistaken for a filename. Four assertions cover those cases.
 
-`updateDecisionStatus` PATCHes and then upserts through the same `upsertDecision` / `applyDecisionToBriefing` helpers the other write paths use, so `briefing.activeDecisions` stays correct in **both** directions — a decision leaving `ACTIVE` drops out, and one returning to `ACTIVE` reappears. That reversibility matters: `STALE` is not a terminal state.
+### 3.5 Palette: amber for retirement
 
-`archiveDecision` is a one-line delegation rather than a second fetch path, and the test asserts it sends `{ status: 'ARCHIVED' }` to the same endpoint.
+`DESIGN_SYSTEM.md` calls for monochrome plus a single emerald accent, and P5.2-02 stayed strictly inside that. This task specifies amber for archive/stale, and `tokens.css` already defines `--color-state-paused: #f59e0b`, used elsewhere in the app (the disconnection banner).
 
-No change was needed in `socketManager`: it forwards on the catch-all by payload `projectId` rather than an allow-list, as verified end to end in P5.2-01 § 4.3. The new event reaches clients by virtue of carrying `projectId`.
+Reading these together: emerald is the *interactive* accent — the primary action, what is in force — while the state colours are a separate documented axis. Retirement is not a primary action and should not look like one, so the archive confirm button is an amber outline rather than a filled emerald button. An assertion pins that it is **not** the emerald primary (`#042114`, the emerald button's text colour), so a future refactor cannot quietly make archiving look like the happy path.
 
 ---
 
 ## 4. Tests / Verification
 
 ```
-apps/server
-  memory.test.ts .................  98/98    (was 77, +21)
-  ProjectMemoryService.test.ts ... 231/231   (was 217, +14)
+DecisionExplorer.test.ts ........  99/99   (was 78, +21)
+MemoryTimeline.test.ts .........  95/95   (was 66, +29)
+useMemoryStore.test.ts ......... 113/113
+memory.test.ts (routes) ........  98/98
+ProjectMemoryService.test.ts ... 231/231
 
-apps/web
-  useMemoryStore.test.ts ......... 113/113   (was 89, +24)
-  DecisionExplorer.test.ts .......  78/78
-  MemoryTimeline.test.ts .........  66/66
-
-packages/mcp-memory-server (regression, shared changed)
-  resolver 42/42 · record_decision 82/82 · dogfood_scenario 62/62
-
-tsc --noEmit (web)  0 errors   ·   eslint  0 errors, 2 warnings
-pnpm --filter @asterim/shared build  ok   ·   pnpm run build  7 successful, 7 total
+tsc --noEmit  0 errors  ·  eslint  0 errors, 44 warnings  ·  pnpm run build  7/7
 ```
-
-`apps/server` still reports its **4 pre-existing** `tsc --noEmit` errors (`AuthController`, `AgentService`, `ContextService`, `GeminiProvider`). Confirmed none is in a file this task touched.
 
 ### 4.1 Acceptance criteria
 
 | # | Criterion | Result |
 | :-- | :-- | :-- |
-| 1 | PATCH validates, enforces boundaries, updates SQLite, publishes | **Met** — 21 route assertions incl. persistence re-read; publish asserted in the service suite |
-| 2 | Store exposes both actions and maintains `briefing.activeDecisions` | **Met** — both directions asserted |
-| 3 | Socket event updates state in real time | **Met at the store layer** — see § 6.1 for what is and is not proven |
-| 4 | Build and regressions pass | **Met** — 7/7, every suite green |
+| 1 | Supersede launchable from active decisions in both views | **Met** — rendered controls asserted in both, plus a parity assertion |
+| 2 | Dialog pre-populates and creates the replacement | **Pre-population met** (9 assertions); **creation partly verified** — see § 6.1 |
+| 3 | Archive confirms and marks `ARCHIVED` | **Dialog met** (8 assertions); **the write partly verified** — § 6.1 |
+| 4 | Stale / Reactivate toggle without dialogs | **Met** — `actionNeedsConfirmation` asserted for all four; controls render per status |
+| 5 | Build and typecheck clean | **Met** |
 
-### 4.2 The endpoint tests check persistence, not just the response
+### 4.2 Visual QA
 
-After each transition the suite re-reads through `GET /decisions?status=…` and `GET /briefing`, so a handler that returned a plausible object without writing would fail. It also asserts the round trip `ACTIVE → STALE → ACTIVE → ARCHIVED`, that `updatedAt` moves forward, and that a rejected cross-project write left the decision exactly as it was.
+`docs/screenshots/p5.3-02/`. The capture shows all three cases at once: the ACTIVE card offering Supersede / Mark stale / Archive, the STALE card offering Reactivate / Supersede / Archive, and the SUPERSEDED card offering nothing while keeping its lineage line. Amber reads as caution without shouting; the emerald stays on Record decision and the ACTIVE badge.
 
 ---
 
@@ -122,73 +119,68 @@ After each transition the suite re-reads through `GET /decisions?status=…` and
 
 | # | Mutation | Result | Verdict |
 | :-- | :-- | --: | :-- |
-| A | Route's cross-project check removed | 94/98 | caught — 4 failures |
-| B | `updateDecisionStatus` publishes nothing | 218/231 | caught — 13 failures |
-| C | Store's `decision_updated` ignores the briefing | 112/113 | caught — 1 failure |
+| A | Terminal states return the full action list | 96/99 + 94/95 | caught — 4 failures across both suites |
+| B | Supersede dialog stops pre-populating | 92/95 | caught — 3 failures |
+| C | `DecisionActions` removed from the Timeline only | 89/95 | caught — 6 failures |
 
 ### 5.1 Control A
 
-Without the guard, `PATCH /projects/B/decisions/<A's decision>/status` returns **200** and the write lands. Four assertions fail, including the one confirming the decision was untouched afterwards. This is the boundary the task's § 5 forbids crossing, and it rests entirely on those two lines.
+Making `SUPERSEDED`/`ARCHIVED` mutable fails in both suites — the logic assertions and the rendered-card assertions independently. This is the § 3.2 rule, and it is the one whose violation produces contradictory live decisions.
 
 ### 5.2 Control B
 
-Dropping the publish fails all thirteen event assertions, including the `archiveDecision` delegation and the previous-status field. Criterion 1's "publishes `memory.decision_updated`" is therefore pinned rather than assumed.
+Emptying the pre-populated fields fails three assertions, including the one checking constraints are joined one-per-line. Criterion 2's pre-population requirement is pinned rather than assumed.
 
-### 5.3 Control C
+### 5.3 Control C — the parity assertion earns its place
 
-Removing `applyDecisionToBriefing` from the event handler leaves the decision list correct but the briefing stale — an archived decision keeps showing as active. One assertion catches it, which is thin but exact; the same helper is already covered from three other call sites.
+Removing `DecisionActions` from the Timeline while leaving the Explorer untouched fails six assertions, including:
 
-### 5.4 Two controls exposed brittle test harnesses
+```
+FAIL  the same decision offers the same actions in both views
+      — expected [], got ["Supersede","Mark stale","Archive"]
+```
 
-Under mutations A and B the suites reported **91** and **185** assertions instead of 98 and 231. They were not failing early by design — an assertion **threw**:
-
-- `crossProject.json().error.includes(...)` — `error` is absent when the guard passes the request through, so `.includes` threw on `undefined`.
-- `captured[0].event.type` — `captured` is empty when nothing is published, so the property access threw.
-
-In both cases `main()` unwound to the catch and every subsequent assertion silently never ran. The mutations were still caught, but the reports understated the damage and would have hidden any *unrelated* regression further down the file.
-
-Both are now read defensively (`String(x ?? '')`, optional chaining). Re-run under the same mutations they report 94/98 and 218/231 — the full suite executes and every consequence is visible.
-
-This is worth recording as a harness-wide concern: these standalone scripts have no per-assertion isolation, so **any** assertion that dereferences possibly-absent data can mask the rest of its file. The pattern appears elsewhere in these suites.
+That assertion renders one identical decision through both views and compares which labels appear. It exists because "add the same controls to two components" is exactly the requirement that rots — and it fails on divergence in either direction, not just this one.
 
 ---
 
 ## 6. Problems Discovered & Concerns
 
-### 6.1 Criterion 3 is verified at the store, not across a socket
+### 6.1 The writes themselves are still not exercised
 
-The store applies `memory.decision_updated` correctly (7 assertions), `useSocket` registers the listener, and P5.2-01 proved end to end that a `memory.*` event with a `projectId` reaches a connected client. Composing those three is strong evidence, but **no test in this task drives an actual socket**, so "across connected clients" rests on that composition rather than on a direct observation.
+Every dialog is rendered, every control is asserted present or absent, and `parseList` / `initialRelatedFiles` / `availableActions` are tested directly. But **no test clicks anything**: `onClick`, the submit handler, and the store call inside it are typed and rendered, never run. There is still no DOM test environment (raised P5.2-02 § 6.3, unchanged).
 
-The P5.2-01 probe that did drive a real socket was temporary. If cross-client sync is going to be claimed repeatedly, it is worth making that probe a standing test rather than re-deriving the argument each phase.
+So criteria 2 and 3 are marked **partly verified**. What *is* verified: the store actions they call are covered by `useMemoryStore.test.ts` (24 assertions added in P5.3-01), and the endpoint beneath those by `memory.test.ts` (21). The untested span is the wiring — that this button calls that action with these arguments.
 
-### 6.2 The service still has no project scoping
+The gap has now been carried through three UI tasks and is the reason a plausible-looking regression could ship green. It is the single highest-value thing Phase 5.3 could fix, and it is a repo-level decision (`jsdom` + a renderer), not something to slip into a feature task.
 
-`updateDecisionStatus(id, status)` and `archiveDecision(id)` are callable with a bare decision id from anywhere in the process. Today the REST route is the only caller and it checks; nothing structurally prevents the next caller from not checking.
+### 6.2 The Explorer shows a raw id where the Timeline shows a title
 
-`supersedeDecision` takes the opposite approach — it validates `projectId` **inside** the service and throws on a mismatch. Two adjacent methods on the same service now differ in where the boundary is enforced, and the weaker of the two is the one the new endpoint depends on. Worth aligning before P5.3-02 adds UI that calls both.
+Visible in the screenshot: the superseded card reads **"Superseded by d1"**. The Timeline resolves the same link to "Replaced by Hash passwords with Argon2id", because `buildLineage` looks the counterpart up in the decision list; `DecisionCard` was written in P5.2-02 before that helper existed and prints `decision.supersededBy` directly.
 
-### 6.3 A no-op transition still publishes
+Now that both views sit side by side under one toggle, the same relationship reads as a title in one and an opaque id in the other. The fix is small — pass the decision list into `DecisionCard` and reuse `buildLineage` — but it is beyond this task's scope, which asked only that terminal decisions render lineage read-only, which they do.
 
-`updateDecisionStatus(id, 'ARCHIVED')` on an already-`ARCHIVED` decision writes `updated_at`, so it publishes an event whose `previousStatus` equals the new status. Deliberate — the row genuinely changed — and asserted, but a client rendering "moved from X to Y" should expect `X === Y`. Cheap to filter at the UI layer; recorded so it is a known shape rather than a surprise.
+### 6.3 Reactivating an archived decision has no route in the UI
 
-### 6.4 `apps/server/pairing_pin.txt` shows as modified
+§ 3.2 removes all actions from terminal states, so an archived decision cannot be brought back from the interface, even though `updateDecisionStatus` supports it and the archive dialog **tells the user it can be reactivated** ("it can be reactivated from the decision history").
 
-The file is tracked in git and rewritten by `PairingService` on construction, so running the server-side suites dirties it. Not caused by this task's changes and not reverted, but a tracked file that every test run modifies is noise in every diff. It probably belongs in `.gitignore`.
+That sentence is currently a promise about the REST API. Either the dialog's wording should be narrowed, or archived — not superseded — decisions should regain a Reactivate control. I left the capability out rather than the sentence, because the sentence is what makes archiving feel safe, and § 7 proposes where the control belongs.
 
-### 6.5 Carried forward
+### 6.4 Carried forward
 
-- **`MemoryStore` is still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3) — now four components and eleven actions deep.
-- **`supersededBy` is still bidirectional** (drift § 4). The new endpoint does not touch it, but P5.3-02's supersede dialog will.
-- **No DOM test environment** (P5.2-02 § 6.3).
-- `pnpm run lint` remains red on `@asterim/adapters`. All figures here are local verification.
+- **`MemoryStore` still absent from `STORE_ARCHITECTURE.md`** (P5.2-01 § 6.3) — seven components now.
+- **Service-layer boundary asymmetry** (P5.3-01 § 6.2): `supersedeDecision` validates the project inside the service and throws; `updateDecisionStatus` does not. The supersede and archive dialogs now call both, so a cross-project failure surfaces differently depending on which the user chose. Nothing in the UI can trigger it today, but it is the kind of divergence that becomes a bug when the relay adds a second client.
+- **`supersededBy` remains bidirectional** (drift § 4). The supersede dialog now creates these links from the UI, so the field has gained a writer as well as two readers.
+- `pnpm run lint` remains red on `@asterim/adapters`; `apps/server` still has 4 pre-existing `tsc` errors. All figures local.
 
 ---
 
 ## 7. Recommended Next Step
 
-Proceed to **P5.3-02 — Interactive Supersede & Archive UI Dialogs**. The store now exposes every write the UI needs: `createDecision`, `supersedeDecision`, `updateDecisionStatus`, `archiveDecision`. Four things to settle with it:
+Proceed to **P5.3-03 — Rules & Intent Curation UI**. Three things to carry in:
 
-1. **Archive needs confirmation; status changes do not.** Archiving is the one action that removes a decision from every agent briefing — it is what a future session will *not* be told. A plain menu item is too quiet for that; `STALE` and back is reversible and can be immediate.
-2. **Launch supersede from the timeline.** Lineage is already the primary structure there (`buildLineage`), and superseding is the act that creates a link — doing it where the chain is visible is the natural placement. It is also the write path the Record modal does not exercise.
-3. **Align the service boundary** (§ 6.2) before the UI calls both methods, so a supersede and an archive fail the same way for the same reason.
-4. **Decide what an archived decision looks like** in the explorer. Right now the status filter can surface it, but the default `all` view mixes retired decisions with live ones at equal weight — which works against the reason for archiving something in the first place.
+1. **Reuse `DecisionActions`' shape, not its code.** Rules and intents have their own lifecycles (an intent is archived by its successor; a rule has severity but no status). A parallel `availableActions` per entity, each with a parity assertion, keeps them honest without forcing one abstraction over three different domains.
+2. **Settle § 6.3 while archiving is fresh.** A Reactivate control on `ARCHIVED` — but not `SUPERSEDED` — is a two-line change to `availableActions`, and it makes the archive dialog's promise true. That distinction is also a genuinely useful piece of product reasoning to record.
+3. **Intent has no delete or archive path at all.** `createIntent` archives the previous one implicitly, so a project can never return to having *no* intent once one is set. Worth deciding before the UI makes that shape visible, since the briefing already renders "No intent has been set" as a first-class state that becomes unreachable after the first write.
+
+And the standing recommendation from § 6.1: **a DOM test environment would retire the "partly verified" qualifier from this report and the last two.** Every UI task in this phase has ended with the same untested span, and it grows with each one.

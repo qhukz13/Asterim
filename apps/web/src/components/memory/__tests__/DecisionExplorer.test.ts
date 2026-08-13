@@ -339,6 +339,72 @@ async function main(): Promise<void> {
   check('the confidence meter reflects 75%', agentHtml.includes('width:75%'), 'meter width');
   check('the confidence meter reflects 100%', humanHtml.includes('width:100%'), 'meter width');
 
+  describe('availableActions — which lifecycle controls apply');
+
+  const actionsMod = await import('../DecisionActions');
+  const { availableActions, actionNeedsConfirmation, ACTION_LABELS } = actionsMod;
+
+  equal(
+    'an ACTIVE decision offers supersede, stale and archive',
+    availableActions(decision({ status: 'ACTIVE' })),
+    ['supersede', 'stale', 'archive']
+  );
+  equal(
+    'a STALE decision offers reactivate, supersede and archive',
+    availableActions(decision({ status: 'STALE' })),
+    ['reactivate', 'supersede', 'archive']
+  );
+  equal('a SUPERSEDED decision offers nothing', availableActions(decision({ status: 'SUPERSEDED' })), []);
+  equal('an ARCHIVED decision offers nothing', availableActions(decision({ status: 'ARCHIVED' })), []);
+  check(
+    'only ACTIVE offers "mark stale", and only STALE offers "reactivate"',
+    availableActions(decision({ status: 'ACTIVE' })).includes('stale') &&
+      !availableActions(decision({ status: 'ACTIVE' })).includes('reactivate') &&
+      availableActions(decision({ status: 'STALE' })).includes('reactivate') &&
+      !availableActions(decision({ status: 'STALE' })).includes('stale')
+  );
+
+  check('archiving asks first', actionNeedsConfirmation('archive'));
+  check('superseding asks first', actionNeedsConfirmation('supersede'));
+  check('marking stale applies directly', !actionNeedsConfirmation('stale'));
+  check('reactivating applies directly', !actionNeedsConfirmation('reactivate'));
+  equal('every action has a label', Object.keys(ACTION_LABELS).sort(), ['archive', 'reactivate', 'stale', 'supersede']);
+
+  describe('render — lifecycle controls on cards');
+
+  const activeCard = render({ decisions: [decision({ status: 'ACTIVE' })] });
+  check('an ACTIVE card offers Supersede', activeCard.includes('Supersede'));
+  check('an ACTIVE card offers Mark stale', activeCard.includes('Mark stale'));
+  check('an ACTIVE card offers Archive', activeCard.includes('Archive'));
+  check('and does not offer Reactivate', !activeCard.includes('Reactivate'));
+
+  const staleCard = render({ decisions: [decision({ status: 'STALE' })] });
+  check('a STALE card offers Reactivate', staleCard.includes('Reactivate'));
+  check('and does not offer Mark stale', !staleCard.includes('Mark stale'));
+
+  const archivedCard = render({ decisions: [decision({ status: 'ARCHIVED' })] });
+  check('an ARCHIVED card offers no mutations', !archivedCard.includes('Supersede') && !archivedCard.includes('Archive'));
+  check('but still renders the decision', archivedCard.includes('Hash passwords with Argon2id'));
+
+  const supersededCard = render({ decisions: [decision({ status: 'SUPERSEDED', supersededBy: 'dec-9' })] });
+  check('a SUPERSEDED card offers no mutations', !supersededCard.includes('Mark stale'));
+  check('but keeps its lineage', supersededCard.includes('dec-9'));
+
+  // Without a project there is nothing to act on, and the controls must not
+  // render a button that would call the store with a null id.
+  const noProjectCard = renderToStaticMarkup(
+    React.createElement(explorer.DecisionExplorerView, {
+      projectId: null,
+      decisions: [decision({ status: 'ACTIVE' })],
+      rules: [],
+      activeIntent: null,
+      briefing: null,
+      loading: false,
+      error: null
+    })
+  );
+  check('no project means no lifecycle controls', !noProjectCard.includes('Mark stale'));
+
   describe('render — superseded relationship');
 
   const supersededHtml = render({

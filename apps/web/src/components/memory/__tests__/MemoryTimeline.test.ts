@@ -244,6 +244,146 @@ async function main(): Promise<void> {
   check('an empty timeline explains itself', emptyTimeline.includes('No history yet'));
   check('and does not render a stray rail', !emptyTimeline.includes('Replaced by'));
 
+  // --- Lifecycle controls in the timeline ------------------------------------
+  describe('render — timeline lifecycle controls');
+
+  const withProject = renderToStaticMarkup(
+    React.createElement(timelineMod.MemoryTimelineView, {
+      decisions: [decision({ id: 'a', status: 'ACTIVE' }), decision({ id: 's', status: 'STALE' })],
+      projectId: 'p'
+    })
+  );
+  check('an ACTIVE entry offers Supersede', withProject.includes('Supersede'));
+  check('an ACTIVE entry offers Mark stale', withProject.includes('Mark stale'));
+  check('a STALE entry offers Reactivate', withProject.includes('Reactivate'));
+  check('both offer Archive', (withProject.match(/Archive/g) ?? []).length >= 2);
+
+  const terminalOnly = renderToStaticMarkup(
+    React.createElement(timelineMod.MemoryTimelineView, { decisions: [old, replacement], projectId: 'p' })
+  );
+  check(
+    'a SUPERSEDED entry offers no mutations',
+    !terminalOnly.includes('Reactivate'),
+    'the superseded decision must not be revivable in one click'
+  );
+  check('while the ACTIVE replacement still can be acted on', terminalOnly.includes('Mark stale'));
+
+  const readOnlyTimeline = renderTimeline([decision({ status: 'ACTIVE' })]);
+  check(
+    'a timeline rendered without a project is read-only',
+    !readOnlyTimeline.includes('Mark stale'),
+    'projectId defaults to null'
+  );
+
+  describe('the two views offer identical controls');
+
+  const explorerModForActions = await import('../DecisionExplorer');
+  const sameDecision = decision({ id: 'same', status: 'ACTIVE' });
+  const inExplorer = renderToStaticMarkup(
+    React.createElement(explorerModForActions.DecisionExplorerView, {
+      projectId: 'p',
+      decisions: [sameDecision],
+      rules: [],
+      activeIntent: null,
+      briefing: null,
+      loading: false,
+      error: null
+    })
+  );
+  const inTimeline = renderToStaticMarkup(
+    React.createElement(timelineMod.MemoryTimelineView, { decisions: [sameDecision], projectId: 'p' })
+  );
+  const labels = ['Supersede', 'Mark stale', 'Archive', 'Reactivate'];
+  equal(
+    'the same decision offers the same actions in both views',
+    labels.filter(l => inExplorer.includes(l)),
+    labels.filter(l => inTimeline.includes(l))
+  );
+
+  // --- Supersede modal -------------------------------------------------------
+  describe('SupersedeDecisionModal');
+
+  const supersedeMod = await import('../SupersedeDecisionModal');
+  const { initialRelatedFiles, SupersedeDecisionModal } = supersedeMod;
+
+  equal(
+    'relatedFiles are carried over',
+    initialRelatedFiles(decision({ relatedFiles: ['src/auth.ts'] })),
+    ['src/auth.ts']
+  );
+  equal(
+    'a path that only exists on a symbol anchor is still carried over',
+    initialRelatedFiles(
+      decision({
+        relatedFiles: [],
+        codeRefs: [{ id: 'r', decisionId: 'd', filePath: 'src/auth.ts', symbolName: 'hash', createdAt: 1 }]
+      })
+    ),
+    ['src/auth.ts']
+  );
+  equal(
+    'a path is not duplicated when it appears in both',
+    initialRelatedFiles(
+      decision({
+        relatedFiles: ['src/auth.ts'],
+        codeRefs: [{ id: 'r', decisionId: 'd', filePath: 'src/auth.ts', symbolName: 'hash', createdAt: 1 }]
+      })
+    ),
+    ['src/auth.ts']
+  );
+  equal(
+    'a symbol-only anchor does not become a file',
+    initialRelatedFiles(
+      decision({ relatedFiles: [], codeRefs: [{ id: 'r', decisionId: 'd', symbolName: 'hashPassword', createdAt: 1 }] })
+    ),
+    []
+  );
+  equal('a decision with no anchors carries nothing over', initialRelatedFiles(decision()), []);
+
+  const supersedeHtml = renderToStaticMarkup(
+    React.createElement(SupersedeDecisionModal, {
+      projectId: 'p',
+      decision: decision({
+        title: 'Hash passwords with bcrypt',
+        constraints: ['Never log the derived key', 'Re-hash on login'],
+        relatedFiles: ['src/auth.ts']
+      }),
+      onClose: () => {}
+    })
+  );
+  check('the dialog names what is being replaced', supersedeHtml.includes('Hash passwords with bcrypt'));
+  check('it explains the old decision is kept', supersedeHtml.includes('stays in') && supersedeHtml.includes('timeline'));
+  check('constraints are pre-populated', supersedeHtml.includes('Never log the derived key'));
+  check('and joined one per line', supersedeHtml.includes('Never log the derived key\nRe-hash on login'));
+  check('related files are pre-populated', supersedeHtml.includes('src/auth.ts'));
+  check('the title field starts empty', supersedeHtml.includes('id="supersede-title"'));
+  check('it is a modal dialog', supersedeHtml.includes('role="dialog"') && supersedeHtml.includes('aria-modal="true"'));
+  check('the submit control is disabled until the required fields are filled', supersedeHtml.includes('disabled'));
+
+  // --- Archive dialog --------------------------------------------------------
+  describe('ArchiveDecisionModal');
+
+  const archiveMod = await import('../ArchiveDecisionModal');
+  const archiveHtml = renderToStaticMarkup(
+    React.createElement(archiveMod.ArchiveDecisionModal, {
+      projectId: 'p',
+      decision: decision({ title: 'Hash passwords with bcrypt' }),
+      onClose: () => {}
+    })
+  );
+  check('it names the decision', archiveHtml.includes('Hash passwords with bcrypt'));
+  check('it asks rather than states', archiveHtml.includes('Archive this decision?'));
+  check(
+    'it explains the effect on briefings',
+    archiveHtml.includes('retired from agent briefings'),
+    'the consequence a user cannot otherwise see'
+  );
+  check('it says the record is preserved', archiveHtml.includes('stays in the timeline'));
+  check('it says nothing is deleted', archiveHtml.includes('Nothing is deleted'));
+  check('it offers a way out', archiveHtml.includes('Keep it'));
+  check('it is a modal dialog', archiveHtml.includes('role="dialog"'));
+  check('the confirm control is not the emerald primary', !archiveHtml.includes('#042114'), 'archive is not a happy path');
+
   // --- relativeTime ----------------------------------------------------------
   describe('relativeTime');
 

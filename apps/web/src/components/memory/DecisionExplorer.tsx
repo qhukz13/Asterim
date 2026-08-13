@@ -10,6 +10,7 @@ import { useMemoryStore } from '../../stores/useMemoryStore';
 import { RecordDecisionModal } from './RecordDecisionModal';
 import { MemoryTimelineView } from './MemoryTimelineView';
 import { ReentryBriefingCard } from './ReentryBriefingCard';
+import { DecisionActions } from './DecisionActions';
 import { IconFileCode, IconPlus, IconSearch, IconShield, IconTarget, IconUser, IconBot } from '../icons/Icons';
 
 /** Status pills offered in the filter bar. `all` is the default. */
@@ -198,7 +199,7 @@ function ProvenanceBadge({ decision }: { decision: ProjectDecision }) {
   );
 }
 
-function DecisionCard({ decision }: { decision: ProjectDecision }) {
+function DecisionCard({ decision, projectId }: { decision: ProjectDecision; projectId: string | null }) {
   const [showRationale, setShowRationale] = useState(false);
   const anchors = anchorLabels(decision);
   const constraints = decision.constraints ?? [];
@@ -330,6 +331,8 @@ function DecisionCard({ decision }: { decision: ProjectDecision }) {
           </div>
         </div>
       )}
+
+      <DecisionActions projectId={projectId} decision={decision} />
 
       {decision.supersededBy && (
         <div
@@ -575,7 +578,7 @@ export function DecisionExplorerView({
       {mode === 'timeline' ? (
         <>
           <ReentryBriefingCard briefing={briefing} />
-          <MemoryTimelineView decisions={decisions} />
+          <MemoryTimelineView decisions={decisions} projectId={projectId} />
         </>
       ) : (
         <>
@@ -707,7 +710,7 @@ export function DecisionExplorerView({
             </div>
           )}
           {visible.map(decision => (
-            <DecisionCard key={decision.id} decision={decision} />
+            <DecisionCard key={decision.id} decision={decision} projectId={projectId} />
           ))}
         </div>
       )}
