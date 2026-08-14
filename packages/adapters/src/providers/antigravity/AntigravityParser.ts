@@ -99,7 +99,7 @@ export class AntigravityParser implements IParser {
   }
 
   private handleMessageChunk(message: string) {
-    let cleanMsg = message.trim();
+    const cleanMsg = message.trim();
     if (cleanMsg === 'y' || cleanMsg === 'n' || cleanMsg === '') return;
     if (cleanMsg === this.lastEmittedMessage) return;
 
@@ -118,7 +118,7 @@ export class AntigravityParser implements IParser {
   }
 
   private handleMessageComplete(message: string) {
-    let cleanMsg = message.trim();
+    const cleanMsg = message.trim();
     if (cleanMsg === 'y' || cleanMsg === 'n' || cleanMsg === '') return;
 
     if (this.isHeaderOrLogo(cleanMsg)) {

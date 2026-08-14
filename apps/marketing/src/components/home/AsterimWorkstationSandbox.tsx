@@ -174,21 +174,27 @@ const CHANGED_FILES: ChangedFile[] = [
 
 function DiffBlock({ code, file }: { code: string; file: string }) {
   const rows = code.split('\n');
+  // Built with a loop rather than map(): the running line counters must not be
+  // captured by a callback, which React treats as mutation escaping the render.
+  const numbered: { line: string; kind: 'hunk' | 'add' | 'del' | 'ctx'; old: number | null; next: number | null }[] = [];
   let oldNo = 0;
   let newNo = 0;
-  const numbered = rows.map((line) => {
+  for (const line of rows) {
     if (line.startsWith('@@')) {
       const m = line.match(/-(\d+)(?:,\d+)?\s+\+(\d+)/);
       if (m) {
         oldNo = parseInt(m[1], 10);
         newNo = parseInt(m[2], 10);
       }
-      return { line, kind: 'hunk' as const, old: null, next: null };
+      numbered.push({ line, kind: 'hunk', old: null, next: null });
+    } else if (line.startsWith('+')) {
+      numbered.push({ line, kind: 'add', old: null, next: newNo++ });
+    } else if (line.startsWith('-')) {
+      numbered.push({ line, kind: 'del', old: oldNo++, next: null });
+    } else {
+      numbered.push({ line, kind: 'ctx', old: oldNo++, next: newNo++ });
     }
-    if (line.startsWith('+')) return { line, kind: 'add' as const, old: null, next: newNo++ };
-    if (line.startsWith('-')) return { line, kind: 'del' as const, old: oldNo++, next: null };
-    return { line, kind: 'ctx' as const, old: oldNo++, next: newNo++ };
-  });
+  }
 
   const gutter = (v: number | null) => (
     <span style={{ display: 'inline-block', width: '28px', textAlign: 'right', paddingRight: '10px', color: '#475569', userSelect: 'none', flexShrink: 0 }}>

@@ -118,7 +118,9 @@ export class ProcessTreeManager {
         if (this.isProcessAlive(pid)) {
           process.kill(pid, 'SIGTERM');
         }
-      } catch (e) {}
+      } catch {
+        // The process exited between the liveness check and the signal.
+      }
     }
 
     // 2. Wait up to timeoutMs for processes to exit gracefully
@@ -142,7 +144,9 @@ export class ProcessTreeManager {
           if (this.isProcessAlive(pid)) {
             process.kill(pid, 'SIGKILL');
           }
-        } catch (e) {}
+        } catch {
+          // Same race as the SIGTERM pass above.
+        }
       }
     }
 

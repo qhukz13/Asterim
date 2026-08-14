@@ -261,7 +261,9 @@ async function main(): Promise<void> {
   if (core.exitCode === null) {
     try {
       process.kill(core.pid!, 'SIGKILL');
-    } catch {}
+    } catch {
+      // The Core exited between the check and the signal.
+    }
   }
   await wait(500);
 

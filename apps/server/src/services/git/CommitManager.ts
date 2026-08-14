@@ -26,7 +26,9 @@ export class CommitManager {
       if (!staged.trim()) {
         await this.stageAll(projectPath);
       }
-    } catch (e) {}
+    } catch {
+      // Staging failed; the commit below surfaces the real Git error.
+    }
 
     // We must escape quotes in the commit message
     const escapedMessage = message.replace(/"/g, '\\"').replace(/\n/g, ' ');
@@ -37,12 +39,16 @@ export class CommitManager {
     let diffOutput = '';
     try {
       diffOutput = (await this.provider.exec('git diff --staged', projectPath)).trim();
-    } catch (e) {}
+    } catch {
+      // No staged diff available; fall through to the unstaged diff.
+    }
 
     if (!diffOutput) {
       try {
         diffOutput = (await this.provider.exec('git diff', projectPath)).trim();
-      } catch (e) {}
+      } catch {
+        // No diff at all; the caller falls back to a generic message.
+      }
     }
 
     if (!diffOutput) {

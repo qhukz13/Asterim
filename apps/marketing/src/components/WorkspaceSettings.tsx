@@ -21,10 +21,16 @@ export const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspaceI
         const data = await res.json();
         setMembers(data.members || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
+  // loadData is async: its setMembers call happens in a promise continuation,
+  // not synchronously in the effect body. The rule cannot see through the async
+  // boundary, and the same loader is re-run by the handlers below.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above
     loadData();
   }, [workspaceId]);
 
@@ -46,7 +52,8 @@ export const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspaceI
         setInviteEmail('');
         loadData();
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoading(false);
     }

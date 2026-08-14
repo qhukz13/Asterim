@@ -28,7 +28,7 @@ export class GitProvider {
         return error.stdout.trim();
       }
       const fullError = error.stderr || error.stdout || error.message || 'Git command failed';
-      throw new Error(fullError.trim());
+      throw new Error(fullError.trim(), { cause: error });
     }
   }
 }

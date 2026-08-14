@@ -38,7 +38,9 @@ export class StatusManager {
           // Origin might have a different name, default to first remote name if needed
         }
       }
-    } catch {}
+    } catch {
+      // No remotes configured; hasRemote stays false.
+    }
 
     // Get porcelain status with branch info
     // Format: ## branch...upstream [ahead X, behind Y]
@@ -90,7 +92,7 @@ export class StatusManager {
     }
     
     // Get last commit info
-    let lastCommit = '';
+    let lastCommit: string;
     try {
       const log = await this.provider.exec('git log -1 --pretty=format:"%h %s (%cr)"', projectPath);
       lastCommit = log.trim();
@@ -103,7 +105,9 @@ export class StatusManager {
       try {
         const unpushed = await this.provider.exec('git rev-list HEAD --not --remotes --count', projectPath);
         ahead = parseInt(unpushed.trim(), 10) || 0;
-      } catch (e) {}
+      } catch {
+        // rev-list fails without an upstream; leave the ahead count at zero.
+      }
     }
 
     return { branch: branch.trim(), files, syncStatus, ahead, behind, lastCommit, hasRemote, remoteUrl };

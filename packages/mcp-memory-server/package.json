@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
+    "test": "tsx src/__tests__/resolver.test.ts && tsx src/__tests__/record_decision.test.ts && tsx src/__tests__/retrieval_tools.test.ts && tsx src/__tests__/dogfood_scenario.test.ts && tsx src/__tests__/stdio_scaffold.test.ts && tsx src/__tests__/relay-client.test.ts && tsx src/__tests__/relay_e2e.test.ts",
     "dev": "tsup --watch",
     "lint": "eslint src/",
     "clean": "rm -rf dist"

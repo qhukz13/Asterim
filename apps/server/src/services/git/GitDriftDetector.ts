@@ -148,7 +148,7 @@ export class GitDriftDetector {
       };
     }
 
-    let content = '';
+    let content: string;
     try {
       content = fs.readFileSync(absolute, 'utf8');
     } catch {

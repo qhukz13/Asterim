@@ -49,11 +49,14 @@ export class RemoteManager {
           await this.provider.exec(`git push -u origin "${currentBranch}"`, projectPath);
           return;
         } catch (e: any) {
-          throw new Error(`Failed to push branch: ${e.message}`);
+          throw new Error(`Failed to push branch: ${e.message}`, { cause: e });
         }
       }
       if (errMsg.includes('could not read Username') || errMsg.includes('Authentication failed') || errMsg.includes('Permission denied') || errMsg.includes('Host key verification failed') || errMsg.includes('terminal prompts disabled')) {
-        throw new Error('Git push failed due to unconfigured authentication. If using HTTPS, update your remote URL with a Personal Access Token (https://TOKEN@github.com/user/repo.git) or use SSH format (git@github.com:user/repo.git).');
+        throw new Error(
+          'Git push failed due to unconfigured authentication. If using HTTPS, update your remote URL with a Personal Access Token (https://TOKEN@github.com/user/repo.git) or use SSH format (git@github.com:user/repo.git).',
+          { cause: err }
+        );
       }
       throw err;
     }

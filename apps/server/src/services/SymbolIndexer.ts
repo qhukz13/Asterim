@@ -108,11 +108,15 @@ export class SymbolIndexer {
                 const content = fs.readFileSync(fullPath, 'utf8');
                 const fileSymbols = this.extractSymbolsFromFile(relPath, content);
                 symbols.push(...fileSymbols);
-              } catch (e) {}
+              } catch {
+                // Unreadable or binary file; skip it and keep indexing.
+              }
             }
           }
         }
-      } catch (e) {}
+      } catch {
+        // Unreadable directory; skip that branch of the walk.
+      }
     };
 
     walkDir(projectPath);

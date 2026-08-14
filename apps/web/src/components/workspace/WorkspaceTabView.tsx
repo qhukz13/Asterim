@@ -37,7 +37,9 @@ export const WorkspaceTabView: React.FC = () => {
         const prjData = await prjRes.json();
         setProjects(prjData.projects || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   useEffect(() => {
@@ -62,7 +64,8 @@ export const WorkspaceTabView: React.FC = () => {
         setInviteEmail('');
         loadData();
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoading(false);
     }

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { WorkspaceSettings } from './WorkspaceSettings';
 
+type AccountTab = 'overview' | 'members' | 'sessions' | 'devices' | 'apikeys' | 'billing';
+
 interface AccountLayoutProps {
   user: any;
   currentSubPath: string;
@@ -31,9 +33,19 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
   navigate,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<
-    'overview' | 'members' | 'sessions' | 'devices' | 'apikeys' | 'billing'
-  >('overview');
+  // The account tabs are addressable URLs, so the visible tab is derived from
+  // the path on every render rather than mirrored into state.
+  const activeTab: AccountTab = currentSubPath.includes('/members')
+    ? 'members'
+    : currentSubPath.includes('/sessions')
+      ? 'sessions'
+      : currentSubPath.includes('/devices')
+        ? 'devices'
+        : currentSubPath.includes('/apikeys')
+          ? 'apikeys'
+          : currentSubPath.includes('/billing')
+            ? 'billing'
+            : 'overview';
   const [sessions, setSessions] = useState<any[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
   const [apiKeys, setApiKeys] = useState<any[]>([]);
@@ -41,15 +53,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
   const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (currentSubPath.includes('/members')) setActiveTab('members');
-    else if (currentSubPath.includes('/sessions')) setActiveTab('sessions');
-    else if (currentSubPath.includes('/devices')) setActiveTab('devices');
-    else if (currentSubPath.includes('/apikeys')) setActiveTab('apikeys');
-    else if (currentSubPath.includes('/billing')) setActiveTab('billing');
-    else setActiveTab('overview');
-  }, [currentSubPath]);
 
   // Fetch Sessions
   const loadSessions = async () => {
@@ -59,7 +62,9 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
         const data = await res.json();
         setSessions(data.sessions || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   // Fetch Devices
@@ -70,7 +75,9 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
         const data = await res.json();
         setDevices(data.devices || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   // Fetch API Keys
@@ -81,10 +88,17 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
         const data = await res.json();
         setApiKeys(data.apiKeys || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
+  // The loaders are async: every setState they run happens in a promise
+  // continuation, not synchronously in the effect body. The rule cannot see
+  // through the async boundary, and restructuring the fetches into the effect
+  // would duplicate them, since the same loaders are re-run by the handlers below.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above
     if (activeTab === 'sessions') loadSessions();
     if (activeTab === 'devices') loadDevices();
     if (activeTab === 'apikeys') loadApiKeys();
@@ -129,7 +143,8 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
         setNewKeyName('');
         loadApiKeys();
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoading(false);
     }
@@ -259,7 +274,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
       >
         <button
           onClick={() => {
-            setActiveTab('overview');
             navigate('/account/dashboard');
           }}
           style={{
@@ -283,7 +297,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
 
         <button
           onClick={() => {
-            setActiveTab('members');
             navigate('/account/members');
           }}
           style={{
@@ -307,7 +320,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
 
         <button
           onClick={() => {
-            setActiveTab('sessions');
             navigate('/account/sessions');
           }}
           style={{
@@ -331,7 +343,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
 
         <button
           onClick={() => {
-            setActiveTab('devices');
             navigate('/account/devices');
           }}
           style={{
@@ -354,7 +365,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
 
         <button
           onClick={() => {
-            setActiveTab('apikeys');
             navigate('/account/apikeys');
           }}
           style={{
@@ -377,7 +387,6 @@ export const AccountLayout: React.FC<AccountLayoutProps> = ({
 
         <button
           onClick={() => {
-            setActiveTab('billing');
             navigate('/account/billing');
           }}
           style={{

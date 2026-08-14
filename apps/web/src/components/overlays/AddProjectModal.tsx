@@ -34,7 +34,8 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
         const data = await res.json();
         setExistingProjects(data.projects || []);
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoadingExisting(false);
     }

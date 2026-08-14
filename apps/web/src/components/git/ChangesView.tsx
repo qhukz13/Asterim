@@ -54,6 +54,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
   const [showRemoteModal, setShowRemoteModal] = useState(false);
   const [remoteInputUrl, setRemoteInputUrl] = useState('');
   const [isSettingRemote, setIsSettingRemote] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -141,8 +142,6 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
     setDiffReview(null);
     sendAction('get_diff', { file: f.file, staged: f.staged });
   };
-
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSaveRemote = async (customUrl?: string) => {
     const targetUrl = (customUrl || remoteInputUrl).trim();
@@ -747,7 +746,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
                       customStyle={{ margin: 0, background: 'transparent', padding: '16px', fontSize: '0.85rem', lineHeight: '1.5' }}
                       lineProps={(lineNumber: number) => {
                         const lineStr = diff.split('\n')[lineNumber - 1] || '';
-                        let style: React.CSSProperties = { display: 'flex', width: '100%', minWidth: 'max-content', padding: '0 4px', boxSizing: 'border-box' };
+                        const style: React.CSSProperties = { display: 'flex', width: '100%', minWidth: 'max-content', padding: '0 4px', boxSizing: 'border-box' };
                         
                         if (lineStr.startsWith('+')) {
                           style.backgroundColor = 'rgba(16, 185, 129, 0.15)';

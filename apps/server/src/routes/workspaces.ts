@@ -59,7 +59,10 @@ export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       db.prepare(
         'INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)'
       ).run(attachId, id, projectId, Date.now());
-    } catch (e) {}
+    } catch {
+      // The attachment table is absent in pre-workspace databases; the project
+      // still resolves through its own workspace_id.
+    }
 
     const project = projectManager.getProject(projectId);
     return reply.send({ success: true, project });
@@ -86,7 +89,9 @@ export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
         db.prepare(
           'INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)'
         ).run(attachId, id, pid, now);
-      } catch (e) {}
+      } catch {
+        // Same pre-workspace database tolerance as above.
+      }
     }
 
     return reply.send({ success: true, count: projectIds.length });
@@ -107,7 +112,9 @@ export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       db.prepare('DELETE FROM environment_project_attachments WHERE environment_id = ? AND project_id = ?')
         .run(id, projectId);
-    } catch (e) {}
+    } catch {
+      // Nothing to detach when the attachment table predates this database.
+    }
 
     return reply.send({ success: true });
   };

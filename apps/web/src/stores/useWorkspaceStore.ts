@@ -110,7 +110,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         const data = await res.json();
         set({ members: data.members || [] });
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   },
 
   setProjects: (newProjects: any[]) => {

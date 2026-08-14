@@ -53,7 +53,7 @@ export class GitService {
           case 'init':
             await this.repository.initRepository(path);
             break;
-          case 'get_diff':
+          case 'get_diff': {
             const diff = await this.diff.getDiff(path, payload.file, payload.staged);
             eventBus.publish({
               id: crypto.randomUUID(),
@@ -67,6 +67,7 @@ export class GitService {
               }
             });
             break;
+          }
           case 'stage':
             await this.commit.stageFile(path, payload.file);
             break;

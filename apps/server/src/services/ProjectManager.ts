@@ -84,7 +84,10 @@ export class ProjectManager {
         const attachId = `epa_${crypto.randomUUID()}`;
         db.prepare('INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)')
           .run(attachId, workspaceId, newProject.id, Date.now());
-      } catch (e) {}
+      } catch {
+        // The attachment table is absent in pre-workspace databases; the project
+        // is still created and reachable through its workspace_id.
+      }
     }
 
     // Automatically create a default thread

@@ -20,7 +20,10 @@ export class DiffManager {
       if (!diff && !staged && file) {
         try {
           diff = await this.provider.exec(`git diff --no-index -- /dev/null "${file}"`, projectPath);
-        } catch (e) {}
+        } catch {
+          // --no-index cannot read the path (no /dev/null on Windows); leave the
+          // diff empty rather than fail the request.
+        }
       }
 
       return diff;

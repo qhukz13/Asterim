@@ -264,7 +264,7 @@ export class DecisionExtractor {
 
     const lines: TranscriptLine[] = [];
     for (const row of rows.reverse()) {
-      let text = '';
+      let text: string;
       try {
         const payload = JSON.parse(row.payload_json);
         // Events are stored as the full envelope, so the payload may be nested.

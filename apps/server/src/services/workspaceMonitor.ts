@@ -92,7 +92,9 @@ export class WorkspaceMonitor {
         const content = fs.readFileSync(filePath, 'utf8');
         symbolIndexer.extractSymbolsFromFile(relPath, content);
       }
-    } catch (e) {}
+    } catch {
+      // The file changed again or vanished between the watch event and the read.
+    }
 
     this.eventCallback({
       id: crypto.randomUUID(),

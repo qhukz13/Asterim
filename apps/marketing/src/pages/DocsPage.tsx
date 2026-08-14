@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BookOpen, Terminal, Layers, ShieldCheck, Cpu, Server, FileCode2, Lock, FileText, ChevronRight, Search } from 'lucide-react';
 
 interface DocsPageProps {
@@ -6,16 +6,12 @@ interface DocsPageProps {
 }
 
 export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
-  const [activeTopic, setActiveTopic] = useState('quickstart');
+  // The topic is taken from the URL on the first render rather than synced in
+  // an effect afterwards, so the requested topic is the one that renders first.
+  const [activeTopic, setActiveTopic] = useState(
+    () => new URLSearchParams(window.location.search).get('topic') || 'quickstart'
+  );
   const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const topic = params.get('topic');
-    if (topic) {
-      setActiveTopic(topic);
-    }
-  }, []);
 
   const selectTopic = (id: string) => {
     setActiveTopic(id);

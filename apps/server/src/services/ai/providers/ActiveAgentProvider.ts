@@ -44,8 +44,8 @@ export class ActiveAgentProvider implements IAIProvider {
     const isWin = process.platform === 'win32';
     const tempFile = path.join(os.tmpdir(), `asterim-prompt-${Date.now()}-${Math.floor(Math.random() * 1000)}.txt`);
     
-    let cmd = '';
-    let args: string[] = [];
+    let cmd: string;
+    let args: string[];
 
     switch (agentType) {
       case 'aider':
@@ -76,7 +76,7 @@ export class ActiveAgentProvider implements IAIProvider {
       if (agentType === 'aider') await fs.unlink(tempFile).catch(() => {});
       console.error('[ActiveAgentProvider] Failed to run agent headless:', err);
       if (err.stdout) return err.stdout.trim();
-      throw new Error(`Failed to run active agent (${agentType}): ${err.message}`);
+      throw new Error(`Failed to run active agent (${agentType}): ${err.message}`, { cause: err });
     }
   }
 
@@ -89,12 +89,17 @@ export class ActiveAgentProvider implements IAIProvider {
         throw new Error('Unauthenticated agent CLI');
       }
 
-      const lines = output.split('\n').map(l => l.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').trim()).filter(Boolean);
+      // eslint-disable-next-line no-control-regex -- stripping ANSI escapes means matching ESC (0x1B)
+      const ansi = /\x1B\[[0-9;]*[a-zA-Z]/g;
+      const lines = output.split('\n').map(l => l.replace(ansi, '').trim()).filter(Boolean);
       const lastLine = lines[lines.length - 1];
       if (lastLine && !lastLine.includes('Not logged in') && !lastLine.includes('/login')) {
         return lastLine;
       }
-    } catch (err) {}
+    } catch {
+      // The agent CLI is unavailable or unauthenticated; fall through to the
+      // default commit message below.
+    }
 
     return 'chore: update workspace project files';
   }

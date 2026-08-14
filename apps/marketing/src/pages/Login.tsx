@@ -35,7 +35,10 @@ export const Login: React.FC<LoginProps> = ({ navigate, onLoginSuccess }) => {
       try {
         data = await res.json();
       } catch (jsonErr) {
-        throw new Error('Server returned invalid response. Make sure Asterim Server is running on port 3000.');
+        throw new Error(
+          'Server returned invalid response. Make sure Asterim Server is running on port 3000.',
+          { cause: jsonErr }
+        );
       }
 
       if (!res.ok) {

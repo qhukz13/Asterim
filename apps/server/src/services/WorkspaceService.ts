@@ -35,7 +35,9 @@ export class WorkspaceService {
         INSERT OR IGNORE INTO accounts (id, owner_user_id, account_name, created_at, updated_at)
         VALUES (?, ?, 'Personal Account', ?, ?)
       `).run(accountId || 'acc_dev', userId || 'usr_dev', now, now);
-    } catch (e) {}
+    } catch {
+      // Older databases predate the accounts table; the seed is best-effort.
+    }
 
     db.prepare(`
       INSERT INTO workspaces (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
@@ -112,7 +114,9 @@ export class WorkspaceService {
         INSERT OR IGNORE INTO accounts (id, owner_user_id, account_name, created_at, updated_at)
         VALUES ('acc_dev', 'usr_dev', 'Personal Account', ?, ?)
       `).run(now, now);
-    } catch (e) {}
+    } catch {
+      // Older databases predate the accounts table; the seed is best-effort.
+    }
 
     db.prepare(`
       INSERT OR IGNORE INTO workspaces (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
@@ -124,7 +128,9 @@ export class WorkspaceService {
         INSERT OR IGNORE INTO environments (id, account_id, name, slug, preset, execution_profile_id, is_personal, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(workspaceId, accountId, wsName, 'personal', 'personal', 'exec_default', 1, now, now);
-    } catch (e) {}
+    } catch {
+      // The mirrored environments row is optional; workspaces remains authoritative.
+    }
 
     const memberId = `wsm_${randomUUID()}`;
     try {
@@ -132,7 +138,10 @@ export class WorkspaceService {
         INSERT OR IGNORE INTO workspace_memberships (id, workspace_id, user_id, role, created_at)
         VALUES (?, ?, ?, 'owner', ?)
       `).run(memberId, workspaceId, userId, now);
-    } catch (e) {}
+    } catch {
+      // Older databases predate workspace_memberships; ownership is implied by the
+      // personal workspace itself.
+    }
 
     return {
       id: workspaceId,
@@ -171,7 +180,9 @@ export class WorkspaceService {
           ${isPersonal ? "OR p.workspace_id IS NULL OR p.workspace_id = ''" : ''}
         `).get(r.id, r.id) as any;
         projectCount = cntRow ? cntRow.cnt : 0;
-      } catch (e) {}
+      } catch {
+        // No attachment table in older databases; the count stays at zero.
+      }
 
       return {
         id: r.id,
@@ -311,11 +322,15 @@ export class WorkspaceService {
     let ws: any;
     try {
       ws = db.prepare('SELECT is_personal FROM workspaces WHERE id = ?').get(workspaceId);
-    } catch (e) {}
+    } catch {
+      // Falls through to the environments lookup below.
+    }
     if (!ws) {
       try {
         ws = db.prepare('SELECT is_personal FROM environments WHERE id = ?').get(workspaceId);
-      } catch (e) {}
+      } catch {
+        // Neither table holds the id; the guard below rejects the delete.
+      }
     }
 
     if (ws && (Boolean(ws.is_personal) || ws.is_personal === 1)) {
@@ -324,19 +339,30 @@ export class WorkspaceService {
 
     try {
       db.prepare('DELETE FROM workspace_memberships WHERE workspace_id = ?').run(workspaceId);
-    } catch (e) {}
+    } catch {
+      // Each cascade step is independent: a table missing from an older database
+      // must not stop the remaining rows from being deleted.
+    }
     try {
       db.prepare('DELETE FROM workspace_invitations WHERE workspace_id = ?').run(workspaceId);
-    } catch (e) {}
+    } catch {
+      // See the cascade note above.
+    }
     try {
       db.prepare('DELETE FROM environment_project_attachments WHERE environment_id = ?').run(workspaceId);
-    } catch (e) {}
+    } catch {
+      // See the cascade note above.
+    }
     try {
       db.prepare('DELETE FROM environments WHERE id = ?').run(workspaceId);
-    } catch (e) {}
+    } catch {
+      // See the cascade note above.
+    }
     try {
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
-    } catch (e) {}
+    } catch {
+      // See the cascade note above.
+    }
   }
 }
 

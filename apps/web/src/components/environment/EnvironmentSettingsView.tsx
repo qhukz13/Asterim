@@ -100,7 +100,9 @@ export const EnvironmentSettingsView: React.FC = () => {
         const prjData = await prjRes.json();
         setProjects(prjData.projects || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   useEffect(() => {
@@ -127,7 +129,8 @@ export const EnvironmentSettingsView: React.FC = () => {
         setInviteEmail('');
         loadData();
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoading(false);
     }
@@ -161,7 +164,9 @@ export const EnvironmentSettingsView: React.FC = () => {
       if (res.ok) {
         loadData();
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   const handleCopyInviteLink = () => {

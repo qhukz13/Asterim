@@ -18,7 +18,7 @@ export class EntitlementService {
       return true;
     }
 
-    if (!Boolean(row.is_enabled)) {
+    if (!row.is_enabled) {
       return false;
     }
 

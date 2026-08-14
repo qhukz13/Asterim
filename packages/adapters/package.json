@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "tsx src/sdk/__tests__/ProcessManager.test.ts",
     "lint": "eslint src/",
     "clean": "rm -rf dist"
   },

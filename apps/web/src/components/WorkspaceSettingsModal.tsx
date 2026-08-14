@@ -42,7 +42,9 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
         const prjData = await prjRes.json();
         setProjects(prjData.projects || []);
       }
-    } catch (e) {}
+    } catch {
+      // The request failed; the previously loaded state is left in place.
+    }
   };
 
   useEffect(() => {
@@ -67,7 +69,8 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
         setInviteEmail('');
         loadData();
       }
-    } catch (e) {
+    } catch {
+      // The request failed; the finally block below clears the pending flag.
     } finally {
       setLoading(false);
     }

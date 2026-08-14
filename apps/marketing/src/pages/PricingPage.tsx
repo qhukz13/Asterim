@@ -56,7 +56,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
       period: 'per seat / annual',
       description: 'Granular team governance, immutable security audit streams, and custom relay deployments.',
       cta: 'Contact Sales',
-      ctaAction: () => (window.location.href = 'mailto:enterprise@asterim.dev?subject=Asterim%20Enterprise%20Inquiry'),
+      ctaAction: () => window.location.assign('mailto:enterprise@asterim.dev?subject=Asterim%20Enterprise%20Inquiry'),
       highlight: false,
       features: [
         'Everything in Pro tier',

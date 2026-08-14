@@ -1,6 +1,17 @@
 import { TerminalSnapshot } from './ScreenSnapshot';
 import { DiffResult } from './ScreenDiff';
 
+// Terminal output is stripped of escape sequences and control characters
+// before any textual match. Matching those characters is the whole purpose of
+// these patterns, which is why the rule is silenced here rather than the
+// patterns rewritten.
+// eslint-disable-next-line no-control-regex -- ESC (0x1B) is the character being matched
+const ANSI_ESCAPES = /\x1B(?:[@-Z\\-_]|\[[0-9?]*[ -/]*[@-~])/g;
+// eslint-disable-next-line no-control-regex -- ESC (0x1B) is the character being matched
+const ANSI_CSI_SEQUENCES = /\u001b\[[0-9;]*[a-zA-Z]/g;
+// eslint-disable-next-line no-control-regex -- the C0/C1 ranges are the characters being matched
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/g;
+
 export enum AgentState {
   Startup = 'Startup',
   Idle = 'Idle',
@@ -207,8 +218,8 @@ export class AntigravityFSM extends TerminalFSM {
 
     const lastNonEmpty = curr.lines.filter(l => l.trim().length > 0).pop() || '';
     const cleanLastLine = lastNonEmpty
-      .replace(/\x1B(?:[@-Z\\-_]|\[[0-9?]*[ -/]*[@-~])/g, '')
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(ANSI_ESCAPES, '')
+      .replace(CONTROL_CHARACTERS, '')
       .trim();
 
     const lastNonEmptyBottom = bottomLines
@@ -217,12 +228,12 @@ export class AntigravityFSM extends TerminalFSM {
       .pop() || '';
 
     const cleanLastBottom = lastNonEmptyBottom
-      .replace(/\x1B(?:[@-Z\\-_]|\[[0-9?]*[ -/]*[@-~])/g, '')
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(ANSI_ESCAPES, '')
+      .replace(CONTROL_CHARACTERS, '')
       .toLowerCase();
 
     const hasEscToCancel = cleanLastBottom.includes('esc to cancel');
-    let isPromptLine = false;
+    let isPromptLine: boolean;
 
     if (this.isTuiMode) {
       let promptIdx = -1;
@@ -231,8 +242,8 @@ export class AntigravityFSM extends TerminalFSM {
 
       for (let i = curr.lines.length - 1; i >= Math.max(0, curr.lines.length - 15); i--) {
         const clean = curr.lines[i]
-          .replace(/\x1B(?:[@-Z\\-_]|\[[0-9?]*[ -/]*[@-~])/g, '')
-          .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+          .replace(ANSI_ESCAPES, '')
+          .replace(CONTROL_CHARACTERS, '')
           .trim();
           
         if (clean === '') continue; // Skip empty lines between elements
@@ -410,8 +421,8 @@ export class AntigravityFSM extends TerminalFSM {
           .filter(l => l.trim().length > 0)
           .pop() || '';
         const cleanLastBottom = lastNonEmptyBottom
-          .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
-          .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+          .replace(ANSI_CSI_SEQUENCES, '')
+          .replace(CONTROL_CHARACTERS, '')
           .toLowerCase();
 
         if (cleanLastBottom.includes('esc to cancel')) {
@@ -483,7 +494,7 @@ export class AntigravityFSM extends TerminalFSM {
       if (/^\/[^\s]+\s+\+\d+\s+-\d+$/i.test(trimmed)) return false;
 
       // Filter Raw Unified Diff / Code Output Lines (e.g. "1 + <!DOCTYPE html>", "42 - const old = 1;", "10 | code")
-      if (/^\d+\s*[\+\-]\s*/.test(trimmed)) return false;
+      if (/^\d+\s*[+-]\s*/.test(trimmed)) return false;
       if (/^\d+\s*\|\s*/.test(trimmed)) return false;
 
       return true;
@@ -496,7 +507,7 @@ export class AntigravityFSM extends TerminalFSM {
       .replace(/[⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, '')
       .trim();
 
-    const hasMeaningfulText = /[a-zA-Z0-9_\{\}\[\]\(\)<>\$=#`\+\-\*\/]/.test(cleaned);
+    const hasMeaningfulText = /[a-zA-Z0-9_{}[\]()<>$=#`+\-*/]/.test(cleaned);
     if (!hasMeaningfulText) {
       return '';
     }
@@ -548,7 +559,7 @@ export class AntigravityFSM extends TerminalFSM {
 
       // Check for file path or command lines (e.g. "/home/qhukz/Documents/.../calculator/index.html")
       if (
-        (/^\/[^\s]+$/i.test(line) || /^[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+$/i.test(line)) &&
+        (/^\/[^\s]+$/i.test(line) || /^[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+$/i.test(line)) &&
         !command
       ) {
         command = line;
