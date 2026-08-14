@@ -1,6 +1,10 @@
 import { FastifyInstance, FastifyReply } from 'fastify';
 import { projectMemoryService, DECISION_STATUSES } from '../services/ProjectMemoryService';
-import type { DecisionStatus } from '@asterim/shared';
+import type { CandidateStatus, DecisionStatus } from '@asterim/shared';
+import { decisionExtractor } from '../services/memory/DecisionExtractor';
+
+/** Runtime companion to the CandidateStatus union. */
+const CANDIDATE_STATUSES: readonly CandidateStatus[] = ['PENDING', 'APPROVED', 'REJECTED'];
 
 /**
  * Translates a ProjectMemoryService error into an HTTP response.
@@ -162,6 +166,90 @@ export default async function memoryRoutes(fastify: FastifyInstance) {
         }
 
         return { decision: projectMemoryService.updateDecisionStatus(decisionId, status as DecisionStatus) };
+      } catch (err) {
+        return replyForServiceError(err, reply);
+      }
+    }
+  );
+
+  // --- Candidate decisions (DEC-027) ---
+
+  /**
+   * GET /api/v1/projects/:id/memory/candidates?status=PENDING
+   */
+  fastify.get('/api/v1/projects/:id/memory/candidates', async (request: any, reply) => {
+    const { id } = request.params;
+    const { status } = request.query || {};
+
+    if (status !== undefined && !CANDIDATE_STATUSES.includes(status)) {
+      reply.code(400);
+      return { error: `Invalid status '${status}'. Expected one of: ${CANDIDATE_STATUSES.join(', ')}` };
+    }
+
+    try {
+      return { candidates: projectMemoryService.listCandidates(id, status as CandidateStatus | undefined) };
+    } catch (err) {
+      return replyForServiceError(err, reply);
+    }
+  });
+
+  /**
+   * POST /api/v1/projects/:id/memory/candidates/extract
+   * Body: { threadId?, sessionId?, limit? }
+   *
+   * Reads the project's own transcript from SQLite and stages what it finds.
+   * Nothing leaves the machine and nothing reaches project_decisions (DEC-027,
+   * DEC-028 § 4).
+   */
+  fastify.post('/api/v1/projects/:id/memory/candidates/extract', async (request: any, reply) => {
+    const { id } = request.params;
+    const body = request.body || {};
+
+    try {
+      const proposals = decisionExtractor.extractForProject({
+        projectId: id,
+        threadId: typeof body.threadId === 'string' ? body.threadId : undefined,
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+        limit: typeof body.limit === 'number' ? body.limit : undefined
+      });
+
+      const candidates = proposals.map(proposal => projectMemoryService.createCandidate(proposal));
+      reply.code(201);
+      return { candidates, extracted: candidates.length };
+    } catch (err) {
+      return replyForServiceError(err, reply);
+    }
+  });
+
+  /**
+   * POST /api/v1/projects/:id/memory/candidates/:candidateId/approve
+   * Body: optional field overrides applied before the decision is recorded.
+   */
+  fastify.post(
+    '/api/v1/projects/:id/memory/candidates/:candidateId/approve',
+    async (request: any, reply) => {
+      const { id, candidateId } = request.params;
+      const overrides = request.body || {};
+
+      try {
+        const decision = projectMemoryService.approveCandidate(id, candidateId, overrides);
+        reply.code(201);
+        return { decision };
+      } catch (err) {
+        return replyForServiceError(err, reply);
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/projects/:id/memory/candidates/:candidateId/reject
+   */
+  fastify.post(
+    '/api/v1/projects/:id/memory/candidates/:candidateId/reject',
+    async (request: any, reply) => {
+      const { id, candidateId } = request.params;
+      try {
+        return { candidate: projectMemoryService.rejectCandidate(id, candidateId) };
       } catch (err) {
         return replyForServiceError(err, reply);
       }

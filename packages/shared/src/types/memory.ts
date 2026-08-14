@@ -242,3 +242,47 @@ export interface DecisionDriftInfo {
   /** The most severe drift found, or null when clean. */
   worst: DriftType | null;
 }
+
+// --- Staged decision candidates (DEC-027) ---
+//
+// Extraction never writes to `project_decisions`. It stages here, and only a
+// human's approval promotes a candidate into authoritative project memory — which
+// is what stops one session's guess becoming the next session's premise.
+
+/** Where a candidate sits in the review queue. */
+export type CandidateStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** A decision an extractor believes it found, awaiting human review. */
+export interface CandidateDecision {
+  id: string;
+  projectId: string;
+  /** The agent session it was extracted from, when known. */
+  sessionId?: string;
+  threadId?: string;
+  title: string;
+  summary: string;
+  rationale: string;
+  constraints: string[];
+  relatedFiles: string[];
+  codeRefs: CreateCodeRefRequest[];
+  /** How strongly the extractor believes this is a decision, 0–1. */
+  confidence: number;
+  status: CandidateStatus;
+  extractedAt: number;
+  /** Set when a human approved or rejected it. */
+  reviewedAt?: number;
+}
+
+/** Input for staging a candidate. */
+export interface CreateCandidateInput {
+  projectId: string;
+  sessionId?: string;
+  threadId?: string;
+  title: string;
+  summary: string;
+  rationale: string;
+  constraints?: string[];
+  relatedFiles?: string[];
+  codeRefs?: CreateCodeRefRequest[];
+  confidence?: number;
+}

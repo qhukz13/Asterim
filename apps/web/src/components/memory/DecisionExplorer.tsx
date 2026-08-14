@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type {
   ArchitecturalRule,
   ProjectBriefing,
+  CandidateDecision,
   DecisionDriftInfo,
   ProjectDecision,
   ProjectIntent,
@@ -13,6 +14,7 @@ import { MemoryTimelineView } from './MemoryTimelineView';
 import { ReentryBriefingCard } from './ReentryBriefingCard';
 import { DecisionActions } from './DecisionActions';
 import { DriftBadge } from './DriftBadge';
+import { CandidateReviewDrawer } from './CandidateReviewDrawer';
 import { CreateRuleModal, severityColor } from './CreateRuleModal';
 import { UpdateIntentModal } from './UpdateIntentModal';
 import { anchorLabels, provenanceLabel, buildLineage } from './decisionHelpers';
@@ -473,6 +475,8 @@ export interface DecisionExplorerViewProps extends DecisionExplorerProps {
   briefing: ProjectBriefing | null;
   /** Drift keyed by decision id; absent entries are clean. */
   drift?: Record<string, DecisionDriftInfo>;
+  /** Pending extraction candidates awaiting review (DEC-027). */
+  candidates?: CandidateDecision[];
   loading: boolean;
   error: string | null;
   /** Initial lens. Exposed so a render test can reach the timeline. */
@@ -499,6 +503,7 @@ export function DecisionExplorerView({
   activeIntent,
   briefing,
   drift = {},
+  candidates = [],
   loading,
   error,
   initialMode = 'explorer',
@@ -635,6 +640,8 @@ export function DecisionExplorerView({
         </>
       ) : (
         <>
+      <CandidateReviewDrawer projectId={projectId} candidates={candidates} />
+
       {activeIntent ? (
         <IntentCard
           goal={activeIntent.goal}
@@ -818,6 +825,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
   const activeIntent = useMemoryStore(s => s.activeIntent);
   const briefing = useMemoryStore(s => s.briefing);
   const drift = useMemoryStore(s => s.drift);
+  const candidates = useMemoryStore(s => s.candidates);
   const loading = useMemoryStore(s => s.loading);
   const error = useMemoryStore(s => s.error);
 
@@ -830,6 +838,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
     void store.fetchBriefing(projectId);
     void store.fetchDecisions(projectId);
     void store.fetchDrift(projectId);
+    void store.fetchCandidates(projectId);
   }, [projectId]);
 
   return (
@@ -840,6 +849,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
       activeIntent={activeIntent}
       briefing={briefing}
       drift={drift}
+      candidates={candidates}
       loading={loading}
       error={error}
     />

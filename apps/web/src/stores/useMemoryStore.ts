@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   ArchitecturalRule,
   AsterimEvent,
+  CandidateDecision,
   DecisionDriftInfo,
   CreateDecisionRequest,
   CreateIntentRequest,
@@ -36,6 +37,8 @@ interface MemoryState {
   activeIntent: ProjectIntent | null;
   /** Drift keyed by decision id. Computed server-side; empty until fetched. */
   drift: Record<string, DecisionDriftInfo>;
+  /** Staged candidates awaiting review (DEC-027). */
+  candidates: CandidateDecision[];
   loading: boolean;
   error: string | null;
 
@@ -44,6 +47,9 @@ interface MemoryState {
   fetchRules: (projectId: string) => Promise<void>;
   fetchIntent: (projectId: string) => Promise<void>;
   fetchDrift: (projectId: string) => Promise<void>;
+  fetchCandidates: (projectId: string) => Promise<void>;
+  approveCandidate: (projectId: string, candidateId: string) => Promise<ProjectDecision>;
+  rejectCandidate: (projectId: string, candidateId: string) => Promise<void>;
 
   createDecision: (projectId: string, data: CreateDecisionRequest) => Promise<ProjectDecision>;
   supersedeDecision: (
@@ -158,6 +164,9 @@ type MemoryData = Omit<
   | 'fetchRules'
   | 'fetchIntent'
   | 'fetchDrift'
+  | 'fetchCandidates'
+  | 'approveCandidate'
+  | 'rejectCandidate'
   | 'createDecision'
   | 'supersedeDecision'
   | 'updateDecisionStatus'
@@ -175,6 +184,7 @@ const empty = (): MemoryData => ({
   rules: [],
   activeIntent: null,
   drift: {},
+  candidates: [],
   loading: false,
   error: null
 });
@@ -254,6 +264,62 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       set({ projectId, drift });
     } catch (err) {
       set({ error: (err as Error).message });
+    }
+  },
+
+  /** Loads the review queue. Only PENDING candidates are actionable. */
+  fetchCandidates: async (projectId) => {
+    try {
+      const res = await fetch(memoryUrl(projectId, '/candidates?status=PENDING'), { headers: authHeaders() });
+      const { candidates } = await readJson<{ candidates: CandidateDecision[] }>(res, 'Loading candidates');
+      set({ projectId, candidates });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
+  },
+
+  /**
+   * Promotes a candidate into project memory.
+   *
+   * The created decision is upserted locally rather than waiting for the socket
+   * echo, so the queue and the list move together on the click. The candidate is
+   * dropped from `candidates` because the queue holds only what still needs a
+   * decision from the reviewer.
+   */
+  approveCandidate: async (projectId, candidateId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(
+        memoryUrl(projectId, `/candidates/${encodeURIComponent(candidateId)}/approve`),
+        { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) }
+      );
+      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Approving the candidate');
+      set(state => ({
+        loading: false,
+        candidates: state.candidates.filter(c => c.id !== candidateId),
+        decisions: upsertDecision(state.decisions, decision),
+        briefing: applyDecisionToBriefing(state.briefing, decision)
+      }));
+      return decision;
+    } catch (err) {
+      set({ loading: false, error: (err as Error).message });
+      throw err;
+    }
+  },
+
+  /** Discards a candidate. Writes nothing to project memory. */
+  rejectCandidate: async (projectId, candidateId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(
+        memoryUrl(projectId, `/candidates/${encodeURIComponent(candidateId)}/reject`),
+        { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) }
+      );
+      await readJson<{ candidate: CandidateDecision }>(res, 'Discarding the candidate');
+      set(state => ({ loading: false, candidates: state.candidates.filter(c => c.id !== candidateId) }));
+    } catch (err) {
+      set({ loading: false, error: (err as Error).message });
+      throw err;
     }
   },
 

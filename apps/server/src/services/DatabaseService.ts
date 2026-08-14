@@ -88,6 +88,29 @@ export class DatabaseService {
         payload_json TEXT NOT NULL,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
+      -- Staged decision candidates (DEC-027). Extraction writes here; only a
+      -- human's approval promotes a row into project_decisions.
+      CREATE TABLE IF NOT EXISTS candidate_decisions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        session_id TEXT,
+        thread_id TEXT,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        constraints_json TEXT NOT NULL DEFAULT '[]',
+        related_files_json TEXT NOT NULL DEFAULT '[]',
+        code_refs_json TEXT NOT NULL DEFAULT '[]',
+        confidence REAL NOT NULL DEFAULT 0.5,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        extracted_at INTEGER NOT NULL,
+        reviewed_at INTEGER,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_candidate_decisions_project
+        ON candidate_decisions(project_id, status);
+      CREATE INDEX IF NOT EXISTS idx_candidate_decisions_status
+        ON candidate_decisions(status);
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL

@@ -19,7 +19,11 @@ import type {
   MemoryDecisionUpdatedPayload,
   MemoryIntentUpdatedPayload,
   MemoryRuleCreatedPayload,
-  DecisionDriftInfo
+  DecisionDriftInfo,
+  CandidateDecision,
+  CandidateStatus,
+  CreateCandidateInput,
+  CreateCodeRefRequest
 } from '@asterim/shared';
 
 /** Row shape returned from the project_decisions table. */
@@ -88,6 +92,24 @@ interface ApprovalRow {
   command: string;
   status: string;
   createdAt: number;
+}
+
+/** Row shape returned from the candidate_decisions table. */
+interface CandidateRow {
+  id: string;
+  project_id: string;
+  session_id: string | null;
+  thread_id: string | null;
+  title: string;
+  summary: string;
+  rationale: string;
+  constraints_json: string;
+  related_files_json: string;
+  code_refs_json: string;
+  confidence: number;
+  status: string;
+  extracted_at: number;
+  reviewed_at: number | null;
 }
 
 /** A code anchor supplied when recording a decision. */
@@ -526,6 +548,161 @@ export class ProjectMemoryService {
     return gitDriftDetector.detectAll(project.path, this.listDecisions(projectId, { status: 'ACTIVE' }));
   }
 
+  // --- Candidate decisions (DEC-027) ---
+
+  /** Row shape returned from candidate_decisions. */
+  private mapCandidate(row: CandidateRow): CandidateDecision {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      sessionId: row.session_id ?? undefined,
+      threadId: row.thread_id ?? undefined,
+      title: row.title,
+      summary: row.summary,
+      rationale: row.rationale,
+      constraints: parseJsonArray<string>(row.constraints_json),
+      relatedFiles: parseJsonArray<string>(row.related_files_json),
+      codeRefs: parseJsonArray<CreateCodeRefRequest>(row.code_refs_json),
+      confidence: row.confidence,
+      status: row.status as CandidateStatus,
+      extractedAt: row.extracted_at,
+      reviewedAt: row.reviewed_at ?? undefined
+    };
+  }
+
+  /** Stages a candidate for human review. Never touches project_decisions. */
+  public createCandidate(input: CreateCandidateInput): CandidateDecision {
+    const db = dbService.getDb();
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO candidate_decisions
+         (id, project_id, session_id, thread_id, title, summary, rationale,
+          constraints_json, related_files_json, code_refs_json, confidence, status, extracted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)`
+    ).run(
+      id,
+      requireText(input.projectId, 'projectId'),
+      input.sessionId ?? null,
+      input.threadId ?? null,
+      requireText(input.title, 'title'),
+      requireText(input.summary, 'summary'),
+      requireText(input.rationale, 'rationale'),
+      JSON.stringify(normalizeStringArray(input.constraints)),
+      JSON.stringify(normalizeStringArray(input.relatedFiles)),
+      JSON.stringify(input.codeRefs ?? []),
+      clampConfidence(input.confidence),
+      Date.now()
+    );
+
+    const created = this.getCandidate(id);
+    if (!created) {
+      throw new Error(`[ProjectMemoryService] Candidate ${id} could not be read back after insert`);
+    }
+    return created;
+  }
+
+  public getCandidate(id: string): CandidateDecision | null {
+    const db = dbService.getDb();
+    const row = db.prepare('SELECT * FROM candidate_decisions WHERE id = ?').get(id) as
+      | CandidateRow
+      | undefined;
+    return row ? this.mapCandidate(row) : null;
+  }
+
+  /** A project's candidates, newest first, optionally filtered by status. */
+  public listCandidates(projectId: string, status?: CandidateStatus): CandidateDecision[] {
+    const db = dbService.getDb();
+    const rows = status
+      ? (db
+          .prepare(
+            'SELECT * FROM candidate_decisions WHERE project_id = ? AND status = ? ORDER BY extracted_at DESC, id DESC'
+          )
+          .all(projectId, status) as unknown as CandidateRow[])
+      : (db
+          .prepare(
+            'SELECT * FROM candidate_decisions WHERE project_id = ? ORDER BY extracted_at DESC, id DESC'
+          )
+          .all(projectId) as unknown as CandidateRow[]);
+    return rows.map(row => this.mapCandidate(row));
+  }
+
+  /**
+   * Promotes a candidate into project memory.
+   *
+   * This is the only path from `candidate_decisions` to `project_decisions`, and
+   * it exists solely to be called by a human's approval (DEC-027). The result is
+   * recorded HUMAN_CONFIRMED at confidence 1.0 regardless of what the extractor
+   * guessed: a person read it and said yes, and that is a stronger claim than any
+   * heuristic score it arrived with.
+   *
+   * Throws if the candidate belongs to another project or is not PENDING.
+   */
+  public approveCandidate(
+    projectId: string,
+    candidateId: string,
+    overrides?: Partial<CreateDecisionInput>
+  ): ProjectDecision {
+    const candidate = this.getCandidate(candidateId);
+    if (!candidate) {
+      throw new Error(`[ProjectMemoryService] Candidate ${candidateId} not found`);
+    }
+    if (candidate.projectId !== projectId) {
+      throw new Error(
+        `[ProjectMemoryService] Candidate ${candidateId} does not belong to project ${projectId}`
+      );
+    }
+    if (candidate.status !== 'PENDING') {
+      throw new Error(
+        `[ProjectMemoryService] Candidate ${candidateId} has already been reviewed (${candidate.status})`
+      );
+    }
+
+    const decision = this.createDecision({
+      projectId,
+      title: overrides?.title ?? candidate.title,
+      summary: overrides?.summary ?? candidate.summary,
+      rationale: overrides?.rationale ?? candidate.rationale,
+      constraints: overrides?.constraints ?? candidate.constraints,
+      relatedFiles: overrides?.relatedFiles ?? candidate.relatedFiles,
+      codeRefs: overrides?.codeRefs ?? candidate.codeRefs,
+      status: 'ACTIVE',
+      provenance: 'HUMAN_CONFIRMED',
+      confidence: 1.0
+    });
+
+    dbService
+      .getDb()
+      .prepare("UPDATE candidate_decisions SET status = 'APPROVED', reviewed_at = ? WHERE id = ?")
+      .run(Date.now(), candidateId);
+
+    return decision;
+  }
+
+  /** Marks a candidate rejected. Writes nothing to project_decisions. */
+  public rejectCandidate(projectId: string, candidateId: string): CandidateDecision {
+    const candidate = this.getCandidate(candidateId);
+    if (!candidate) {
+      throw new Error(`[ProjectMemoryService] Candidate ${candidateId} not found`);
+    }
+    if (candidate.projectId !== projectId) {
+      throw new Error(
+        `[ProjectMemoryService] Candidate ${candidateId} does not belong to project ${projectId}`
+      );
+    }
+
+    dbService
+      .getDb()
+      .prepare("UPDATE candidate_decisions SET status = 'REJECTED', reviewed_at = ? WHERE id = ?")
+      .run(Date.now(), candidateId);
+
+    const updated = this.getCandidate(candidateId);
+    if (!updated) {
+      throw new Error(`[ProjectMemoryService] Candidate ${candidateId} could not be read back`);
+    }
+    return updated;
+  }
+
   // --- Briefing ---
 
   /**
@@ -858,6 +1035,21 @@ function mapRule(row: ArchitecturalRuleRow): ArchitecturalRule {
 }
 
 /** Parses a JSON string array column, tolerating corrupt or unexpected content. */
+/**
+ * Parses a JSON array column, returning [] for anything unusable.
+ *
+ * A malformed column should read as "no entries" rather than take down the query
+ * that touched it — the alternative is one bad row making a project unreadable.
+ */
+function parseJsonArray<T>(json: string): T[] {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseStringArray(json: string): string[] {
   try {
     const parsed = JSON.parse(json);
