@@ -96,7 +96,7 @@ function CandidateCard({ projectId, candidate }: { projectId: string; candidate:
 
       {candidate.constraints.length > 0 && (
         <ul style={{ margin: 'var(--spacing-2) 0 0', paddingLeft: 'var(--spacing-4)' }}>
-          {candidate.constraints.map((constraint, i) => (
+          {candidate.constraints.map((constraint: string, i: number) => (
             <li key={i} style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
               {constraint}
             </li>
@@ -106,7 +106,7 @@ function CandidateCard({ projectId, candidate }: { projectId: string; candidate:
 
       {candidate.relatedFiles.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 'var(--spacing-2)' }}>
-          {candidate.relatedFiles.map(file => (
+          {candidate.relatedFiles.map((file: string) => (
             <span
               key={file}
               style={{

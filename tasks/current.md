@@ -1,6 +1,6 @@
-# [P5.4-03] — Decision Extraction Queue & Candidate Review UI
+# [P5.4-04] — Relevance Ranking, Scoped Briefings & Noise Reduction
 
-**Task ID:** P5.4-03  
+**Task ID:** P5.4-04  
 **Phase:** Phase 5.4 — Intelligent Memory & Continuous Governance  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,101 +11,97 @@
 
 ## 1. Objective
 
-Implement the staged decision extraction pipeline and Candidate Review UI (`candidate_decisions` table, local transcript extraction service, approval/rejection REST lifecycle, and Candidate Review Drawer in Decision Explorer), enforcing human confirmation before candidate decisions become authoritative project memory.
+Implement local, deterministic relevance ranking and bounded context windowing for project briefings (`MemoryRelevanceEngine`), update `ProjectMemoryService` and MCP tool endpoints to support scoped retrieval by active files/tasks, and add search/drift filters to the Decision Explorer UI.
 
 ---
 
 ## 2. Why This Task Exists
 
-During active coding sessions, agents frequently make architectural commitments, enforce patterns, and establish project rules. However, allowing autonomous, unconfirmed LLM writes directly into `project_decisions` risks memory pollution and hallucination compounding across sessions.
+As a project develops, tens or hundreds of decisions, rules, and code references are recorded in Project Memory. Dumping the entire unranked memory store into every agent prompt wastes context window tokens and injects irrelevant details.
 
-Under **DEC-027** and **DEC-028**, Asterim resolves this by staging detected decisions into a dedicated `candidate_decisions` queue that requires explicit human review and approval before becoming permanent memory.
+Under **DEC-028** (Local-First Data Sovereignty), Asterim solves this without external vector databases or remote embedding APIs by using a deterministic, fast scoring engine that ranks decisions based on touched file paths, symbol anchors, task keywords, provenance, and drift penalties.
 
 ---
 
 ## 3. Context
 
-* **DEC-027**: Staged Decision Candidate Queue. Extraction must write to `candidate_decisions` (`status: 'PENDING'`), and only human approval transitions records to `project_decisions` with `provenance: 'HUMAN_CONFIRMED'`.
-* **DEC-028**: Data Sovereignty. Extraction must operate locally and respect `isSovereignMode()`.
-* **DEC-024**: Provenance and confidence model.
+* **DEC-028**: Local-First Data Sovereignty. Relevance ranking must execute 100% locally in-process with zero remote embedding API calls or external vector dependencies.
+* **DEC-024**: Decision Provenance. Human-confirmed decisions (`HUMAN_CONFIRMED`) carry higher baseline weight than agent statements.
+* **DEC-027**: Non-Destructive Git Drift. Drifted decisions receive appropriate annotations and mild ranking penalties if anchors are missing.
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/server/src/services/ProjectMemoryService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectMemoryService.ts)
-* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`apps/server/src/services/ProjectMemoryService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectMemoryService.ts) (`getProjectBriefing`, `queryDecisions`)
+* [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts) (`get_project_briefing`, `query_decisions`)
+* [`packages/shared/src/types/memory.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/memory.ts) (`ProjectBriefing`, `QueryDecisionsInput`)
 * [`apps/server/src/routes/memory.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/memory.ts)
-* [`apps/server/src/services/SovereignMode.ts`](file:///c:/Projects/Asterim/apps/server/src/services/SovereignMode.ts)
-* [`apps/server/src/services/git/GitDriftDetector.ts`](file:///c:/Projects/Asterim/apps/server/src/services/git/GitDriftDetector.ts) (re-use path/hash validation)
 * [`apps/web/src/components/memory/DecisionExplorer.tsx`](file:///c:/Projects/Asterim/apps/web/src/components/memory/DecisionExplorer.tsx)
 * [`apps/web/src/stores/useMemoryStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useMemoryStore.ts)
-* [`packages/shared/src/types/memory.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/memory.ts)
 
 ---
 
 ## 5. Implementation Scope
 
 1. **Shared Types (`packages/shared/src/types/memory.ts`)**:
-   - Define `CandidateDecision`:
-     - `id: string`
-     - `projectId: string`
-     - `sessionId?: string`
-     - `threadId?: string`
-     - `title: string`
-     - `summary: string`
-     - `rationale: string`
-     - `constraints: string[]`
-     - `relatedFiles: string[]`
-     - `codeRefs: CreateCodeRefInput[]`
-     - `confidence: number`
-     - `status: 'PENDING' | 'APPROVED' | 'REJECTED'`
-     - `extractedAt: number`
-     - `reviewedAt?: number`
-2. **Database Schema (`apps/server/src/services/DatabaseService.ts`)**:
-   - Add `candidate_decisions` table with appropriate indexes (`project_id`, `status`).
-3. **Extraction Service (`apps/server/src/services/memory/DecisionExtractor.ts`)**:
-   - Implements local transcript analysis to detect decision statements from session logs.
-   - Extracts candidate fields, runs path safety checks (`resolveInsideProject`, `isSafeCommitHash`) on proposed code references, and stages rows in `candidate_decisions`.
-4. **ProjectMemoryService & REST Routes**:
+   - Update `ProjectBriefingOptions` / `QueryDecisionsInput`:
+     - `taskDescription?: string`
+     - `touchPaths?: string[]`
+     - `limit?: number`
+     - `drift?: boolean`
+   - Add `relevanceScore?: number` to `ProjectDecision` output when queried.
+2. **`MemoryRelevanceEngine` (`apps/server/src/services/memory/MemoryRelevanceEngine.ts`)**:
+   - Implements deterministic relevance scoring:
+     - **Provenance Base**: `HUMAN_CONFIRMED` (1.0), `REPOSITORY_EVIDENCE` (0.85), `AGENT_STATEMENT` (0.7), `INFERRED` (0.5).
+     - **File Anchor Intersection**: If decision's `relatedFiles` or `codeRefs.filePath` match any path in `touchPaths` (exact match or parent folder match), apply a significant boost (+0.5).
+     - **Task / Query Lexical Overlap**: Matches keywords across `title`, `summary`, `rationale`, and `constraints` (+0.1 to +0.4).
+     - **Drift Penalty**: If decision has active drift `FILE_DELETED` or `SYMBOL_NOT_FOUND`, deduct -0.15.
+   - `rankDecisions(decisions: ProjectDecision[], options: ScoredBriefingOptions): ProjectDecision[]`
+   - `buildScopedBriefing(projectId: string, options?: BriefingOptions): ProjectBriefing`:
+     - **Mandatory**: All active `architecturalRules` and `currentIntent` are ALWAYS included (never dropped).
+     - **Ranked**: Active decisions sorted by score and capped at `options.limit` (default 15).
+3. **ProjectMemoryService & REST Endpoints**:
    - In `ProjectMemoryService.ts`:
-     - `listCandidates(projectId: string, status?: string): CandidateDecision[]`
-     - `createCandidate(input: CreateCandidateInput): CandidateDecision`
-     - `approveCandidate(projectId: string, candidateId: string, overrides?: Partial<CreateDecisionInput>): ProjectDecision`
-     - `rejectCandidate(projectId: string, candidateId: string): void`
+     - Update `getProjectBriefing` and `queryDecisions` to delegate to `MemoryRelevanceEngine`.
    - In `apps/server/src/routes/memory.ts`:
-     - `GET /api/v1/projects/:id/memory/candidates`
-     - `POST /api/v1/projects/:id/memory/candidates/extract` (trigger extraction for thread/session)
-     - `POST /api/v1/projects/:id/memory/candidates/:candidateId/approve`
-     - `POST /api/v1/projects/:id/memory/candidates/:candidateId/reject`
-5. **Web UI (`apps/web/src/components/memory/`)**:
-   - Add candidate review drawer/banner to `DecisionExplorer.tsx`.
-   - Displays pending candidate cards with badge count, title, rationale, constraints, and anchors.
-   - Provide "Approve" (with optional edit) and "Discard" actions.
-   - Wire actions to `useMemoryStore.ts` (`fetchCandidates`, `approveCandidate`, `rejectCandidate`).
+     - Support query parameters on `GET /api/v1/projects/:id/memory/briefing`:
+       - `?task=...&files=src/auth.ts,src/db.ts&limit=10&drift=true`
+4. **MCP Memory Server (`packages/mcp-memory-server/src/index.ts`)**:
+   - Update `get_project_briefing` tool schema to accept:
+     - `taskDescription` (optional string): Current objective or task description.
+     - `touchPaths` (optional array of strings): File paths the agent is reading or modifying.
+     - `limit` (optional number): Maximum decisions to return (default 15).
+   - Update `query_decisions` tool to accept `touchPaths` and `limit`.
+5. **Decision Explorer UI (`apps/web/src/components/memory/DecisionExplorer.tsx`)**:
+   - Add search and filter controls:
+     - Search input field filtering by title, summary, constraint, and anchor file name.
+     - Status filter buttons (`ALL`, `ACTIVE`, `STALE`, `SUPERSEDED`, `ARCHIVED`).
+     - Drift filter toggle (`All` / `Drifted Only`).
 6. **Automated Verification**:
-   - Service tests in `apps/server/src/services/memory/__tests__/DecisionExtractor.test.ts`.
-   - Route tests in `apps/server/src/routes/__tests__/memory-candidates.test.ts`.
-   - Web component tests in `apps/web/src/components/memory/__tests__/CandidateReview.test.ts`.
+   - Unit tests in `apps/server/src/services/memory/__tests__/MemoryRelevanceEngine.test.ts`.
+   - Route tests in `apps/server/src/routes/__tests__/memory.test.ts`.
+   - MCP tests in `packages/mcp-memory-server/src/__tests__/`.
+   - Component filter tests in `apps/web/src/components/memory/__tests__/DecisionExplorer.test.ts`.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** automatically write unconfirmed candidates into `project_decisions` without human approval.
-* Do **NOT** send transcripts or session logs to external cloud APIs when `isSovereignMode()` is `true`.
-* Do **NOT** delete active human-confirmed decisions when rejecting candidates.
+* Do **NOT** add external vector databases (Pinecone, Chroma, etc.) or remote embedding API calls.
+* Do **NOT** exclude active `architecturalRules` or `currentIntent` from briefings — rules are mandatory governance invariants.
+* Do **NOT** alter the underlying SQLite table schemas for decisions or rules.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. Session transcript extraction creates records in `candidate_decisions` with `status: 'PENDING'`.
-2. Candidate code references pass path safety checks (no path traversal or unsafe characters).
-3. `POST /api/v1/projects/:id/memory/candidates/:candidateId/approve` creates an active `project_decisions` record with `provenance: 'HUMAN_CONFIRMED'`, `confidence: 1.0`, updates candidate `status: 'APPROVED'`, and emits `memory.decision_created`.
-4. `POST /api/v1/projects/:id/memory/candidates/:candidateId/reject` updates candidate `status: 'REJECTED'` with zero modifications to `project_decisions`.
-5. Decision Explorer displays pending candidate counter and review drawer with 1-click Approve / Discard controls.
+1. `MemoryRelevanceEngine` scores decisions deterministically using file path overlap, lexical matching, provenance weight, and drift status.
+2. Decisions referencing files in `touchPaths` rank higher than unrelated decisions.
+3. `getProjectBriefing` caps returned decisions at the specified `limit` while preserving all active architectural rules and intent.
+4. MCP tool `get_project_briefing` accepts `taskDescription` and `touchPaths` and returns the relevance-scoped briefing.
+5. Decision Explorer UI provides interactive text search, status filtering, and drift filtering.
 6. All test suites pass cleanly, `tsc --noEmit` reports 0 errors, and `pnpm run build` succeeds across monorepo.
 
 ---
@@ -123,9 +119,10 @@ Inspect:
 ## 9. Verification Commands
 
 ```bash
-pnpm --filter asterim exec tsx src/services/memory/__tests__/DecisionExtractor.test.ts
-pnpm --filter asterim exec tsx src/routes/__tests__/memory-candidates.test.ts
-pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/CandidateReview.test.ts
+pnpm --filter asterim exec tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts
+pnpm --filter asterim exec tsx src/routes/__tests__/memory.test.ts
+pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/record_decision.test.ts
+pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/DecisionExplorer.test.ts
 pnpm --filter asterim exec tsc --noEmit
 pnpm --filter @asterim/web exec tsc --noEmit
 pnpm run build

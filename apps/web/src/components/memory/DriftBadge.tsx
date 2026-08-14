@@ -20,7 +20,7 @@ export const DRIFT_LABELS: Record<DriftType, string> = {
 export function DriftBadge({ drift }: { drift?: DecisionDriftInfo }) {
   if (!drift?.drifted || !drift.worst) return null;
 
-  const detail = drift.refs.map(ref => ref.detail).join('\n');
+  const detail = drift.refs.map((ref: { detail: string }) => ref.detail).join('\n');
 
   return (
     <div
