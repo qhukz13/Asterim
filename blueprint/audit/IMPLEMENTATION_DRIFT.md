@@ -80,3 +80,18 @@ Areas where the codebase has drifted from the ideal Product Specification.
 - **Expected Behavior**: `ARCHITECTURE.md` describes the Core as "the only privileged process" owning SQLite. That is no longer literally true, and the specification has not caught up.
 - **Impact**: Measured on 2026-08-13. WAL keeps readers clear, so `get_project_briefing` and `query_decisions` are unaffected by a concurrent Core write. Writers still serialize, and SQLite's default busy timeout is zero — before Phase 5.1, `record_decision` failed within ~1 ms with `database is locked` whenever the Core held the write lock, losing the decision. `PRAGMA busy_timeout = 5000` (added in P5.1-07) makes the writer wait instead: measured across processes, a lock held 800 ms resolved in 846 ms and one held 2500 ms in 2544 ms, while a 6000 ms hold still failed, bounded at 5023 ms. Startup is unaffected — `CREATE TABLE IF NOT EXISTS` takes no write lock when the tables already exist.
 - **Recommended Action**: Update `ARCHITECTURE.md` to describe SQLite as a shared local store with the Core as its primary writer, and state the concurrency contract (WAL, bounded busy timeout, in-band failure on timeout) rather than leaving it as an implementation detail. If sustained multi-writer load ever becomes normal, route agent writes through the Core over IPC instead of widening the timeout.
+
+## 11. Plaintext API Key & VAPID Key Storage in SQLite
+
+- **Current Implementation**: `ai_api_key` and `vapid_keys` are stored in plaintext in the `settings` table of `~/.asterim/asterim.db`.
+- **Expected Behavior**: Sensitive credentials and API keys stored at rest should be encrypted using machine-derived keys or OS Keychain primitives (e.g. `keytar` / DPAPI / libsecret).
+- **Impact**: Any process or user with read access to `asterim.db` can read configured LLM provider API keys.
+- **Recommended Action**: Introduce an encryption layer for `settings` table values storing secrets, or leverage OS keychain in enterprise/cloud tiers.
+
+## 12. Pairing PIN Route Lacks Rate Limiting
+
+- **Current Implementation**: `POST /api/v1/auth/pair` validates a 6-digit numeric PIN with no rate limiting or lockout.
+- **Expected Behavior**: Device pairing endpoints should enforce exponential backoff or 5-attempt rate limits to prevent local network brute forcing.
+- **Impact**: Attacker on same LAN could brute-force 1,000,000 combinations if Core binds `0.0.0.0` or `::`.
+- **Recommended Action**: Add rate limiting middleware to `/api/v1/auth/pair` locking the endpoint for 60 seconds after 5 failed attempts.
+

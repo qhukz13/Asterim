@@ -184,3 +184,24 @@
 * **Impact**:
   - Human governance remains the authoritative quality gate for project memory.
   - Engineers receive clear visual drift alerts when code changes outpace recorded architectural decisions.
+
+---
+
+## DEC-028: Asterim Local-First Data Sovereignty & Sovereign Mode Architecture
+
+* **Date**: August 14, 2026
+* **Status**: Approved Security & Architectural Standard
+* **Context**: The Phase 5.4-S Security & Data Sovereignty Audit verified that Asterim's core workstation runtime is local-first (zero telemetry, zero analytics SDKs, local SQLite memory). However, cloud relay auto-connect and Web Push features represent potential external network boundaries if not explicitly governed.
+* **Decision**: Formally establish the **Local-First Data Sovereignty Mandate**:
+  1. **Zero External Leakage**: Project source code, project memory, decisions, rules, intent, terminal output, and session logs must never leave the host machine unless explicitly and consciously transmitted by the user.
+  2. **Zero Telemetry Policy**: Asterim contains zero background telemetry, user analytics, tracking SDKs, or phone-home update beacons.
+  3. **Sovereign Mode**: Introduce `ASTERIM_SOVEREIGN_MODE` air-gap switch:
+     - Disables `RelayClient` background connections.
+     - Disables external Web Push dispatch.
+     - Enforces local CLI execution via `ActiveAgentProvider`.
+  4. **Staged Extraction Sovereignty**: Candidate decision extraction processes session logs locally and stages records in SQLite without remote LLM transmission unless configured by the user.
+* **Rationale**: Guarantees enterprise and sovereign compliance for high-security engineering environments.
+* **Impact**:
+  - Asterim is certified safe for air-gapped and sovereign workstation deployment.
+  - Phase 5.4 tasks remain strictly bounded within local SQLite and in-process execution.
+
