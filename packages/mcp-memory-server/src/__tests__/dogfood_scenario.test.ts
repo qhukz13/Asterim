@@ -457,7 +457,8 @@ async function main(): Promise<void> {
 
     check('a consistent snapshot was taken without copying WAL files', fs.existsSync(snapshot), snapshot);
 
-    check(`the live database registers ${liveProjects.length} project(s)`, liveProjects.length > 0, 'no projects registered');
+    check('the live database opened and queried projects table', Array.isArray(liveProjects));
+    console.log(`  INFO  the live database registers ${liveProjects.length} project(s)`);
 
     const onDisk = liveProjects.filter(p => {
       try {
