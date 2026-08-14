@@ -121,6 +121,7 @@ import sessionRoutes from './routes/sessions';
 import deviceRoutes from './routes/devices';
 import apiKeyRoutes from './routes/apikeys';
 import webhookRoutes from './routes/webhooks';
+import billingRoutes from './routes/billing';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
@@ -141,6 +142,8 @@ const start = async () => {
     await fastify.register(apiKeyRoutes);
     console.log('[DEBUG] Registering webhookRoutes');
     await fastify.register(webhookRoutes);
+    console.log('[DEBUG] Registering billingRoutes');
+    await fastify.register(billingRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');

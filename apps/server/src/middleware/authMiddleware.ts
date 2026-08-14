@@ -26,6 +26,14 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       return;
     }
 
+    // Stripe calls the webhook endpoint; there is no user session behind it.
+    // It authenticates itself with an HMAC signature over the raw body
+    // (STRIPE_WEBHOOK_SECRET), checked in the route. Without this exemption the
+    // endpoint would 401 every delivery whenever NODE_ENV=production.
+    if (request.url.startsWith('/api/v1/webhooks/')) {
+      return;
+    }
+
     // Loopback-only internal endpoints carry their own credential (the ephemeral
     // token in server.json) and are checked for a loopback source address in the
     // route itself. They are exempt here because the caller is another Asterim
