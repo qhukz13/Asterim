@@ -20,6 +20,7 @@ This repository uses a human-controlled Antigravity (Orchestrator) ↔ Claude Co
 3. **Execution Report**: Write the task execution result directly to `reports/current.md` (overwriting for each new task).
 4. **No Random Docs**: Do not create arbitrary new report files in `docs/`. Existing `docs/` files are historical milestone records.
 5. **Status Labels**: Reports must clearly distinguish `IMPLEMENTED`, `VERIFIED`, `BLOCKED`, `NOT IMPLEMENTED`. "Implemented" is not the same as "Verified".
+Before reporting a task as complete, independently review the git diff against every acceptance criterion. If you find an issue, fix it before writing the final report.
 
 ## Commands
 
