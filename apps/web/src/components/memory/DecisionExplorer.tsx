@@ -28,12 +28,27 @@ import { IconFileCode, IconPlus, IconSearch, IconShield, IconTarget, IconUser, I
 export const STATUS_FILTERS = ['all', 'ACTIVE', 'SUPERSEDED', 'ARCHIVED', 'STALE'] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 
+/** Whether the list is showing everything or only decisions whose anchors moved. */
+export const DRIFT_FILTERS = ['all', 'drifted'] as const;
+export type DriftFilter = (typeof DRIFT_FILTERS)[number];
+
 export interface DecisionFilters {
-  /** Free text, matched against title, summary, rationale and constraints. */
+  /** Free text, matched against title, summary, rationale, constraints and anchor paths. */
   query?: string;
   status?: StatusFilter;
   /** Substring match against related files and code-ref paths. */
   filePath?: string;
+  /** `drifted` keeps only decisions with an entry in `drift` marked drifted. */
+  driftFilter?: DriftFilter;
+  /** Drift keyed by decision id. Required for `driftFilter` to mean anything. */
+  drift?: Record<string, DecisionDriftInfo>;
+}
+
+/** Every anchor path on a decision, lowercased for comparison. */
+function anchorPaths(decision: ProjectDecision): string[] {
+  return [...(decision.relatedFiles ?? []), ...(decision.codeRefs ?? []).map(ref => ref.filePath ?? '')]
+    .filter(Boolean)
+    .map(p => p.toLowerCase());
 }
 
 /**
@@ -47,16 +62,26 @@ export function filterDecisions(decisions: ProjectDecision[], filters: DecisionF
   const query = filters.query?.trim().toLowerCase() ?? '';
   const filePath = filters.filePath?.trim().toLowerCase() ?? '';
   const status = filters.status ?? 'all';
+  const driftFilter = filters.driftFilter ?? 'all';
+  const drift = filters.drift ?? {};
 
   return decisions.filter(decision => {
     if (status !== 'all' && decision.status !== status) return false;
 
+    // Absent means clean: the detector only records an entry for a decision whose
+    // anchors it actually found something wrong with.
+    if (driftFilter === 'drifted' && !drift[decision.id]?.drifted) return false;
+
     if (query) {
+      // Anchor paths are part of the haystack because "where was this decided
+      // about?" is the same question as "what was decided?" when you are looking
+      // at a file. The dedicated path field is the narrower version of this.
       const haystack = [
         decision.title,
         decision.summary,
         decision.rationale,
-        ...(decision.constraints ?? [])
+        ...(decision.constraints ?? []),
+        ...anchorPaths(decision)
       ]
         .join('\n')
         .toLowerCase();
@@ -64,12 +89,7 @@ export function filterDecisions(decisions: ProjectDecision[], filters: DecisionF
     }
 
     if (filePath) {
-      const paths = [
-        ...(decision.relatedFiles ?? []),
-        ...(decision.codeRefs ?? []).map(ref => ref.filePath ?? '')
-      ]
-        .filter(Boolean)
-        .map(p => p.toLowerCase());
+      const paths = anchorPaths(decision);
       if (!paths.some(p => p.includes(filePath))) return false;
     }
 
@@ -117,6 +137,22 @@ const labelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.06em'
 };
+
+/** A filter-bar pill. Shared so the status and drift groups read as one control set. */
+function pillStyle(selected: boolean): React.CSSProperties {
+  return {
+    height: 'var(--control-height-sm)',
+    padding: '0 var(--spacing-3)',
+    background: selected ? 'var(--color-surface-3)' : 'transparent',
+    border: `1px solid ${selected ? 'var(--color-border-strong)' : 'var(--color-border-subtle)'}`,
+    borderRadius: 'var(--radius-full)',
+    color: selected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 'var(--font-weight-medium)' as any,
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)'
+  };
+}
 
 // --- Sub-components ---
 
@@ -483,6 +519,8 @@ export interface DecisionExplorerViewProps extends DecisionExplorerProps {
   initialMode?: MemoryMode;
   /** Initial status pill. Exposed so a render test can reach a filtered view. */
   initialStatusFilter?: StatusFilter;
+  /** Initial drift pill. Exposed so a render test can reach the drifted-only view. */
+  initialDriftFilter?: DriftFilter;
 }
 
 /**
@@ -507,26 +545,34 @@ export function DecisionExplorerView({
   loading,
   error,
   initialMode = 'explorer',
-  initialStatusFilter = 'all'
+  initialStatusFilter = 'all',
+  initialDriftFilter = 'all'
 }: DecisionExplorerViewProps) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<StatusFilter>(initialStatusFilter);
   const [filePath, setFilePath] = useState('');
+  const [driftFilter, setDriftFilter] = useState<DriftFilter>(initialDriftFilter);
   const [recording, setRecording] = useState(false);
   const [editingIntent, setEditingIntent] = useState(false);
   const [addingRule, setAddingRule] = useState(false);
   const [mode, setMode] = useState<MemoryMode>(initialMode);
 
   const visible = useMemo(
-    () => filterDecisions(decisions, { query, status, filePath }),
-    [decisions, query, status, filePath]
+    () => filterDecisions(decisions, { query, status, filePath, driftFilter, drift }),
+    [decisions, query, status, filePath, driftFilter, drift]
+  );
+
+  const driftedCount = useMemo(
+    () => decisions.filter(d => drift[d.id]?.drifted).length,
+    [decisions, drift]
   );
 
   // Built from the full list, not the filtered one: a decision's counterpart may
   // be filtered out of view while still being the thing its link should name.
   const lineage = useMemo(() => buildLineage(decisions), [decisions]);
 
-  const filtersActive = query.trim() !== '' || filePath.trim() !== '' || status !== 'all';
+  const filtersActive =
+    query.trim() !== '' || filePath.trim() !== '' || status !== 'all' || driftFilter !== 'all';
 
   if (!projectId) {
     return (
@@ -710,7 +756,7 @@ export function DecisionExplorerView({
           }}
         />
 
-        <div style={{ display: 'flex', gap: '4px' }}>
+        <div role="group" aria-label="Filter by status" style={{ display: 'flex', gap: '4px' }}>
           {STATUS_FILTERS.map(value => {
             const selected = status === value;
             return (
@@ -719,20 +765,37 @@ export function DecisionExplorerView({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => setStatus(value)}
-                style={{
-                  height: 'var(--control-height-sm)',
-                  padding: '0 var(--spacing-3)',
-                  background: selected ? 'var(--color-surface-3)' : 'transparent',
-                  border: `1px solid ${selected ? 'var(--color-border-strong)' : 'var(--color-border-subtle)'}`,
-                  borderRadius: 'var(--radius-full)',
-                  color: selected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 'var(--font-weight-medium)' as any,
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)'
-                }}
+                style={pillStyle(selected)}
               >
                 {value === 'all' ? 'All' : value}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Drift is a separate axis from status: a decision can be ACTIVE and still
+            have lost the file it was about. Kept as its own group, divided from the
+            status pills so the two "All" buttons are not read as one row. */}
+        <span
+          aria-hidden="true"
+          style={{ width: '1px', height: '18px', margin: '0 4px', background: 'var(--color-border-default)' }}
+        />
+        <div role="group" aria-label="Filter by drift" style={{ display: 'flex', gap: '4px' }}>
+          {DRIFT_FILTERS.map(value => {
+            const selected = driftFilter === value;
+            const drifted = value === 'drifted';
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setDriftFilter(value)}
+                style={{
+                  ...pillStyle(selected),
+                  color: selected && drifted ? 'var(--color-state-paused)' : pillStyle(selected).color
+                }}
+              >
+                {drifted ? `Drifted only${driftedCount > 0 ? ` (${driftedCount})` : ''}` : 'All'}
               </button>
             );
           })}

@@ -65,6 +65,8 @@ export interface ProjectDecision {
   codeRefs?: DecisionCodeRef[];
   /** Computed on request, never stored. Absent unless drift was asked for. */
   drift?: DecisionDriftInfo;
+  /** Computed on request, never stored. Absent unless ranking was requested. */
+  relevanceScore?: number;
 }
 
 /** Lifecycle state of a project intent. */
@@ -285,4 +287,26 @@ export interface CreateCandidateInput {
   relatedFiles?: string[];
   codeRefs?: CreateCodeRefRequest[];
   confidence?: number;
+}
+
+// --- Relevance ranking (DEC-028: local, deterministic, no embeddings) ---
+
+/** Scoping for a briefing or a decision query. */
+export interface BriefingOptions {
+  /** What the agent is currently trying to do, matched lexically. */
+  taskDescription?: string;
+  /** Repository-relative paths the agent is reading or changing. */
+  touchPaths?: string[];
+  /** Maximum ranked decisions to return. Rules and intent are never capped. */
+  limit?: number;
+  /** Drift keyed by decision id, used to penalise decisions whose anchors moved. */
+  drift?: Record<string, DecisionDriftInfo>;
+}
+
+/** How a decision earned its score. Attached only when ranking was requested. */
+export interface RelevanceBreakdown {
+  provenance: number;
+  pathOverlap: number;
+  lexical: number;
+  driftPenalty: number;
 }

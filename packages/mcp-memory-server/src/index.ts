@@ -15,6 +15,7 @@ import {
   DECISION_PROVENANCES
 } from 'asterim/src/services/ProjectMemoryService';
 import type { CreateCodeRefInput } from 'asterim/src/services/ProjectMemoryService';
+import { DEFAULT_BRIEFING_LIMIT } from 'asterim/src/services/memory/MemoryRelevanceEngine';
 import { parseResolveOptionsFromArgv, resolveProjectContext } from './resolver';
 import { notifyCoreServer } from './relay-client';
 import type { ResolvedProject } from './resolver';
@@ -69,6 +70,22 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        taskDescription: {
+          type: 'string',
+          description:
+            'What you are about to do. Used to rank decisions by relevance — supplying it is how you get the decisions that matter rather than the most recent ones.'
+        },
+        touchPaths: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Repository-relative paths you are reading or changing. Decisions anchored to these rank highest.'
+        },
+        limit: {
+          type: 'number',
+          minimum: 0,
+          description: `Maximum decisions to return. Defaults to ${DEFAULT_BRIEFING_LIMIT}. Rules and intent are never capped.`
+        },
         projectId: {
           type: 'string',
           description:
@@ -96,6 +113,17 @@ const TOOLS: Tool[] = [
           type: 'string',
           enum: [...DECISION_STATUSES],
           description: 'Lifecycle state to filter by. Omit to return decisions in every state.'
+        },
+        touchPaths: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Paths you are working in. When given, results are ranked by relevance to them rather than returned newest-first.'
+        },
+        limit: {
+          type: 'number',
+          minimum: 0,
+          description: 'Maximum decisions to return.'
         },
         projectId: {
           type: 'string',
@@ -308,6 +336,16 @@ function readCodeRefs(args: Record<string, unknown> | undefined): CreateCodeRefI
  * `75` would have its guess stored as *maximum* confidence, the exact inverse of
  * what it expressed, with nothing in the record to show it happened.
  */
+/** Reads an optional non-negative integer argument. */
+function readLimit(args: Record<string, unknown> | undefined): number | undefined {
+  const value = args?.limit;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`'limit' must be a non-negative number, received ${JSON.stringify(value)}.`);
+  }
+  return Math.floor(value);
+}
+
 function readConfidence(args: Record<string, unknown> | undefined): number | undefined {
   const value = args?.confidence;
   if (value === undefined || value === null) return undefined;
@@ -353,7 +391,17 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
     switch (name) {
       case 'get_project_briefing': {
         const targetProjectId = readString(args, 'projectId') ?? resolvedProject.id;
-        const briefing = projectMemoryService.getProjectBriefing(targetProjectId);
+        const taskDescription = readString(args, 'taskDescription');
+        const touchPaths = readStringArray(args, 'touchPaths');
+        const limit = readLimit(args);
+
+        // Scoping is opt-in: an agent that asks for nothing in particular still
+        // gets the whole briefing, unranked, exactly as before.
+        const scoped = taskDescription !== undefined || touchPaths !== undefined || limit !== undefined;
+        const briefing = projectMemoryService.getProjectBriefing(
+          targetProjectId,
+          scoped ? { taskDescription, touchPaths, limit } : undefined
+        );
         return toolResult({ briefing });
       }
 
@@ -362,9 +410,15 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         const filePath = readString(args, 'filePath');
         const status = readEnum(args, 'status', DECISION_STATUSES);
 
+        const touchPaths = readStringArray(args, 'touchPaths');
+        const limit = readLimit(args);
+        const scoped = touchPaths !== undefined || limit !== undefined;
+
         const decisions = filePath
           ? projectMemoryService.findRelevantDecisions(targetProjectId, filePath)
-          : projectMemoryService.listDecisions(targetProjectId, { status });
+          : scoped
+            ? projectMemoryService.queryDecisions(targetProjectId, { status }, { touchPaths, limit })
+            : projectMemoryService.listDecisions(targetProjectId, { status });
 
         return toolResult({ decisions });
       }

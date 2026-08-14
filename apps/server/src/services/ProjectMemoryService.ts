@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 import { eventBus } from './EventBus';
+import { memoryRelevanceEngine } from './memory/MemoryRelevanceEngine';
 import type {
   ProjectDecision,
   DecisionCodeRef,
@@ -23,7 +24,8 @@ import type {
   CandidateDecision,
   CandidateStatus,
   CreateCandidateInput,
-  CreateCodeRefRequest
+  CreateCodeRefRequest,
+  BriefingOptions
 } from '@asterim/shared';
 
 /** Row shape returned from the project_decisions table. */
@@ -367,6 +369,22 @@ export class ProjectMemoryService {
           .all(projectId) as unknown as ProjectDecisionRow[]);
 
     return this.attachCodeRefs(rows);
+  }
+
+  /**
+   * Ranked decisions for a scoped query.
+   *
+   * Named separately from `listDecisions` so the plain listing keeps its stable
+   * `created_at DESC` order — the Explorer relies on it, and a list that reorders
+   * itself as you type would be worse than one that does not rank at all.
+   */
+  public queryDecisions(
+    projectId: string,
+    filter?: { status?: DecisionStatus },
+    options?: BriefingOptions
+  ): ProjectDecision[] {
+    const decisions = this.listDecisions(projectId, filter);
+    return options ? memoryRelevanceEngine.rankDecisions(decisions, options) : decisions;
   }
 
   /**
@@ -716,10 +734,8 @@ export class ProjectMemoryService {
    * `approvals` tables — there is no separate agent-work log (see
    * docs/p5.0-01-verification-report.md § 2).
    */
-  public getProjectBriefing(
-    projectId: string,
-    drift?: Record<string, DecisionDriftInfo>
-  ): ProjectBriefing {
+  public getProjectBriefing(projectId: string, options?: BriefingOptions): ProjectBriefing {
+    const drift = options?.drift;
     const db = dbService.getDb();
 
     // Drift is passed in rather than computed here: this method is synchronous and
@@ -753,7 +769,7 @@ export class ProjectMemoryService {
       )
       .all(projectId) as unknown as ApprovalRow[];
 
-    return {
+    const briefing: ProjectBriefing = {
       projectId,
       activeDecisions,
       architecturalRules,
@@ -761,6 +777,19 @@ export class ProjectMemoryService {
       recentAgentWork: sessionRows.map(mapAgentWork),
       recentApprovals: approvalRows.map(mapApproval)
     };
+
+    // Ranking is opt-in: without scoping options the briefing keeps its existing
+    // `created_at DESC` order and its byte-identical determinism guarantee, which
+    // the MCP tool's tests depend on. `architecturalRules` and `currentIntent`
+    // are never passed through the engine — they are governance invariants, not
+    // search results (task § 6).
+    const wantsRanking =
+      options !== undefined &&
+      (options.taskDescription !== undefined ||
+        options.touchPaths !== undefined ||
+        options.limit !== undefined);
+
+    return wantsRanking ? memoryRelevanceEngine.applyToBriefing(briefing, options) : briefing;
   }
 
   // --- Private helpers ---

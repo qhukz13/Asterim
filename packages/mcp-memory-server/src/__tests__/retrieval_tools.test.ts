@@ -364,12 +364,26 @@ async function main(): Promise<void> {
     (tool?.inputSchema?.properties as Record<string, unknown>) ?? {};
 
   equal('get_project_briefing declares an object schema', briefingTool?.inputSchema?.type, 'object');
-  equal('get_project_briefing accepts projectId', Object.keys(props(briefingTool)).sort(), ['projectId']);
+  equal(
+    'get_project_briefing accepts the scoping parameters and projectId',
+    Object.keys(props(briefingTool)).sort(),
+    ['limit', 'projectId', 'taskDescription', 'touchPaths']
+  );
+  check(
+    'taskDescription explains that supplying it is what ranks the briefing',
+    /rank/i.test(String((props(briefingTool).taskDescription as any)?.description)),
+    String((props(briefingTool).taskDescription as any)?.description)
+  );
+  check(
+    'the limit description says rules and intent are never capped',
+    /never capped/i.test(String((props(briefingTool).limit as any)?.description)),
+    'an agent must not think a limit can hide a rule from it'
+  );
   equal('query_decisions declares an object schema', queryTool?.inputSchema?.type, 'object');
   equal(
-    'query_decisions accepts filePath, projectId and status',
+    'query_decisions accepts filePath, scoping, projectId and status',
     Object.keys(props(queryTool)).sort(),
-    ['filePath', 'projectId', 'status']
+    ['filePath', 'limit', 'projectId', 'status', 'touchPaths']
   );
   equal(
     'the status parameter enumerates the decision lifecycle',
@@ -550,6 +564,71 @@ async function main(): Promise<void> {
     stderrChunks.join('').includes('[Database] Using database at'),
     'without this the stdout assertions prove nothing'
   );
+
+  // Runs last on purpose: the assertions above are written against the seeded
+  // fixture, and this section adds decisions to it.
+  // --- Scoped retrieval (P5.4-04) -------------------------------------------
+  describe('tools/call — relevance scoping');
+
+  // Seeded so the two decisions differ only in provenance and anchors, which is
+  // what makes the ordering attributable to ranking rather than to insertion.
+  const scopedHuman = await callTool('record_decision', {
+    title: 'Anchored to the auth service',
+    summary: 'Human-confirmed and anchored.',
+    rationale: 'r',
+    provenance: 'HUMAN_CONFIRMED',
+    relatedFiles: ['src/scoped-auth.ts']
+  });
+  check('the anchored decision was recorded', scopedHuman.result?.isError !== true, textOf(scopedHuman));
+
+  const scopedAgent = await callTool('record_decision', {
+    title: 'Unrelated agent note',
+    summary: 'Agent statement about something else.',
+    rationale: 'r',
+    relatedFiles: ['src/scoped-elsewhere.ts']
+  });
+  check('the unrelated decision was recorded', scopedAgent.result?.isError !== true, textOf(scopedAgent));
+
+  const scopedBriefing = await callTool('get_project_briefing', {
+    taskDescription: 'changing how the auth service works',
+    touchPaths: ['src/scoped-auth.ts']
+  });
+  check('a scoped briefing is not an error', scopedBriefing.result?.isError !== true, textOf(scopedBriefing));
+  const scopedActive = (payloadOf(scopedBriefing)?.briefing as any)?.activeDecisions as any[];
+  check('the touched decision ranks first', scopedActive?.[0]?.title === 'Anchored to the auth service', scopedActive?.[0]?.title);
+  check('every decision carries a relevance score', scopedActive?.every(d => typeof d.relevanceScore === 'number'));
+  check(
+    'and the touched one scores higher than the unrelated one',
+    (scopedActive?.find(d => d.title === 'Anchored to the auth service')?.relevanceScore ?? 0) >
+      (scopedActive?.find(d => d.title === 'Unrelated agent note')?.relevanceScore ?? 0)
+  );
+
+  const limited = await callTool('get_project_briefing', { touchPaths: ['src/scoped-auth.ts'], limit: 1 });
+  const limitedBriefing = payloadOf(limited)?.briefing as any;
+  equal('a limit caps the decisions', limitedBriefing?.activeDecisions?.length, 1);
+  check(
+    'while rules survive the cap',
+    Array.isArray(limitedBriefing?.architecturalRules),
+    'rules are governance invariants and are never dropped'
+  );
+  check('and the intent survives it', 'currentIntent' in limitedBriefing);
+
+  const unscopedBriefing = await callTool('get_project_briefing', {});
+  const unscopedActive = (payloadOf(unscopedBriefing)?.briefing as any)?.activeDecisions as any[];
+  check(
+    'an unscoped briefing is not ranked',
+    unscopedActive?.every(d => d.relevanceScore === undefined),
+    'asking for nothing in particular should return what it always did'
+  );
+
+  const badLimit = await callTool('get_project_briefing', { limit: -1 });
+  equal('a negative limit is refused', badLimit.result?.isError, true);
+  check('naming the parameter', textOf(badLimit).includes('limit'), textOf(badLimit));
+
+  const scopedQuery = await callTool('query_decisions', { touchPaths: ['src/scoped-auth.ts'], limit: 1 });
+  const scopedQueryList = (payloadOf(scopedQuery)?.decisions ?? []) as any[];
+  equal('query_decisions honours the limit', scopedQueryList.length, 1);
+  check('and ranks the touched decision first', scopedQueryList[0]?.title === 'Anchored to the auth service', scopedQueryList[0]?.title);
 }
 
 main()

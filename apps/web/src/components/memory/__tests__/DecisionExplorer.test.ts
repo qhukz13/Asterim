@@ -20,7 +20,7 @@
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { ArchitecturalRule, ProjectDecision, ProjectIntent } from '@asterim/shared';
+import type { ArchitecturalRule, DecisionDriftInfo, ProjectDecision, ProjectIntent } from '@asterim/shared';
 
 // --- Environment stubs, installed before the store loads ---
 
@@ -138,6 +138,7 @@ function render(state: {
   drift?: Record<string, any>;
   loading?: boolean;
   error?: string | null;
+  initialDriftFilter?: 'all' | 'drifted';
 }): string {
   return renderToStaticMarkup(
     React.createElement(explorer.DecisionExplorerView, {
@@ -148,7 +149,8 @@ function render(state: {
       briefing: null,
       drift: state.drift ?? {},
       loading: state.loading ?? false,
-      error: state.error ?? null
+      error: state.error ?? null,
+      initialDriftFilter: state.initialDriftFilter
     })
   );
 }
@@ -217,6 +219,86 @@ async function main(): Promise<void> {
   equal('path matching is case-insensitive', filterDecisions(anchored, { filePath: 'SRC/AUTH' }).map(d => d.id), ['related']);
   equal('a decision with no anchors never matches a path filter', filterDecisions(anchored, { filePath: 'src' }).some(d => d.id === 'bare'), false);
   equal('a symbol-only ref is not matched by path', filterDecisions(anchored, { filePath: 'hashPassword' }), []);
+
+  // --- Drift filter (P5.4-04) ------------------------------------------------
+  describe('filterDecisions — drift');
+
+  const { DRIFT_FILTERS } = explorer;
+  const driftable = [
+    decision({ id: 'gone', relatedFiles: ['src/auth.ts'] }),
+    decision({ id: 'edited', relatedFiles: ['src/db.ts'] }),
+    decision({ id: 'clean', relatedFiles: ['src/ok.ts'] })
+  ];
+  const driftMap: Record<string, DecisionDriftInfo> = {
+    gone: {
+      decisionId: 'gone',
+      drifted: true,
+      worst: 'FILE_DELETED',
+      refs: [{ refId: 'r1', filePath: 'src/auth.ts', type: 'FILE_DELETED', detail: 'gone' }]
+    },
+    edited: {
+      decisionId: 'edited',
+      drifted: true,
+      worst: 'FILE_MODIFIED',
+      refs: [{ refId: 'r2', filePath: 'src/db.ts', type: 'FILE_MODIFIED', detail: 'changed' }]
+    },
+    // Present but clean — the shape the API returns for a decision it checked and
+    // found nothing wrong with. Filtering on presence rather than on `drifted`
+    // would wrongly keep this one.
+    clean: { decisionId: 'clean', drifted: false, worst: null, refs: [] }
+  };
+
+  equal('every offered drift pill is a real filter', DRIFT_FILTERS.length, 2);
+  equal(
+    "'all' keeps clean decisions",
+    filterDecisions(driftable, { driftFilter: 'all', drift: driftMap }).map(d => d.id),
+    ['gone', 'edited', 'clean']
+  );
+  equal(
+    "'drifted' keeps only decisions whose anchors moved",
+    filterDecisions(driftable, { driftFilter: 'drifted', drift: driftMap }).map(d => d.id),
+    ['gone', 'edited']
+  );
+  equal(
+    'a checked-and-clean entry is excluded, not merely an absent one',
+    filterDecisions(driftable, { driftFilter: 'drifted', drift: driftMap }).some(d => d.id === 'clean'),
+    false
+  );
+  equal(
+    'a decision with no drift entry at all is excluded',
+    filterDecisions([decision({ id: 'unknown' })], { driftFilter: 'drifted', drift: driftMap }),
+    []
+  );
+  equal(
+    'with no drift data the drifted filter shows nothing rather than everything',
+    filterDecisions(driftable, { driftFilter: 'drifted' }),
+    []
+  );
+  equal('omitting the drift filter changes nothing', filterDecisions(driftable, { drift: driftMap }).length, 3);
+  equal(
+    'drift and status are independent axes',
+    filterDecisions(
+      [
+        decision({ id: 'gone', status: 'ACTIVE' }),
+        decision({ id: 'edited', status: 'ARCHIVED' })
+      ],
+      { driftFilter: 'drifted', status: 'ACTIVE', drift: driftMap }
+    ).map(d => d.id),
+    ['gone']
+  );
+
+  describe('filterDecisions — search covers anchors');
+
+  equal(
+    'the free-text search also matches an anchor path',
+    filterDecisions(anchored, { query: 'src/session.ts' }).map(d => d.id),
+    ['coderef']
+  );
+  equal(
+    'and a bare file name within it',
+    filterDecisions(anchored, { query: 'auth.ts' }).map(d => d.id),
+    ['related']
+  );
 
   describe('filterDecisions — combined');
 
@@ -614,6 +696,35 @@ async function main(): Promise<void> {
     })
   );
   check('with no project selected it says so', noProjectHtml.includes('Select a project'));
+
+  describe('render — filter controls (P5.4-04)');
+
+  const controlsHtml = render({ decisions: [decision()] });
+  check('the search input is offered', controlsHtml.includes('Search decisions'));
+  check('the path filter is offered', controlsHtml.includes('Filter by file path'));
+  check('the status pills are grouped and labelled', controlsHtml.includes('Filter by status'));
+  check('the drift pills are grouped and labelled', controlsHtml.includes('Filter by drift'));
+  check('the drift toggle offers a drifted-only view', controlsHtml.includes('Drifted only'));
+
+  const driftCountHtml = render({ decisions: driftable, drift: driftMap });
+  check('the toggle counts how many decisions have drifted', driftCountHtml.includes('Drifted only (2)'), 'two of three');
+  check('a clean project shows no count', !render({ decisions: [decision()] }).includes('Drifted only ('));
+
+  const driftedOnlyHtml = render({
+    decisions: [decision({ id: 'gone', title: 'Anchored to a deleted file' }), decision({ id: 'clean', title: 'Still anchored fine' })],
+    drift: driftMap,
+    initialDriftFilter: 'drifted'
+  });
+  check('drifted-only shows the drifted decision', driftedOnlyHtml.includes('Anchored to a deleted file'));
+  check('and hides the clean one', !driftedOnlyHtml.includes('Still anchored fine'));
+  check('and says the list is filtered', driftedOnlyHtml.includes('Showing 1 of 2'));
+
+  const driftedEmptyHtml = render({ decisions: [decision()], drift: {}, initialDriftFilter: 'drifted' });
+  check(
+    'a project with no drift explains the filter hid things',
+    driftedEmptyHtml.includes('No decisions match these filters'),
+    'not the never-decided-anything empty state'
+  );
 
   describe('render — counts');
 

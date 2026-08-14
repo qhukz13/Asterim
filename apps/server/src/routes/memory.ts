@@ -279,10 +279,41 @@ export default async function memoryRoutes(fastify: FastifyInstance) {
    */
   fastify.get('/api/v1/projects/:id/memory/briefing', async (request: any, reply) => {
     const { id } = request.params;
-    const withDrift = request.query?.drift === 'true';
+    const query = request.query || {};
+    const withDrift = query.drift === 'true';
+
+    // `?task=...&files=a.ts,b.ts&limit=10` scope the briefing. Absent, the
+    // briefing keeps its unranked order — an agent asking for everything should
+    // get the same answer it got before this endpoint learned to rank.
+    const limit = query.limit !== undefined ? Number(query.limit) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit < 0)) {
+      reply.code(400);
+      return { error: `Invalid limit '${query.limit}'. Expected a non-negative number.` };
+    }
+
+    const touchPaths =
+      typeof query.files === 'string'
+        ? query.files.split(',').map((f: string) => f.trim()).filter(Boolean)
+        : undefined;
+
     try {
       const drift = withDrift ? await projectMemoryService.getProjectDrift(id) : undefined;
-      return { briefing: projectMemoryService.getProjectBriefing(id, drift) };
+      const scoped =
+        query.task !== undefined || touchPaths !== undefined || limit !== undefined;
+
+      return {
+        briefing: projectMemoryService.getProjectBriefing(
+          id,
+          scoped || drift
+            ? {
+                drift,
+                taskDescription: typeof query.task === 'string' ? query.task : undefined,
+                touchPaths,
+                limit
+              }
+            : undefined
+        )
+      };
     } catch (err) {
       return replyForServiceError(err, reply);
     }

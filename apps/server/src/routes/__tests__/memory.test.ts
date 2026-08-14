@@ -442,6 +442,134 @@ async function main(): Promise<void> {
   equal('the drifted decision is still ACTIVE', stillActive?.status, 'ACTIVE');
   equal('and its stored row carries no drift column', stillActive?.drift, undefined);
 
+  // --- Scoped briefings (P5.4-04) -------------------------------------------
+  describe('GET /memory/briefing — scoping');
+
+  // Order matters: the target is recorded *first* and a decoy after it. Ties break
+  // on recency, so if scoping were a no-op the decoy would win every assertion
+  // below — which is exactly how an earlier version of this block passed against a
+  // route that ignored `?files` entirely.
+  const scopedTarget = await post(`/api/v1/projects/${PROJECT_A}/memory/decisions`, {
+    title: 'Rotate the signing key quarterly',
+    summary: 'Keys live no longer than 90 days.',
+    rationale: 'Limits the blast radius of a leak.',
+    relatedFiles: ['src/security/keys.ts']
+  });
+  const scopedTargetId = scopedTarget.json().decision.id;
+
+  const decoy = await post(`/api/v1/projects/${PROJECT_A}/memory/decisions`, {
+    title: 'Use tabs in the theme file',
+    summary: 'Indentation is tabs.',
+    rationale: 'Matches the editor default.',
+    relatedFiles: ['src/ui/theme.ts']
+  });
+  const decoyId = decoy.json().decision.id;
+
+  const unscopedBriefing = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing`);
+  const unscopedDecisions = unscopedBriefing.json().briefing.activeDecisions;
+  check('an unscoped briefing still returns every active decision', unscopedDecisions.length >= 3, `${unscopedDecisions.length}`);
+  equal(
+    'and carries no relevance score, so the old response shape is unchanged',
+    unscopedDecisions[0].relevanceScore,
+    undefined
+  );
+
+  const limited = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?limit=1`);
+  equal('?limit caps the decisions', limited.json().briefing.activeDecisions.length, 1);
+  check(
+    'while every architectural rule survives the cap',
+    limited.json().briefing.architecturalRules.length === unscopedBriefing.json().briefing.architecturalRules.length,
+    'rules are governance invariants, not context filler'
+  );
+  equal(
+    'and so does the intent',
+    limited.json().briefing.currentIntent?.id,
+    unscopedBriefing.json().briefing.currentIntent?.id
+  );
+
+  // The control for every ranking assertion below: unscoped, the newest decision
+  // wins. Anything that displaces it did so because of the scope, not the clock.
+  equal('unscoped, the most recent decision leads', limited.json().briefing.activeDecisions[0]?.id, decoyId);
+
+  const byFile = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?files=src/security/keys.ts&limit=1`);
+  equal(
+    '?files promotes the decision anchored to that file over a newer one',
+    byFile.json().briefing.activeDecisions[0]?.id,
+    scopedTargetId
+  );
+  check(
+    'and the returned decision explains its own rank',
+    typeof byFile.json().briefing.activeDecisions[0]?.relevanceScore === 'number'
+  );
+
+  const byFolder = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?files=src/security&limit=1`);
+  equal(
+    'a folder in ?files matches the files under it',
+    byFolder.json().briefing.activeDecisions[0]?.id,
+    scopedTargetId
+  );
+
+  const wrongFolder = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?files=src/sec&limit=1`);
+  equal(
+    'but a partial folder name does not — src/sec is not src/security',
+    wrongFolder.json().briefing.activeDecisions[0]?.id,
+    decoyId
+  );
+
+  const byTask = await get(
+    `/api/v1/projects/${PROJECT_A}/memory/briefing?task=${encodeURIComponent('rotate the signing key')}&limit=1`
+  );
+  equal(
+    '?task promotes the lexically closest decision over a newer one',
+    byTask.json().briefing.activeDecisions[0]?.id,
+    scopedTargetId
+  );
+
+  const multiFile = await get(
+    `/api/v1/projects/${PROJECT_A}/memory/briefing?files=src/security/keys.ts,src/vanished.ts&limit=2`
+  );
+  const multiIds = multiFile.json().briefing.activeDecisions.map((d: any) => d.id);
+  check(
+    'a comma-separated ?files list matches every path in it',
+    multiIds.includes(scopedTargetId) && multiIds.includes(anchoredId),
+    multiIds.join(',')
+  );
+  check('and leaves the newer unrelated decision out', !multiIds.includes(decoyId), multiIds.join(','));
+
+  const emptyFiles = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?files=`);
+  equal('an empty ?files is not an error', emptyFiles.statusCode, 200);
+  check('and still returns the decisions', emptyFiles.json().briefing.activeDecisions.length > 0);
+
+  const zeroLimit = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?limit=0`);
+  equal('?limit=0 returns no decisions', zeroLimit.json().briefing.activeDecisions.length, 0);
+  check(
+    'but still every rule',
+    zeroLimit.json().briefing.architecturalRules.length === unscopedBriefing.json().briefing.architecturalRules.length,
+    'a limit must never be able to silence governance'
+  );
+  equal('and still the intent', zeroLimit.json().briefing.currentIntent?.id, unscopedBriefing.json().briefing.currentIntent?.id);
+
+  const negativeLimit = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?limit=-1`);
+  equal('a negative ?limit is rejected', negativeLimit.statusCode, 400);
+  check('with a message naming the value', negativeLimit.json().error.includes('-1'), negativeLimit.json().error);
+
+  const nonNumericLimit = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?limit=lots`);
+  equal('a non-numeric ?limit is rejected', nonNumericLimit.statusCode, 400);
+
+  const scopedWithDrift = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?drift=true&files=src/vanished.ts&limit=5`);
+  equal('scoping and drift compose', scopedWithDrift.statusCode, 200);
+  const driftedScoped = scopedWithDrift.json().briefing.activeDecisions.find((d: any) => d.id === anchoredId);
+  check('the drifted decision is still returned, not filtered out (DEC-027)', driftedScoped !== undefined);
+  equal('carrying its drift annotation', driftedScoped?.drift?.drifted, true);
+
+  const repeat1 = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?task=signing%20key&files=src&limit=3`);
+  const repeat2 = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?task=signing%20key&files=src&limit=3`);
+  equal('the same scoped request returns a byte-identical briefing', repeat1.body, repeat2.body);
+
+  const unknownScoped = await get(`/api/v1/projects/${UNKNOWN_PROJECT}/memory/briefing?task=anything&limit=3`);
+  equal('scoping an unknown project is not an error', unknownScoped.statusCode, 200);
+  equal('it simply has nothing to rank', unknownScoped.json().briefing.activeDecisions, []);
+
   // --- Project isolation over HTTP -----------------------------------------
   describe('project isolation over HTTP');
 
