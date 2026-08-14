@@ -32,6 +32,29 @@ export class RelayClient {
     this.init();
   }
 
+  /**
+   * The `register_tunnel` payload.
+   *
+   * A production relay (`RELAY_SECRET` set on its side) only opens a tunnel for
+   * a registration signed with the shared secret, and only if the timestamp is
+   * fresh — which is what stops a captured registration from being replayed to
+   * hijack the tunnel id. With no secret configured here the bare tunnel id is
+   * sent, which is what a development relay expects.
+   */
+  private buildRegistration(): string | { tunnelId: string; signature: string; timestamp: number } {
+    const secret = process.env.ASTERIM_RELAY_SECRET || process.env.RELAY_SECRET;
+    if (!secret) {
+      return this.tunnelId;
+    }
+
+    const timestamp = Date.now();
+    const signature = crypto
+      .createHmac('sha256', secret)
+      .update(`${this.tunnelId}:${timestamp}`)
+      .digest('hex');
+    return { tunnelId: this.tunnelId, signature, timestamp };
+  }
+
   private async init() {
     // Checked before the key pair is generated and before any socket exists:
     // an air-gapped workstation should not even prepare to talk to a relay.
@@ -47,7 +70,17 @@ export class RelayClient {
 
     this.socket.on('connect', () => {
       console.log(`[RelayClient] Connected to Cloud Relay. Tunnel ID: ${this.tunnelId}`);
-      this.socket?.emit('register_tunnel', this.tunnelId);
+      this.socket?.emit('register_tunnel', this.buildRegistration());
+    });
+
+    this.socket.on('tunnel_registered', () => {
+      console.log('[RelayClient] Tunnel registered with the Cloud Relay.');
+    });
+
+    this.socket.on('tunnel_error', ({ code, message }: { code?: string; message?: string }) => {
+      console.error(
+        `[RelayClient] Relay rejected the tunnel (${code || 'ERROR'}): ${message || ''}`
+      );
     });
 
     this.socket.on('client_joined', async ({ clientId }) => {
