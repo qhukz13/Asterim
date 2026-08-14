@@ -1,7 +1,7 @@
-# Current Task: SEC-01 — Sovereign Mode Air-Gap Switch & Environment Sanitization
+# [P5.4-03] — Decision Extraction Queue & Candidate Review UI
 
-**Task ID:** SEC-01  
-**Phase:** Phase 5.4-S — Security Hardening Gate  
+**Task ID:** P5.4-03  
+**Phase:** Phase 5.4 — Intelligent Memory & Continuous Governance  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -11,103 +11,135 @@
 
 ## 1. Objective
 
-Implement the `ASTERIM_SOVEREIGN_MODE` air-gap switch to guarantee zero outbound network connections initiated by Asterim Core (`RelayClient`, `PushService`), and sanitize environment variable inheritance when spawning agent subprocesses in `ProcessManager.ts`.
+Implement the staged decision extraction pipeline and Candidate Review UI (`candidate_decisions` table, local transcript extraction service, approval/rejection REST lifecycle, and Candidate Review Drawer in Decision Explorer), enforcing human confirmation before candidate decisions become authoritative project memory.
 
 ---
 
-## 2. Context & Architectural Decisions
+## 2. Why This Task Exists
 
-* **DEC-028 (Data Sovereignty & Sovereign Mode Mandate)**:
-  - When `ASTERIM_SOVEREIGN_MODE=true` (or `--sovereign`), Asterim must operate in a 100% air-gapped local workstation mode.
-  - `RelayClient` must not open WebSocket connections to external cloud relays.
-  - `PushService` must not send Web Push notifications to external push gateways.
-  - `ProcessManager.ts` must scrub internal `ASTERIM_*` secrets before spawning child agent processes.
+During active coding sessions, agents frequently make architectural commitments, enforce patterns, and establish project rules. However, allowing autonomous, unconfirmed LLM writes directly into `project_decisions` risks memory pollution and hallucination compounding across sessions.
+
+Under **DEC-027** and **DEC-028**, Asterim resolves this by staging detected decisions into a dedicated `candidate_decisions` queue that requires explicit human review and approval before becoming permanent memory.
 
 ---
 
-## 3. Repository Evidence & Relevant Files
+## 3. Context
+
+* **DEC-027**: Staged Decision Candidate Queue. Extraction must write to `candidate_decisions` (`status: 'PENDING'`), and only human approval transitions records to `project_decisions` with `provenance: 'HUMAN_CONFIRMED'`.
+* **DEC-028**: Data Sovereignty. Extraction must operate locally and respect `isSovereignMode()`.
+* **DEC-024**: Provenance and confidence model.
+
+---
+
+## 4. Repository Evidence
 
 Inspect:
-* [`docs/phase5-4-s-security-audit.md`](file:///c:/Projects/Asterim/docs/phase5-4-s-security-audit.md) (SEC-003 and SEC-004)
-* [`decisions.md`](file:///c:/Projects/Asterim/decisions.md) (DEC-028)
-* [`apps/server/src/services/RelayClient.ts`](file:///c:/Projects/Asterim/apps/server/src/services/RelayClient.ts)
-* [`apps/server/src/services/PushService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PushService.ts)
-* [`apps/server/src/routes/system.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/system.ts)
-* [`packages/adapters/src/sdk/ProcessManager.ts`](file:///c:/Projects/Asterim/packages/adapters/src/sdk/ProcessManager.ts)
+* [`apps/server/src/services/ProjectMemoryService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectMemoryService.ts)
+* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`apps/server/src/routes/memory.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/memory.ts)
+* [`apps/server/src/services/SovereignMode.ts`](file:///c:/Projects/Asterim/apps/server/src/services/SovereignMode.ts)
+* [`apps/server/src/services/git/GitDriftDetector.ts`](file:///c:/Projects/Asterim/apps/server/src/services/git/GitDriftDetector.ts) (re-use path/hash validation)
+* [`apps/web/src/components/memory/DecisionExplorer.tsx`](file:///c:/Projects/Asterim/apps/web/src/components/memory/DecisionExplorer.tsx)
+* [`apps/web/src/stores/useMemoryStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useMemoryStore.ts)
+* [`packages/shared/src/types/memory.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/memory.ts)
 
 ---
 
-## 4. Implementation Scope
+## 5. Implementation Scope
 
-1. **Sovereign Mode Helper (`apps/server/src/services/SovereignMode.ts`)**:
-   - Exports `function isSovereignMode(): boolean`:
-     - Returns `true` if `process.env.ASTERIM_SOVEREIGN_MODE === 'true'` or `process.argv.includes('--sovereign')`.
-   - Expose `sovereignMode: boolean` on `GET /api/v1/system`.
-2. **RelayClient Air-Gap Guard (`apps/server/src/services/RelayClient.ts`)**:
-   - In `RelayClient.init()`:
-     - Check `isSovereignMode()`. If `true`, log `[RelayClient] Sovereign Mode active: Cloud Relay connection disabled.` and return early without calling `io(this.relayUrl)`.
-3. **PushService Air-Gap Guard (`apps/server/src/services/PushService.ts`)**:
-   - In `PushService.sendPushNotification()`:
-     - Check `isSovereignMode()`. If `true`, return early without making external HTTP requests.
-4. **Environment Sanitization (`packages/adapters/src/sdk/ProcessManager.ts`)**:
-   - When spawning PTY processes in `ProcessManager.start()`:
-     - Scrub internal secrets from `process.env`:
-       ```ts
-       const cleanEnv = { ...process.env };
-       for (const key of Object.keys(cleanEnv)) {
-         // Preserve ASTERIM_DATA_DIR for local database resolution, strip internal tokens/configs
-         if (key.startsWith('ASTERIM_') && key !== 'ASTERIM_DATA_DIR') {
-           delete cleanEnv[key];
-         }
-       }
-       ```
-     - Pass `cleanEnv` combined with `options.env` to `pty.spawn`.
-5. **Automated Verification**:
-   - Unit tests in `apps/server/src/services/__tests__/SovereignMode.test.ts`:
-     - Test that `isSovereignMode()` correctly detects env var and CLI flag.
-     - Test that `RelayClient` does not connect when sovereign mode is active.
-     - Test that `PushService` suppresses push notifications in sovereign mode.
-   - Unit tests in `packages/adapters/src/sdk/__tests__/ProcessManager.test.ts`:
-     - Test that internal `ASTERIM_*` secrets are stripped from child process environment while `ASTERIM_DATA_DIR` is preserved.
-
----
-
-## 5. Explicitly Forbidden Changes
-
-* Do **NOT** remove or break standard remote relay pairing when sovereign mode is `false` (default development mode).
-* Do **NOT** introduce external telemetry or cloud dependencies.
-
----
-
-## 6. Acceptance Criteria
-
-1. Setting `ASTERIM_SOVEREIGN_MODE=true` completely disables outbound WebSocket connections in `RelayClient`.
-2. `PushService` makes zero network requests when sovereign mode is active.
-3. `ProcessManager` strips `ASTERIM_*` tokens (e.g. `ASTERIM_RELAY_URL`, `ASTERIM_LOOPBACK_TOKEN`) from child agent environments.
-4. `GET /api/v1/system` returns `sovereignMode: true/false`.
-5. All test suites pass and `pnpm run build` succeeds with 0 errors.
+1. **Shared Types (`packages/shared/src/types/memory.ts`)**:
+   - Define `CandidateDecision`:
+     - `id: string`
+     - `projectId: string`
+     - `sessionId?: string`
+     - `threadId?: string`
+     - `title: string`
+     - `summary: string`
+     - `rationale: string`
+     - `constraints: string[]`
+     - `relatedFiles: string[]`
+     - `codeRefs: CreateCodeRefInput[]`
+     - `confidence: number`
+     - `status: 'PENDING' | 'APPROVED' | 'REJECTED'`
+     - `extractedAt: number`
+     - `reviewedAt?: number`
+2. **Database Schema (`apps/server/src/services/DatabaseService.ts`)**:
+   - Add `candidate_decisions` table with appropriate indexes (`project_id`, `status`).
+3. **Extraction Service (`apps/server/src/services/memory/DecisionExtractor.ts`)**:
+   - Implements local transcript analysis to detect decision statements from session logs.
+   - Extracts candidate fields, runs path safety checks (`resolveInsideProject`, `isSafeCommitHash`) on proposed code references, and stages rows in `candidate_decisions`.
+4. **ProjectMemoryService & REST Routes**:
+   - In `ProjectMemoryService.ts`:
+     - `listCandidates(projectId: string, status?: string): CandidateDecision[]`
+     - `createCandidate(input: CreateCandidateInput): CandidateDecision`
+     - `approveCandidate(projectId: string, candidateId: string, overrides?: Partial<CreateDecisionInput>): ProjectDecision`
+     - `rejectCandidate(projectId: string, candidateId: string): void`
+   - In `apps/server/src/routes/memory.ts`:
+     - `GET /api/v1/projects/:id/memory/candidates`
+     - `POST /api/v1/projects/:id/memory/candidates/extract` (trigger extraction for thread/session)
+     - `POST /api/v1/projects/:id/memory/candidates/:candidateId/approve`
+     - `POST /api/v1/projects/:id/memory/candidates/:candidateId/reject`
+5. **Web UI (`apps/web/src/components/memory/`)**:
+   - Add candidate review drawer/banner to `DecisionExplorer.tsx`.
+   - Displays pending candidate cards with badge count, title, rationale, constraints, and anchors.
+   - Provide "Approve" (with optional edit) and "Discard" actions.
+   - Wire actions to `useMemoryStore.ts` (`fetchCandidates`, `approveCandidate`, `rejectCandidate`).
+6. **Automated Verification**:
+   - Service tests in `apps/server/src/services/memory/__tests__/DecisionExtractor.test.ts`.
+   - Route tests in `apps/server/src/routes/__tests__/memory-candidates.test.ts`.
+   - Web component tests in `apps/web/src/components/memory/__tests__/CandidateReview.test.ts`.
 
 ---
 
-## 7. Verification Commands
+## 6. Explicitly Forbidden Changes
+
+* Do **NOT** automatically write unconfirmed candidates into `project_decisions` without human approval.
+* Do **NOT** send transcripts or session logs to external cloud APIs when `isSovereignMode()` is `true`.
+* Do **NOT** delete active human-confirmed decisions when rejecting candidates.
+
+---
+
+## 7. Acceptance Criteria
+
+1. Session transcript extraction creates records in `candidate_decisions` with `status: 'PENDING'`.
+2. Candidate code references pass path safety checks (no path traversal or unsafe characters).
+3. `POST /api/v1/projects/:id/memory/candidates/:candidateId/approve` creates an active `project_decisions` record with `provenance: 'HUMAN_CONFIRMED'`, `confidence: 1.0`, updates candidate `status: 'APPROVED'`, and emits `memory.decision_created`.
+4. `POST /api/v1/projects/:id/memory/candidates/:candidateId/reject` updates candidate `status: 'REJECTED'` with zero modifications to `project_decisions`.
+5. Decision Explorer displays pending candidate counter and review drawer with 1-click Approve / Discard controls.
+6. All test suites pass cleanly, `tsc --noEmit` reports 0 errors, and `pnpm run build` succeeds across monorepo.
+
+---
+
+## 8. Definition of Done
+
+- [ ] All Acceptance Criteria independently verified
+- [ ] Clean Git diff with no forbidden changes
+- [ ] `tsc --noEmit` passes with 0 errors
+- [ ] Relevant test suites pass
+- [ ] `pnpm run build` succeeds across monorepo
+
+---
+
+## 9. Verification Commands
 
 ```bash
-pnpm --filter asterim exec tsx src/services/__tests__/SovereignMode.test.ts
-pnpm --filter @asterim/adapters exec tsx src/sdk/__tests__/ProcessManager.test.ts
+pnpm --filter asterim exec tsx src/services/memory/__tests__/DecisionExtractor.test.ts
+pnpm --filter asterim exec tsx src/routes/__tests__/memory-candidates.test.ts
+pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/CandidateReview.test.ts
 pnpm --filter asterim exec tsc --noEmit
-pnpm --filter @asterim/adapters exec tsc --noEmit
+pnpm --filter @asterim/web exec tsc --noEmit
 pnpm run build
 ```
 
 ---
 
-## 8. Required Report Format
+## 10. Self-Review Requirements
 
-Upon completion, write the execution result directly to `reports/current.md` using the standard format:
-* **Task ID**: SEC-01
-* **Status**: `IMPLEMENTED` / `VERIFIED` / `BLOCKED`
-* **Summary**: Summary of Sovereign Mode air-gap guards and environment sanitization
-* **Files Changed**: List of files created/modified
-* **Tests / Verification**: Output of test suites and build commands
-* **Problems Discovered & Concerns**: Any issues encountered
-* **Recommended Next Step**: Confirmation to proceed with P5.4-03
+- Inspect `git diff` against every acceptance criterion before reporting.
+- Fix all discovered regressions prior to completing `reports/current.md`.
+
+---
+
+## 11. Required Report
+
+Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
