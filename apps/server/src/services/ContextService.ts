@@ -106,7 +106,7 @@ export class ContextService {
       accumulatedText += '## Active Thread Context Files & Pinning:\n';
       for (const entry of entries) {
         if (accumulatedText.length + (entry.content?.length || 0) < maxChars * 0.5) {
-          accumulatedText += `### ${entry.label} (${entry.type})\n${entry.content || ''}\n\n`;
+          accumulatedText += `### ${entry.label || entry.path || entry.id} (${entry.entryType})\n${entry.content || ''}\n\n`;
         }
       }
     }

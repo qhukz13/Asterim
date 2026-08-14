@@ -161,8 +161,8 @@ export class AgentService {
           db.prepare('DELETE FROM events WHERE project_id = ?').run(projectId);
         }
 
-        const { socketManager } = await import('../sockets/socketManager');
-        socketManager.clearRecentLogs(projectId);
+        const { getSocketManager } = await import('../sockets/socketManager');
+        getSocketManager()?.clearRecentLogs(projectId);
 
         if (threadId) {
           const adapter = this.sessionManager.getSessionAdapter(threadId);

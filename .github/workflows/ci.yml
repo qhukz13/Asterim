@@ -40,6 +40,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # Ahead of Lint and Build: `tsup` bundles apps/server without checking
+      # types, so a type error would otherwise ride through a green Build.
+      - name: Typecheck
+        run: pnpm run typecheck
+
       - name: Lint
         run: pnpm run lint
 

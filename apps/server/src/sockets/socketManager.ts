@@ -6,6 +6,25 @@ import { dbService } from '../services/DatabaseService';
 import { pairingService } from '../services/PairingService';
 import crypto from 'crypto';
 
+/**
+ * The instance created by the Core at startup (`apps/server/src/index.ts`).
+ * Services that only need to poke the live socket layer — and must not import
+ * it eagerly, because constructing one binds Socket.IO to the Fastify server —
+ * reach it through {@link getSocketManager} rather than holding a reference.
+ * Null until the Core registers one, and in tests that never boot sockets.
+ */
+let activeSocketManager: SocketManager | null = null;
+
+/** Publishes the running instance. Called once, by the Core, at startup. */
+export function registerSocketManager(manager: SocketManager): void {
+  activeSocketManager = manager;
+}
+
+/** The live SocketManager, or null when sockets have not been started. */
+export function getSocketManager(): SocketManager | null {
+  return activeSocketManager;
+}
+
 export class SocketManager {
   private io: SocketIOServer;
   private recentLogs = new Map<string, AsterimEvent<any>[]>();

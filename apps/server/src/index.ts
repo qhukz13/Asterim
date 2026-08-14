@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { SocketManager } from './sockets/socketManager';
+import { SocketManager, registerSocketManager } from './sockets/socketManager';
 import projectRoutes from './routes/projects';
 import './services/AgentService';
 import { dbService } from './services/DatabaseService';
@@ -100,6 +100,7 @@ if (fs.existsSync(webDistPath)) {
 
 dbService.getDb();
 const socketManager = new SocketManager(fastify);
+registerSocketManager(socketManager);
 
 import './services/RelayClient';
 import './services/PushService';

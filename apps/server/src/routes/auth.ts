@@ -3,9 +3,6 @@ import { pairingService } from '../services/PairingService';
 import { authController } from '../controllers/AuthController';
 
 export default async function authRoutes(fastify: FastifyInstance) {
-  // Simple rate limiting state for local PIN pairing (in-memory, resets on restart)
-  const attempts = new Map<string, { count: number; timestamp: number }>();
-
   // Phase 2 Centralized Web Auth Endpoints
   fastify.post('/api/v1/auth/register', (req, reply) => authController.register(req, reply));
   fastify.post('/api/v1/auth/login', (req, reply) => authController.login(req, reply));
@@ -18,21 +15,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
   // Legacy local PIN pairing endpoint (retained for backward compatibility during transition)
   fastify.post('/api/v1/auth/pair', async (request, reply) => {
     const ip = request.ip;
-    const now = Date.now();
 
-    const record = attempts.get(ip) || { count: 0, timestamp: now };
-    if (now - record.timestamp > 15 * 60 * 1000) {
-      record.count = 0;
-      record.timestamp = now;
-    }
-
-    if (record.count >= 10) {
-      console.warn(`[Auth] Pair attempt blocked due to rate limit from IP: ${ip}`);
-      reply.status(429).send({ error: 'Too many attempts. Please try again later.' });
-      return;
-    }
-
-    const body = request.body as { pin?: string };
+    const body = request.body as { pin?: string } | undefined;
     if (!body || !body.pin) {
       reply.status(400).send({ error: 'PIN is required' });
       return;
@@ -40,17 +24,34 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     console.log(`[Auth] Received pairing request from IP: ${ip}`);
 
-    if (pairingService.validatePin(body.pin)) {
+    // Attempt accounting, exponential back-off and lockout all live in
+    // PairingService — the route only translates the outcome to HTTP.
+    const result = await pairingService.attemptPairing(ip, body.pin);
+
+    if (result.status === 'paired') {
       console.log(`[Auth] Pairing successful for IP: ${ip}`);
-      attempts.delete(ip);
-      const token = pairingService.generateToken();
-      reply.send({ token });
-    } else {
-      console.warn(`[Auth] Pairing failed (Invalid PIN) for IP: ${ip}`);
-      record.count += 1;
-      attempts.set(ip, record);
-      reply.status(401).send({ error: 'Invalid PIN' });
+      reply.send({ token: result.token });
+      return;
     }
+
+    if (result.status === 'locked') {
+      const retryAfterSeconds = Math.max(1, Math.ceil(result.retryAfterMs / 1000));
+      console.warn(`[Auth] Pair attempt blocked due to rate limit from IP: ${ip}`);
+      reply.header('Retry-After', String(retryAfterSeconds));
+      reply.status(429).send({
+        error: `Too many failed pairing attempts. Try again in ${Math.ceil(retryAfterSeconds / 60)} minute(s).`,
+        code: 'PAIRING_RATE_LIMITED',
+        retryAfterSeconds
+      });
+      return;
+    }
+
+    console.warn(`[Auth] Pairing failed (Invalid PIN) for IP: ${ip}`);
+    reply.status(401).send({
+      error: 'Invalid PIN',
+      code: 'PAIRING_INVALID_PIN',
+      remainingAttempts: result.remainingAttempts
+    });
   });
 
   fastify.get('/api/v1/auth/verify', async (request, reply) => {

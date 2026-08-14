@@ -15,10 +15,14 @@ out/
 # TypeScript build info
 *.tsbuildinfo
 
-# Database files — Asterim data lives in ~/.agentdeck/, never in the repo
+# Database files — Asterim data lives in ~/.asterim/, never in the repo
 *.db
 *.db-shm
 *.db-wal
+
+# Credentials — the device pairing PIN is regenerated on every server start
+pairing_pin.txt
+**/pairing_pin.txt
 
 # Environment variables
 .env

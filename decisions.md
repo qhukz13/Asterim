@@ -199,6 +199,7 @@
      - Disables `RelayClient` background connections.
      - Disables external Web Push dispatch.
      - Enforces local CLI execution via `ActiveAgentProvider`.
+     - **Network boundary**: Sovereign Mode guarantees zero outbound external network connections from Asterim Core to remote cloud endpoints. Local subnet mDNS discovery (UDP 5353) remains active strictly for zero-config LAN device pairing and does not transmit project memory or telemetry data.
   4. **Staged Extraction Sovereignty**: Candidate decision extraction processes session logs locally and stages records in SQLite without remote LLM transmission unless configured by the user.
 * **Rationale**: Guarantees enterprise and sovereign compliance for high-security engineering environments.
 * **Impact**:

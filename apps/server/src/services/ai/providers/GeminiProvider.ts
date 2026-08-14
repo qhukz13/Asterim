@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { IAIProvider } from './IAIProvider';
+import { IAIProvider } from '../IAIProvider';
 
 export class GeminiProvider implements IAIProvider {
   public readonly id = 'gemini';

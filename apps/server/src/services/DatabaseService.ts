@@ -19,6 +19,25 @@ export function resolveDataDir(): string {
   return path.join(os.homedir(), '.asterim');
 }
 
+/**
+ * Restricts a path to its owner. POSIX only — Windows ACLs do not map onto
+ * these bits and `chmod` there is a no-op at best, so it is skipped. Never
+ * throws: a data directory on a filesystem that cannot express the mode (a
+ * mounted share, for instance) must not stop the Core from starting.
+ */
+function enforceOwnerOnly(target: string, mode: number): void {
+  if (process.platform === 'win32') return;
+  try {
+    if (!fs.existsSync(target)) return;
+    if ((fs.statSync(target).mode & 0o777) === mode) return;
+    fs.chmodSync(target, mode);
+  } catch (err) {
+    console.warn(
+      `[Database] Could not restrict ${target} to ${mode.toString(8)}: ${(err as Error).message}`
+    );
+  }
+}
+
 export class DatabaseService {
   private db: DatabaseSync;
   public readonly dbPath: string;
@@ -26,16 +45,27 @@ export class DatabaseService {
   constructor() {
     const dataDir = resolveDataDir();
 
-    // Ensure the data directory exists
+    // Ensure the data directory exists. DEC-028 (Local-First Data Sovereignty):
+    // project memory never leaves the machine, so the files holding it are
+    // owner-only — 0700 on the directory, 0600 on the database below.
     if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+      fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     }
+    enforceOwnerOnly(dataDir, 0o700);
 
     this.dbPath = path.join(dataDir, 'asterim.db');
     console.log(`[Database] Using database at: ${this.dbPath}`);
 
     this.db = new DBSync(this.dbPath);
+
+    // After open, so the file exists on a first run. WAL leaves two sidecar
+    // files next to it holding the same data, so they are restricted too.
+    enforceOwnerOnly(this.dbPath, 0o600);
+
     this.init();
+
+    enforceOwnerOnly(`${this.dbPath}-wal`, 0o600);
+    enforceOwnerOnly(`${this.dbPath}-shm`, 0o600);
   }
 
   private init() {

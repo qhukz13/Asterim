@@ -8,6 +8,7 @@ import {
   AuthResponse,
   ClientType,
   LoginRequest,
+  OAuthCodeExchangeRequest,
   RegisterRequest,
   UserIdentity,
 } from '@asterim/shared';
