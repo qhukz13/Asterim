@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { isSovereignMode, announceSovereignBlock } from './SovereignMode';
 import { eventBus } from './EventBus';
 import { AsterimEvent } from '@asterim/shared';
 import {
@@ -32,6 +33,13 @@ export class RelayClient {
   }
 
   private async init() {
+    // Checked before the key pair is generated and before any socket exists:
+    // an air-gapped workstation should not even prepare to talk to a relay.
+    if (isSovereignMode()) {
+      announceSovereignBlock('RelayClient', 'Cloud Relay connection disabled.');
+      return;
+    }
+
     this.keyPair = await generateECDHKeyPair();
 
     console.log(`[RelayClient] Connecting to relay: ${this.relayUrl}`);

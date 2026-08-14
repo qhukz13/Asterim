@@ -2,6 +2,7 @@ import { dbService } from '../DatabaseService';
 import { IAIProvider } from './IAIProvider';
 import { GeminiProvider } from './providers/GeminiProvider';
 import { ActiveAgentProvider } from './providers/ActiveAgentProvider';
+import { isSovereignMode, announceSovereignBlock } from '../SovereignMode';
 
 class AiService {
   private activeProvider: IAIProvider | null = null;
@@ -35,7 +36,16 @@ class AiService {
         config[row.key] = row.value;
       }
 
-      const providerId = config['ai_provider'] || 'agent';
+      // DEC-028 § 3: sovereign mode "enforces local CLI execution via
+      // ActiveAgentProvider". GeminiProvider posts the diff — project source —
+      // to Google, so a sovereign host must not be able to select it, whatever
+      // the stored setting says. Not in this task's § 4 list, but an air-gap
+      // that still permits an outbound LLM call is not an air-gap.
+      const configuredProvider = config['ai_provider'] || 'agent';
+      const providerId = isSovereignMode() && configuredProvider !== 'agent' ? 'agent' : configuredProvider;
+      if (providerId !== configuredProvider) {
+        announceSovereignBlock('AiService', `remote provider '${configuredProvider}' replaced by local agent execution.`);
+      }
 
       // If provider changed or not initialized
       if (!this.activeProvider || this.activeProvider.id !== providerId) {

@@ -1,3 +1,4 @@
+import { isSovereignMode } from '../services/SovereignMode';
 import { FastifyInstance } from 'fastify';
 import { relayClient } from '../services/RelayClient';
 import { pushService } from '../services/PushService';
@@ -23,6 +24,7 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       tunnelId: relayClient.tunnelId,
       relayUrl: relayClient.relayUrl,
       isFirstRun,
+      sovereignMode: isSovereignMode(),
       binaries: startupService.getAgentBinariesStatus()
     };
   });
