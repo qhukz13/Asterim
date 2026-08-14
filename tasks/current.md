@@ -1,6 +1,6 @@
-# [P5.6-03] — Production Cloud Relay Hardening & Authentication
+# [P5.6-04] — Stripe Checkout, Customer Portal & Cryptographic Webhook Security
 
-**Task ID:** P5.6-03  
+**Task ID:** P5.6-04  
 **Phase:** Phase 5.6 — SaaS Foundation & Commercial Beta Release  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,112 +11,110 @@
 
 ## 1. Objective
 
-Harden `apps/relay` into a secure, production-ready WebSocket broker by implementing HMAC-signed tunnel registration authentication, connection and registration rate limiting, automatic idle tunnel reaping, health and telemetry metrics endpoints, and update `RelayClient.ts` in `apps/server` to sign tunnel registrations.
+Implement `BillingService.ts` for Stripe Checkout and Customer Portal session creation, expose authenticated `/api/v1/billing` REST endpoints, harden `/api/v1/webhooks/stripe` with cryptographic HMAC signature verification (`STRIPE_WEBHOOK_SECRET`), and ensure plan updates automatically provision feature entitlements in SQLite.
 
 ---
 
 ## 2. Why This Task Exists
 
-`apps/relay` currently operates as an unauthenticated prototype where any client can register or join any tunnel ID. In a production cloud deployment, unauthenticated tunnel registration permits tunnel ID hijacking, griefing, and resource exhaustion attacks.
-
-Adding HMAC signature authentication, per-IP rate limiting, idle tunnel garbage collection, and observability metrics ensures Asterim's Cloud Relay can be deployed safely to public cloud infrastructure (Fly.io / AWS / GCP) while maintaining blind E2E encryption where the relay has zero plaintext access to project data.
+Asterim requires commercial subscription readiness for its public beta launch. Developers on the Community (Free) plan must be able to upgrade to Pro or Team tiers via Stripe Checkout, manage billing details via Stripe Customer Portal, and have subscription webhooks securely update their local or SaaS account entitlements with cryptographic proof of payment.
 
 ---
 
 ## 3. Context
 
-* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 5 Deliverable 1.
-* **Phase 5 Reconciliation**: [`docs/phase5-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-reconciliation.md) (§2.1 & §4 Task P5.6-03).
-* **DEC-028 (Local-First Data Sovereignty)**: The relay server acts strictly as an untrusted blind packet forwarder. All payload data transiting `apps/relay` is End-to-End Encrypted (ECDH `P-256` + AES-GCM `256`).
+* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 5 Deliverable 3.
+* **Phase 5 Reconciliation**: [`docs/phase5-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-reconciliation.md) (§2.3 & §4 Task P5.6-04).
+* **Existing Primitives**:
+  - [`apps/server/src/services/PlanService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PlanService.ts): Defines tiers (`free`, `pro`, `team`, `enterprise`) and `updateAccountPlan()`.
+  - [`apps/server/src/services/EntitlementService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EntitlementService.ts): Checks feature flags and usage limits against `feature_entitlements`.
+  - [`apps/server/src/routes/webhooks.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/webhooks.ts): Existing webhook listener skeleton.
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/relay/src/index.ts`](file:///c:/Projects/Asterim/apps/relay/src/index.ts)
-* [`apps/relay/package.json`](file:///c:/Projects/Asterim/apps/relay/package.json)
-* [`apps/server/src/services/RelayClient.ts`](file:///c:/Projects/Asterim/apps/server/src/services/RelayClient.ts)
-* [`packages/mcp-memory-server/src/__tests__/relay_e2e.test.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/__tests__/relay_e2e.test.ts)
-* [`turbo.json`](file:///c:/Projects/Asterim/turbo.json)
+* [`apps/server/src/services/PlanService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PlanService.ts)
+* [`apps/server/src/services/EntitlementService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EntitlementService.ts)
+* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`apps/server/src/routes/webhooks.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/webhooks.ts)
+* [`apps/server/src/index.ts`](file:///c:/Projects/Asterim/apps/server/src/index.ts)
+* [`apps/server/package.json`](file:///c:/Projects/Asterim/apps/server/package.json)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **HMAC-Signed Tunnel Registration (`apps/relay` & `apps/server`)**:
-   - In `apps/relay/src/`:
-     - Implement signature verification for `register_tunnel`:
-       - Payload format: `{ tunnelId: string, signature?: string, timestamp?: number }` (or backward-compatible string if secret is unset).
-       - When `RELAY_SECRET` environment variable is present, compute `HMAC-SHA256(tunnelId + ":" + timestamp, RELAY_SECRET)` and verify with `crypto.timingSafeEqual`.
-       - Enforce timestamp freshness (e.g. within 5 minutes of server time) to prevent replay attacks.
-       - If `RELAY_SECRET` is unset (local development mode), permit registration while logging a development notice.
-       - Emit `tunnel_registered` on success, `tunnel_error` (`{ code: 'AUTH_FAILED', message }`) on failure.
-   - In `apps/server/src/services/RelayClient.ts`:
-     - Read `ASTERIM_RELAY_SECRET` (or `RELAY_SECRET`) from environment.
-     - When secret is present, generate timestamp and HMAC signature and transmit `{ tunnelId, signature, timestamp }` during `register_tunnel`.
+1. **`BillingService.ts` (`apps/server/src/services/BillingService.ts`)**:
+   - `createCheckoutSession({ accountId, planId, successUrl, cancelUrl })`:
+     - Validate `planId` against available plans (`pro`, `team`).
+     - Look up account in SQLite `accounts` table.
+     - When `STRIPE_SECRET_KEY` is configured: create Stripe Checkout Session with `client_reference_id: accountId`, `metadata: { accountId, planId }`, and `customer: stripeCustomerId || undefined`.
+     - When `STRIPE_SECRET_KEY` is unconfigured: throw structured `STRIPE_NOT_CONFIGURED` error or support mock/development mode if explicitly enabled.
+   - `createPortalSession({ accountId, returnUrl })`:
+     - Look up `stripe_customer_id` for the account. If missing, throw `NO_CUSTOMER_RECORD`.
+     - When Stripe is configured: create Stripe Billing Portal session URL.
+   - `getSubscriptionOverview(accountId)`:
+     - Return account's `current_plan_id`, `subscription_status`, `billing_status`, `stripe_customer_id`, and active feature entitlements.
 
-2. **Rate Limiting & Resource Protection (`apps/relay/src/index.ts`)**:
-   - Connection limiter: Cap maximum active socket connections per IP address (default: 50).
-   - Event rate limiter: Cap `register_tunnel` and `join_tunnel` events per IP (e.g. max 20 events per minute). Emit `tunnel_error` with `RATE_LIMITED` code when exceeded.
-   - Automatic Idle Tunnel Reaper: Sweep tunnels where the host server disconnected or where no messages have flowed for > 15 minutes, freeing memory.
+2. **Billing REST Routes (`apps/server/src/routes/billing.ts`)**:
+   - `POST /api/v1/billing/checkout` — Authenticated; accepts `{ planId, successUrl, cancelUrl }`, returns `{ checkoutUrl, sessionId }`.
+   - `POST /api/v1/billing/portal` — Authenticated; accepts `{ returnUrl }`, returns `{ portalUrl }`.
+   - `GET /api/v1/billing/subscription` — Authenticated; returns subscription & entitlement summary.
+   - Register route in `apps/server/src/index.ts`.
 
-3. **Health & Observability Metrics (`apps/relay/src/index.ts`)**:
-   - Enhance `GET /health` to return:
-     ```json
-     {
-       "status": "ok",
-       "service": "asterim-relay",
-       "version": "0.1.0",
-       "uptime": 123.4,
-       "activeTunnels": 3,
-       "connectedSockets": 5,
-       "authMode": "hmac_enabled" // or "development_open"
-     }
-     ```
-   - Add `GET /metrics` returning JSON / Prometheus counters (total connections, total tunnels created, messages forwarded, auth rejections).
+3. **Cryptographic Stripe Webhook Signature Verification (`apps/server/src/routes/webhooks.ts`)**:
+   - Implement `verifyStripeSignature(rawBody: string | Buffer, signatureHeader: string, secret: string, toleranceSeconds = 300)`:
+     - Extract `t=timestamp,v1=signature` from `stripe-signature` header.
+     - Compute `HMAC-SHA256(timestamp + "." + rawBody, secret)` and compare using `crypto.timingSafeEqual`.
+     - Reject timestamps older than `toleranceSeconds` (prevent replay attacks).
+   - When `STRIPE_WEBHOOK_SECRET` is set on server, reject unverified payloads with HTTP 400 (`{ error: 'Invalid webhook signature' }`).
+   - When `STRIPE_WEBHOOK_SECRET` is unset (development mode), process payload with logged notice.
+   - Handle events:
+     - `customer.subscription.created` & `customer.subscription.updated`:
+       - Extract `accountId` from `metadata.accountId` (or `client_reference_id`), `planId`, and `customer`.
+       - Call `planService.updateAccountPlan(accountId, planId, customerId)`.
+     - `customer.subscription.deleted`:
+       - Call `planService.updateAccountPlan(accountId, 'free')`.
+     - `invoice.payment_failed`:
+       - Update `accounts` table setting `billing_status = 'past_due'`.
 
-4. **Automated Unit Test Suite**:
-   - Create `apps/relay/src/__tests__/relay.test.ts`:
-     - Test tunnel registration with valid HMAC signature → success.
-     - Test tunnel registration with invalid signature / expired timestamp → rejected with `AUTH_FAILED`.
-     - Test development mode (no secret) → accepts registration.
-     - Test mobile client joining an existing tunnel vs non-existent tunnel.
-     - Test E2E message forwarding between workstation and mobile client within a tunnel.
-     - Test tunnel isolation (messages in Tunnel A never leak to Tunnel B).
-     - Test disconnect cleanup and client notification.
-     - Test rate limiting on rapid repeated connections.
-   - Add `"test": "tsx src/__tests__/relay.test.ts"` to `apps/relay/package.json`.
+4. **Automated Unit Test Suite (`apps/server/src/services/__tests__/BillingService.test.ts`)**:
+   - Test signature verification with valid HMAC signatures, forged signatures, expired timestamps, and missing headers.
+   - Test checkout session creation and error handling.
+   - Test customer portal generation.
+   - Test webhook event dispatch: subscription created/updated updates account plan and syncs entitlements in SQLite; subscription deleted downgrades account to `free`.
+   - Wire `BillingService.test.ts` into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** decrypt, log, or inspect payload bytes in `apps/relay` (blind forwarder invariant).
-* Do **NOT** break backward compatibility of `packages/mcp-memory-server/src/__tests__/relay_e2e.test.ts`.
-* Do **NOT** store plaintext persistent data in `apps/relay` (in-memory routing tables only).
+* Do **NOT** require credit cards or block access to Community (Free) edition.
+* Do **NOT** make outbound network calls to Stripe during unit tests (use mocked responses or test helpers).
+* Do **NOT** log or store raw customer credit card numbers or Stripe private keys in database rows.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `apps/relay` enforces HMAC signature validation on `register_tunnel` when `RELAY_SECRET` is set.
-2. `RelayClient.ts` signs tunnel registrations using `ASTERIM_RELAY_SECRET` when configured.
-3. Rapid invalid connection/registration attempts are throttled by per-IP rate limiting.
-4. `GET /health` and `GET /metrics` report accurate operational telemetry without exposing sensitive tunnel keys.
-5. `apps/relay/src/__tests__/relay.test.ts` passes all test cases cleanly.
-6. All 23 monorepo test suites pass via `pnpm run test` (1,650+ assertions, 0 failures).
-7. `pnpm run typecheck`, `pnpm run lint`, `pnpm run build` all pass with 0 errors.
+1. `verifyStripeSignature()` correctly validates genuine Stripe webhook signatures and rejects forged or replayed signatures in constant time.
+2. `POST /api/v1/webhooks/stripe` updates SQLite `accounts` and `feature_entitlements` tables accurately across subscription lifecycles (`created`, `updated`, `deleted`, `payment_failed`).
+3. `POST /api/v1/billing/checkout` and `POST /api/v1/billing/portal` return valid URLs or descriptive configuration errors when unconfigured.
+4. `GET /api/v1/billing/subscription` returns accurate plan and entitlement states.
+5. `BillingService.test.ts` passes with comprehensive assertions.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (24 test suites), `pnpm run build`.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] HMAC signature verification implemented on `apps/relay`
-- [ ] `RelayClient.ts` updated to transmit HMAC signatures
-- [ ] Rate limiting and idle tunnel cleanup active
-- [ ] `apps/relay/src/__tests__/relay.test.ts` created and passing
-- [ ] `pnpm run test` passes across all packages (including `apps/relay`)
+- [ ] `BillingService.ts` implemented
+- [ ] `/api/v1/billing` routes registered and functional
+- [ ] Stripe webhook signature verification active
+- [ ] `BillingService.test.ts` passing
+- [ ] `pnpm run test` passes across all packages
 - [ ] Monorepo CI gates pass: typecheck, lint, test, build
 
 ---
@@ -124,11 +122,11 @@ Inspect:
 ## 9. Verification Commands
 
 ```bash
-# Run relay unit test suite
-pnpm --filter @asterim/relay exec tsx src/__tests__/relay.test.ts
+# Run new Billing unit test suite
+pnpm --filter asterim exec tsx src/services/__tests__/BillingService.test.ts
 
-# Run cross-process relay E2E test
-pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/relay_e2e.test.ts
+# Run all server test suites
+pnpm --filter asterim exec tsx src/routes/__tests__/internal.test.ts
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
@@ -141,8 +139,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Verify timing-safe comparison (`crypto.timingSafeEqual`) is used for HMAC verification.
-- Verify `relay_e2e.test.ts` passes without regressions.
+- Verify timing-safe comparison (`crypto.timingSafeEqual`) is used for webhook signatures.
+- Verify `feature_entitlements` table is correctly populated upon subscription update.
 
 ---
 
