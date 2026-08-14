@@ -1,7 +1,7 @@
-# [P5.5-01] — Technical Debt, Security Hardening & CI Typecheck Integration
+# [P5.6-01] — CI Test Suite Automation & ESLint Debt Resolution
 
-**Task ID:** P5.5-01  
-**Phase:** Phase 5.5 — Hardening & Technical Debt Resolution  
+**Task ID:** P5.6-01  
+**Phase:** Phase 5.6 — SaaS Foundation & Commercial Beta Release  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -11,136 +11,120 @@
 
 ## 1. Objective
 
-Clear all standing pre-existing TypeScript compiler errors across `apps/server`, implement brute-force rate limiting and lockout protection on the device pairing PIN, untrack credential files from Git, enforce `0600`/`0700` local database permissions, and integrate a monorepo-wide `typecheck` task into `turbo.json`.
+Clear all 64 pre-existing ESLint errors across `apps/server` and `@asterim/adapters`, wire all 21 Phase 5 test suites (1,540 assertions) into package-level `test` scripts and a consolidated `turbo run test` task, and update `.github/workflows/ci.yml` so that CI enforces Typecheck, Lint, Test, and Build with 100% green status.
 
 ---
 
 ## 2. Why This Task Exists
 
-The Phase 5 Production Gate (`GATE-P5`) verified the complete Project Memory and continuous governance subsystem with 1,488 passing assertions. However, 4 pre-existing `tsc` errors in `apps/server` and several local security gaps were identified:
-- `tsup` bundles `apps/server` without running type checks, hiding type errors behind a passing build.
-- The 6-digit pairing PIN endpoint has no rate limiting or lockout protection.
-- Live `pairing_pin.txt` credential files are tracked in Git.
-- `asterim.db` is created with default `0644` permissions instead of owner-only `0600`.
+During the Phase 5 Production Gate (`GATE-P5`), 21 self-contained test suites were verified. However, they currently execute only when run by hand because `turbo.json` lacks a `test` task. Furthermore, `pnpm run lint` fails on `main` due to 64 mechanical lint errors (~40 in `apps/server`, ~24 in `@asterim/adapters`).
 
-Resolving these issues ensures Asterim enters Phase 6 on a clean, secure, and 100% type-checked foundation.
+Resolving lint debt and wiring automated test execution into CI creates a permanent, standing regression guard before developing SaaS relay authentication, Stripe billing, or container deployment.
 
 ---
 
 ## 3. Context
 
-* **DEC-028**: Local-First Data Sovereignty. Local database files (`asterim.db`) and auth tokens must be restricted to owner-only permissions (`0600` / `0700`).
-* **GATE-P5 Audit**: [`docs/phase5-production-gate.md`](file:///c:/Projects/Asterim/docs/phase5-production-gate.md) (§12 Security Findings and §13 Production Blockers).
+* **GATE-P5 Audit**: [`docs/phase5-production-gate.md`](file:///c:/Projects/Asterim/docs/phase5-production-gate.md) (§8.1 CI/Lint Gap and §15 Recommendation H1).
+* **Phase 5 Reconciliation**: [`docs/phase5-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-reconciliation.md) (§4 Task P5.6-01).
+* Common ESLint error patterns to fix cleanly:
+  - `no-empty`: Empty catch blocks must carry an explicit comment or logged warning.
+  - `no-useless-assignment`: Variables initialized or assigned but overwritten before being read.
+  - `preserve-caught-error`: Rethrown errors must attach `{ cause: err }`.
+  - `no-this-alias`: Avoid `const self = this`.
+  - `no-unused-vars` / `no-explicit-any`.
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/server/src/controllers/AuthController.ts`](file:///c:/Projects/Asterim/apps/server/src/controllers/AuthController.ts#L354)
-* [`apps/server/src/services/AgentService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/AgentService.ts#L164)
-* [`apps/server/src/services/ContextService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ContextService.ts#L109)
-* [`apps/server/src/services/ai/providers/GeminiProvider.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ai/providers/GeminiProvider.ts#L2)
-* [`apps/server/src/services/PairingService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PairingService.ts)
-* [`apps/server/src/routes/auth.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/auth.ts)
-* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`.github/workflows/ci.yml`](file:///c:/Projects/Asterim/.github/workflows/ci.yml)
 * [`turbo.json`](file:///c:/Projects/Asterim/turbo.json)
-* [`.gitignore`](file:///c:/Projects/Asterim/.gitignore)
-* [`decisions.md`](file:///c:/Projects/Asterim/decisions.md) (DEC-028)
+* [`package.json`](file:///c:/Projects/Asterim/package.json)
+* [`apps/server/package.json`](file:///c:/Projects/Asterim/apps/server/package.json)
+* [`packages/mcp-memory-server/package.json`](file:///c:/Projects/Asterim/packages/mcp-memory-server/package.json)
+* [`apps/web/package.json`](file:///c:/Projects/Asterim/apps/web/package.json)
+* [`packages/adapters/package.json`](file:///c:/Projects/Asterim/packages/adapters/package.json)
+* [`apps/server/src/`](file:///c:/Projects/Asterim/apps/server/src)
+* [`packages/adapters/src/`](file:///c:/Projects/Asterim/packages/adapters/src)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **Fix Server `tsc` Type Errors (`apps/server`)**:
-   - `AuthController.ts:354`: Fix missing type definition / import for `OAuthCodeExchangeRequest`.
-   - `AgentService.ts:164`: Correct reference to `socketManager` on module export.
-   - `ContextService.ts:109`: Correct `type` property access on `ContextEntry` interface.
-   - `GeminiProvider.ts:2`: Fix import path for `./IAIProvider` interface.
-   - **Verification**: `pnpm --filter asterim exec tsc --noEmit` must return **0 errors**.
+1. **Resolve ESLint Errors**:
+   - Fix all ~40 lint errors in `apps/server/src/**`.
+   - Fix all ~24 lint errors in `packages/adapters/src/**`.
+   - Do NOT use blanket `/* eslint-disable */` file disables; fix the underlying code cleanly.
 
-2. **Pairing PIN Brute-Force Rate Limiting (`PairingService.ts` & `routes/auth.ts`)**:
-   - Implement attempt counter and progressive lockout in `PairingService`:
-     - Track failed attempts by client identifier / IP.
-     - Exponential delay (e.g. 500ms -> 1s -> 2s) and lockout after 5 consecutive failed attempts (15-minute cooldown).
-     - Return HTTP 429 Too Many Requests with informative error message on lockout.
-     - Reset failed attempt counter on successful pairing.
-   - Add unit tests in `apps/server/src/services/__tests__/PairingService.test.ts` verifying rate limiting and lockout behavior.
-
-3. **Untrack Credential Files & Git Hygiene (`.gitignore`)**:
-   - Remove `pairing_pin.txt` and `apps/server/pairing_pin.txt` from Git tracking (`git rm --cached`).
-   - Add `pairing_pin.txt`, `**/pairing_pin.txt`, and `*.tsbuildinfo` to `.gitignore`.
-   - Correct the stale `.agentdeck` reference in `.gitignore` to `.asterim`.
-
-4. **Owner-Only Filesystem Permissions (`DatabaseService.ts`)**:
-   - When creating `dataDir` (`~/.asterim`), enforce directory permissions `0700` (`fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })`).
-   - When creating or opening `asterim.db`, ensure file mode is set to `0600` (`fs.chmodSync(this.dbPath, 0o600)` on non-Windows/POSIX systems where applicable).
-
-5. **Turbo & CI Typecheck Task (`turbo.json` & `package.json`)**:
-   - Add `"typecheck"` task to `turbo.json`:
+2. **Package Test Scripts & Turbo Task**:
+   - Add `"test"` scripts to each package that holds tests:
+     - `apps/server/package.json`: Run its 9 test suites (`MemoryRelevanceEngine`, `memory` routes, `memory-candidates` routes, `internal` routes, `DecisionExtractor`, `GitDriftDetector`, `SovereignMode`, `PairingService`, `ProjectMemoryService`).
+     - `packages/mcp-memory-server/package.json`: Run its 7 test suites (`retrieval_tools`, `record_decision`, `dogfood_scenario`, `relay-client`, `relay_e2e`, `resolver`, `stdio_scaffold`).
+     - `apps/web/package.json`: Run its 4 test suites (`DecisionExplorer`, `CandidateReview`, `MemoryTimeline`, `useMemoryStore`).
+     - `packages/adapters/package.json`: Run its test suite (`ProcessManager`).
+   - In `turbo.json`:
      ```json
-     "typecheck": {
+     "test": {
        "dependsOn": ["^build"]
      }
      ```
-   - Add `"typecheck": "tsc --noEmit"` to `apps/server/package.json` and ensure all packages expose `typecheck`.
-   - Add `"typecheck": "turbo run typecheck"` to root `package.json`.
+   - In root `package.json`:
+     ```json
+     "test": "turbo run test"
+     ```
 
-6. **DEC-028 Clarification (`decisions.md`)**:
-   - Update DEC-028 §3 to explicitly note:
-     *"Sovereign Mode guarantees zero outbound external network connections from Asterim Core to remote cloud endpoints. Local subnet mDNS discovery (UDP 5353) remains active strictly for zero-config LAN device pairing and does not transmit project memory or telemetry data."*
+3. **CI Pipeline Integration (`.github/workflows/ci.yml`)**:
+   - Ensure the workflow executes in order:
+     1. `pnpm run typecheck`
+     2. `pnpm run lint`
+     3. `pnpm run test`
+     4. `pnpm run build`
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** weaken security on the loopback relay token (`server.json`) or auth routes.
-* Do **NOT** remove or disable `strict` typechecking in `tsconfig.json`.
-* Do **NOT** alter the SQLite database schema for project memory tables.
+* Do **NOT** disable ESLint rules in `.eslintrc` or `eslint.config.js`.
+* Do **NOT** delete or skip any of the 21 Phase 5 test suites.
+* Do **NOT** alter application business logic or SQLite database schemas.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `pnpm --filter asterim exec tsc --noEmit` passes with **0 errors**.
-2. `pnpm run typecheck` succeeds across all workspace packages in `turbo.json`.
-3. `POST /api/v1/auth/pair` enforces rate limiting and lockout after repeated invalid PIN attempts (verified with automated unit tests).
-4. `pairing_pin.txt` is untracked by Git and ignored in `.gitignore`.
-5. `DatabaseService` enforces owner-only permissions (`0700`/`0600`) on `~/.asterim/` and `asterim.db`.
-6. DEC-028 is updated with the local mDNS discovery boundary.
-7. All 20 existing Phase 5 test suites continue to pass with 0 failures, and `pnpm run build` succeeds cleanly.
+1. `pnpm run lint` passes across the entire monorepo with **0 errors and 0 warnings**.
+2. `pnpm run test` executes all 21 test suites via Turbo and passes with **0 failures (1,540+ assertions)**.
+3. `pnpm run typecheck` continues to pass cleanly with **0 errors**.
+4. `pnpm run build` succeeds across all 7 workspace packages.
+5. `.github/workflows/ci.yml` is updated with the `pnpm run test` step.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] `tsc --noEmit` passes with 0 errors across entire repository
-- [ ] `pnpm run typecheck` passes cleanly via Turbo
-- [ ] `pnpm run build` passes (7/7)
-- [ ] Pairing PIN brute-force unit tests pass
-- [ ] All 20 Phase 5 test suites pass
-- [ ] Clean Git diff with no stray or tracked credential files
+- [ ] `pnpm run lint` reports 0 errors repo-wide
+- [ ] `pnpm run test` passes across all workspace packages
+- [ ] `pnpm run typecheck` passes (11/11 turbo tasks)
+- [ ] `pnpm run build` passes (7/7 packages)
+- [ ] Clean Git diff with no unwanted changes
 
 ---
 
 ## 9. Verification Commands
 
 ```bash
-# Typecheck entire monorepo
+# Run lint check across all packages
+pnpm run lint
+
+# Run all test suites via Turbo
+pnpm run test
+
+# Run typecheck
 pnpm run typecheck
 
-# Verify server typecheck specifically
-pnpm --filter asterim exec tsc --noEmit
-
-# Run pairing security tests
-pnpm --filter asterim exec tsx src/services/__tests__/PairingService.test.ts
-
-# Re-run core Phase 5 verification suites
-pnpm --filter asterim exec tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts
-pnpm --filter asterim exec tsx src/services/git/__tests__/GitDriftDetector.test.ts
-pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/retrieval_tools.test.ts
-
-# Full monorepo build
+# Run full monorepo build
 pnpm run build
 ```
 
@@ -148,8 +132,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Inspect `git diff` to verify all 4 type errors are cleanly resolved without using `@ts-ignore` or `any` workarounds.
-- Verify no `pairing_pin.txt` file remains in `git status`.
+- Inspect `git diff` to confirm lint fixes are clean and preserve original behavior.
+- Ensure all 21 test suites are wired into `pnpm run test` without any suite left out.
 
 ---
 
