@@ -1,6 +1,6 @@
-# [P5.6-04] — Stripe Checkout, Customer Portal & Cryptographic Webhook Security
+# [P5.6-05] — Multi-Stage Production Containerization, Dockerfiles & Release Pipeline
 
-**Task ID:** P5.6-04  
+**Task ID:** P5.6-05  
 **Phase:** Phase 5.6 — SaaS Foundation & Commercial Beta Release  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,127 +11,108 @@
 
 ## 1. Objective
 
-Implement `BillingService.ts` for Stripe Checkout and Customer Portal session creation, expose authenticated `/api/v1/billing` REST endpoints, harden `/api/v1/webhooks/stripe` with cryptographic HMAC signature verification (`STRIPE_WEBHOOK_SECRET`), and ensure plan updates automatically provision feature entitlements in SQLite.
+Create hardened, minimal, multi-stage production Dockerfiles for Asterim Core Server (`Dockerfile.server`) and Cloud Relay (`Dockerfile.relay`), configure `.dockerignore`, author a comprehensive operations runbook (`docs/operations-runbook.md`) detailing all environment variables and secret rotation procedures, and establish the GitHub Actions automated release pipeline (`.github/workflows/release.yml`).
 
 ---
 
 ## 2. Why This Task Exists
 
-Asterim requires commercial subscription readiness for its public beta launch. Developers on the Community (Free) plan must be able to upgrade to Pro or Team tiers via Stripe Checkout, manage billing details via Stripe Customer Portal, and have subscription webhooks securely update their local or SaaS account entitlements with cryptographic proof of payment.
+Asterim's Core Server and Cloud Relay are now feature-complete, authenticated, type-checked, and test-verified. To launch the commercial public beta, operators and developers require reproducible, minimal, and secure container images (Node 22 Alpine, non-root user, container healthchecks), clear operations documentation for `RELAY_SECRET` and `STRIPE_*` configuration, and automated CI/CD release packaging on version tags.
 
 ---
 
 ## 3. Context
 
-* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 5 Deliverable 3.
-* **Phase 5 Reconciliation**: [`docs/phase5-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-reconciliation.md) (§2.3 & §4 Task P5.6-04).
-* **Existing Primitives**:
-  - [`apps/server/src/services/PlanService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PlanService.ts): Defines tiers (`free`, `pro`, `team`, `enterprise`) and `updateAccountPlan()`.
-  - [`apps/server/src/services/EntitlementService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EntitlementService.ts): Checks feature flags and usage limits against `feature_entitlements`.
-  - [`apps/server/src/routes/webhooks.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/webhooks.ts): Existing webhook listener skeleton.
+* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 5 Deliverable 6.
+* **Phase 5 Reconciliation**: [`docs/phase5-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-reconciliation.md) (§2.6 & §4 Task P5.6-05).
+* **DEC-028 (Local-First & Data Sovereignty)**: Containerized deployment must support `ASTERIM_SOVEREIGN_MODE=true` for 100% offline operation as well as connected cloud mode.
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/server/src/services/PlanService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PlanService.ts)
-* [`apps/server/src/services/EntitlementService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EntitlementService.ts)
-* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
-* [`apps/server/src/routes/webhooks.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/webhooks.ts)
-* [`apps/server/src/index.ts`](file:///c:/Projects/Asterim/apps/server/src/index.ts)
 * [`apps/server/package.json`](file:///c:/Projects/Asterim/apps/server/package.json)
+* [`apps/relay/package.json`](file:///c:/Projects/Asterim/apps/relay/package.json)
+* [`apps/relay/src/index.ts`](file:///c:/Projects/Asterim/apps/relay/src/index.ts)
+* [`.github/workflows/ci.yml`](file:///c:/Projects/Asterim/.github/workflows/ci.yml)
+* [`turbo.json`](file:///c:/Projects/Asterim/turbo.json)
+* [`.gitignore`](file:///c:/Projects/Asterim/.gitignore)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **`BillingService.ts` (`apps/server/src/services/BillingService.ts`)**:
-   - `createCheckoutSession({ accountId, planId, successUrl, cancelUrl })`:
-     - Validate `planId` against available plans (`pro`, `team`).
-     - Look up account in SQLite `accounts` table.
-     - When `STRIPE_SECRET_KEY` is configured: create Stripe Checkout Session with `client_reference_id: accountId`, `metadata: { accountId, planId }`, and `customer: stripeCustomerId || undefined`.
-     - When `STRIPE_SECRET_KEY` is unconfigured: throw structured `STRIPE_NOT_CONFIGURED` error or support mock/development mode if explicitly enabled.
-   - `createPortalSession({ accountId, returnUrl })`:
-     - Look up `stripe_customer_id` for the account. If missing, throw `NO_CUSTOMER_RECORD`.
-     - When Stripe is configured: create Stripe Billing Portal session URL.
-   - `getSubscriptionOverview(accountId)`:
-     - Return account's `current_plan_id`, `subscription_status`, `billing_status`, `stripe_customer_id`, and active feature entitlements.
+1. **Multi-Stage Production Containerization**:
+   - Create `Dockerfile.server`:
+     - Stage 1 (Builder): Uses `node:22-alpine`, installs pnpm, prunes and builds `@asterim/shared`, `@asterim/web`, and `asterim` (server).
+     - Stage 2 (Runner): Minimal `node:22-alpine` image, non-root execution (`USER node`), exposes port `3000`, defines volume `/home/node/.asterim`, sets `NODE_ENV=production`.
+     - Includes built-in `HEALTHCHECK` probing `GET /health` or `GET /api/v1/system`.
+   - Create `Dockerfile.relay`:
+     - Stage 1 (Builder): Prunes and builds `apps/relay`.
+     - Stage 2 (Runner): Minimal `node:22-alpine` image, non-root execution (`USER node`), exposes port `4000`, sets `NODE_ENV=production`.
+     - Includes built-in `HEALTHCHECK` probing `GET /health`.
+   - Create `.dockerignore` excluding `.git`, `node_modules`, `.turbo`, `*.log`, `agentdeck.db`, `~/.asterim`, and scratch files.
 
-2. **Billing REST Routes (`apps/server/src/routes/billing.ts`)**:
-   - `POST /api/v1/billing/checkout` — Authenticated; accepts `{ planId, successUrl, cancelUrl }`, returns `{ checkoutUrl, sessionId }`.
-   - `POST /api/v1/billing/portal` — Authenticated; accepts `{ returnUrl }`, returns `{ portalUrl }`.
-   - `GET /api/v1/billing/subscription` — Authenticated; returns subscription & entitlement summary.
-   - Register route in `apps/server/src/index.ts`.
+2. **Operations & Environment Runbook (`docs/operations-runbook.md`)**:
+   - Create authoritative operations runbook documenting:
+     - **Core Server Configuration**: `PORT`, `HOST`, `ASTERIM_DATA_DIR`, `ASTERIM_SOVEREIGN_MODE`.
+     - **Cloud Relay Configuration & Secret Generation**: `RELAY_SECRET`, `ASTERIM_RELAY_URL`, `ASTERIM_RELAY_SECRET`, `RELAY_MAX_CONNECTIONS_PER_IP`, `RELAY_MAX_EVENTS_PER_MINUTE`, `RELAY_IDLE_TUNNEL_MS`.
+     - **Stripe SaaS Billing Configuration**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_TEAM`.
+     - **Docker Deployment Recipes**: `docker run` commands for Core Server (with volume mount) and standalone Cloud Relay.
+     - **Secret Rotation Playbook**: Zero-downtime rotation instructions for Relay HMAC secrets and Stripe webhook keys.
 
-3. **Cryptographic Stripe Webhook Signature Verification (`apps/server/src/routes/webhooks.ts`)**:
-   - Implement `verifyStripeSignature(rawBody: string | Buffer, signatureHeader: string, secret: string, toleranceSeconds = 300)`:
-     - Extract `t=timestamp,v1=signature` from `stripe-signature` header.
-     - Compute `HMAC-SHA256(timestamp + "." + rawBody, secret)` and compare using `crypto.timingSafeEqual`.
-     - Reject timestamps older than `toleranceSeconds` (prevent replay attacks).
-   - When `STRIPE_WEBHOOK_SECRET` is set on server, reject unverified payloads with HTTP 400 (`{ error: 'Invalid webhook signature' }`).
-   - When `STRIPE_WEBHOOK_SECRET` is unset (development mode), process payload with logged notice.
-   - Handle events:
-     - `customer.subscription.created` & `customer.subscription.updated`:
-       - Extract `accountId` from `metadata.accountId` (or `client_reference_id`), `planId`, and `customer`.
-       - Call `planService.updateAccountPlan(accountId, planId, customerId)`.
-     - `customer.subscription.deleted`:
-       - Call `planService.updateAccountPlan(accountId, 'free')`.
-     - `invoice.payment_failed`:
-       - Update `accounts` table setting `billing_status = 'past_due'`.
-
-4. **Automated Unit Test Suite (`apps/server/src/services/__tests__/BillingService.test.ts`)**:
-   - Test signature verification with valid HMAC signatures, forged signatures, expired timestamps, and missing headers.
-   - Test checkout session creation and error handling.
-   - Test customer portal generation.
-   - Test webhook event dispatch: subscription created/updated updates account plan and syncs entitlements in SQLite; subscription deleted downgrades account to `free`.
-   - Wire `BillingService.test.ts` into `apps/server/package.json` `"test"` script.
+3. **Release Automation Pipeline (`.github/workflows/release.yml`)**:
+   - Trigger on git tag push `v*` (e.g. `v0.1.0`).
+   - Executes validation jobs:
+     - `Typecheck` (`pnpm run typecheck`)
+     - `Lint` (`pnpm run lint`)
+     - `Test` (`pnpm run test`)
+     - `Build` (`pnpm run build`)
+   - Builds Docker images (`asterim-server`, `asterim-relay`).
+   - Publishes GitHub Release draft with generated release assets.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** require credit cards or block access to Community (Free) edition.
-* Do **NOT** make outbound network calls to Stripe during unit tests (use mocked responses or test helpers).
-* Do **NOT** log or store raw customer credit card numbers or Stripe private keys in database rows.
+* Do **NOT** run containers as `root` (enforce `USER node`).
+* Do **NOT** bake secrets, private keys, or API tokens into Docker images.
+* Do **NOT** break any existing tests or build commands.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `verifyStripeSignature()` correctly validates genuine Stripe webhook signatures and rejects forged or replayed signatures in constant time.
-2. `POST /api/v1/webhooks/stripe` updates SQLite `accounts` and `feature_entitlements` tables accurately across subscription lifecycles (`created`, `updated`, `deleted`, `payment_failed`).
-3. `POST /api/v1/billing/checkout` and `POST /api/v1/billing/portal` return valid URLs or descriptive configuration errors when unconfigured.
-4. `GET /api/v1/billing/subscription` returns accurate plan and entitlement states.
-5. `BillingService.test.ts` passes with comprehensive assertions.
-6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (24 test suites), `pnpm run build`.
+1. `Dockerfile.server` and `Dockerfile.relay` build minimal, production-ready images using multi-stage builds and run as non-root user.
+2. `docs/operations-runbook.md` provides complete, accurate documentation of all environment variables, secret rotation, and deployment recipes.
+3. `.github/workflows/release.yml` triggers on version tags and enforces all quality gates before release packaging.
+4. All 24 test suites pass via `pnpm run test` (1,802+ assertions, 0 failures).
+5. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] `BillingService.ts` implemented
-- [ ] `/api/v1/billing` routes registered and functional
-- [ ] Stripe webhook signature verification active
-- [ ] `BillingService.test.ts` passing
-- [ ] `pnpm run test` passes across all packages
-- [ ] Monorepo CI gates pass: typecheck, lint, test, build
+- [ ] `Dockerfile.server` created and valid
+- [ ] `Dockerfile.relay` created and valid
+- [ ] `.dockerignore` created
+- [ ] `docs/operations-runbook.md` authored
+- [ ] `.github/workflows/release.yml` created
+- [ ] All 24 test suites pass (1,802 assertions)
+- [ ] Monorepo CI gates pass cleanly
 
 ---
 
 ## 9. Verification Commands
 
 ```bash
-# Run new Billing unit test suite
-pnpm --filter asterim exec tsx src/services/__tests__/BillingService.test.ts
-
-# Run all server test suites
-pnpm --filter asterim exec tsx src/routes/__tests__/internal.test.ts
+# Verify test suites
+pnpm run test
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
 pnpm run lint
-pnpm run test
 pnpm run build
 ```
 
@@ -139,8 +120,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Verify timing-safe comparison (`crypto.timingSafeEqual`) is used for webhook signatures.
-- Verify `feature_entitlements` table is correctly populated upon subscription update.
+- Verify Dockerfiles use Alpine non-root `USER node` and proper volume declarations.
+- Verify `docs/operations-runbook.md` covers all environment variables introduced across Phase 5.
 
 ---
 
