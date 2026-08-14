@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type {
   ArchitecturalRule,
   ProjectBriefing,
+  DecisionDriftInfo,
   ProjectDecision,
   ProjectIntent,
   DecisionStatus
@@ -11,6 +12,7 @@ import { RecordDecisionModal } from './RecordDecisionModal';
 import { MemoryTimelineView } from './MemoryTimelineView';
 import { ReentryBriefingCard } from './ReentryBriefingCard';
 import { DecisionActions } from './DecisionActions';
+import { DriftBadge } from './DriftBadge';
 import { CreateRuleModal, severityColor } from './CreateRuleModal';
 import { UpdateIntentModal } from './UpdateIntentModal';
 import { anchorLabels, provenanceLabel, buildLineage } from './decisionHelpers';
@@ -185,11 +187,13 @@ function ProvenanceBadge({ decision }: { decision: ProjectDecision }) {
 function DecisionCard({
   decision,
   projectId,
-  lineage
+  lineage,
+  drift
 }: {
   decision: ProjectDecision;
   projectId: string | null;
   lineage?: Lineage;
+  drift?: DecisionDriftInfo;
 }) {
   const [showRationale, setShowRationale] = useState(false);
   const anchors = anchorLabels(decision);
@@ -216,6 +220,8 @@ function DecisionCard({
         </h3>
         <StatusBadge status={decision.status} />
       </div>
+
+      <DriftBadge drift={drift} />
 
       <div
         style={{
@@ -465,6 +471,8 @@ export interface DecisionExplorerViewProps extends DecisionExplorerProps {
   rules: ArchitecturalRule[];
   activeIntent: ProjectIntent | null;
   briefing: ProjectBriefing | null;
+  /** Drift keyed by decision id; absent entries are clean. */
+  drift?: Record<string, DecisionDriftInfo>;
   loading: boolean;
   error: string | null;
   /** Initial lens. Exposed so a render test can reach the timeline. */
@@ -490,6 +498,7 @@ export function DecisionExplorerView({
   rules,
   activeIntent,
   briefing,
+  drift = {},
   loading,
   error,
   initialMode = 'explorer',
@@ -622,7 +631,7 @@ export function DecisionExplorerView({
       {mode === 'timeline' ? (
         <>
           <ReentryBriefingCard briefing={briefing} projectId={projectId} />
-          <MemoryTimelineView decisions={decisions} projectId={projectId} />
+          <MemoryTimelineView decisions={decisions} projectId={projectId} drift={drift} />
         </>
       ) : (
         <>
@@ -771,6 +780,7 @@ export function DecisionExplorerView({
               decision={decision}
               projectId={projectId}
               lineage={lineage.get(decision.id)}
+              drift={drift[decision.id]}
             />
           ))}
         </div>
@@ -807,6 +817,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
   const rules = useMemoryStore(s => s.rules);
   const activeIntent = useMemoryStore(s => s.activeIntent);
   const briefing = useMemoryStore(s => s.briefing);
+  const drift = useMemoryStore(s => s.drift);
   const loading = useMemoryStore(s => s.loading);
   const error = useMemoryStore(s => s.error);
 
@@ -818,6 +829,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
     if (!projectId) return;
     void store.fetchBriefing(projectId);
     void store.fetchDecisions(projectId);
+    void store.fetchDrift(projectId);
   }, [projectId]);
 
   return (
@@ -827,6 +839,7 @@ export function DecisionExplorer({ projectId }: DecisionExplorerProps) {
       rules={rules}
       activeIntent={activeIntent}
       briefing={briefing}
+      drift={drift}
       loading={loading}
       error={error}
     />

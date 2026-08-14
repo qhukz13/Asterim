@@ -18,7 +18,8 @@ import type {
   MemoryDecisionSupersededPayload,
   MemoryDecisionUpdatedPayload,
   MemoryIntentUpdatedPayload,
-  MemoryRuleCreatedPayload
+  MemoryRuleCreatedPayload,
+  DecisionDriftInfo
 } from '@asterim/shared';
 
 /** Row shape returned from the project_decisions table. */
@@ -504,6 +505,27 @@ export class ProjectMemoryService {
     return rows.map(mapRule);
   }
 
+  /**
+   * Computes drift for a project's ACTIVE decisions.
+   *
+   * Async and delegating, unlike everything else here: drift is not persisted and
+   * cannot be — it is a comparison against the working tree at the moment it is
+   * asked for. The git work itself stays in `GitDriftDetector`; this method only
+   * resolves the project's path and hands over the decisions. Per DEC-027 nothing
+   * is written as a result.
+   */
+  public async getProjectDrift(projectId: string): Promise<Record<string, DecisionDriftInfo>> {
+    const db = dbService.getDb();
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as
+      | { path: string }
+      | undefined;
+
+    if (!project?.path) return {};
+
+    const { gitDriftDetector } = await import('./git/GitDriftDetector');
+    return gitDriftDetector.detectAll(project.path, this.listDecisions(projectId, { status: 'ACTIVE' }));
+  }
+
   // --- Briefing ---
 
   /**
@@ -517,10 +539,19 @@ export class ProjectMemoryService {
    * `approvals` tables — there is no separate agent-work log (see
    * docs/p5.0-01-verification-report.md § 2).
    */
-  public getProjectBriefing(projectId: string): ProjectBriefing {
+  public getProjectBriefing(
+    projectId: string,
+    drift?: Record<string, DecisionDriftInfo>
+  ): ProjectBriefing {
     const db = dbService.getDb();
 
-    const activeDecisions = this.listDecisions(projectId, { status: 'ACTIVE' });
+    // Drift is passed in rather than computed here: this method is synchronous and
+    // deterministic, and both properties are relied on (the MCP briefing tool, the
+    // byte-identical assertion in its tests). The caller does the async git work.
+    const activeDecisions = this.listDecisions(projectId, { status: 'ACTIVE' }).map(decision => {
+      const decisionDrift = drift?.[decision.id];
+      return decisionDrift?.drifted ? { ...decision, drift: decisionDrift } : decision;
+    });
     const architecturalRules = this.listRules(projectId);
     const currentIntent = this.getActiveIntent(projectId);
 

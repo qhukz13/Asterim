@@ -169,12 +169,32 @@ export default async function memoryRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * GET /api/v1/projects/:id/memory/briefing
+   * GET /api/v1/projects/:id/memory/drift
+   *
+   * Drift across the project's ACTIVE decisions, keyed by decision id. Computed
+   * on request against the working tree; nothing is written (DEC-027).
+   */
+  fastify.get('/api/v1/projects/:id/memory/drift', async (request: any, reply) => {
+    const { id } = request.params;
+    try {
+      return { drift: await projectMemoryService.getProjectDrift(id) };
+    } catch (err) {
+      return replyForServiceError(err, reply);
+    }
+  });
+
+  /**
+   * GET /api/v1/projects/:id/memory/briefing?drift=true
+   *
+   * Drift is opt-in: it shells out to git, and the common caller — an agent
+   * starting a session — wants the briefing back immediately.
    */
   fastify.get('/api/v1/projects/:id/memory/briefing', async (request: any, reply) => {
     const { id } = request.params;
+    const withDrift = request.query?.drift === 'true';
     try {
-      return { briefing: projectMemoryService.getProjectBriefing(id) };
+      const drift = withDrift ? await projectMemoryService.getProjectDrift(id) : undefined;
+      return { briefing: projectMemoryService.getProjectBriefing(id, drift) };
     } catch (err) {
       return replyForServiceError(err, reply);
     }

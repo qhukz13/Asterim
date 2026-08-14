@@ -386,6 +386,62 @@ async function main(): Promise<void> {
     'the decision should still be ARCHIVED'
   );
 
+  // --- Drift ----------------------------------------------------------------
+  describe('GET /memory/drift');
+
+  // PROJECT_A's path is /tmp/route-a, which does not exist, so every anchored
+  // file is missing — exactly the FILE_DELETED case, without needing a repo here
+  // (GitDriftDetector.test.ts covers the git paths against a real repository).
+  const anchored = await post(`/api/v1/projects/${PROJECT_A}/memory/decisions`, {
+    title: 'Anchored to a file that is not there',
+    summary: 's',
+    rationale: 'r',
+    relatedFiles: ['src/vanished.ts']
+  });
+  const anchoredId = anchored.json().decision.id;
+
+  const drift = await get(`/api/v1/projects/${PROJECT_A}/memory/drift`);
+  equal('the drift endpoint returns 200', drift.statusCode, 200);
+  const driftBody = drift.json().drift;
+  check('it is keyed by decision id', typeof driftBody === 'object' && driftBody !== null);
+  check('the anchored decision is present', anchoredId in driftBody, Object.keys(driftBody).join(','));
+  equal('and reports drift', driftBody[anchoredId]?.drifted, true);
+  equal('as a missing file', driftBody[anchoredId]?.worst, 'FILE_DELETED');
+  check('naming the anchor', driftBody[anchoredId]?.refs?.[0]?.filePath === 'src/vanished.ts');
+
+  const unanchoredDrift = driftBody[decisionId];
+  if (unanchoredDrift) {
+    equal('a decision with no anchors is not drifted', unanchoredDrift.drifted, false);
+  }
+
+  const emptyDrift = await get(`/api/v1/projects/${PROJECT_B}/memory/drift`);
+  equal('a project with no decisions returns an empty map', emptyDrift.json().drift, {});
+
+  const unknownDrift = await get(`/api/v1/projects/${UNKNOWN_PROJECT}/memory/drift`);
+  equal('an unknown project returns 200 with nothing', unknownDrift.statusCode, 200);
+  equal('and no drift', unknownDrift.json().drift, {});
+
+  describe('drift is opt-in on the briefing');
+
+  const plainBriefing = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing`);
+  const plainActive = plainBriefing.json().briefing.activeDecisions.find((d: any) => d.id === anchoredId);
+  equal('the briefing carries no drift by default', plainActive?.drift, undefined);
+
+  const driftBriefing = await get(`/api/v1/projects/${PROJECT_A}/memory/briefing?drift=true`);
+  const driftedActive = driftBriefing.json().briefing.activeDecisions.find((d: any) => d.id === anchoredId);
+  equal('asking for drift attaches it', driftedActive?.drift?.drifted, true);
+  equal('with the same verdict as the drift endpoint', driftedActive?.drift?.worst, 'FILE_DELETED');
+
+  const cleanInBriefing = driftBriefing.json().briefing.activeDecisions.find((d: any) => d.id === decisionId);
+  equal('a clean decision carries no drift key even when asked', cleanInBriefing?.drift, undefined);
+
+  describe('drift never mutates the decision (DEC-027)');
+
+  const afterDrift = await get(`/api/v1/projects/${PROJECT_A}/memory/decisions`);
+  const stillActive = afterDrift.json().decisions.find((d: any) => d.id === anchoredId);
+  equal('the drifted decision is still ACTIVE', stillActive?.status, 'ACTIVE');
+  equal('and its stored row carries no drift column', stillActive?.drift, undefined);
+
   // --- Project isolation over HTTP -----------------------------------------
   describe('project isolation over HTTP');
 

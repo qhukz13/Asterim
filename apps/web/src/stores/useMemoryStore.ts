@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   ArchitecturalRule,
   AsterimEvent,
+  DecisionDriftInfo,
   CreateDecisionRequest,
   CreateIntentRequest,
   CreateRuleRequest,
@@ -33,6 +34,8 @@ interface MemoryState {
   decisions: ProjectDecision[];
   rules: ArchitecturalRule[];
   activeIntent: ProjectIntent | null;
+  /** Drift keyed by decision id. Computed server-side; empty until fetched. */
+  drift: Record<string, DecisionDriftInfo>;
   loading: boolean;
   error: string | null;
 
@@ -40,6 +43,7 @@ interface MemoryState {
   fetchDecisions: (projectId: string, filter?: { status?: DecisionStatus }) => Promise<void>;
   fetchRules: (projectId: string) => Promise<void>;
   fetchIntent: (projectId: string) => Promise<void>;
+  fetchDrift: (projectId: string) => Promise<void>;
 
   createDecision: (projectId: string, data: CreateDecisionRequest) => Promise<ProjectDecision>;
   supersedeDecision: (
@@ -153,6 +157,7 @@ type MemoryData = Omit<
   | 'fetchDecisions'
   | 'fetchRules'
   | 'fetchIntent'
+  | 'fetchDrift'
   | 'createDecision'
   | 'supersedeDecision'
   | 'updateDecisionStatus'
@@ -169,6 +174,7 @@ const empty = (): MemoryData => ({
   decisions: [],
   rules: [],
   activeIntent: null,
+  drift: {},
   loading: false,
   error: null
 });
@@ -230,6 +236,24 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       set({ projectId, activeIntent: intent, loading: false });
     } catch (err) {
       set({ loading: false, error: (err as Error).message });
+    }
+  },
+
+  /**
+   * Loads drift for the project's active decisions.
+   *
+   * Kept out of `fetchBriefing` because it shells out to git: a view should be
+   * able to render memory immediately and let the caution badges arrive after.
+   * A failure is swallowed into `error` and leaves the previous drift in place —
+   * a stale badge is better than a view that fails to load because git is slow.
+   */
+  fetchDrift: async (projectId) => {
+    try {
+      const res = await fetch(memoryUrl(projectId, '/drift'), { headers: authHeaders() });
+      const { drift } = await readJson<{ drift: Record<string, DecisionDriftInfo> }>(res, 'Loading drift');
+      set({ projectId, drift });
+    } catch (err) {
+      set({ error: (err as Error).message });
     }
   },
 

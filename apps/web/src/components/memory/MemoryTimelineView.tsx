@@ -1,8 +1,9 @@
 import React from 'react';
-import type { ProjectDecision } from '@asterim/shared';
+import type { DecisionDriftInfo, ProjectDecision } from '@asterim/shared';
 import { anchorLabels, provenanceLabel, buildLineage } from './decisionHelpers';
 import type { Lineage } from './decisionHelpers';
 import { DecisionActions } from './DecisionActions';
+import { DriftBadge } from './DriftBadge';
 
 // Re-exported so existing importers (and tests) keep their current entry point.
 export { buildLineage } from './decisionHelpers';
@@ -106,11 +107,13 @@ function LineageNote({ lineage }: { lineage: Lineage }) {
 function TimelineEntry({
   decision,
   lineage,
-  projectId
+  projectId,
+  drift
 }: {
   decision: ProjectDecision;
   lineage?: Lineage;
   projectId: string | null;
+  drift?: DecisionDriftInfo;
 }) {
   const { text, isHuman } = provenanceLabel(decision);
   const anchors = anchorLabels(decision);
@@ -165,6 +168,8 @@ function TimelineEntry({
           {decision.summary}
         </p>
 
+        <DriftBadge drift={drift} />
+
         {anchors.length > 0 && (
           <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {anchors.map(anchor => (
@@ -194,6 +199,8 @@ export interface MemoryTimelineViewProps {
   decisions: ProjectDecision[];
   /** Needed by the lifecycle controls; null renders the timeline read-only. */
   projectId?: string | null;
+  /** Drift keyed by decision id; absent entries are clean. */
+  drift?: Record<string, DecisionDriftInfo>;
 }
 
 /**
@@ -203,7 +210,7 @@ export interface MemoryTimelineViewProps {
  * change its mind" — which is why supersession is the primary structure here rather
  * than a footnote on a card.
  */
-export function MemoryTimelineView({ decisions, projectId = null }: MemoryTimelineViewProps) {
+export function MemoryTimelineView({ decisions, projectId = null, drift = {} }: MemoryTimelineViewProps) {
   const groups = groupDecisionsByDay(decisions);
   const lineage = buildLineage(decisions);
 
@@ -240,6 +247,7 @@ export function MemoryTimelineView({ decisions, projectId = null }: MemoryTimeli
               decision={decision}
               lineage={lineage.get(decision.id)}
               projectId={projectId}
+              drift={drift[decision.id]}
             />
           ))}
         </section>

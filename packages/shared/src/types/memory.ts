@@ -63,6 +63,8 @@ export interface ProjectDecision {
   relatedFiles: string[];
   /** Populated when code references are loaded alongside the decision. */
   codeRefs?: DecisionCodeRef[];
+  /** Computed on request, never stored. Absent unless drift was asked for. */
+  drift?: DecisionDriftInfo;
 }
 
 /** Lifecycle state of a project intent. */
@@ -202,4 +204,41 @@ export interface CreateRuleRequest {
   severity?: ArchitecturalRuleSeverity;
   /** Glob matching the paths the rule applies to. */
   scopePattern?: string;
+}
+
+// --- Code anchor drift ---
+//
+// Drift is a *computed* property, never stored: it compares a decision's anchors
+// against the working tree at the moment it is asked for. Per DEC-027 a drifted
+// decision is flagged, never mutated — the code moved, not the decision.
+
+/** How a single code anchor has come adrift from the repository. */
+export type DriftType =
+  /** The anchored file is no longer on disk. */
+  | 'FILE_DELETED'
+  /** The anchored file has changed since the decision was anchored to it. */
+  | 'FILE_MODIFIED'
+  /** The anchored symbol is no longer present in the file. */
+  | 'SYMBOL_NOT_FOUND';
+
+/** The drift found against one code reference. */
+export interface CodeRefDrift {
+  /** Id of the `decision_code_refs` row this describes. */
+  refId: string;
+  filePath?: string;
+  symbolName?: string;
+  type: DriftType;
+  /** Human-readable explanation, suitable for a tooltip. */
+  detail: string;
+}
+
+/** Drift across every anchor of one decision. */
+export interface DecisionDriftInfo {
+  decisionId: string;
+  /** True when at least one anchor has drifted. */
+  drifted: boolean;
+  /** Empty when the decision is clean. */
+  refs: CodeRefDrift[];
+  /** The most severe drift found, or null when clean. */
+  worst: DriftType | null;
 }

@@ -135,6 +135,7 @@ function render(state: {
   decisions?: ProjectDecision[];
   rules?: ArchitecturalRule[];
   activeIntent?: ProjectIntent | null;
+  drift?: Record<string, any>;
   loading?: boolean;
   error?: string | null;
 }): string {
@@ -145,6 +146,7 @@ function render(state: {
       rules: state.rules ?? [],
       activeIntent: state.activeIntent ?? null,
       briefing: null,
+      drift: state.drift ?? {},
       loading: state.loading ?? false,
       error: state.error ?? null
     })
@@ -462,6 +464,90 @@ async function main(): Promise<void> {
     filteredHtml.includes('Hash passwords with bcrypt'),
     'lineage must be built from the full list, not the visible one'
   );
+
+  describe('drift badges');
+
+  const driftFor = (worst: string, refs: any[]) => ({
+    'dec-1': { decisionId: 'dec-1', drifted: true, worst, refs }
+  });
+
+  const deletedHtml = render({
+    decisions: [decision()],
+    drift: driftFor('FILE_DELETED', [
+      { refId: 'r1', filePath: 'src/auth.ts', type: 'FILE_DELETED', detail: 'src/auth.ts no longer exists' }
+    ])
+  });
+  check('a deleted anchor shows a caution badge', deletedHtml.includes('File missing'));
+  check('the detail is available as a tooltip', deletedHtml.includes('src/auth.ts no longer exists'));
+  check('and it is amber, not the error red', deletedHtml.includes('--color-state-paused'));
+  check(
+    'the decision still reads as ACTIVE (DEC-027)',
+    deletedHtml.includes('ACTIVE'),
+    'drift flags the code, it does not demote the decision'
+  );
+
+  const modifiedHtml = render({
+    decisions: [decision()],
+    drift: driftFor('FILE_MODIFIED', [
+      { refId: 'r1', filePath: 'src/auth.ts', type: 'FILE_MODIFIED', detail: 'src/auth.ts has uncommitted changes' }
+    ])
+  });
+  check('a modified anchor is labelled differently', modifiedHtml.includes('Code anchor modified'));
+  check('and not as missing', !modifiedHtml.includes('File missing'));
+
+  const symbolHtml = render({
+    decisions: [decision()],
+    drift: driftFor('SYMBOL_NOT_FOUND', [
+      { refId: 'r1', filePath: 'src/auth.ts', symbolName: 'hashPassword', type: 'SYMBOL_NOT_FOUND', detail: 'hashPassword is no longer in src/auth.ts' }
+    ])
+  });
+  check('a missing symbol is labelled distinctly', symbolHtml.includes('Symbol not found'));
+  check('naming the symbol in the tooltip', symbolHtml.includes('hashPassword is no longer'));
+
+  const multiHtml = render({
+    decisions: [decision()],
+    drift: driftFor('FILE_DELETED', [
+      { refId: 'r1', filePath: 'a.ts', type: 'FILE_DELETED', detail: 'a.ts no longer exists' },
+      { refId: 'r2', filePath: 'b.ts', type: 'FILE_MODIFIED', detail: 'b.ts has uncommitted changes' }
+    ])
+  });
+  check('several drifted anchors are counted', multiHtml.includes('2 anchors'));
+  check('and the worst is the one named', multiHtml.includes('File missing'));
+
+  const cleanHtml = render({ decisions: [decision()], drift: {} });
+  check('a clean decision shows no badge', !cleanHtml.includes('File missing') && !cleanHtml.includes('Code anchor modified'));
+
+  const notDriftedHtml = render({
+    decisions: [decision()],
+    drift: { 'dec-1': { decisionId: 'dec-1', drifted: false, worst: null, refs: [] } }
+  });
+  check('an explicitly clean entry shows no badge', !notDriftedHtml.includes('Symbol not found'));
+
+  // Drift arrives over HTTP, so the two fields can disagree in a way the detector
+  // never produces. `drifted` is the authority; without asserting that, a badge
+  // keyed only on `worst` would pass every other test here.
+  const inconsistentHtml = render({
+    decisions: [decision()],
+    drift: {
+      'dec-1': {
+        decisionId: 'dec-1',
+        drifted: false,
+        worst: 'FILE_DELETED',
+        refs: [{ refId: 'r', filePath: 'a.ts', type: 'FILE_DELETED', detail: 'gone' }]
+      }
+    }
+  });
+  check(
+    'a payload claiming not-drifted shows no badge, whatever else it carries',
+    !inconsistentHtml.includes('File missing'),
+    'drifted is the authority, not worst'
+  );
+
+  const otherDecisionHtml = render({
+    decisions: [decision({ id: 'dec-other' })],
+    drift: driftFor('FILE_DELETED', [{ refId: 'r', filePath: 'x', type: 'FILE_DELETED', detail: 'gone' }])
+  });
+  check("another decision's drift is not shown on this card", !otherDecisionHtml.includes('File missing'));
 
   describe('curation controls');
 
