@@ -15,9 +15,8 @@ This repository operates under a strict, human-controlled two-agent pairing mode
 1. **Specification First**: `blueprint/` is the authoritative normative Source of Truth. Read `blueprint/AI_CONTEXT.md` before non-trivial work.
 2. **No Speculative Architecture**: Never invent architectures, subsystems, dependencies, or unapproved product behaviors.
 3. **Specification Discrepancy**: When implementation and specification disagree, treat the specification as authoritative and submit a Change Proposal (`.agents/templates/CHANGE_PROPOSAL.md`) before altering architecture.
-4. **Human-Controlled Loop**: The human operator moves between Antigravity and Claude Code. No external webhooks, automated agent-to-agent scripts, task queues, or coordination databases exist. Coordination occurs exclusively through repository files (`tasks/current.md` and `reports/current.md`) and Git.
+4. **Human-Controlled Loop**: The human operator moves between Antigravity and Claude Code. No external webhooks, automated agent-to-agent scripts, task queues, or coordination databases exist. Coordination occurs exclusively through repository files (`tasks/current.md`, `tests/current.md`, and `reports/current.md`) and Git.
 5. **No Duplicated Discovery**: Re-use existing reports, Git diffs, and phase plans. Never ask agents to rediscover or reimplement already-verified context.
-
 ---
 
 ## 2. Agent Roles & Responsibilities
@@ -31,19 +30,19 @@ This repository operates under a strict, human-controlled two-agent pairing mode
 1. Understands the current roadmap phase and master phase plan.
 2. Inspects the repository state and reviews Claude Code's latest execution report in `reports/current.md`.
 3. Inspects Git diffs and validates implementations against every acceptance criterion.
-4. Decomposes milestone implementation blocks into meaningful, independently verifiable vertical tasks.
-5. Writes ONLY the single active task to `tasks/current.md`.
+4. Decomposes milestone implementation blocks into meaningful, independently verifiable vertical tasks (`tasks/current.md`) or testing assignments (`tests/current.md`).
+5. Writes ONLY the single active task to `tasks/current.md` or active test gate to `tests/current.md`.
 6. Reviews completed tasks (PASS / NEEDS FIX / BLOCKED) and dispatches the next sequential task.
-7. **Does NOT directly implement feature code** unless explicitly instructed by the human operator.
+7. **Does NOT directly implement feature code or run low-level execution tests directly** — orchestrates through Claude Code.
 
-### Claude Code (Execution Engineer)
+### Claude Code (Execution Engineer & Test Runner)
 1. Reads `AGENTS.md` and `CLAUDE.md`.
-2. Reads `tasks/current.md` as its single authoritative source of assignment.
-3. Executes complete vertical tasks independently without requiring micro-management.
+2. Reads `tasks/current.md` (for implementation tasks) and `tests/current.md` (for test/gate assignments) as its authoritative sources of assignment.
+3. Executes complete vertical tasks and integration test gates independently without requiring micro-management.
 4. Performs mandatory self-review against all acceptance criteria and Git diff before reporting.
 5. Runs verification commands, builds, typechecks, and tests.
-6. Writes the execution result directly to `reports/current.md` (overwriting the previous task report).
-7. **Does NOT create random reports in `docs/`**.
+6. Writes the execution result directly to `reports/current.md` (overwriting the previous report).
+7. **Does NOT create random reports in `docs/`** unless explicitly specified in the task (e.g. `docs/phase5-production-gate.md`).
 8. **Does NOT invent additional tasks or architectural changes** outside the assigned task.
 
 ---

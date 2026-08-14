@@ -15,15 +15,15 @@ This repo is Architecture-First. `blueprint/` is the normative Source of Truth; 
 
 This repository uses a human-controlled Antigravity (Orchestrator / CTO) ↔ Claude Code (Execution Engineer) pairing workflow:
 
-1. **Active Task**: Claude Code reads `tasks/current.md` as the single authoritative task assigned by Antigravity.
-2. **Execution Scope**: Execute only the task defined in `tasks/current.md`. Work autonomously on the full vertical scope without needing micromanagement. Do not invent additional tasks or make unapproved changes outside the task scope.
-3. **Mandatory Self-Review Cycle**: Before declaring any task complete, you must independently execute the complete verification loop:
+1. **Active Task / Test Assignment**: Claude Code reads `tasks/current.md` for feature/implementation tasks and `tests/current.md` for integration testing & verification gate assignments.
+2. **Execution Scope**: Execute only the task or testing gate defined in `tasks/current.md` or `tests/current.md`. Work autonomously on the full vertical scope without needing micromanagement. Do not invent additional tasks or make unapproved changes outside the task scope.
+3. **Mandatory Self-Review Cycle**: Before declaring any task or gate complete, you must independently execute the complete verification loop:
    ```text
-   READ TASK → INSPECT REPO → IMPLEMENT → TYPECHECK (`tsc --noEmit`) → TEST → BUILD (`pnpm run build`) → REVIEW GIT DIFF (`git diff`) → CHECK EVERY ACCEPTANCE CRITERION → FIX DISCOVERED ISSUES → FINAL VERIFICATION → WRITE reports/current.md
+   READ TASK/TEST GATE → INSPECT REPO → IMPLEMENT/TEST → TYPECHECK (`tsc --noEmit`) → TEST → BUILD (`pnpm run build`) → REVIEW GIT DIFF (`git diff`) → CHECK EVERY ACCEPTANCE CRITERION → FIX DISCOVERED ISSUES → FINAL VERIFICATION → WRITE reports/current.md
    ```
-4. **Execution Report**: Write the task execution result directly to `reports/current.md` (overwriting for each new task). You MUST include the **Acceptance Criteria Review** section with explicit `- [x]` verification checks for every criterion.
-5. **No Random Docs**: Do not create arbitrary new report files in `docs/`. Existing `docs/` files are historical milestone records.
-6. **Status Labels**: Reports must clearly distinguish `IMPLEMENTED`, `VERIFIED`, `BLOCKED`, `NOT IMPLEMENTED`. Never report `IMPLEMENTED` merely because code compiles.
+4. **Execution Report**: Write the task/test execution result directly to `reports/current.md` (overwriting for each new task). You MUST include the **Acceptance Criteria Review** section with explicit `- [x]` verification checks for every criterion.
+5. **No Random Docs**: Do not create arbitrary new report files in `docs/` unless explicitly specified in the task (e.g. `docs/phase5-production-gate.md`).
+6. **Status Labels**: Reports must clearly distinguish `IMPLEMENTED`, `VERIFIED`, `BLOCKED`, `NOT IMPLEMENTED`. Never report `IMPLEMENTED` or `VERIFIED` merely because code compiles.
 
 ## Commands
 
