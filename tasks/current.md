@@ -1,7 +1,7 @@
-# [P5.4-04] — Relevance Ranking, Scoped Briefings & Noise Reduction
+# [P5.5-01] — Technical Debt, Security Hardening & CI Typecheck Integration
 
-**Task ID:** P5.4-04  
-**Phase:** Phase 5.4 — Intelligent Memory & Continuous Governance  
+**Task ID:** P5.5-01  
+**Phase:** Phase 5.5 — Hardening & Technical Debt Resolution  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -11,120 +11,136 @@
 
 ## 1. Objective
 
-Implement local, deterministic relevance ranking and bounded context windowing for project briefings (`MemoryRelevanceEngine`), update `ProjectMemoryService` and MCP tool endpoints to support scoped retrieval by active files/tasks, and add search/drift filters to the Decision Explorer UI.
+Clear all standing pre-existing TypeScript compiler errors across `apps/server`, implement brute-force rate limiting and lockout protection on the device pairing PIN, untrack credential files from Git, enforce `0600`/`0700` local database permissions, and integrate a monorepo-wide `typecheck` task into `turbo.json`.
 
 ---
 
 ## 2. Why This Task Exists
 
-As a project develops, tens or hundreds of decisions, rules, and code references are recorded in Project Memory. Dumping the entire unranked memory store into every agent prompt wastes context window tokens and injects irrelevant details.
+The Phase 5 Production Gate (`GATE-P5`) verified the complete Project Memory and continuous governance subsystem with 1,488 passing assertions. However, 4 pre-existing `tsc` errors in `apps/server` and several local security gaps were identified:
+- `tsup` bundles `apps/server` without running type checks, hiding type errors behind a passing build.
+- The 6-digit pairing PIN endpoint has no rate limiting or lockout protection.
+- Live `pairing_pin.txt` credential files are tracked in Git.
+- `asterim.db` is created with default `0644` permissions instead of owner-only `0600`.
 
-Under **DEC-028** (Local-First Data Sovereignty), Asterim solves this without external vector databases or remote embedding APIs by using a deterministic, fast scoring engine that ranks decisions based on touched file paths, symbol anchors, task keywords, provenance, and drift penalties.
+Resolving these issues ensures Asterim enters Phase 6 on a clean, secure, and 100% type-checked foundation.
 
 ---
 
 ## 3. Context
 
-* **DEC-028**: Local-First Data Sovereignty. Relevance ranking must execute 100% locally in-process with zero remote embedding API calls or external vector dependencies.
-* **DEC-024**: Decision Provenance. Human-confirmed decisions (`HUMAN_CONFIRMED`) carry higher baseline weight than agent statements.
-* **DEC-027**: Non-Destructive Git Drift. Drifted decisions receive appropriate annotations and mild ranking penalties if anchors are missing.
+* **DEC-028**: Local-First Data Sovereignty. Local database files (`asterim.db`) and auth tokens must be restricted to owner-only permissions (`0600` / `0700`).
+* **GATE-P5 Audit**: [`docs/phase5-production-gate.md`](file:///c:/Projects/Asterim/docs/phase5-production-gate.md) (§12 Security Findings and §13 Production Blockers).
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/server/src/services/ProjectMemoryService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProjectMemoryService.ts) (`getProjectBriefing`, `queryDecisions`)
-* [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts) (`get_project_briefing`, `query_decisions`)
-* [`packages/shared/src/types/memory.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/memory.ts) (`ProjectBriefing`, `QueryDecisionsInput`)
-* [`apps/server/src/routes/memory.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/memory.ts)
-* [`apps/web/src/components/memory/DecisionExplorer.tsx`](file:///c:/Projects/Asterim/apps/web/src/components/memory/DecisionExplorer.tsx)
-* [`apps/web/src/stores/useMemoryStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useMemoryStore.ts)
+* [`apps/server/src/controllers/AuthController.ts`](file:///c:/Projects/Asterim/apps/server/src/controllers/AuthController.ts#L354)
+* [`apps/server/src/services/AgentService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/AgentService.ts#L164)
+* [`apps/server/src/services/ContextService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ContextService.ts#L109)
+* [`apps/server/src/services/ai/providers/GeminiProvider.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ai/providers/GeminiProvider.ts#L2)
+* [`apps/server/src/services/PairingService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/PairingService.ts)
+* [`apps/server/src/routes/auth.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/auth.ts)
+* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts)
+* [`turbo.json`](file:///c:/Projects/Asterim/turbo.json)
+* [`.gitignore`](file:///c:/Projects/Asterim/.gitignore)
+* [`decisions.md`](file:///c:/Projects/Asterim/decisions.md) (DEC-028)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **Shared Types (`packages/shared/src/types/memory.ts`)**:
-   - Update `ProjectBriefingOptions` / `QueryDecisionsInput`:
-     - `taskDescription?: string`
-     - `touchPaths?: string[]`
-     - `limit?: number`
-     - `drift?: boolean`
-   - Add `relevanceScore?: number` to `ProjectDecision` output when queried.
-2. **`MemoryRelevanceEngine` (`apps/server/src/services/memory/MemoryRelevanceEngine.ts`)**:
-   - Implements deterministic relevance scoring:
-     - **Provenance Base**: `HUMAN_CONFIRMED` (1.0), `REPOSITORY_EVIDENCE` (0.85), `AGENT_STATEMENT` (0.7), `INFERRED` (0.5).
-     - **File Anchor Intersection**: If decision's `relatedFiles` or `codeRefs.filePath` match any path in `touchPaths` (exact match or parent folder match), apply a significant boost (+0.5).
-     - **Task / Query Lexical Overlap**: Matches keywords across `title`, `summary`, `rationale`, and `constraints` (+0.1 to +0.4).
-     - **Drift Penalty**: If decision has active drift `FILE_DELETED` or `SYMBOL_NOT_FOUND`, deduct -0.15.
-   - `rankDecisions(decisions: ProjectDecision[], options: ScoredBriefingOptions): ProjectDecision[]`
-   - `buildScopedBriefing(projectId: string, options?: BriefingOptions): ProjectBriefing`:
-     - **Mandatory**: All active `architecturalRules` and `currentIntent` are ALWAYS included (never dropped).
-     - **Ranked**: Active decisions sorted by score and capped at `options.limit` (default 15).
-3. **ProjectMemoryService & REST Endpoints**:
-   - In `ProjectMemoryService.ts`:
-     - Update `getProjectBriefing` and `queryDecisions` to delegate to `MemoryRelevanceEngine`.
-   - In `apps/server/src/routes/memory.ts`:
-     - Support query parameters on `GET /api/v1/projects/:id/memory/briefing`:
-       - `?task=...&files=src/auth.ts,src/db.ts&limit=10&drift=true`
-4. **MCP Memory Server (`packages/mcp-memory-server/src/index.ts`)**:
-   - Update `get_project_briefing` tool schema to accept:
-     - `taskDescription` (optional string): Current objective or task description.
-     - `touchPaths` (optional array of strings): File paths the agent is reading or modifying.
-     - `limit` (optional number): Maximum decisions to return (default 15).
-   - Update `query_decisions` tool to accept `touchPaths` and `limit`.
-5. **Decision Explorer UI (`apps/web/src/components/memory/DecisionExplorer.tsx`)**:
-   - Add search and filter controls:
-     - Search input field filtering by title, summary, constraint, and anchor file name.
-     - Status filter buttons (`ALL`, `ACTIVE`, `STALE`, `SUPERSEDED`, `ARCHIVED`).
-     - Drift filter toggle (`All` / `Drifted Only`).
-6. **Automated Verification**:
-   - Unit tests in `apps/server/src/services/memory/__tests__/MemoryRelevanceEngine.test.ts`.
-   - Route tests in `apps/server/src/routes/__tests__/memory.test.ts`.
-   - MCP tests in `packages/mcp-memory-server/src/__tests__/`.
-   - Component filter tests in `apps/web/src/components/memory/__tests__/DecisionExplorer.test.ts`.
+1. **Fix Server `tsc` Type Errors (`apps/server`)**:
+   - `AuthController.ts:354`: Fix missing type definition / import for `OAuthCodeExchangeRequest`.
+   - `AgentService.ts:164`: Correct reference to `socketManager` on module export.
+   - `ContextService.ts:109`: Correct `type` property access on `ContextEntry` interface.
+   - `GeminiProvider.ts:2`: Fix import path for `./IAIProvider` interface.
+   - **Verification**: `pnpm --filter asterim exec tsc --noEmit` must return **0 errors**.
+
+2. **Pairing PIN Brute-Force Rate Limiting (`PairingService.ts` & `routes/auth.ts`)**:
+   - Implement attempt counter and progressive lockout in `PairingService`:
+     - Track failed attempts by client identifier / IP.
+     - Exponential delay (e.g. 500ms -> 1s -> 2s) and lockout after 5 consecutive failed attempts (15-minute cooldown).
+     - Return HTTP 429 Too Many Requests with informative error message on lockout.
+     - Reset failed attempt counter on successful pairing.
+   - Add unit tests in `apps/server/src/services/__tests__/PairingService.test.ts` verifying rate limiting and lockout behavior.
+
+3. **Untrack Credential Files & Git Hygiene (`.gitignore`)**:
+   - Remove `pairing_pin.txt` and `apps/server/pairing_pin.txt` from Git tracking (`git rm --cached`).
+   - Add `pairing_pin.txt`, `**/pairing_pin.txt`, and `*.tsbuildinfo` to `.gitignore`.
+   - Correct the stale `.agentdeck` reference in `.gitignore` to `.asterim`.
+
+4. **Owner-Only Filesystem Permissions (`DatabaseService.ts`)**:
+   - When creating `dataDir` (`~/.asterim`), enforce directory permissions `0700` (`fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })`).
+   - When creating or opening `asterim.db`, ensure file mode is set to `0600` (`fs.chmodSync(this.dbPath, 0o600)` on non-Windows/POSIX systems where applicable).
+
+5. **Turbo & CI Typecheck Task (`turbo.json` & `package.json`)**:
+   - Add `"typecheck"` task to `turbo.json`:
+     ```json
+     "typecheck": {
+       "dependsOn": ["^build"]
+     }
+     ```
+   - Add `"typecheck": "tsc --noEmit"` to `apps/server/package.json` and ensure all packages expose `typecheck`.
+   - Add `"typecheck": "turbo run typecheck"` to root `package.json`.
+
+6. **DEC-028 Clarification (`decisions.md`)**:
+   - Update DEC-028 §3 to explicitly note:
+     *"Sovereign Mode guarantees zero outbound external network connections from Asterim Core to remote cloud endpoints. Local subnet mDNS discovery (UDP 5353) remains active strictly for zero-config LAN device pairing and does not transmit project memory or telemetry data."*
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** add external vector databases (Pinecone, Chroma, etc.) or remote embedding API calls.
-* Do **NOT** exclude active `architecturalRules` or `currentIntent` from briefings — rules are mandatory governance invariants.
-* Do **NOT** alter the underlying SQLite table schemas for decisions or rules.
+* Do **NOT** weaken security on the loopback relay token (`server.json`) or auth routes.
+* Do **NOT** remove or disable `strict` typechecking in `tsconfig.json`.
+* Do **NOT** alter the SQLite database schema for project memory tables.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `MemoryRelevanceEngine` scores decisions deterministically using file path overlap, lexical matching, provenance weight, and drift status.
-2. Decisions referencing files in `touchPaths` rank higher than unrelated decisions.
-3. `getProjectBriefing` caps returned decisions at the specified `limit` while preserving all active architectural rules and intent.
-4. MCP tool `get_project_briefing` accepts `taskDescription` and `touchPaths` and returns the relevance-scoped briefing.
-5. Decision Explorer UI provides interactive text search, status filtering, and drift filtering.
-6. All test suites pass cleanly, `tsc --noEmit` reports 0 errors, and `pnpm run build` succeeds across monorepo.
+1. `pnpm --filter asterim exec tsc --noEmit` passes with **0 errors**.
+2. `pnpm run typecheck` succeeds across all workspace packages in `turbo.json`.
+3. `POST /api/v1/auth/pair` enforces rate limiting and lockout after repeated invalid PIN attempts (verified with automated unit tests).
+4. `pairing_pin.txt` is untracked by Git and ignored in `.gitignore`.
+5. `DatabaseService` enforces owner-only permissions (`0700`/`0600`) on `~/.asterim/` and `asterim.db`.
+6. DEC-028 is updated with the local mDNS discovery boundary.
+7. All 20 existing Phase 5 test suites continue to pass with 0 failures, and `pnpm run build` succeeds cleanly.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] All Acceptance Criteria independently verified
-- [ ] Clean Git diff with no forbidden changes
-- [ ] `tsc --noEmit` passes with 0 errors
-- [ ] Relevant test suites pass
-- [ ] `pnpm run build` succeeds across monorepo
+- [ ] `tsc --noEmit` passes with 0 errors across entire repository
+- [ ] `pnpm run typecheck` passes cleanly via Turbo
+- [ ] `pnpm run build` passes (7/7)
+- [ ] Pairing PIN brute-force unit tests pass
+- [ ] All 20 Phase 5 test suites pass
+- [ ] Clean Git diff with no stray or tracked credential files
 
 ---
 
 ## 9. Verification Commands
 
 ```bash
-pnpm --filter asterim exec tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts
-pnpm --filter asterim exec tsx src/routes/__tests__/memory.test.ts
-pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/record_decision.test.ts
-pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/DecisionExplorer.test.ts
+# Typecheck entire monorepo
+pnpm run typecheck
+
+# Verify server typecheck specifically
 pnpm --filter asterim exec tsc --noEmit
-pnpm --filter @asterim/web exec tsc --noEmit
+
+# Run pairing security tests
+pnpm --filter asterim exec tsx src/services/__tests__/PairingService.test.ts
+
+# Re-run core Phase 5 verification suites
+pnpm --filter asterim exec tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts
+pnpm --filter asterim exec tsx src/services/git/__tests__/GitDriftDetector.test.ts
+pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/retrieval_tools.test.ts
+
+# Full monorepo build
 pnpm run build
 ```
 
@@ -132,8 +148,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Inspect `git diff` against every acceptance criterion before reporting.
-- Fix all discovered regressions prior to completing `reports/current.md`.
+- Inspect `git diff` to verify all 4 type errors are cleanly resolved without using `@ts-ignore` or `any` workarounds.
+- Verify no `pairing_pin.txt` file remains in `git status`.
 
 ---
 
