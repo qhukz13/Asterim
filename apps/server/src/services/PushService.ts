@@ -1,4 +1,5 @@
 import webpush from 'web-push';
+import { isSovereignMode, announceSovereignBlock } from './SovereignMode';
 import { dbService } from './DatabaseService';
 import { eventBus } from './EventBus';
 import { AsterimEvent, ApprovalRequestPayload } from '@asterim/shared';
@@ -64,6 +65,14 @@ export class PushService {
   }
 
   public async sendPushNotification(title: string, body: string, data?: any) {
+    // Push travels through Google's or Mozilla's gateway, not through Asterim.
+    // Returning before reading the subscription table means an air-gapped host
+    // never even assembles the payload.
+    if (isSovereignMode()) {
+      announceSovereignBlock('PushService', 'Web Push dispatch disabled.');
+      return;
+    }
+
     const db = dbService.getDb();
     const rows = db.prepare('SELECT endpoint, keys_json FROM push_subscriptions').all() as {
       endpoint: string;
