@@ -17,6 +17,7 @@ import {
 } from '@asterim/shared';
 import { useTerminalStore } from '../stores/useTerminalStore';
 import { useMemoryStore, isMemoryEvent } from '../stores/useMemoryStore';
+import { MCP_EVENT_TYPES, useMcpStore } from '../stores/useMcpStore';
 
 export interface ChatMessage {
   id: string;
@@ -364,6 +365,14 @@ export function useSocket(
     newSocket.on('file.changed', handleInternalEvent);
     newSocket.on('server.system_status', handleInternalEvent);
     newSocket.on('terminal.data', handleInternalEvent);
+    // MCP servers belong to the workstation, so these arrive as broadcasts
+    // rather than through a project room.
+    for (const mcpType of MCP_EVENT_TYPES) {
+      newSocket.on(mcpType, (event: any) => {
+        useMcpStore.getState().handleMcpEvent(event);
+      });
+    }
+
     newSocket.on('memory.decision_created', handleInternalEvent);
     newSocket.on('memory.decision_superseded', handleInternalEvent);
     newSocket.on('memory.decision_updated', handleInternalEvent);

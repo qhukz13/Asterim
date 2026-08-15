@@ -79,6 +79,34 @@ export interface McpServerConfig {
   updatedAt: number;
 }
 
+/**
+ * One piece of a tool's answer.
+ *
+ * MCP returns content as a list of typed parts — text, an image, an embedded
+ * resource — rather than a single string, because a tool may answer with more
+ * than one kind of thing at once.
+ */
+export interface McpToolContent {
+  type: string;
+  text?: string;
+  /** Base64 payload for image or blob content. */
+  data?: string;
+  mimeType?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * The result of `tools/call`.
+ *
+ * `isError: true` is the server reporting that the *tool* failed — a file that
+ * does not exist, a query that was rejected. That is a normal answer to a
+ * question, not a transport failure, and is returned rather than thrown.
+ */
+export interface McpToolCallResult {
+  content: McpToolContent[];
+  isError: boolean;
+}
+
 /** Configuration plus what the supervisor knows about the live process. */
 export interface McpServerRuntimeInfo extends McpServerConfig {
   status: McpServerStatus;

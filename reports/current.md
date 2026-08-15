@@ -1,6 +1,6 @@
-# Execution Report: P6-02 — MCP Capability Discovery, Stdio Handshake & Boot Autostart
+# Execution Report: P6-03 — MCP Tool Invocation Engine, Change Notifications & Registry UI
 
-**Task ID:** P6-02  
+**Task ID:** P6-03  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Status:** IMPLEMENTED & VERIFIED  
 **Date:** 2026-08-15  
@@ -10,115 +10,116 @@
 
 ## 1. Summary
 
-`RUNNING` now means something. `McpStdioClient` speaks JSON-RPC 2.0 over the child's stdio,
-negotiates `initialize`, sends `notifications/initialized`, and reads back `tools/list`,
-`resources/list` and `prompts/list` — asking only for what the server advertised. The supervisor
-walks `STARTING → INITIALIZING → RUNNING` and reaches `RUNNING` only once capabilities are cached;
-a handshake that fails or times out marks the server `ERROR` **and stops the unusable process**.
+Asterim can now call the tools it discovers, notice when a server's catalogue changes, and show all
+of it to a developer.
 
-Four `mcp.*` events reach the EventBus on every transition, `autostartEnabledServers()` brings up
-enabled servers on boot without ever blocking it, and `GET /capabilities` / `POST /refresh` expose
-and re-read the catalogue.
+`McpStdioClient.callTool()` issues `tools/call` over the session opened at handshake time, with its
+own 30-second budget — protocol requests and someone else's database query need different patience.
+A tool that reports failure (`isError: true`) resolves rather than throws: "that file does not exist"
+is an answer, and the caller needs the content that explains it. Only transport failures throw.
 
-Shutdown now has one owner. `ServerRegistry` had its own `SIGINT`/`SIGTERM` handlers that called
-`process.exit(0)`, which silently skipped every asynchronous cleanup anything else registered —
-the exact problem §8.2 of the P6-01 report flagged. Those handlers are gone; `setupGracefulShutdown`
-closes Fastify, stops the MCP children, removes `server.json` and closes SQLite, in that order,
-bounded by a timeout.
+`notifications/tools/list_changed` is handled: the client reports it, the supervisor re-reads the
+catalogue and emits `mcp.capabilities_updated`. A server that mounts a new directory mid-session is
+therefore callable without anybody pressing refresh — proven with a mock that changes its tool list
+when a tool is called and announces it.
 
-Two new suites' worth of evidence: **89 new assertions** here plus the P6-01 suite updated to the new
-contract, and both verified against a **real booted Core** — a real SIGTERM killing a real MCP child,
-and a real reboot autostarting one (§4.3, §4.4). `pnpm run test` is now **26 suites / 2,006
-assertions**; all four gates pass.
+The UI is a store, three components and a workspace tab. It was driven **in a real browser against
+the live Core** (§4.4): the registry renders, the drawer opens, and stopping a server through the API
+turns the row grey without touching the page — the socket path end to end.
+
+**28 suites / 2,153 assertions**, all four gates green.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/mcp/McpStdioClient.ts` | Created | JSON-RPC 2.0 over stdio: framing, id multiplexing, timeouts, `discover()` |
-| `apps/server/src/services/GracefulShutdown.ts` | Created | The single shutdown owner |
-| `apps/server/src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts` | Created | 89 assertions across framing, discovery, failure modes, events, autostart, routes |
-| `apps/server/src/services/mcp/McpProcessSupervisor.ts` | Modified | Handshake integration, `INITIALIZING`, capability cache, `refreshCapabilities`, `autostartEnabledServers`, EventBus emissions |
-| `packages/shared/src/types/mcp.ts` | Modified | Capability types, `INITIALIZING`, `McpServerEventPayload`, `MCP_EVENTS` |
-| `apps/server/src/routes/mcp.ts` | Modified | `GET /capabilities`, `POST /refresh`, `NOT_RUNNING` → 409 |
-| `apps/server/src/services/DatabaseService.ts` | Modified | Idempotent `close()` |
-| `apps/server/src/services/ServerRegistry.ts` | Modified | `registerCleanup()` removed — it was the competing shutdown owner |
-| `apps/server/src/index.ts` | Modified | `setupGracefulShutdown(fastify)`, autostart kick-off |
-| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Modified | Fixtures now speak MCP (§7.1) |
-| `apps/server/package.json` | Modified | New suite wired into `test` |
+| `apps/server/src/services/mcp/McpStdioClient.ts` | Modified | `callTool()`, per-request timeout override, `McpTimeoutError`, `notifications/*_changed` routing |
+| `apps/server/src/services/mcp/McpProcessSupervisor.ts` | Modified | `callTool()` with liveness and tool-existence checks, `onListChanged` re-read, env-configurable timeouts |
+| `apps/server/src/routes/mcp.ts` | Modified | `POST /:id/tools/:toolName`; `TOOL_NOT_FOUND` → 404, `SERVER_NOT_RUNNING` → 409, `TOOL_TIMEOUT` → 504 |
+| `packages/shared/src/types/mcp.ts` | Modified | `McpToolContent`, `McpToolCallResult` |
+| `apps/server/src/services/mcp/__tests__/McpToolInvocation.test.ts` | Created | 43 assertions: invocation, failure modes, timeout, live catalogue change, REST |
+| `apps/web/src/stores/useMcpStore.ts` | Created | Registry state, nine actions, socket event application |
+| `apps/web/src/components/mcp/McpServerExplorer.tsx` | Created | Server list, status badges, chips, lifecycle actions |
+| `apps/web/src/components/mcp/McpServerModal.tsx` | Created | Create/edit form with argument and environment parsing |
+| `apps/web/src/components/mcp/McpServerDetailDrawer.tsx` | Created | Tools (with a runner), Resources & Prompts, Logs |
+| `apps/web/src/components/mcp/__tests__/McpServerExplorer.test.ts` | Created | 104 assertions: helpers, store, rendering |
+| `apps/web/src/hooks/useSocket.ts` | Modified | Subscribe the four `mcp.*` events into the store |
+| `apps/web/src/stores/useViewStore.ts`, `apps/web/src/App.tsx` | Modified | `mcp` view, nav tab, mounted panel |
+| `apps/server/src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts` | Modified | One assertion follows the `SERVER_NOT_RUNNING` rename |
+| `apps/server/package.json`, `apps/web/package.json` | Modified | Suites wired into `test` |
 
 ## 3. Implementation Details
 
-### 3.1 `McpStdioClient`
+### 3.1 Tool invocation
 
-Newline-delimited JSON-RPC over the child's stdin/stdout. Three properties of that transport drive
-the implementation:
+`McpStdioClient.callTool(name, args, timeoutMs = 30000)` sends `tools/call` over the existing
+session and normalises the answer into `{ content, isError }`. `request()` gained a per-call timeout
+override so one long budget does not loosen the handshake's short one.
 
-- **Framing.** A `data` chunk may carry half a message or several. Text accumulates in a buffer and
-  is split on newlines; the trailing fragment is kept for the next chunk. Asserted with a response
-  deliberately split across three writes, one of them mid-token (§10 of the task).
-- **Multiplexing.** Every request carries an id and a pending entry; answers are matched by id, not
-  by arrival order. Asserted by answering two concurrent requests backwards in a single write.
-- **Tolerance.** A non-JSON banner line, a server notification, and an answer to an id nobody is
-  waiting on are all survived rather than fatal — real servers print banners.
+`McpProcessSupervisor.callTool(serverId, toolName, args)` checks two things before anything leaves:
 
-`discover()` sends `initialize` (protocol `2024-11-05`, `clientInfo: asterim-core/0.1.0`), then the
-required `notifications/initialized`, then **only the lists the server advertised**. Asking an
-implementation for prompts it never claimed is how a healthy server gets reported as broken. A server
-that advertises a list and then answers `-32601` degrades to an empty list rather than failing the
-handshake; any other error propagates.
+1. **The server is `RUNNING`.** A stopped or crashed server has no session (§6).
+2. **The tool is one the last handshake found.** Not bureaucracy: it turns "the server eventually
+   answered `-32602`" into an immediate, specific answer, and it is what lets the route return 404
+   rather than 500.
 
-### 3.2 Supervisor
+A timeout is translated into `McpError('TOOL_TIMEOUT')`, which is the route's 504. The session
+survives a timed-out call — asserted, because a client that abandons a request must not corrupt the
+id-keyed pending map it shares with every later call.
 
-| Concern | Behaviour |
+### 3.2 Dynamic capability invalidation
+
+The client routes `notifications/tools/list_changed` (and the resource and prompt equivalents) to an
+`onListChanged` callback. It only *reports*; deciding what to do belongs to the supervisor, which
+owns the cache.
+
+The supervisor's handler re-runs discovery and emits `mcp.capabilities_updated`. It is deliberately
+best-effort: it runs from a notification with nobody waiting on it, so a failed re-read keeps the
+previous capabilities — stale beats empty — and says so in the log.
+
+### 3.3 The tool route
+
+`POST /api/v1/mcp/servers/:id/tools/:toolName` with `{ arguments }`.
+
+| Outcome | Response |
 | :--- | :--- |
-| States | `STARTING` (spawn) → `INITIALIZING` (handshake) → `RUNNING` (capabilities cached). Failure at any point → `ERROR`. |
-| Failed handshake | The process is alive but unusable, so it is stopped. Leaving a supervised process nothing can talk to would be worse than reporting the failure. |
-| Child dies mid-handshake | The handshake races the child's `exit` and fails immediately instead of waiting out the timeout — and the `CRASHED` status the exit handler already set is preserved, because "exited with code 3" explains more than "handshake failed". |
-| Timeouts | Two bounds: per-request (5s default) and whole-handshake (10s default). Both asserted, including the case where the outer one is the tighter of the two. |
-| Session | One `McpStdioClient` per running child, kept open — a refresh, and eventually tool invocation, speak over the same session. Disposed on stop and on exit. |
-| `refreshCapabilities` | Re-runs discovery against a live server; `NOT_RUNNING` (409) otherwise. |
-| `autostartEnabledServers` | Starts every enabled stdio server in parallel, **never rejects**, logs failures and leaves each status visible. Called un-awaited from `index.ts`, so a slow MCP server cannot delay a workstation. |
+| Tool ran | 200 `{ result, isError: false }` |
+| Tool reported failure | **200** `{ result, isError: true }` — the call succeeded, the tool said no |
+| `arguments` is not an object | 400 |
+| Unknown tool | 404 `TOOL_NOT_FOUND` |
+| Server not running | 409 `SERVER_NOT_RUNNING` |
+| Tool never answered | 504 `TOOL_TIMEOUT` |
+| Unknown server | 404 `NOT_FOUND` |
 
-### 3.3 Events
+The supervisor's timeouts are now environment-configurable (`ASTERIM_MCP_TOOL_TIMEOUT_MS`,
+`ASTERIM_MCP_REQUEST_TIMEOUT_MS`, `ASTERIM_MCP_HANDSHAKE_TIMEOUT_MS`). That is operational, not
+architectural: a workstation running a slow database server needs a longer budget, and finding that
+out should not require a rebuild.
 
-`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`, all
-published in the repository's established envelope (`id`, `timestamp`, `source: 'system:mcp'`,
-`type`, `payload`) with `payload: { server: McpServerRuntimeInfo }`.
+### 3.4 The web layer
 
-The payload deliberately carries no `projectId`. That is not an omission — `socketManager` persists
-an event into the project log **only** when one is present, so MCP events are broadcast to connected
-clients and never written to a table. That is what keeps §6's "no tool payload in persistent log
-tables" true by construction rather than by discipline. Asserted.
+`useMcpStore` follows the memory store's conventions exactly — `authHeaders`, `readJson` that throws
+the server's own message, actions that write through the API and adopt what comes back. It is
+workstation-scoped rather than project-scoped, so unlike the memory store there is nothing to discard
+on a project change. `handleMcpEvent` upserts by id, so an event about a server the client has never
+seen adds it rather than being dropped.
 
-`ERROR` states are announced as `mcp.server_crashed`: the four event types the task specifies have no
-separate "failed to become usable" event, and the payload's `status` field distinguishes `ERROR` from
-`CRASHED` for any client that cares.
+Each component is split into a props-only view and a store-connected container, for the reason the
+Decision Explorer documents: zustand v5 serves `getInitialState` as the server snapshot, so a
+store-reading component renders empty under `react-dom/server` and could not be tested at all.
 
-### 3.4 One shutdown owner
+Design decisions worth naming:
 
-`ServerRegistry.registerCleanup()` trapped `SIGINT`/`SIGTERM` and called `process.exit(0)`. Since
-Node runs signal listeners in registration order and `process.exit()` does not wait for anything,
-that handler ended the process before any asynchronous cleanup elsewhere could run — including the
-MCP `onClose` hook added in P6-01. It has been removed, and `setupGracefulShutdown(fastify)` now owns
-the sequence:
-
-```
-SIGINT/SIGTERM → fastify.close()          (fires onClose hooks)
-               → mcpProcessSupervisor.shutdownAll()
-               → serverRegistry.clear()   (remove server.json)
-               → dbService.close()        (checkpoint the WAL)
-               → exit(0)
-```
-
-Each step is individually guarded, so one failure cannot strand the rest; the whole sequence is
-bounded at 10s, after which the process exits anyway; a second signal exits immediately. A
-synchronous `process.on('exit')` still clears the descriptor for the paths no handler can await.
-
-`setupGracefulShutdown` lives in its own module rather than inside `McpProcessSupervisor` (where §5.3
-lists it): it closes the HTTP server and the database, and having the MCP subsystem own the Core's
-lifecycle would invert the dependency. §8 of the task asks for the sequence to be wired in
-`index.ts`, which it is.
+- **`INITIALIZING` is amber, not green.** The process exists but the handshake has not finished, and
+  a developer who reads that as "ready" would call a tool that is not there yet. Asserted.
+- **Command and arguments are separate fields** in the modal. The Core spawns without a shell, so
+  `--root "/my dir"` is one argument; a single shell-looking box would produce servers that silently
+  never start.
+- **The modal says Asterim passes none of its own credentials** and that anything the server needs
+  must be named there — the sanitiser from P6-01 is invisible otherwise, and its symptom (a server
+  that cannot see `GITHUB_TOKEN`) looks like a bug.
+- **The Tools tab runs the tool.** A catalogue that can only be read answers "what exists" but never
+  "does it work".
 
 ## 4. Verification
 
@@ -127,166 +128,149 @@ lifecycle would invert the dependency. §8 of the task asks for the sequence to 
 ```
 pnpm run typecheck  → 11 successful, 11 total (0 errors)
 pnpm run lint       → 7 successful, 7 total   (0 errors)
-pnpm run test       → 9 successful, 9 total   (26 suites, 2,006 assertions), exit 0
+pnpm run test       → 9 successful, 9 total   (28 suites, 2,153 assertions), exit 0
 pnpm run build      → 7 successful, 7 total
 ```
 
-`apps/server` reports 0 lint errors and 241 warnings — the same count as before this task, so the new
-code adds none.
+### 4.2 `McpToolInvocation.test.ts` — 43/43
 
-### 4.2 The new suite — 89/89
+Real child processes speaking real JSON-RPC.
 
 | Group | Covers |
 | :--- | :--- |
-| Framing (13) | request written as one line; a response split across three chunks reassembled; two messages in one chunk; answers matched by id, not order; banner line, notification and stray id survived; request timeout names its method; dispose fails what is in flight |
-| `discover()` (13) | protocol version and `serverInfo` returned; tools read with schemas intact; unadvertised lists empty and **never requested**; `initialize` first, then `notifications/initialized`; the client's own identity sent |
-| Full server, supervised (10) | `RUNNING` with a pid; protocol version, server identity, 2 tools, 1 resource, 1 prompt; schema survives the round trip; no error recorded |
-| Refresh (3) | stays `RUNNING`; a tool added since the last handshake appears; the snapshot is newer |
-| Tools-only server (5) | `RUNNING`; resources and prompts empty; the server never complained about an unadvertised request |
-| Advertise-but-not-implement (3) | still usable; the missing method degrades to an empty list |
-| Silent server (6) | `ERROR` by timeout, reason recorded naming the request, no capabilities claimed, **process not left running**, stderr still available for diagnosis |
-| Whole-handshake bound (3) | with a generous per-request timeout, the outer bound is what stops it |
-| Refusing server (3) | `ERROR` carrying the server's own message |
-| EventBus (9) | `server_started` + `capabilities_updated` on start; payload carries the server, status and capabilities; **no `projectId`**; `server_stopped` on stop; `server_crashed` on crash |
-| Autostart (7) | only enabled servers considered; good ones `RUNNING`; disabled untouched; broken one `ERROR`; autostart itself never throws; capabilities available immediately |
-| Routes (14) | capabilities 200 with `null` before any handshake; served after; refresh updates the list; refresh on a stopped server 409 `NOT_RUNNING`; last-known capabilities still readable; 404s; 401 unauthenticated |
+| Calling (8) | arguments arrive intact; no-argument call sends `{}`; multi-part content preserved, including an image part's mimeType and payload |
+| Tool-level failure (2) | resolves with `isError: true` and a readable reason |
+| Transport failures (5) | unknown tool → `TOOL_NOT_FOUND`; JSON-RPC error propagates; a hanging tool → `TOOL_TIMEOUT` inside its budget; **the session still works afterwards** |
+| Not running (2) | stopped server → `SERVER_NOT_RUNNING`; unknown server → `NOT_FOUND` |
+| `list_changed` (8) | a server that gains a tool and announces it; the catalogue is re-read; `mcp.capabilities_updated` emitted carrying both tools; the session is unaffected |
+| REST (18) | 200 with content; no-body call; tool failure still 200 with `isError`; non-object arguments 400; 404; 504; 401; 409 after stopping |
 
-### 4.3 Graceful shutdown, against a real Core
+### 4.3 `McpServerExplorer.test.ts` — 104/104
 
-A Core booted on a scratch data dir, an MCP server registered and started **through the HTTP API**,
-then a real `SIGTERM`:
+| Group | Covers |
+| :--- | :--- |
+| `statusTone` (7) | every status maps to its token colour; `INITIALIZING` is amber |
+| `formatUptime` (5), `canStart` (4) | seconds/minutes/hours; a running or initializing server cannot be started |
+| Modal parsers (6) | one argument per line; `KEY=value` splitting on the **first** `=` so a base64 token survives; comments and malformed lines ignored; round trips |
+| Drawer formatters (6) | missing schema stated plainly; schema pretty-printed; empty content says so rather than looking successful; binary parts described, not dumped |
+| Store (33) | exact URLs, methods, headers and bodies for all nine actions; tool names URL-encoded; failures surface the server's message and clear `pending`; delete closes the drawer |
+| Socket events (7) | a crash rewrites the row; a capability update replaces the catalogue; an unknown server is added; an unrelated event changes nothing |
+| Rendering (36) | empty state; name, status, tool count, PID, uptime, transport, command; a crashed server shows why and offers Start rather than Stop; error banner; modal fields; drawer tabs, resources, prompts with required markers, logs, empty log, and a stopped server explaining why there are no tools |
 
-```
-started: RUNNING pid 361057 tools 1
-child alive before shutdown: true      server.json present: true
---- after SIGTERM ---
-child alive: false                     server.json present: false     port released: true
-```
+### 4.4 In a browser, against the live Core
 
-This is the change that could not be proven by unit tests alone, since the behaviour it fixes was a
-conflict between two signal handlers in a booted process.
-
-### 4.4 Boot autostart, against a real Core
-
-A server registered on one boot and never started, then the Core restarted:
+Paired with a real token, driven with puppeteer:
 
 ```
-registered: autostart-stub  enabled: true  status: STOPPED
-after reboot -> status: RUNNING  pid: 361722
-capabilities: 2 tools from autostub
-GET /capabilities -> ["alpha","beta"]
+server: RUNNING tools: 2
+tool call over HTTP: {"type":"text","text":"hello from the tool"}
+MCP tab clicked: true
+registry text: … Chat Terminal Changes Memory MCP … MCP Servers — Tool providers Asterim supervises …
+drawer opened: true          (Tools (2) · Resources & Prompts (1) · Logs (1))
+after a socket-driven stop: "Stopped ui-demo stdio Start Restart Refresh Delete 2 tools PID — up —"
+console errors: none
+servers left in the real DB: 0
 ```
 
-Nothing asked it to start, and its tools were known before any client connected.
+The last two lines are the ones that matter. The stop was issued **through the API, not the page** —
+the row went from `Running / PID 389154 / up 5s` to `Stopped / PID — / up —` on its own, which is the
+`mcp.server_stopped` event travelling Core → Socket.IO → `useMcpStore` → render. And nothing was left
+behind in the user's real database.
+
+Screenshots confirmed the registry and drawer visually; two defects were found and fixed there
+(§7.3, §7.4).
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `McpStdioClient` conducts the handshake and retrieves all three lists** — 26 assertions
-      across framing and discovery, plus real child processes serving all three lists.
-- [x] **2. Capabilities cached; `RUNNING` only after a successful handshake** — asserted on the
-      supervisor and observed end-to-end (§4.4). The P6-01 suite had to be updated precisely because
-      this contract changed (§7.1).
-- [x] **3. Failures and timeouts mark `ERROR` with the reason recorded** — timeout, whole-handshake
-      bound, JSON-RPC error and mid-handshake death all covered; the unusable process is stopped.
-- [x] **4. `autostartEnabledServers()` starts enabled servers without blocking boot** — 7
-      assertions including a broken server that ends `ERROR` while the others run; called un-awaited
-      from `index.ts`; verified across a real restart (§4.4).
-- [x] **5. `mcp.*` events emitted on all state transitions** — 9 assertions; started, stopped,
-      crashed and capabilities_updated all observed on the bus.
-- [x] **6. Unified graceful shutdown terminates MCP children on `SIGINT`/`SIGTERM`** — verified on a
-      booted Core: child gone, descriptor removed, port released (§4.3).
-- [x] **7. `McpCapabilityDiscovery.test.ts` passes** — 89/89.
-- [x] **8. CI gates pass with 0 errors** — typecheck 11/11, lint 7/7, test 26 suites / 2,006
-      assertions, build 7/7.
+- [x] **1. Client and supervisor execute `tools/call` and return structured responses** — 15
+      assertions at the supervisor level over real processes, plus the REST surface.
+- [x] **2. `notifications/tools/list_changed` invalidates and refreshes, emitting
+      `mcp.capabilities_updated`** — 8 assertions driven by a server that genuinely changes its list
+      mid-session.
+- [x] **3. The tool route handles invocations, timeouts and structured errors** — 18 assertions;
+      200/400/404/409/504/401 all covered, including the deliberate 200-with-`isError`.
+- [x] **4. The three components render with live Socket.IO reactivity** — 36 render assertions plus
+      the live browser run (§4.4), where a socket event rewrote the row unaided.
+- [x] **5. All automated unit tests pass** — 43/43 server, 104/104 web.
+- [x] **6. CI gates pass with 0 errors, 27+ suites** — **28 suites / 2,153 assertions**, typecheck
+      11/11, lint 7/7 (0 errors), build 7/7.
 
-Definition of Done: all nine items complete.
+Definition of Done: all seven items complete.
 
 ## 6. Git Diff Review
 
-Three new files, eight modified, all within `apps/server` and `packages/shared`. Reviewed against §6:
+Six new files, ten modified. Reviewed against §6:
 
-- **Boot is never blocked by a failing MCP server.** `autostartEnabledServers()` catches per-server,
-  returns rather than throws, and is called without `await`. A server whose binary does not exist
-  ends `ERROR` while its neighbours run — asserted, and the Core in §4.4 booted normally.
-- **No tool payload reaches a log table.** The child's stdout is consumed by the JSON-RPC client and
-  written nowhere; only stderr enters the 50-line in-memory ring buffer, which is not persisted; and
-  `mcp.*` events carry no `projectId`, which is the condition `socketManager` uses to decide whether
-  to write an event to the database.
-- **Nothing existing broke.** 26 suites, 2,006 assertions, exit 0. One suite needed updating, and the
-  reason is a contract change this task exists to make (§7.1).
+- **Tools cannot run on a stopped or crashed server.** The supervisor checks `status === 'RUNNING'`
+  *and* the presence of a live client before touching the session; the route maps that refusal to
+  409 `SERVER_NOT_RUNNING`. Asserted at both levels.
+- **No sensitive environment variable is shown in the log viewer.** The drawer renders
+  `recentStderrLogs` — the child's own stderr — and nothing else. `server.env` is never rendered
+  anywhere: not in the row, not in the drawer, only in the edit form where the operator typed it.
+  The registry row shows `command` and `args`, which the operator also typed.
+- **Nothing existing broke.** 28 suites, 2,153 assertions, exit 0 — the 26 prior suites unchanged,
+  plus 147 new assertions.
 
-Two changes to existing behaviour, both deliberate:
+One rename: `NOT_RUNNING` → `SERVER_NOT_RUNNING`, the name §6 uses. It was introduced in P6-02 and
+had one caller and one assertion; carrying two codes that mean the same thing would have been worse
+than the rename.
 
-1. **`ServerRegistry.registerCleanup()` was removed.** It was the competing shutdown owner. Its
-   descriptor-removal duty is preserved in `GracefulShutdown` (both in the ordered sequence and in
-   the synchronous `exit` backstop), and it had exactly one caller.
-2. **`RUNNING` requires a handshake.** A supervised process that does not speak MCP now ends `ERROR`
-   rather than sitting in `RUNNING` forever. That is the point of the task, and it is why the P6-01
-   fixtures changed.
-
-New files are Prettier-clean; `index.ts` and `DatabaseService.ts` were already non-compliant before
-this task and were not reflowed.
+`apps/server` reports 0 lint errors and 241 warnings — its pre-task count. `apps/web` reports 0
+errors and 265 warnings, **9 more than before**, all `react-refresh/only-export-components` from
+exporting pure helpers next to components. That is the pattern `DecisionExplorer.tsx` already uses
+(28 such warnings exist repo-wide), and the alternative — a separate helpers file per component —
+would invent a layout convention this codebase does not have. All new files are Prettier-clean.
 
 ## 7. Problems Discovered
 
-1. **The P6-01 suite asserted the old contract.** Its fixtures were plain `node -e` processes that
-   stay alive without speaking MCP, so under the new rule they were stopped and marked `ERROR` —
-   23 of 115 assertions failed. Fixed by giving every long-lived fixture a minimal `initialize` +
-   `tools/list` responder; what each case actually tests (a pid, a stderr buffer, a refused signal,
-   an env dump) is unchanged, and the suite is back to 115/115. This is the expected cost of a
-   deliberate contract change, not collateral damage.
-2. **An `unref()`'d timeout can be skipped entirely.** The request timer was `unref`'d, so when the
-   event loop had nothing else to hold it open the process exited *before* the timer fired — a test
-   run ended silently mid-suite with exit code 0 and no tally. In production a child-process handle
-   keeps the loop alive and it never showed. Both the request timeout and the handshake bound are now
-   ordinary timers, cleared on every settling path.
-3. **A child that dies during the handshake used to cost a full timeout** and then overwrote the more
-   informative `CRASHED` status with `ERROR`. The handshake now races the child's exit.
-4. **A bodiless `POST` with `content-type: application/json` is a 400.** Fastify rejects an empty
-   body under that header, so `POST /start` fails for a client that always sets it. Not changed —
-   this is framework behaviour shared by every bodiless POST in the codebase — but worth knowing
-   before the web UI is written against these routes.
-5. **A stale Core from an earlier verification run held the port**, so a later run silently measured
-   the *old* process and reported a shutdown failure that was not real. Worth recording because the
-   symptom looked exactly like the bug under test. All strays were cleaned up; the user's dev servers
-   on 3000/5173/5174 were left untouched.
+1. **A stray `Core` from an earlier verification run held the port**, so one run measured the *old*
+   process and reported a failure that was not real (carried over from P6-02's verification; noted
+   again because the symptom is indistinguishable from the bug under test).
+2. **The routes use the shared supervisor, not whichever instance a test constructs.** The first
+   REST assertions returned 409 because the suite had started the server on its *own* supervisor.
+   Fixed by driving the routes end to end and making the singleton's budgets environment-configurable
+   so the 504 case costs one second rather than thirty — which is a better production knob anyway.
+3. **The drawer header grew without bound.** A server whose command is a long argument list pushed
+   the tabs off the panel entirely. Found by looking at the screenshot, not by a test: the render
+   assertions all passed. Now clamped to two lines with the full command in the tooltip.
+4. **The drawer rendered *under* the workspace chrome.** At `z-index: 50` the app's top bar (100)
+   covered the drawer's own title and close button. Also invisible to the render tests, which have no
+   layout. Raised above the chrome, and the modal with it.
+5. **`useMcpStore` reads the plain `asterim_token` key**, while `useSocket`, `useProjects` and `App`
+   use a per-backend key (`asterim_token_<url>`) when a remote workstation is selected. The memory
+   store has the same simplification, so this is consistent — but on a machine driving a *remote*
+   Core, both stores would send the wrong token. Noted in §8, not fixed here: it is a pre-existing
+   inconsistency with a wider blast radius than this task.
 
 ## 8. Architectural Concerns
 
-1. **`tests/report.md` currently says `BLOCKED`, and it is not a code defect.** A QA agent ran
-   TEST-P6-01 against the working tree *while this task was mid-flight* and recorded transient
-   failures — the `fullId` lint error, the `TS18048`/`TS18046` errors, and the 92/115 supervisor
-   suite — every one of which is a state I passed through and fixed. At the tree this report
-   describes: typecheck 11/11, lint 0 errors, `McpProcessSupervisor.test.ts` 115/115, full battery
-   26 suites / 2,006 assertions. The gate is re-runnable as soon as this work is committed. The
-   deeper lesson is procedural: a QA gate and an implementation task must not run against the same
-   working tree at the same time.
-2. **Capabilities are a snapshot, and nothing invalidates them.** MCP defines
-   `notifications/tools/list_changed`; the client ignores notifications entirely. A server that
-   gains or loses a tool is only noticed on the next explicit refresh, so a cached catalogue can be
-   quietly wrong. Handling that notification is the natural next increment.
-3. **The open session is not used for anything yet.** One `McpStdioClient` per running child is kept
-   alive deliberately, but nothing calls a tool through it. Until `tools/call` exists, the MCP
-   subsystem can describe capabilities it cannot yet exercise.
-4. **`sse` remains stored but unsupported**, unchanged from P6-01 and now more visible: a server
-   configured as `sse` can never reach `RUNNING`.
-5. **Autostart has no backoff and no supervision after the fact.** A server that crashes a second
-   after autostart stays `CRASHED` until someone asks. A restart policy (`always` / `on-failure` /
-   `never`) with exponential backoff is the obvious companion to autostart, and belongs in the config
-   row rather than in code.
+1. **Two token conventions exist** (§7.5). One of them is wrong on remote workstations. Worth
+   settling in one place — a shared `authHeaders` helper both stores import — before a third store
+   copies the simpler half.
+2. **Arguments are not validated against the tool's schema.** The drawer sends whatever JSON the
+   developer typed, and the route only checks that it is an object. The `inputSchema` is cached and
+   sitting right there; validating against it would turn a confusing server-side error into a
+   pointed one. The task's §5.2 stopped at "accepts `{ arguments }`", so this stayed out of scope.
+3. **Nothing but a human can call a tool yet.** The point of the catalogue is agent access, and the
+   agent layer still cannot reach it. That is the next task, and it is the one that makes P6-01
+   through P6-03 pay off.
+4. **`callTool` has no concurrency limit.** Nothing stops fifty simultaneous calls to one server; a
+   stdio session is a single pipe, and an MCP server is under no obligation to pipeline. A per-server
+   queue (the pattern `BaseAdapter` already uses for agent commands) is the natural fix.
+5. **The registry is workstation-wide in a project-scoped shell.** The tab lives inside a project
+   workspace but lists every server, and `workspaceId` filtering exists in the API and store while
+   nothing in the UI passes one. Either the tab should move up to a workstation-level view, or the
+   scope should be surfaced and filtered.
 
 ## 9. Recommended Next Step
 
-**`P6-03` — tool invocation and live capability tracking.** The catalogue exists; nothing can call
-into it. In order:
+**`P6-04` — expose MCP tools to agents.** Everything is in place to describe and invoke a tool; no
+agent can use one. The unit is the bridge: let an adapter's tool-call request resolve against the
+supervisor's catalogue, route it through `callTool`, and return the result into the agent's
+transcript — with the approval gate the AST guard already establishes for shell commands, because an
+MCP tool is exactly as capable as one.
 
-1. **`tools/call` through the open session**, exposed as `POST /api/v1/mcp/servers/:id/tools/:name`
-   with argument validation against the cached `inputSchema`, and a per-call timeout. This is the
-   point of everything built in P6-01 and P6-02.
-2. **Handle `notifications/tools/list_changed`** (§8.2) so a cached catalogue cannot go quietly
-   stale, re-emitting `mcp.capabilities_updated` when it does.
-3. **A restart policy on the server row** (§8.5), which is what makes autostart trustworthy on a
-   workstation that stays up for days.
-
-Before any of that: **commit this work and re-run TEST-P6-01** (§8.1). The gate is blocked on tree
-state, not on defects, and it should be cleared before more code lands on top of it.
+Two things belong in the same task because they only matter once agents are calling tools at
+machine speed: **per-server call queueing** (§8.4) and **argument validation against `inputSchema`**
+(§8.2). And before any of it, the small one worth doing while it is cheap: **unify the auth token
+convention** (§8.1), which is currently one line wrong in two stores.

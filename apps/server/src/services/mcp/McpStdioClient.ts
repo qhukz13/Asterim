@@ -3,6 +3,8 @@ import {
   McpPromptDefinition,
   McpResourceDefinition,
   McpServerCapabilities,
+  McpToolCallResult,
+  McpToolContent,
   McpToolDefinition
 } from '@asterim/shared';
 
@@ -27,6 +29,15 @@ export const MCP_CLIENT_INFO = { name: 'asterim-core', version: '0.1.0' };
 /** How long a single request may take before it is abandoned. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
+/**
+ * How long a tool call may take.
+ *
+ * Far longer than a protocol request: `tools/call` runs someone else's code —
+ * a database query, a directory walk, an HTTP request — and a handshake's
+ * patience is the wrong measure for it.
+ */
+export const DEFAULT_TOOL_TIMEOUT_MS = 30000;
+
 /** JSON-RPC's "method not found"; a server may answer this for an optional list. */
 const METHOD_NOT_FOUND = -32601;
 
@@ -36,6 +47,14 @@ interface JsonRpcResponse {
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
   method?: string;
+}
+
+/** A request that was never answered in time. Distinguished so a route can 504. */
+export class McpTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'McpTimeoutError';
+  }
 }
 
 export class McpRpcError extends Error {
@@ -60,12 +79,28 @@ export interface McpStdioClientOptions {
   timeoutMs?: number;
   /** Where protocol-level warnings go. Overridden in tests. */
   logger?: (message: string) => void;
+  /**
+   * Called when the server announces that its tool list changed.
+   *
+   * The client only reports the notification; deciding what to do about it —
+   * re-running discovery, telling the rest of Asterim — belongs to the
+   * supervisor, which owns the cached capabilities.
+   */
+  onListChanged?: (kind: 'tools' | 'resources' | 'prompts') => void;
 }
+
+/** The `notifications/*_changed` methods this client understands. */
+const LIST_CHANGED_METHODS: Record<string, 'tools' | 'resources' | 'prompts'> = {
+  'notifications/tools/list_changed': 'tools',
+  'notifications/resources/list_changed': 'resources',
+  'notifications/prompts/list_changed': 'prompts'
+};
 
 export class McpStdioClient {
   private readonly pending = new Map<number, Pending>();
   private readonly timeoutMs: number;
   private readonly log: (message: string) => void;
+  private readonly onListChanged?: (kind: 'tools' | 'resources' | 'prompts') => void;
   private nextId = 1;
   private buffer = '';
   private disposed = false;
@@ -78,6 +113,7 @@ export class McpStdioClient {
   ) {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.log = options.logger ?? (message => console.warn(message));
+    this.onListChanged = options.onListChanged;
 
     this.onData = (chunk: Buffer) => this.ingest(chunk.toString('utf8'));
     this.stdout.on('data', this.onData);
@@ -112,8 +148,19 @@ export class McpStdioClient {
       return;
     }
 
-    // A notification from the server (no id): nothing is waiting on it.
-    if (message.id === undefined || message.id === null) return;
+    // A notification from the server: nothing is waiting on it by id, but a
+    // list_changed announcement means the cached catalogue is now stale.
+    if (message.id === undefined || message.id === null) {
+      const kind = message.method ? LIST_CHANGED_METHODS[message.method] : undefined;
+      if (kind && this.onListChanged) {
+        try {
+          this.onListChanged(kind);
+        } catch (err) {
+          this.log(`[MCP] list_changed handler failed: ${(err as Error).message}`);
+        }
+      }
+      return;
+    }
 
     const pending = this.pending.get(Number(message.id));
     if (!pending) return; // Late answer to a request that already timed out.
@@ -129,13 +176,18 @@ export class McpStdioClient {
   }
 
   /** Sends a request and resolves with its result. */
-  public request<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+  public request<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number
+  ): Promise<T> {
     if (this.disposed) {
       return Promise.reject(new Error('MCP client has been disposed'));
     }
 
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params: params ?? {} });
+    const budget = timeoutMs ?? this.timeoutMs;
 
     return new Promise<T>((resolve, reject) => {
       // Deliberately not unref'd: the timeout is what guarantees this promise
@@ -143,8 +195,8 @@ export class McpStdioClient {
       // empties first. It is cleared on every path that resolves.
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`MCP request '${method}' timed out after ${this.timeoutMs}ms`));
-      }, this.timeoutMs);
+        reject(new McpTimeoutError(`MCP request '${method}' timed out after ${budget}ms`));
+      }, budget);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -211,6 +263,29 @@ export class McpStdioClient {
       serverInfo: initialized.serverInfo,
       discoveredAt: Date.now()
     };
+  }
+
+  /**
+   * Invokes a tool and returns its structured answer.
+   *
+   * A tool that reports failure (`isError: true`) resolves rather than rejects:
+   * "that file does not exist" is an answer, and the caller needs the content
+   * that explains it. Only a transport failure — a timeout, a JSON-RPC error,
+   * a dead session — rejects.
+   */
+  public async callTool(
+    name: string,
+    args?: Record<string, unknown>,
+    timeoutMs: number = DEFAULT_TOOL_TIMEOUT_MS
+  ): Promise<McpToolCallResult> {
+    const result = await this.request<{ content?: unknown; isError?: unknown }>(
+      'tools/call',
+      { name, arguments: args ?? {} },
+      timeoutMs
+    );
+
+    const content = Array.isArray(result?.content) ? (result.content as McpToolContent[]) : [];
+    return { content, isError: Boolean(result?.isError) };
   }
 
   /**

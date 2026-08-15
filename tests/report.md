@@ -1,16 +1,17 @@
 # TEST REPORT
 
 Task:
-TEST-P6-01 — MCP Server Supervisor & Monorepo Regression Gate
+TEST-P6-02 — MCP Full Lifecycle, Capability Discovery & Regression Gate
 
 Status:
-BLOCKED
+VERIFIED
 
 ## Environment
 
 Repository state:
-`dde3586` on `main`, working tree **dirty and changing throughout the entire verification window**.
-6 modified files, 3 untracked files at the last observation. See §"Blocking Condition".
+`94e87c9` on `main`. Working tree clean at gate start (22:20:06). The tree became dirty with
+P6-03 work during execution (see §"Snapshot Isolation"), so the certified results below were
+produced against an **isolated pristine export of `94e87c9`**, immune to concurrent editing.
 
 Relevant packages:
 `asterim` (apps/server), `@asterim/web`, `@asterim/marketing`, `@asterim/relay`,
@@ -23,49 +24,47 @@ Package manager:
 pnpm 9.0.0 (turbo monorepo)
 
 Other relevant environment information:
-- Every turbo task was run with `--force`. The first `pnpm run typecheck` of the session returned
-  `11/11 cached, FULL TURBO` in 115 ms; a cached pass is not evidence for a QA gate, so every
-  result below comes from an uncached execution.
+- Every turbo task was run with `--force`; no result below comes from a cache hit.
 - No test runner exists in the repository; every suite is a standalone `tsx` script that exits
-  non-zero on failure. CI runs only `lint` and `build`, so none of these suites run in CI.
-- Probe scripts were written to the session scratchpad, never to the repository.
-- No product code, test code, or test expectation was modified by this QA pass.
+  non-zero on failure. CI (`.github/workflows/ci.yml`) runs only `lint` and `build`, so none of
+  these suites run in CI.
+- No product code, test code, or test expectation was modified by this QA pass. The repository
+  working tree was never written to; the isolated export was produced with `git archive`, which
+  performs no `.git` mutation.
+- A pre-existing dev server (pid 373376) was listening on :3000 throughout. All probes used
+  dedicated ports (39117–39141) and dedicated `ASTERIM_DATA_DIR` paths, so it did not interfere.
 
 ---
 
-## Blocking Condition — the implementation was being written during the gate
+## Snapshot Isolation
 
-`tests/current.md` assigns verification of **P6-01**. `tasks/current.md` on disk is **P6-02**
-(*MCP Capability Discovery, Stdio Handshake & Boot Autostart*), and P6-02 was being actively
-implemented in the working tree while this gate ran. The tree never held still long enough to
-produce a single coherent verification snapshot.
-
-Observed write timeline (mtimes, all 2026-08-15):
+The previous gate (TEST-P6-01) was blocked because the implementation was rewritten mid-run. The
+same pattern recurred here: after a clean start at `94e87c9`, P6-03 work began landing in the
+working tree while the steps executed.
 
 | Time | Event |
 |---|---|
-| ~21:20 | Session start — `git status` **clean** at `dde3586` |
-| 21:22:27 | `McpProcessSupervisor.test.ts` written |
-| 21:36–21:39 | `McpProcessSupervisor.ts`, `routes/mcp.ts`, `shared/types/mcp.ts` rewritten (338 lines) |
-| 21:42:23 | Watcher reports tree quiet for 91 s — **false stabilization** |
-| 21:44:21 | `McpCapabilityDiscovery.test.ts` created (new, untracked) |
-| 21:46:17 | `McpProcessSupervisor.ts` rewritten again — *during the test battery* |
-| 21:51:31 | `McpProcessSupervisor.test.ts` rewritten |
-| 21:53:54 | `McpCapabilityDiscovery.test.ts` rewritten |
+| 22:20:06 | Gate start — `git status` **clean** at `94e87c9` |
+| 22:21:55 | `McpStdioClient.ts` modified (during Step 1 lint) |
+| 22:23:23 | `routes/mcp.ts`, `McpCapabilityDiscovery.test.ts` modified (during Step 2) |
+| 22:25:38 | `McpProcessSupervisor.ts`, new `McpToolInvocation.test.ts` (during Step 3/4) |
+| 22:26:50 | `apps/web/src/stores/useMcpStore.ts`, `apps/web/src/components/mcp/` |
 
-Consequence: results that depend on the tree flipped between runs and cannot be certified.
+Rather than certify a result that straddled five tree states, the whole gate was re-executed
+against a pristine export:
 
-- Step 2 first execution aborted at **36/37** with an uncaught
-  `TypeError: this.terminate is not a function` and `Handshake failed: McpStdioClient is not defined`.
-  A module probe minutes later showed `terminate` present on the prototype and `McpStdioClient`
-  exported cleanly. **That failure was an artifact of a half-written file and is not reported as a
-  defect.**
-- `asterim#typecheck` and `asterim#lint` each failed, then passed, then failed again — every error
-  located in `McpCapabilityDiscovery.test.ts`, the file being authored at that moment.
+```bash
+git archive 94e87c9 | tar -x -C <scratch>/gate-94e87c9
+pnpm install --frozen-lockfile
+```
 
-The verdict is therefore **BLOCKED**, not PASS and not FAIL. One finding (§Finding 1) reproduced
-identically across three runs at three different tree states and is reported with confidence; the
-volatile results are recorded but explicitly not certified.
+Export integrity was confirmed by comparing `McpProcessSupervisor.ts` against
+`git show 94e87c9:…` (md5 `2742a194b097`, identical). **Every result in this report is from that
+isolated snapshot** and is reproducible from the SHA alone. The in-repo run produced identical
+pass/fail outcomes and identical assertion counts, which corroborates the isolated result.
+
+The uncommitted P6-03 work in the live tree (MCP tool invocation engine, web management UI,
+`McpToolInvocation.test.ts`) is **out of scope for this gate** and was not assessed.
 
 ---
 
@@ -73,189 +72,240 @@ volatile results are recorded but explicitly not certified.
 
 ### Step 1 — Full monorepo typecheck & lint
 
-`npx turbo run typecheck --force` — **VOLATILE, NOT CERTIFIED**
+`npx turbo run typecheck --force` — **PASS**. 11 / 11 Turbo tasks successful, **0 TypeScript
+errors**. 1 m 27 s cold.
 
-| Run | Time | Result |
+`npx turbo run lint --force` — **PASS**. 7 / 7 workspace packages, **0 ESLint errors**, 558
+warnings.
+
+| Package | Errors | Warnings |
 |---|---|---|
-| 1 | 21:35 | 11/11 tasks successful, 0 errors |
-| 2 | 21:43 | `asterim#typecheck` FAILED — 5 × `TS18048`/`TS2532` in `McpCapabilityDiscovery.test.ts` |
-| 3 | 21:51 | `asterim` passes (`tsc --noEmit` exit 0) |
-| 4 | 21:54 | `asterim#typecheck` FAILED — `TS18046: 'init.params' is of type 'unknown'` (line 388) |
+| `@asterim/web` | 0 | 256 |
+| `asterim` | 0 | 241 |
+| `@asterim/adapters` | 0 | 28 |
+| `@asterim/marketing` | 0 | 18 |
+| `@asterim/mcp-memory-server` | 0 | 12 |
+| `@asterim/shared` | 0 | 3 |
 
-`npx turbo run lint --force` — **VOLATILE, NOT CERTIFIED**
+All warnings are pre-existing and overwhelmingly `@typescript-eslint/no-explicit-any`; one is an
+unused `eslint-disable` directive in `@asterim/web`. None are attributable to P6-01/P6-02 and none
+are gate-blocking, since the criterion is 0 errors.
 
-| Run | Time | Result |
-|---|---|---|
-| 1 | 21:37 | 7/7 packages, **0 errors**, 558 warnings |
-| 2 | 21:43 | `asterim#lint` FAILED — 1 error, `no-useless-assignment` on `fullId`, `McpCapabilityDiscovery.test.ts:389` |
-| 3 | 21:53 | 7/7 packages, **0 errors**, 565 warnings |
+### Step 2 — MCP Capability Discovery & Process Supervisor suites
 
-Warning distribution at run 3 (all pre-existing, overwhelmingly `@typescript-eslint/no-explicit-any`):
-`@asterim/web` 256, `asterim` 248, `@asterim/adapters` 28, `@asterim/marketing` 18,
-`@asterim/mcp-memory-server` 12, `@asterim/shared` 3.
+| Suite | Expected | Actual | Result |
+|---|---|---|---|
+| `McpProcessSupervisor.test.ts` | 115 / 115 | **115 / 115** | PASS (exit 0) |
+| `McpCapabilityDiscovery.test.ts` | 89 / 89 | **89 / 89** | PASS (exit 0) |
 
-Gate expectation of "11 Turbo tasks" for typecheck is correct only when the task graph completes;
-a failing `asterim#typecheck` truncates it to 9 because dependents are skipped.
+The 23 failures reported against TEST-P6-01 are **resolved**. Root cause then was that the
+supervisor had begun gating `RUNNING` on a successful `initialize` handshake while the P6-01
+fixtures were bare `setInterval(() => {}, 1000)` processes that could never answer. The fixtures
+have since been migrated: `McpProcessSupervisor.test.ts:80` now defines an `MCP_STUB` that answers
+`initialize` and `tools/list`, and `STAY_ALIVE` composes it (`:107`).
 
-### Step 2 — MCP Process Supervisor unit & route tests
-
-`pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts`
-
-**FAIL — 92 / 115 assertions passed, 23 failed.** Reproduced identically three times
-(standalone at 21:45, inside the battery at 21:47, standalone again at 21:52), across three
-different states of `McpProcessSupervisor.ts`. Exit code 1.
-
-The gate's expectation of 115 assertions is confirmed accurate — the suite has 107 static
-assertion call sites, several inside loops, totalling 115 at runtime.
-
-Sections that passed fully: `mcp_servers` table creation, `sanitizeMcpEnv` (all 16 assertions),
-configuration CRUD, stderr ring buffer, crash detection, unknown-command handling, disabled
-servers, non-stdio transports, child-environment observation, deletion, and the majority of the
-REST route surface.
+Critically, the fix was made on the *test* side, not by weakening the product: the
+`STARTING → INITIALIZING → RUNNING` gate is intact in `McpProcessSupervisor.ts` (`:493` sets
+`INITIALIZING`, `:495` awaits `handshake()`, `:496` sets `RUNNING` only on success). The handshake
+path is genuinely exercised rather than bypassed.
 
 ### Step 3 — Full monorepo test battery
 
-`npx turbo run test --force`
+`npx turbo run test --force` — **PASS**. 26 / 26 suites, **2,006 / 2,006 assertions**, 0 failures.
 
-**FAIL — 24 / 25 suites pass. 1894 / 1917 assertions passed, 23 failed.**
+| Package | Suites | Expected | Actual | Result |
+|---|---|---|---|---|
+| `asterim` (Server) | 13 | 1,129 | 1,129 / 1,129 | PASS |
+| `@asterim/mcp-memory-server` | 7 | 348 | 348 / 348 | PASS |
+| `@asterim/web` | 4 | 435 | 435 / 435 | PASS |
+| `@asterim/relay` | 1 | 71 | 71 / 71 | PASS |
+| `@asterim/adapters` | 1 | 23 | 23 / 23 | PASS |
+| **Total** | **26** | **2,006** | **2,006 / 2,006** | **PASS** |
 
-| Package | Suites | Assertions | Result |
-|---|---|---|---|
-| `asterim` (Server) | 12 | 1017 / 1040 | **FAIL** (1 suite) |
-| `@asterim/mcp-memory-server` | 7 | 348 / 348 | PASS |
-| `@asterim/web` | 4 | 435 / 435 | PASS |
-| `@asterim/relay` | 1 | 71 / 71 | PASS |
-| `@asterim/adapters` | 1 | 23 / 23 | PASS |
-| **Total** | **25** | **1894 / 1917** | **FAIL** |
+Server suite breakdown (13): 63, 60, 140, 52, 51, 64, 89, 21, 231, 52, 102, **115** (supervisor),
+**89** (capability discovery) = 1,129. `McpCapabilityDiscovery.test.ts` is now wired into the
+`asterim` `"test"` script — the open Definition-of-Done item flagged in the previous report is
+closed. No regression was observed in any package.
 
-The 23 failures are entirely within `McpProcessSupervisor.test.ts`. The other 11 server suites
-contributed 925/925. **No regression was detected anywhere outside the MCP subsystem** — memory,
-git, relay, adapters, web, and marketing suites are unaffected.
+One caveat applies to this step; see Finding 1.
 
 ### Step 4 — Full production build
 
-`npx turbo run build --force`
+`npx turbo run build --force` — **PASS**. **7 / 7** Turbo packages built successfully.
 
-**PASS — 7 / 7 Turbo packages built successfully.**
+Enumerated: `@asterim/shared`, `@asterim/adapters`, `@asterim/relay`, `@asterim/web`,
+`@asterim/marketing`, `asterim`, `@asterim/mcp-memory-server`. (`@asterim/eslint-config` has no
+`build` script and is correctly absent.)
 
-Cold (`--force`, no cache): 40.3 s. Warm/cached: 115 ms (`FULL TURBO`). The gate's "under 10
-seconds" expectation is only meetable warm; a cold build of seven packages including two Vite
-apps and two `tsc` project builds does not complete in 10 s on this machine. Recording as PASS on
-the substantive criterion (7/7 succeed) and flagging the timing expectation as unrealistic for a
-cold run.
+Timing: **57.8 s cold** in the isolated export, 26.9 s cold in the warm-cached repo, **104 ms warm**
+(`FULL TURBO`). The gate's "under 10 seconds" expectation is achievable only warm; see Finding 3.
 
-An earlier invocation reported "4 successful, 4 total" because a partial task graph was scheduled;
-the authoritative forced run enumerates all seven build tasks (`@asterim/shared`, `@asterim/adapters`,
-`@asterim/relay`, `@asterim/web`, `@asterim/marketing`, `asterim`, `@asterim/mcp-memory-server`).
-`@asterim/eslint-config` has no `build` script and is correctly absent.
+Note: an intermediate invocation may report "4 successful, 4 total" when turbo schedules a partial
+task graph. Enumerating the emitted task prefixes confirms all seven build tasks execute.
+
+---
+
+## Mandate Verification (§2)
+
+### Capability Discovery — **VERIFIED**
+
+Confirmed by suite (89/89) and by live execution. In the shutdown probe the Core autostarted a
+real stdio child that negotiated the handshake, logging:
+
+```
+[MCP] Autostarting 1 enabled server(s)
+[MCP] Spawned probe-stub (pid 375425)
+[MCP] probe-stub ready: 0 tool(s), 0 resource(s), 0 prompt(s)
+[MCP] Autostart complete: 1/1 ready
+```
+
+`RUNNING` is reached only after `initialize` succeeds and tools/resources/prompts are enumerated.
+
+### Unified Graceful Shutdown — **VERIFIED BY REAL EXECUTION**
+
+`GracefulShutdown.ts` has **no automated test coverage** (it is referenced only by `index.ts`, and
+its `resetShutdownStateForTests()` seam is unused). Because the gate mandates confirming this
+behaviour, it was verified empirically.
+
+Method: pristine build from the isolated export; dedicated `ASTERIM_DATA_DIR`; port 39141; an
+enabled `mcp_servers` row seeded so boot-time autostart spawns a marker-identified MCP stub;
+`SIGTERM` to the Core; before/after observation of processes, port, and files. Parentage was
+confirmed (`ppid` of the child == Core pid), so the observed child was genuinely supervisor-spawned
+rather than a stale process.
+
+| Observable | Before SIGTERM | After SIGTERM | Verdict |
+|---|---|---|---|
+| MCP child process | pid 385053 (ppid = Core) | gone, count 0 | PASS |
+| Listening port 39141 | 1 | 0 | PASS |
+| `server.json` | present | absent | PASS |
+| SQLite `-wal` | present | absent (checkpointed) | PASS |
+| Core process | alive | exited | PASS |
+
+Log confirmation: `[Shutdown] SIGTERM: closing Asterim` → `[MCP] Stopping 1 MCP server(s)` →
+`[Shutdown] Complete`. All four mandated effects — child termination, `server.json` removal, WAL
+checkpoint, port closure — are confirmed. Reproduced twice (repo build and pristine build).
+
+### Full Monorepo Regression — **VERIFIED**
+
+26 / 26 suites, 2,006 / 2,006 assertions, no regression in any package.
+
+### QA Role Only — **RESPECTED**
+
+No product code, test code, or expectation was modified. The repository working tree was not
+written to at any point; all probes ran in the session scratchpad against isolated data
+directories. The only file this pass writes is this report.
 
 ---
 
 ## Findings
 
-### Finding 1 — P6-02 handshake gate breaks all 23 process-lifecycle assertions in the P6-01 suite
+### Finding 1 — `pnpm run test` fails on a clean checkout (missing self-build dependency)
 
-Severity: **HIGH** — violates an explicit P6-02 prohibition.
-Confidence: **CONFIRMED** (reproduced 3×, 3 distinct tree states).
+Severity: **MEDIUM** — reproducibility / onboarding; does not affect the gate verdict.
+Confidence: **CONFIRMED** (observed on the pristine export, then resolved by building first).
 
-Every one of the 23 failures shares a single root cause:
+On a freshly exported `94e87c9` with dependencies installed but nothing built, the first
+`pnpm run test` fails:
 
 ```
-[MCP] Spawned stay-alive (pid …)
-[MCP] stay-alive: Handshake failed: MCP request 'initialize' timed out after 5000ms
-  FAIL  the status becomes RUNNING  — expected "RUNNING", got "ERROR"
+@asterim/mcp-memory-server:test:  FAIL  dist/index.js exists
+                                        (run `pnpm --filter @asterim/mcp-memory-server build` first)
+@asterim/mcp-memory-server:test:  0/1 assertions passed
+Failed:    @asterim/mcp-memory-server#test
 ```
 
-`McpProcessSupervisor.startServer()` now gates the `RUNNING` transition on a successful JSON-RPC
-`initialize` handshake; on timeout it sets `status = 'ERROR'`, records `lastError`, terminates the
-child, and emits `SERVER_CRASHED`.
+`turbo.json` declares `"test": {"dependsOn": ["^build"]}` — upstream dependencies only, not the
+package's *own* build. `stdio_scaffold.test.ts` spawns the package's built `dist/index.js`, so it
+requires `@asterim/mcp-memory-server#build` to have run. Running `pnpm run build` first makes the
+identical command pass 348/348.
 
-The P6-01 suite's fixtures are ordinary Node processes that never speak JSON-RPC:
+This did not surface in the live repo because `dist/` was already populated from earlier builds —
+it is invisible to anyone with a warm tree and hits only clean clones. CI does not currently run
+`test`, so CI is unaffected today, but adding `test` to CI would fail immediately.
 
-```js
-const STAY_ALIVE = 'setInterval(() => {}, 1000)';   // McpProcessSupervisor.test.ts:73
-```
+Suggested remediation (implementer's call): `"test": {"dependsOn": ["^build", "build"]}`.
 
-Such a child can never answer `initialize`, so every start now times out after 5000 ms and lands
-in `ERROR`. This cascades into every downstream assertion about pid tracking, start counts, stop,
-restart, SIGTERM/SIGKILL escalation, `shutdownAll`, and the REST status surface — including
-`SIGKILL followed the grace period (took 0ms)`, which now measures a process that was already dead.
+### Finding 2 — `GracefulShutdown.ts` has no automated test coverage
 
-**The supervisor behaviour is correct per spec.** `tasks/current.md` §7 AC #2 requires transition
-to `RUNNING` "only after successful handshake", and AC #3 requires timeouts to mark `ERROR`. The
-defect is that the P6-01 fixtures were not migrated alongside it, while `tasks/current.md` §6
-states: *"Do NOT break any existing tests or typechecks."*
-
-Remediation is the implementer's call, not QA's, but the spec already points at it —
-`tasks/current.md` §5 calls for *"a small Node script responding to `initialize`, `tools/list`,
-`resources/list`"*. The P6-01 fixtures need the same treatment: replace `STAY_ALIVE` / `NOISY`
-with minimal MCP-speaking stubs, keeping a genuinely-silent child only for the tests that
-legitimately assert handshake-timeout behaviour.
-
-### Finding 2 — `McpCapabilityDiscovery.test.ts` is not wired into the test script
-
-Severity: **MEDIUM** — open P6-02 Definition-of-Done item; suite invisible to `pnpm run test`.
+Severity: **MEDIUM** — verified behaviour, unguarded against regression.
 Confidence: **CONFIRMED**.
 
-The new suite exists and, run directly, **passes 89/89 assertions**. It is absent from the `"test"`
-script in `apps/server/package.json`, so the full battery never executes it — the monorepo reports
-25 suites when 26 exist. `tasks/current.md` §5 explicitly requires *"Wire into
-`apps/server/package.json` `"test"` script."*
+The shutdown sequence is correct (verified above), but nothing in the 26-suite battery exercises
+it. The module even exports `resetShutdownStateForTests()`, a seam that no test consumes —
+suggesting a suite was planned and not written. P6-02 Acceptance Criterion 6 ("unified graceful
+shutdown terminates all MCP child processes cleanly on SIGINT/SIGTERM") therefore passes on
+inspection and live probe, but has no standing guard: a future change to shutdown ordering,
+`serverRegistry.clear()`, or `dbService.close()` would not be caught by `pnpm run test`.
 
-Because it is unwired, its failures surface only through `typecheck`/`lint`, which is how the
-volatile Step 1 errors in §Step 1 arose.
+### Finding 3 — Step 4 timing expectation is unachievable cold
 
-### Finding 3 — `dde3586` commit message describes work that is not in the commit
-
-Severity: **LOW** — hygiene / traceability.
+Severity: **LOW** — gate documentation accuracy.
 Confidence: **CONFIRMED**.
 
-HEAD `dde3586` reads *"feat: implement MCP stdio handshake, capability discovery, autostart, and
-unified graceful shutdown"*, but `McpStdioClient.ts`, `GracefulShutdown.ts`, and
-`McpCapabilityDiscovery.test.ts` are all **untracked** on disk, and `McpProcessSupervisor.ts`,
-`routes/mcp.ts`, `index.ts`, `DatabaseService.ts`, `ServerRegistry.ts`, and
-`packages/shared/src/types/mcp.ts` all carry uncommitted modifications. The commit does not
-contain the feature it names, so no revision in history corresponds to a testable state of P6-02.
+`tests/current.md` §3 Step 4 expects "7 / 7 Turbo packages build successfully in under 10 seconds."
+Measured: 57.8 s cold (isolated), 26.9 s cold (repo), 104 ms warm. A cold build of seven packages
+including two Vite apps and three `tsc` builds cannot finish in 10 s on this hardware. The
+substantive criterion (7/7 succeed) passes; the timing figure describes a cached build and should
+be restated as such.
+
+### Finding 4 — Server log escapes `ASTERIM_DATA_DIR` and is truncated per process start
+
+Severity: **LOW** — pre-existing, outside P6-02 scope; affects shutdown diagnosability.
+Confidence: **CONFIRMED**.
+
+`apps/server/src/utils/logger.ts` monkey-patches `process.stdout.write` and `process.stderr.write`
+to redirect all console output into `path.join(os.homedir(), '.asterim', 'server.log')`. Two
+consequences observed during probing:
+
+1. The path is hardcoded to the home directory and **ignores `ASTERIM_DATA_DIR`**, so an instance
+   pointed at an isolated data directory still writes its log into the shared `~/.asterim` one.
+2. `initLogger()` truncates the file on every startup (`fs.writeFileSync(logFile, '')`), so
+   concurrent instances clobber each other's logs. During probing, starting a probe Core truncated
+   the log of the dev server running on :3000, and both processes then interleaved into one file.
+
+Only the startup banner reaches the terminal (via `printToConsole()`, which retains the original
+writer); `[MCP]` and `[Shutdown]` lines are invisible on stdout. This is why the shutdown sequence
+appears absent from a redirected console and must be read from `~/.asterim/server.log`. Worth
+noting for operators reading container or systemd logs.
 
 ---
 
 ## Acceptance Criteria Review
 
-Criteria are those of `tests/current.md` §3.
+Criteria are those of `tests/current.md` §3, verified against the isolated `94e87c9` snapshot.
 
-- [ ] **Step 1 — `pnpm run typecheck`: 0 errors across 11 Turbo tasks**
-      NOT CERTIFIED. Passed at 21:35 and 21:51; failed at 21:43 and 21:54. All errors confined to
-      `McpCapabilityDiscovery.test.ts` while it was being authored. Last observation: FAILING.
-- [ ] **Step 1 — `pnpm run lint`: 0 errors across 7 workspace packages**
-      NOT CERTIFIED. 0 errors at 21:37 and 21:53; 1 error at 21:43
-      (`no-useless-assignment`, `McpCapabilityDiscovery.test.ts:389`). Last observation: 0 errors,
-      565 warnings. Warnings are pre-existing and outside this gate's scope.
-- [ ] **Step 2 — MCP supervisor suite: 115/115 assertions passing**
-      **FAILED.** 92/115, 23 failures, reproduced 3×. See Finding 1.
-- [ ] **Step 3 — All 25 suites pass, 0 failures across 1,917+ assertions**
-      **FAILED.** 24/25 suites, 1894/1917 assertions. Sub-criteria:
-  - [ ] `asterim` (Server) 12 suites / 1,040 assertions — 1017/1040, 1 suite failing
+- [x] **Step 1 — `pnpm run typecheck`: 0 errors across 11 Turbo tasks**
+      VERIFIED. 11/11 tasks successful, 0 TypeScript errors, uncached.
+- [x] **Step 1 — `pnpm run lint`: 0 errors across 7 workspace packages**
+      VERIFIED. 7/7 packages, 0 errors, 558 pre-existing warnings (criterion is 0 errors).
+- [x] **Step 2 — `McpProcessSupervisor.test.ts`: 115 / 115 assertions**
+      VERIFIED. 115/115, exit 0. Previous 23 failures resolved via fixture migration, with the
+      `RUNNING`-after-handshake gate left intact.
+- [x] **Step 2 — `McpCapabilityDiscovery.test.ts`: 89 / 89 assertions**
+      VERIFIED. 89/89, exit 0.
+- [x] **Step 3 — All 26 suites pass, 0 failures across 2,006+ assertions**
+      VERIFIED. 26/26 suites, 2,006/2,006 assertions. Sub-criteria:
+  - [x] `asterim` (Server) 13 suites / 1,129 assertions — 1,129/1,129
   - [x] `@asterim/mcp-memory-server` 7 suites / 348 assertions — 348/348
   - [x] `@asterim/web` 4 suites / 435 assertions — 435/435
   - [x] `@asterim/relay` 1 suite / 71 assertions — 71/71
   - [x] `@asterim/adapters` 1 suite / 23 assertions — 23/23
-- [x] **Step 4 — 7/7 Turbo packages build successfully**
-      PASSED. 7/7 built. Timing criterion ("under 10 seconds") not met cold (40.3 s); met warm
-      (115 ms). Flagged as an unrealistic expectation for an uncached build, not as a defect.
+  - Caveat: requires a prior `pnpm run build` on a clean checkout (Finding 1).
+- [x] **Step 4 — 7 / 7 Turbo packages build successfully**
+      VERIFIED. 7/7 built, all enumerated. Timing sub-expectation ("under 10 seconds") NOT met
+      cold (57.8 s); met warm (104 ms). Recorded as Finding 3, not as a build defect.
 
 Mandates from `tests/current.md` §2:
 
-- [x] **QA role only** — no product code, test code, or expectation was modified.
-- [ ] **Full monorepo regression** — executed; 24/25 clean. Not certifiable against a moving tree.
-- [ ] **Process lifecycle verification** — **could not be verified.** PID tracking, SIGTERM/SIGKILL
-      termination, and HTTP status reporting are all gated behind a handshake the fixtures cannot
-      complete, so these paths are never exercised. Stderr ring-buffer logging **is** verified and
-      passing.
-- [x] **Environment sanitization verification** — **VERIFIED AND PASSING.** All 16 `sanitizeMcpEnv`
-      assertions pass. Confirmed blocked from children: `ASTERIM_RELAY_URL`, `ASTERIM_RELAY_SECRET`,
-      `RELAY_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GITHUB_TOKEN`,
-      `AWS_SECRET_ACCESS_KEY`, `DB_PASSWORD`, `MY_API_KEY`. Confirmed passed through: `PATH`,
-      `HOME`, locale, `ASTERIM_DATA_DIR`, and operator-set explicit vars.
+- [x] **QA Role Only** — no product code, test code, or expectation modified; repository working
+      tree never written to.
+- [x] **Full Monorepo Regression** — 26/26 suites clean, no regressions.
+- [x] **Capability Discovery Verification** — JSON-RPC 2.0 `initialize` negotiated against a real
+      stdio child; tools/resources/prompts enumerated; `RUNNING` reached only upon readiness.
+      Confirmed by suite and by live autostart.
+- [x] **Unified Graceful Shutdown** — SIGTERM terminates MCP children, removes `server.json`,
+      checkpoints the SQLite WAL, and closes the port. Verified by real execution, twice.
+      Unguarded by automated tests (Finding 2).
 
 ---
 
@@ -263,45 +313,44 @@ Mandates from `tests/current.md` §2:
 
 | Step | Criterion | Result |
 |---|---|---|
-| 1 | typecheck, 0 errors | NOT CERTIFIED (flip-flopped 4×) |
-| 1 | lint, 0 errors | NOT CERTIFIED (flip-flopped 3×) |
-| 2 | supervisor 115/115 | **FAIL — 92/115** |
-| 3 | 25 suites, 1917 assertions | **FAIL — 24/25, 1894/1917** |
+| 1 | typecheck, 0 errors, 11 tasks | **PASS** |
+| 1 | lint, 0 errors, 7 packages | **PASS** |
+| 2 | supervisor 115/115 | **PASS** |
+| 2 | capability discovery 89/89 | **PASS** |
+| 3 | 26 suites, 2,006 assertions | **PASS** |
 | 4 | 7/7 packages build | **PASS** |
+| §2 | capability discovery verification | **PASS** |
+| §2 | unified graceful shutdown | **PASS** (live probe) |
 
-Gate verdict: **BLOCKED**.
+Gate verdict: **VERIFIED**.
 
-The one substantive defect (Finding 1) is a direct and predictable consequence of unfinished
-P6-02 work landing on top of P6-01's test fixtures. It is real and reproducible, but it is not
-evidence that P6-01 is broken — it is evidence that the gate was run against a tree mid-migration.
+Every acceptance criterion of TEST-P6-02 is met at `94e87c9`. The four findings above are
+non-blocking: one reproducibility defect in the turbo task graph, one coverage gap over verified
+behaviour, one inaccurate timing expectation in the gate document, and one pre-existing logging
+inconsistency.
 
 ---
 
 ## Recommendation
 
-TEST-P6-01 should not be re-run until the tree is committed and quiescent. Specifically:
-
-1. **Finish and commit P6-02.** No revision in history currently contains the feature under test
-   (Finding 3), so there is nothing stable to certify.
-2. **Migrate the P6-01 fixtures** to minimal MCP-speaking stubs (Finding 1), preserving a silent
-   child only where handshake-timeout behaviour is the assertion under test.
-3. **Wire `McpCapabilityDiscovery.test.ts` into the `asterim` test script** (Finding 2) so the
-   battery covers 26 suites.
-4. **Re-issue the gate against a committed SHA.** Consider retargeting it as TEST-P6-02, since
-   `tasks/current.md` has already advanced to P6-02 while `tests/current.md` still names P6-01.
-5. **Revise the Step 4 timing expectation** to distinguish cold (~40 s) from warm (~115 ms) builds.
+1. **Pass the gate.** P6-01 and P6-02 are verified at `94e87c9`.
+2. **Fix Finding 1** — add `"build"` to the `test` task's `dependsOn` in `turbo.json` so the battery
+   is runnable from a clean clone. Cheap, and a prerequisite for ever adding `test` to CI.
+3. **Close Finding 2** — add a suite covering `runShutdownSequence()`; the `resetShutdownStateForTests()`
+   seam already exists for it. Shutdown correctness is currently verified but unguarded.
+4. **Correct Finding 3** in the gate template — state the build budget as warm (~100 ms) vs cold
+   (~30–60 s).
+5. **Consider Finding 4** — honour `ASTERIM_DATA_DIR` in `initLogger()` and append rather than
+   truncate, so concurrent instances do not destroy each other's logs.
+6. **Process**: this is the second consecutive gate executed against a tree being edited
+   concurrently. Gates should be issued against a committed SHA with the implementer paused, or QA
+   should continue isolating via `git archive` as done here. The isolation worked, but it cost a
+   full dependency install and a duplicated run.
 
 ## Recommended Next Step
 
-Return this gate to the orchestrator as BLOCKED. Once P6-02 is committed, re-run all four steps
-against that SHA; the expected delta is 23 assertions restored in `McpProcessSupervisor.test.ts`
-plus 89 added from `McpCapabilityDiscovery.test.ts`, giving 26 suites / 2,006 assertions.
-
----
-
-## Reporting Note
-
-`tests/current.md` §4 directs the report to `reports/current.md`; the operator instruction for this
-run directed it to `tests/report.md`. This report was written to `tests/report.md` per the operator
-instruction. `reports/current.md` was left untouched (it still holds the prior Stripe billing task
-report). The two locations should be reconciled in the protocol.
+Report TEST-P6-02 **VERIFIED** to the orchestrator and proceed to the P6-03 work already present in
+the working tree (MCP tool invocation engine, dynamic notifications, web management UI). That work
+is uncommitted and unassessed; `McpToolInvocation.test.ts` exists and has already been wired into
+the `asterim` `"test"` script (now 14 server suites), but was not evaluated by this gate and should
+be covered by the next one.

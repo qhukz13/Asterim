@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 
-export type ViewType = 'chat' | 'terminal' | 'changes' | 'memory' | 'settings' | 'workspace' | 'environment';
+export type ViewType =
+  | 'chat'
+  | 'terminal'
+  | 'changes'
+  | 'memory'
+  | 'mcp'
+  | 'settings'
+  | 'workspace'
+  | 'environment';
 
 interface ViewState {
   activeView: ViewType;

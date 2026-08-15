@@ -10,11 +10,12 @@ import {
   McpServerInput,
   McpServerRuntimeInfo,
   McpServerStatus,
+  McpToolCallResult,
   McpTransport
 } from '@asterim/shared';
 import { dbService } from '../DatabaseService';
 import { eventBus } from '../EventBus';
-import { McpStdioClient } from './McpStdioClient';
+import { DEFAULT_TOOL_TIMEOUT_MS, McpStdioClient, McpTimeoutError } from './McpStdioClient';
 
 /**
  * Supervises the MCP servers a developer has registered with Asterim.
@@ -34,7 +35,9 @@ export type McpErrorCode =
   | 'SERVER_DISABLED'
   | 'UNSUPPORTED_TRANSPORT'
   | 'SPAWN_FAILED'
-  | 'NOT_RUNNING';
+  | 'SERVER_NOT_RUNNING'
+  | 'TOOL_NOT_FOUND'
+  | 'TOOL_TIMEOUT';
 
 export class McpError extends Error {
   constructor(
@@ -199,17 +202,21 @@ export interface McpSupervisorOptions {
   requestTimeoutMs?: number;
   /** Bound on the complete handshake. */
   handshakeTimeoutMs?: number;
+  /** Bound on a single tool call. */
+  toolTimeoutMs?: number;
 }
 
 export class McpProcessSupervisor {
   private readonly runtimes = new Map<string, RuntimeState>();
   private readonly requestTimeoutMs: number;
   private readonly handshakeTimeoutMs: number;
+  private readonly toolTimeoutMs: number;
   private exitHookInstalled = false;
 
   constructor(options: McpSupervisorOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? 5000;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
+    this.toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
   }
 
   /**
@@ -528,7 +535,11 @@ export class McpProcessSupervisor {
     }
 
     const client = new McpStdioClient(child.stdin, child.stdout, {
-      timeoutMs: this.requestTimeoutMs
+      timeoutMs: this.requestTimeoutMs,
+      // The server announcing a changed list is the only signal that a cached
+      // catalogue has gone stale; without acting on it, Asterim would offer
+      // tools that no longer exist.
+      onListChanged: kind => void this.onListChanged(id, kind)
     });
     state.client = client;
 
@@ -566,7 +577,7 @@ export class McpProcessSupervisor {
 
     if (!state.child || state.status !== 'RUNNING') {
       throw new McpError(
-        'NOT_RUNNING',
+        'SERVER_NOT_RUNNING',
         `${config.name} is not running; start it before refreshing capabilities.`
       );
     }
@@ -574,6 +585,76 @@ export class McpProcessSupervisor {
     state.capabilities = await this.handshake(id, state.child);
     this.emit(MCP_EVENTS.CAPABILITIES_UPDATED, id);
     return this.getServerStatus(id) as McpServerRuntimeInfo;
+  }
+
+  /**
+   * Invokes a tool on a running server.
+   *
+   * Two things are checked before the call leaves: that the server is actually
+   * `RUNNING` (a stopped or crashed server has no session to speak over), and
+   * that the tool is one the last handshake found. The second is not
+   * bureaucracy — it turns "the server answered -32602 eventually" into an
+   * immediate, specific answer, and it is what lets the route return 404 rather
+   * than 500.
+   */
+  public async callTool(
+    serverId: string,
+    toolName: string,
+    args?: Record<string, unknown>
+  ): Promise<McpToolCallResult> {
+    const config = this.requireConfig(serverId);
+    const state = this.state(serverId);
+
+    if (state.status !== 'RUNNING' || !state.client) {
+      throw new McpError(
+        'SERVER_NOT_RUNNING',
+        `${config.name} is ${state.status.toLowerCase()}; start it before calling its tools.`
+      );
+    }
+
+    const known = state.capabilities?.tools.some(tool => tool.name === toolName);
+    if (!known) {
+      throw new McpError(
+        'TOOL_NOT_FOUND',
+        `${config.name} does not expose a tool named '${toolName}'.`
+      );
+    }
+
+    try {
+      return await state.client.callTool(toolName, args, this.toolTimeoutMs);
+    } catch (err) {
+      if (err instanceof McpTimeoutError) {
+        throw new McpError(
+          'TOOL_TIMEOUT',
+          `${config.name} did not answer '${toolName}' within ${this.toolTimeoutMs}ms.`
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Re-reads a server's catalogue after it announced a change.
+   *
+   * Best-effort by design: this runs from a notification, with nobody waiting on
+   * it. A failed re-read leaves the previous capabilities in place — stale is
+   * better than empty — and says so in the log.
+   */
+  private async onListChanged(id: string, kind: 'tools' | 'resources' | 'prompts'): Promise<void> {
+    const state = this.runtimes.get(id);
+    if (!state || state.status !== 'RUNNING' || !state.child) return;
+
+    const name = this.getConfig(id)?.name ?? id;
+    console.log(`[MCP] ${name} announced changed ${kind}; re-reading capabilities`);
+
+    try {
+      state.capabilities = await this.handshake(id, state.child);
+      this.emit(MCP_EVENTS.CAPABILITIES_UPDATED, id);
+    } catch (err) {
+      console.warn(
+        `[MCP] Could not re-read ${name} after a ${kind} change: ${(err as Error).message}`
+      );
+    }
   }
 
   /**
@@ -755,4 +836,23 @@ export class McpProcessSupervisor {
   }
 }
 
-export const mcpProcessSupervisor = new McpProcessSupervisor();
+/** Reads a positive integer from the environment, or keeps the default. */
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * The supervisor the Core and its routes share.
+ *
+ * The timeouts are configurable because they are operational, not architectural:
+ * a workstation running a slow database MCP server needs a longer tool budget
+ * than the default, and finding that out should not require a rebuild.
+ */
+export const mcpProcessSupervisor = new McpProcessSupervisor({
+  requestTimeoutMs: envInt('ASTERIM_MCP_REQUEST_TIMEOUT_MS', 5000),
+  handshakeTimeoutMs: envInt('ASTERIM_MCP_HANDSHAKE_TIMEOUT_MS', HANDSHAKE_TIMEOUT_MS),
+  toolTimeoutMs: envInt('ASTERIM_MCP_TOOL_TIMEOUT_MS', DEFAULT_TOOL_TIMEOUT_MS)
+});

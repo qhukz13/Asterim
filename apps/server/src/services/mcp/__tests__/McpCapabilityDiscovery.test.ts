@@ -745,7 +745,7 @@ async function main(): Promise<void> {
       url: `/api/v1/mcp/servers/${id}/refresh`
     });
     equal('refreshing a stopped server is a 409', refreshStopped.statusCode, 409);
-    equal('with NOT_RUNNING', refreshStopped.json().code, 'NOT_RUNNING');
+    equal('with SERVER_NOT_RUNNING', refreshStopped.json().code, 'SERVER_NOT_RUNNING');
 
     const stale = await app.inject({
       method: 'GET',

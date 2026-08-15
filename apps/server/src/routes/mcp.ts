@@ -9,7 +9,11 @@ const STATUS_BY_CODE: Record<McpErrorCode, number> = {
   SERVER_DISABLED: 409,
   UNSUPPORTED_TRANSPORT: 400,
   SPAWN_FAILED: 500,
-  NOT_RUNNING: 409
+  SERVER_NOT_RUNNING: 409,
+  TOOL_NOT_FOUND: 404,
+  // The tool was reached and simply took too long: a gateway timeout, not a
+  // failure of this server.
+  TOOL_TIMEOUT: 504
 };
 
 function sendMcpError(reply: FastifyReply, err: unknown): FastifyReply {
@@ -134,6 +138,34 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     try {
       const server = await mcpProcessSupervisor.refreshCapabilities(id);
       return reply.send({ server });
+    } catch (err) {
+      return sendMcpError(reply, err);
+    }
+  });
+
+  // POST /api/v1/mcp/servers/:id/tools/:toolName — invoke a discovered tool
+  fastify.post('/api/v1/mcp/servers/:id/tools/:toolName', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id, toolName } = request.params as { id: string; toolName: string };
+    const body = (request.body as { arguments?: Record<string, unknown> }) || {};
+
+    if (
+      body.arguments !== undefined &&
+      (typeof body.arguments !== 'object' ||
+        body.arguments === null ||
+        Array.isArray(body.arguments))
+    ) {
+      return reply
+        .status(400)
+        .send({ error: 'arguments must be an object.', code: 'INVALID_CONFIG' });
+    }
+
+    try {
+      const result = await mcpProcessSupervisor.callTool(id, toolName, body.arguments);
+      // A tool reporting failure is a 200 with isError: the call succeeded, the
+      // tool said no. Only the transport failing is an HTTP error.
+      return reply.send({ result, isError: result.isError });
     } catch (err) {
       return sendMcpError(reply, err);
     }
