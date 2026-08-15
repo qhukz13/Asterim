@@ -1,6 +1,6 @@
-# [P6-02] — MCP Capability Discovery, Stdio Handshake & Boot Autostart
+# [P6-03] — MCP Tool Invocation Engine, Change Notifications & Registry UI
 
-**Task ID:** P6-02  
+**Task ID:** P6-03  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,30 +11,29 @@
 
 ## 1. Objective
 
-Implement JSON-RPC 2.0 stdio handshake and capability discovery in `McpProcessSupervisor`: perform `initialize` negotiation upon process spawn, query `tools/list`, `resources/list`, and `prompts/list`, cache discovered capabilities on the server runtime model, expose `GET /api/v1/mcp/servers/:id/capabilities`, emit `mcp.*` status events onto the Asterim `EventBus`, implement boot-time autostart for enabled servers, and consolidate process graceful shutdown into a unified sequence.
+Implement direct MCP tool invocation in `McpProcessSupervisor` / `McpStdioClient` (`tools/call` over active stdio sessions), support dynamic capability invalidation (`notifications/tools/list_changed`), expose `POST /api/v1/mcp/servers/:id/tools/:toolName` REST endpoints, and construct the complete MCP Server Registry & Management UI in `apps/web` (`McpServerExplorer.tsx`, `McpServerModal.tsx`, `McpServerDetailDrawer.tsx`).
 
 ---
 
 ## 2. Why This Task Exists
 
-In P6-01, `McpProcessSupervisor` was built to supervise child processes and capture stderr logs. However, process existence (`RUNNING`) is not yet semantic readiness: Asterim does not know what tools, resources, or prompts an MCP server provides until a JSON-RPC 2.0 `initialize` handshake is performed.
-
-Discovering and caching capabilities allows Asterim to:
-1. Guarantee that a server is truly ready to handle agent tool invocations.
-2. Provide Asterim UI and Agent profiles with a searchable catalog of available tools (e.g. `filesystem:read_file`, `postgres:query`, `github:create_issue`).
-3. Auto-start enabled MCP servers on Asterim Core boot so agent tools are instantly available without manual intervention.
+In P6-01 and P6-02, Asterim built the process supervisor, handshake discovery, and autostart engine. However:
+1. Asterim cannot yet execute tools through those open MCP sessions on behalf of agents or users.
+2. If an MCP server updates its tools dynamically (e.g. connecting a database or mounting a directory), Asterim does not catch `notifications/tools/list_changed`.
+3. Developers need a visual control plane in the Asterim Web UI to view registered MCP servers, inspect discovered tools & schemas, review real-time stderr logs, toggle enabled status, and add new servers with one click.
 
 ---
 
 ## 3. Context
 
-* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP Registry & Capability Control) & `blueprint/ARCHITECTURE.md`.
-* **JSON-RPC 2.0 Protocol (Model Context Protocol Specification)**:
-  - Client sends `initialize` request with client info & capabilities.
-  - Server responds with server info, protocol version, and server capabilities.
-  - Client sends `notifications/initialized`.
-  - Client queries `tools/list`, `resources/list`, `prompts/list`.
-* **EventBus Bridge**: Status transitions (`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`) should emit to `eventBus` so connected Web UI clients receive instant state updates over Socket.IO.
+* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP Management System) & `blueprint/DESIGN_SYSTEM.md`.
+* **JSON-RPC Protocol**:
+  - Request: `{"jsonrpc": "2.0", "id": N, "method": "tools/call", "params": {"name": "tool_name", "arguments": {...}}}`
+  - Response: `{"jsonrpc": "2.0", "id": N, "result": {"content": [{"type": "text", "text": "..."}], "isError": false}}`
+* **UI Architecture**:
+  - Integrate into `apps/web` navigation and routing.
+  - Follow the Asterim dark monochrome aesthetic with surgical emerald accents (`#10b981`).
+  - Real-time Socket.IO updates on `mcp.*` events with zero page reloads.
 
 ---
 
@@ -42,110 +41,87 @@ Discovering and caching capabilities allows Asterim to:
 
 Inspect:
 * [`apps/server/src/services/mcp/McpProcessSupervisor.ts`](file:///c:/Projects/Asterim/apps/server/src/services/mcp/McpProcessSupervisor.ts)
-* [`packages/shared/src/types/mcp.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/mcp.ts)
-* [`apps/server/src/services/EventBus.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EventBus.ts)
-* [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts)
+* [`apps/server/src/services/mcp/McpStdioClient.ts`](file:///c:/Projects/Asterim/apps/server/src/services/mcp/McpStdioClient.ts)
 * [`apps/server/src/routes/mcp.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/mcp.ts)
-* [`apps/server/src/index.ts`](file:///c:/Projects/Asterim/apps/server/src/index.ts)
+* [`apps/web/src/components/memory/DecisionExplorer.tsx`](file:///c:/Projects/Asterim/apps/web/src/components/memory/DecisionExplorer.tsx) (UI patterns, drawers, modals, tables)
+* [`apps/web/src/stores/useWorkspaceStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useWorkspaceStore.ts)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **Shared Types (`packages/shared/src/types/mcp.ts`)**:
-   - Define capability interfaces:
-     ```ts
-     export interface McpToolDefinition {
-       name: string;
-       description?: string;
-       inputSchema?: Record<string, unknown>;
-     }
+1. **Tool Invocation Engine (`McpStdioClient.ts` & `McpProcessSupervisor.ts`)**:
+   - In `McpStdioClient.ts`:
+     - Implement `callTool(name: string, args?: Record<string, unknown>, timeoutMs = 30000)`:
+       - Sends JSON-RPC `tools/call`.
+       - Handles timeout and tool execution errors (`result.isError`).
+       - Returns `McpToolCallResult` (`content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>`, `isError: boolean`).
+     - Handle `notifications/tools/list_changed`:
+       - When received, re-trigger `discover()` and notify supervisor callback.
+   - In `McpProcessSupervisor.ts`:
+     - Implement `callTool(serverId: string, toolName: string, args?: Record<string, unknown>)`:
+       - Verify server is `RUNNING` and tool exists in cached capabilities.
+       - Execute tool via active `McpStdioClient`.
+       - On `list_changed` notification from client, update cached capabilities and emit `mcp.capabilities_updated` over `EventBus`.
 
-     export interface McpResourceDefinition {
-       uri: string;
-       name: string;
-       description?: string;
-       mimeType?: string;
-     }
+2. **REST API Extensions (`apps/server/src/routes/mcp.ts`)**:
+   - `POST /api/v1/mcp/servers/:id/tools/:toolName` — Authenticated; accepts `{ arguments: {...} }`, calls tool and returns `{ result, isError }`.
+   - Returns 404 if tool does not exist, 409 if server is not `RUNNING`, 504 on tool execution timeout.
 
-     export interface McpPromptDefinition {
-       name: string;
-       description?: string;
-       arguments?: Array<{ name: string; description?: string; required?: boolean }>;
-     }
+3. **Frontend MCP Management Store & Components (`apps/web`)**:
+   - Store: `apps/web/src/stores/useMcpStore.ts`:
+     - Manages `servers: McpServerRuntimeInfo[]`, `activeServerId: string | null`, `isLoading: boolean`.
+     - Listens to Socket.IO events (`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`) for live state updates.
+     - Actions: `loadServers(workspaceId?)`, `startServer(id)`, `stopServer(id)`, `restartServer(id)`, `refreshCapabilities(id)`, `deleteServer(id)`, `callTool(id, name, args)`.
+   - Component: `apps/web/src/components/mcp/McpServerExplorer.tsx`:
+     - Server list with status badge (`RUNNING` emerald, `INITIALIZING` yellow, `STOPPED` slate, `CRASHED` red, `ERROR` red).
+     - Tool count chip, process PID chip, uptime, transport pill.
+     - Action buttons: Start, Stop, Restart, Refresh, Add Server (`+ New MCP Server`), Delete.
+   - Component: `apps/web/src/components/mcp/McpServerModal.tsx`:
+     - Modal for creating/editing an MCP server configuration (Name, Transport, Command, Arguments, Environment Variables JSON/Key-Value, Global vs Workspace).
+   - Component: `apps/web/src/components/mcp/McpServerDetailDrawer.tsx`:
+     - Slide-over drawer with tabs:
+       - **Tools Tab**: List of discovered tools with descriptions, parameter JSON schemas, and an interactive "Try Tool" execution runner.
+       - **Resources & Prompts Tab**: List of URI resources and prompt templates.
+       - **Logs Tab**: Real-time 50-line stderr rolling log viewer with auto-scroll and copy button.
 
-     export interface McpServerCapabilities {
-       tools: McpToolDefinition[];
-       resources: McpResourceDefinition[];
-       prompts: McpPromptDefinition[];
-       protocolVersion?: string;
-       serverInfo?: { name: string; version: string };
-       discoveredAt: number;
-     }
-     ```
-   - Augment `McpServerRuntimeInfo` with `capabilities?: McpServerCapabilities | null` and status `INITIALIZING`.
+4. **Navigation & View Integration (`apps/web`)**:
+   - Add MCP Registry tab / route in Workspace navigation shell (e.g. `/workspace/mcp` or Environment Settings MCP tab).
 
-2. **Stdio JSON-RPC 2.0 Handshake Client (`apps/server/src/services/mcp/McpStdioClient.ts`)**:
-   - Connects to child process stdin/stdout with newline-delimited JSON-RPC framing.
-   - Implements request/response multiplexing with timeout (default: 5000ms):
-     - Sends `initialize` request (`protocolVersion: '2024-11-05'`, `clientInfo: { name: 'asterim-core', version: '0.1.0' }`).
-     - Awaits response, then sends `notifications/initialized`.
-     - Calls `tools/list`, `resources/list`, and `prompts/list` (handling optional capability flags).
-   - Returns structured `McpServerCapabilities`.
-   - Keeps tool session open for dynamic queries or closes gracefully when only probing.
-
-3. **`McpProcessSupervisor.ts` Upgrades**:
-   - State transition during start: `STARTING` → `INITIALIZING` (handshake in progress) → `RUNNING` (ready with cached capabilities) or `ERROR` (handshake failed/timeout).
-   - EventBus emissions: publish `mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, and `mcp.capabilities_updated` with `McpServerRuntimeInfo`.
-   - Boot Autostart: `autostartEnabledServers()` reads all servers with `is_enabled = 1` from SQLite and starts them in parallel on Asterim Core boot.
-   - Graceful Shutdown Consolidation: Implement single-owner `setupGracefulShutdown(fastifyServer)` that traps `SIGINT`/`SIGTERM`, closes Fastify, shuts down all MCP servers, closes SQLite connections, and removes `server.json`.
-
-4. **REST API Extensions (`apps/server/src/routes/mcp.ts`)**:
-   - `GET /api/v1/mcp/servers/:id/capabilities` — Returns cached tools, resources, and prompts for the server.
-   - `POST /api/v1/mcp/servers/:id/refresh` — Re-runs discovery handshake and updates cached capabilities.
-
-5. **Automated Unit & Integration Test Suite (`apps/server/src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts`)**:
-   - Test JSON-RPC handshake against a real mock stdio MCP server (e.g. small Node script responding to `initialize`, `tools/list`, `resources/list`).
-   - Test capability caching and schema parsing.
-   - Test handshake timeout (slow child transitions to `ERROR`).
-   - Test `autostartEnabledServers()` booting only `isEnabled: true` servers.
-   - Test EventBus emissions on status changes.
-   - Test REST route `GET /capabilities` and `POST /refresh`.
-   - Wire into `apps/server/package.json` `"test"` script.
+5. **Automated Unit Tests**:
+   - Server: `apps/server/src/services/mcp/__tests__/McpToolInvocation.test.ts` (tool invocation, error handling, timeout, dynamic list_changed notification).
+   - Web: `apps/web/src/components/mcp/__tests__/McpServerExplorer.test.ts` (store actions, component rendering, status badge mapping).
+   - Wire tests into `apps/server/package.json` and `apps/web/package.json` `"test"` scripts.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** block Asterim startup if an external MCP server fails to start (log warning, mark `ERROR`, continue boot).
-* Do **NOT** leak stdin/stdout tool payload data into persistent log tables.
-* Do **NOT** break any existing tests or typechecks.
+* Do **NOT** execute tools when server is `STOPPED` or `CRASHED` (enforce 409 `SERVER_NOT_RUNNING`).
+* Do **NOT** leak sensitive environment variables in the UI log viewer.
+* Do **NOT** break any of the 26 existing test suites.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `McpStdioClient` conducts JSON-RPC 2.0 `initialize` handshake and retrieves `tools/list`, `resources/list`, `prompts/list`.
-2. `McpProcessSupervisor` caches discovered capabilities and transitions status to `RUNNING` only after successful handshake.
-3. Handshake failures or timeouts cleanly mark the server as `ERROR` with the error reason recorded.
-4. `autostartEnabledServers()` starts enabled servers on Core boot without blocking server startup on failed children.
-5. `mcp.*` events are emitted onto `EventBus` on all state transitions.
-6. Unified graceful shutdown terminates all MCP child processes cleanly on `SIGINT`/`SIGTERM`.
-7. `McpCapabilityDiscovery.test.ts` passes with comprehensive assertions.
-8. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
+1. `McpStdioClient` and `McpProcessSupervisor` execute `tools/call` over active stdio sessions and return structured tool responses.
+2. `notifications/tools/list_changed` dynamically invalidates and refreshes cached capabilities with `mcp.capabilities_updated` emitted on the EventBus.
+3. `POST /api/v1/mcp/servers/:id/tools/:toolName` handles invocations, timeouts, and structured errors.
+4. `McpServerExplorer.tsx`, `McpServerModal.tsx`, and `McpServerDetailDrawer.tsx` render in `apps/web` with live Socket.IO reactivity.
+5. All automated unit tests pass cleanly.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (27+ test suites), `pnpm run build`.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] Shared capability types defined in `@asterim/shared`
-- [ ] `McpStdioClient.ts` implemented and tested
-- [ ] Handshake discovery integrated into `McpProcessSupervisor`
-- [ ] `autostartEnabledServers()` implemented
-- [ ] EventBus notifications active
-- [ ] `GET /capabilities` REST route functional
-- [ ] Unified graceful shutdown sequence in `index.ts`
-- [ ] New test suite passing
+- [ ] `callTool` implemented in supervisor and stdio client
+- [ ] `list_changed` notification handling active
+- [ ] Tool execution REST route functional
+- [ ] `useMcpStore.ts` implemented with Socket.IO event binding
+- [ ] `McpServerExplorer.tsx`, `McpServerModal.tsx`, `McpServerDetailDrawer.tsx` built
+- [ ] New server and web test suites created and passing
 - [ ] Monorepo CI gates pass cleanly
 
 ---
@@ -153,11 +129,11 @@ Inspect:
 ## 9. Verification Commands
 
 ```bash
-# Run new MCP Capability Discovery unit test suite
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts
+# Run server tool invocation test suite
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpToolInvocation.test.ts
 
-# Run all MCP test suites
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts
+# Run web MCP component test suite
+pnpm --filter @asterim/web exec tsx src/components/mcp/__tests__/McpServerExplorer.test.ts
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
@@ -170,8 +146,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Verify JSON-RPC message framing handles fragmented buffers over stdio streams.
-- Ensure `EventBus` events adhere to the established `@asterim/shared` event format.
+- Inspect `git diff` to ensure tool execution timeouts are bounded and do not leave hanging promises.
+- Verify UI components adhere to WCAG contrast and accessibility standards.
 
 ---
 
