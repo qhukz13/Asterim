@@ -1,0 +1,26 @@
+{
+    "permissions": {
+        "allow": [
+            "Read",
+            "Glob",
+            "Grep",
+            "Edit",
+            "Write",
+            "Bash(git add:*)",
+            "Bash(git commit:*)",
+            "Bash(git status:*)",
+            "Bash(git diff:*)",
+            "Bash(git log:*)",
+            "Bash(pnpm build)",
+            "Bash(pnpm typecheck)",
+            "Bash(pnpm typecheck *)",
+            "Bash(pnpm lint)",
+            "Bash(pnpm lint *)",
+            "Bash(pnpm test)",
+            "Bash(pnpm test *)",
+            "Bash(pnpm --filter *)",
+            "Bash(npx tsc *)",
+            "Bash(npx tsx *)"
+        ]
+    }
+}
