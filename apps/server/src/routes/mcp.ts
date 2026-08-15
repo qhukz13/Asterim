@@ -8,7 +8,8 @@ const STATUS_BY_CODE: Record<McpErrorCode, number> = {
   INVALID_CONFIG: 400,
   SERVER_DISABLED: 409,
   UNSUPPORTED_TRANSPORT: 400,
-  SPAWN_FAILED: 500
+  SPAWN_FAILED: 500,
+  NOT_RUNNING: 409
 };
 
 function sendMcpError(reply: FastifyReply, err: unknown): FastifyReply {
@@ -110,6 +111,33 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
       }
     });
   }
+
+  // GET /api/v1/mcp/servers/:id/capabilities — what the last handshake found
+  fastify.get('/api/v1/mcp/servers/:id/capabilities', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const server = mcpProcessSupervisor.getServerStatus(id);
+    if (!server) {
+      return reply.status(404).send({ error: `No MCP server with id ${id}.`, code: 'NOT_FOUND' });
+    }
+    // Null rather than 404 when a server has never completed a handshake: the
+    // server exists, its capabilities are simply not known yet.
+    return reply.send({ capabilities: server.capabilities ?? null, status: server.status });
+  });
+
+  // POST /api/v1/mcp/servers/:id/refresh — re-run discovery against a live server
+  fastify.post('/api/v1/mcp/servers/:id/refresh', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    try {
+      const server = await mcpProcessSupervisor.refreshCapabilities(id);
+      return reply.send({ server });
+    } catch (err) {
+      return sendMcpError(reply, err);
+    }
+  });
 
   // GET /api/v1/mcp/servers/:id/logs — the rolling stderr tail
   fastify.get('/api/v1/mcp/servers/:id/logs', async (request, reply) => {

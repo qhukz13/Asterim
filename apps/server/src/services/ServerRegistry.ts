@@ -94,28 +94,6 @@ export class ServerRegistry {
     }
   }
 
-  /**
-   * Removes the descriptor when this process ends, however it ends.
-   *
-   * A stale descriptor is not dangerous — its token died with the process that
-   * wrote it — but it costs every MCP write a connection attempt to a port
-   * nothing is listening on. Idempotent; safe to call more than once.
-   */
-  public registerCleanup(): void {
-    if (this.cleanupRegistered) return;
-    this.cleanupRegistered = true;
-
-    const cleanup = () => this.clear();
-    process.on('exit', cleanup);
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.on(signal, () => {
-        cleanup();
-        process.exit(0);
-      });
-    }
-  }
-
-  private cleanupRegistered = false;
 }
 
 export const serverRegistry = new ServerRegistry();

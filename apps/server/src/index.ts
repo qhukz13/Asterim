@@ -190,8 +190,17 @@ const start = async () => {
     // port that is not yet accepting connections.
     const { serverRegistry } = await import('./services/ServerRegistry');
     serverRegistry.publish(port);
-    serverRegistry.registerCleanup();
     console.log('[Server] Loopback relay descriptor written to', serverRegistry.filePath);
+
+    // One owner for everything that has to happen when Asterim stops: the HTTP
+    // server, the MCP children, the descriptor and the database, in that order.
+    const { setupGracefulShutdown } = await import('./services/GracefulShutdown');
+    setupGracefulShutdown(fastify);
+
+    // Bring up the MCP servers the developer left enabled. Deliberately not
+    // awaited: a slow or broken MCP server must not hold up a workstation, and
+    // each one's status is visible through /api/v1/mcp/servers either way.
+    void mcpProcessSupervisor.autostartEnabledServers();
 
     // Session and Approval Recovery (P0-004)
     const { agentService } = await import('./services/AgentService');

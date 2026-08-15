@@ -69,11 +69,46 @@ function cleanup(): void {
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const NODE = process.execPath;
 
+/**
+ * The minimum an MCP server has to do to be supervised.
+ *
+ * Since P6-02 the supervisor only reports `RUNNING` after a JSON-RPC handshake,
+ * so a fixture that is merely alive would be stopped and marked `ERROR`. Every
+ * long-lived child below answers `initialize` and `tools/list`; what each one is
+ * really testing — a pid, a stderr buffer, a signal it refuses — is unchanged.
+ */
+const MCP_STUB = `
+  const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\\n');
+  let buffer = '';
+  process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    let i;
+    while ((i = buffer.indexOf('\\n')) !== -1) {
+      const line = buffer.slice(0, i).trim();
+      buffer = buffer.slice(i + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg.method === 'initialize') {
+        send({ jsonrpc: '2.0', id: msg.id, result: {
+          protocolVersion: '2024-11-05',
+          serverInfo: { name: 'stub', version: '0.0.1' },
+          capabilities: { tools: {} }
+        }});
+      } else if (msg.method === 'tools/list') {
+        send({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'noop' }] } });
+      } else if (msg.id !== undefined) {
+        send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
+      }
+    }
+  });
+`;
+
 /** A child that stays up until it is signalled. */
-const STAY_ALIVE = 'setInterval(() => {}, 1000)';
+const STAY_ALIVE = `${MCP_STUB} setInterval(() => {}, 1000);`;
 
 /** A child that writes to stderr, then stays up. */
 const NOISY = `
+  ${MCP_STUB}
   let n = 0;
   const timer = setInterval(() => { console.error('log line ' + (++n)); }, 5);
   setTimeout(() => clearInterval(timer), 2000);
@@ -89,11 +124,19 @@ const CRASHER = "process.stderr.write('fatal: nothing to do\\n'); process.exit(3
  * and run the script — a SIGTERM sent before that still terminates the process,
  * which is a race the test must not run into.
  */
-const STUBBORN =
-  "process.on('SIGTERM', () => {}); process.stderr.write('ready\\n'); setInterval(() => {}, 1000);";
+const STUBBORN = `
+  ${MCP_STUB}
+  process.on('SIGTERM', () => {});
+  process.stderr.write('ready\\n');
+  setInterval(() => {}, 1000);
+`;
 
 /** A child that prints its own environment to stderr as JSON. */
-const ENV_DUMP = 'process.stderr.write(JSON.stringify(process.env)); setInterval(() => {}, 1000);';
+const ENV_DUMP = `
+  ${MCP_STUB}
+  process.stderr.write(JSON.stringify(process.env) + '\\n');
+  setInterval(() => {}, 1000);
+`;
 
 /** Polls until `predicate` holds or the deadline passes. */
 async function until(predicate: () => boolean, timeoutMs = 3000): Promise<boolean> {

@@ -1,6 +1,6 @@
-# Execution Report: P6-01 — MCP Server Manager Core & Multi-Process Supervisor
+# Execution Report: P6-02 — MCP Capability Discovery, Stdio Handshake & Boot Autostart
 
-**Task ID:** P6-01  
+**Task ID:** P6-02  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Status:** IMPLEMENTED & VERIFIED  
 **Date:** 2026-08-15  
@@ -10,114 +10,115 @@
 
 ## 1. Summary
 
-The MCP Server Manager is in: an `mcp_servers` table, MCP types in `@asterim/shared`,
-`McpProcessSupervisor` supervising real child processes, and nine authenticated
-`/api/v1/mcp/servers` endpoints registered on the Core.
+`RUNNING` now means something. `McpStdioClient` speaks JSON-RPC 2.0 over the child's stdio,
+negotiates `initialize`, sends `notifications/initialized`, and reads back `tools/list`,
+`resources/list` and `prompts/list` — asking only for what the server advertised. The supervisor
+walks `STARTING → INITIALIZING → RUNNING` and reaches `RUNNING` only once capabilities are cached;
+a handshake that fails or times out marks the server `ERROR` **and stops the unusable process**.
 
-The supervisor spawns stdio MCP servers, tracks pid and status, keeps a 50-line rolling
-tail of each child's stderr, stops with SIGTERM then SIGKILL after a 3-second grace, and
-distinguishes three ways of not running: `STOPPED` (asked to, or exited cleanly),
-`CRASHED` (exited on its own with a non-zero code or a signal) and `ERROR` (never
-started — a command that does not exist). Configuration is persisted; process state
-deliberately is not, because a row claiming `RUNNING` after a Core restart would be a lie.
+Four `mcp.*` events reach the EventBus on every transition, `autostartEnabledServers()` brings up
+enabled servers on boot without ever blocking it, and `GET /capabilities` / `POST /refresh` expose
+and re-read the catalogue.
 
-Child environments are sanitised. The supervisor builds on the repository's existing
-`sanitizeAgentEnv` — which already strips `ASTERIM_*` except `ASTERIM_DATA_DIR` — and adds
-Asterim's own credentials plus anything credential-shaped. That is asserted not by
-inspecting the sanitiser's return value but by having a child print its **own** environment
-and checking what is missing from it.
+Shutdown now has one owner. `ServerRegistry` had its own `SIGINT`/`SIGTERM` handlers that called
+`process.exit(0)`, which silently skipped every asynchronous cleanup anything else registered —
+the exact problem §8.2 of the P6-01 report flagged. Those handlers are gone; `setupGracefulShutdown`
+closes Fastify, stops the MCP children, removes `server.json` and closes SQLite, in that order,
+bounded by a timeout.
 
-A new **115-assertion** suite spawns genuine `node -e` processes; `pnpm run test` is now
-**25 suites / 1,917 assertions**. All four gates pass, and the whole flow was exercised
-against the running Core over HTTP (§4.4).
+Two new suites' worth of evidence: **89 new assertions** here plus the P6-01 suite updated to the new
+contract, and both verified against a **real booted Core** — a real SIGTERM killing a real MCP child,
+and a real reboot autostarting one (§4.3, §4.4). `pnpm run test` is now **26 suites / 2,006
+assertions**; all four gates pass.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/mcp/McpProcessSupervisor.ts` | Created | Lifecycle, CRUD, stderr ring buffer, env sanitisation, `shutdownAll()` |
-| `apps/server/src/routes/mcp.ts` | Created | The nine REST endpoints with error→status mapping |
-| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Created | 115 assertions over real processes, real SQLite and the real routes |
-| `packages/shared/src/types/mcp.ts` | Created | `McpTransport`, `McpServerStatus`, `McpServerConfig`, `McpServerRuntimeInfo`, `McpServerInput` |
-| `packages/shared/src/index.ts` | Modified | Export the MCP types |
-| `apps/server/src/services/DatabaseService.ts` | Modified | `mcp_servers` table + workspace index |
-| `apps/server/src/index.ts` | Modified | Register `mcpRoutes`; `onClose` hook calling `shutdownAll()` |
-| `apps/server/package.json` | Modified | Suite wired into `test` |
+| `apps/server/src/services/mcp/McpStdioClient.ts` | Created | JSON-RPC 2.0 over stdio: framing, id multiplexing, timeouts, `discover()` |
+| `apps/server/src/services/GracefulShutdown.ts` | Created | The single shutdown owner |
+| `apps/server/src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts` | Created | 89 assertions across framing, discovery, failure modes, events, autostart, routes |
+| `apps/server/src/services/mcp/McpProcessSupervisor.ts` | Modified | Handshake integration, `INITIALIZING`, capability cache, `refreshCapabilities`, `autostartEnabledServers`, EventBus emissions |
+| `packages/shared/src/types/mcp.ts` | Modified | Capability types, `INITIALIZING`, `McpServerEventPayload`, `MCP_EVENTS` |
+| `apps/server/src/routes/mcp.ts` | Modified | `GET /capabilities`, `POST /refresh`, `NOT_RUNNING` → 409 |
+| `apps/server/src/services/DatabaseService.ts` | Modified | Idempotent `close()` |
+| `apps/server/src/services/ServerRegistry.ts` | Modified | `registerCleanup()` removed — it was the competing shutdown owner |
+| `apps/server/src/index.ts` | Modified | `setupGracefulShutdown(fastify)`, autostart kick-off |
+| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Modified | Fixtures now speak MCP (§7.1) |
+| `apps/server/package.json` | Modified | New suite wired into `test` |
 
 ## 3. Implementation Details
 
-### 3.1 Schema
+### 3.1 `McpStdioClient`
 
-`mcp_servers` and `idx_mcp_servers_workspace` were added inside the existing
-`CREATE TABLE IF NOT EXISTS` block, so initialisation stays idempotent and an existing
-`~/.asterim/asterim.db` keeps opening — no migration framework involved, per the
-repository's established pattern. Only configuration is stored; `pid`, `status` and logs
-have no columns.
+Newline-delimited JSON-RPC over the child's stdin/stdout. Three properties of that transport drive
+the implementation:
 
-### 3.2 `McpProcessSupervisor`
+- **Framing.** A `data` chunk may carry half a message or several. Text accumulates in a buffer and
+  is split on newlines; the trailing fragment is kept for the next chunk. Asserted with a response
+  deliberately split across three writes, one of them mid-token (§10 of the task).
+- **Multiplexing.** Every request carries an id and a pending entry; answers are matched by id, not
+  by arrival order. Asserted by answering two concurrent requests backwards in a single write.
+- **Tolerance.** A non-JSON banner line, a server notification, and an answer to an id nobody is
+  waiting on are all survived rather than fatal — real servers print banners.
 
-| Method | Behaviour |
+`discover()` sends `initialize` (protocol `2024-11-05`, `clientInfo: asterim-core/0.1.0`), then the
+required `notifications/initialized`, then **only the lists the server advertised**. Asking an
+implementation for prompts it never claimed is how a healthy server gets reported as broken. A server
+that advertises a list and then answers `-32601` degrades to an empty list rather than failing the
+handshake; any other error propagates.
+
+### 3.2 Supervisor
+
+| Concern | Behaviour |
 | :--- | :--- |
-| `startServer(id)` | `spawn(command, args, { env: sanitizeMcpEnv(…), shell: false })`. Resolves on the `spawn` event (`RUNNING` + pid) or the `error` event (`ERROR` + reason). Already-running is a no-op that does not double-count. |
-| `stopServer(id)` | SIGTERM, then SIGKILL after `TERMINATE_GRACE_MS` (3s); resolves when the child has actually exited. Idempotent. |
-| `restartServer(id)` | Stop then start; the new pid differs. |
-| `getServerStatus(id)` | Config + `status`, `pid`, `uptimeSeconds`, `recentStderrLogs`, `lastError`, `lastExitCode`, `startCount`. |
-| `listServers(workspaceId?)` | Configs with runtime attached. With a workspace: its own servers **plus** the global ones. |
-| `saveServer(input, id?)` / `deleteServer(id)` | Validated CRUD. Deleting stops the process first; disabling a running server stops it too. |
-| `getLogs(id)` | The rolling stderr tail, oldest first. |
-| `shutdownAll()` | Stops every live child in parallel. |
+| States | `STARTING` (spawn) → `INITIALIZING` (handshake) → `RUNNING` (capabilities cached). Failure at any point → `ERROR`. |
+| Failed handshake | The process is alive but unusable, so it is stopped. Leaving a supervised process nothing can talk to would be worse than reporting the failure. |
+| Child dies mid-handshake | The handshake races the child's `exit` and fails immediately instead of waiting out the timeout — and the `CRASHED` status the exit handler already set is preserved, because "exited with code 3" explains more than "handshake failed". |
+| Timeouts | Two bounds: per-request (5s default) and whole-handshake (10s default). Both asserted, including the case where the outer one is the tighter of the two. |
+| Session | One `McpStdioClient` per running child, kept open — a refresh, and eventually tool invocation, speak over the same session. Disposed on stop and on exit. |
+| `refreshCapabilities` | Re-runs discovery against a live server; `NOT_RUNNING` (409) otherwise. |
+| `autostartEnabledServers` | Starts every enabled stdio server in parallel, **never rejects**, logs failures and leaves each status visible. Called un-awaited from `index.ts`, so a slow MCP server cannot delay a workstation. |
 
-Two details worth naming. `spawn` is called with `shell: false`, so a command or argument
-containing shell metacharacters is an argument rather than syntax. And the child's
-**stdout is drained but never stored**: on stdio transport it is the JSON-RPC channel
-carrying tool traffic, so keeping it would be both a leak and a memory problem, while not
-reading it at all would block the child on a full pipe.
+### 3.3 Events
 
-`RUNNING` means "the process exists", not "the server is ready". A stdio MCP server
-announces readiness only through a JSON-RPC `initialize` handshake, which belongs to the
-client that will speak to it, not to a supervisor.
+`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`, all
+published in the repository's established envelope (`id`, `timestamp`, `source: 'system:mcp'`,
+`type`, `payload`) with `payload: { server: McpServerRuntimeInfo }`.
 
-### 3.3 Environment isolation (§6)
+The payload deliberately carries no `projectId`. That is not an omission — `socketManager` persists
+an event into the project log **only** when one is present, so MCP events are broadcast to connected
+clients and never written to a table. That is what keeps §6's "no tool payload in persistent log
+tables" true by construction rather than by discipline. Asserted.
+
+`ERROR` states are announced as `mcp.server_crashed`: the four event types the task specifies have no
+separate "failed to become usable" event, and the payload's `status` field distinguishes `ERROR` from
+`CRASHED` for any client that cares.
+
+### 3.4 One shutdown owner
+
+`ServerRegistry.registerCleanup()` trapped `SIGINT`/`SIGTERM` and called `process.exit(0)`. Since
+Node runs signal listeners in registration order and `process.exit()` does not wait for anything,
+that handler ended the process before any asynchronous cleanup elsewhere could run — including the
+MCP `onClose` hook added in P6-01. It has been removed, and `setupGracefulShutdown(fastify)` now owns
+the sequence:
 
 ```
-sanitizeMcpEnv(process.env, config.env)
-  = sanitizeAgentEnv(process.env)      // ASTERIM_* dropped except ASTERIM_DATA_DIR
-    minus BLOCKED_ENV_PATTERNS         // STRIPE_*, RELAY_SECRET, VAPID_*,
-                                       // *SECRET*, *TOKEN*, *PASSWORD*, *API_KEY*,
-                                       // *PRIVATE_KEY*, *CREDENTIAL*
-    plus config.env                    // explicit operator intent wins
+SIGINT/SIGTERM → fastify.close()          (fires onClose hooks)
+               → mcpProcessSupervisor.shutdownAll()
+               → serverRegistry.clear()   (remove server.json)
+               → dbService.close()        (checkpoint the WAL)
+               → exit(0)
 ```
 
-Reusing `sanitizeAgentEnv` keeps one policy for "what a child process may inherit" rather
-than two that drift. The generic patterns are deliberately blunt: an MCP server is
-third-party code, and a developer's `GITHUB_TOKEN` should reach it because someone decided
-so in the server's own `env`, not because it happened to be exported in the shell that
-started Asterim.
+Each step is individually guarded, so one failure cannot strand the rest; the whole sequence is
+bounded at 10s, after which the process exits anyway; a second signal exits immediately. A
+synchronous `process.on('exit')` still clears the descriptor for the paths no handler can await.
 
-`ASTERIM_DATA_DIR` is kept on purpose — an MCP memory server resolves the database through
-it, and removing it would break the very servers this subsystem exists to run.
-
-**What this is not.** The child runs as the same user and can read anything that user can,
-`~/.asterim/server.json` included. Sanitisation stops Asterim from *handing over* its
-secrets; it is not a sandbox, and §8.1 says what a real one would need.
-
-### 3.4 REST surface
-
-`GET/POST /servers`, `GET/PATCH/DELETE /servers/:id`, `POST /servers/:id/{start,stop,restart}`,
-`GET /servers/:id/logs` — all requiring `request.user`. Supervisor failures map to status
-codes: `NOT_FOUND` → 404, `INVALID_CONFIG` → 400, `SERVER_DISABLED` → 409,
-`UNSUPPORTED_TRANSPORT` → 400, `SPAWN_FAILED` → 500, each with a machine-readable `code`.
-
-### 3.5 Shutdown (§10)
-
-`index.ts` registers `fastify.addHook('onClose', () => mcpProcessSupervisor.shutdownAll())`,
-verified by closing a Fastify instance with a live child and watching the child die (§4.3).
-
-The supervisor **also** installs a synchronous `process.on('exit')` sweep that signals every
-child. That is not belt-and-braces for its own sake: `ServerRegistry.registerCleanup()`
-already handles `SIGINT`/`SIGTERM` and calls `process.exit(0)`, which skips async
-`onClose` work entirely. Without the synchronous hook, a `Ctrl-C` or a container `SIGTERM`
-would orphan every MCP child. §8.2 proposes fixing the underlying ordering properly.
+`setupGracefulShutdown` lives in its own module rather than inside `McpProcessSupervisor` (where §5.3
+lists it): it closes the HTTP server and the database, and having the MCP subsystem own the Core's
+lifecycle would invert the dependency. §8 of the task asks for the sequence to be wired in
+`index.ts`, which it is.
 
 ## 4. Verification
 
@@ -126,162 +127,166 @@ would orphan every MCP child. §8.2 proposes fixing the underlying ordering prop
 ```
 pnpm run typecheck  → 11 successful, 11 total (0 errors)
 pnpm run lint       → 7 successful, 7 total   (0 errors)
-pnpm run test       → 9 successful, 9 total   (25 suites, 1,917 assertions), exit 0
+pnpm run test       → 9 successful, 9 total   (26 suites, 2,006 assertions), exit 0
 pnpm run build      → 7 successful, 7 total
 ```
 
-### 4.2 The new suite — 115/115
+`apps/server` reports 0 lint errors and 241 warnings — the same count as before this task, so the new
+code adds none.
+
+### 4.2 The new suite — 89/89
 
 | Group | Covers |
 | :--- | :--- |
-| Schema (2) | `mcp_servers` and its index exist after initialisation |
-| `sanitizeMcpEnv` (14) | PATH/HOME/LANG pass; `ASTERIM_DATA_DIR` kept; nine credential-shaped variables dropped; an explicitly configured one honoured |
-| CRUD (18) | create, persisted row shape, partial update, id and `createdAt` preserved, unfiltered vs workspace-scoped listing (global servers included, other workspaces not), four invalid configurations refused, update of a missing id |
-| Start (8) | `RUNNING`, live pid, no error, start counted; starting twice is a no-op; the list agrees |
-| Stop (5) | `STOPPED`, pid released, process actually gone, not reported as a crash, idempotent |
-| Restart (4) | running again under a new pid, old process gone, start count reflects both runs |
-| stderr (6) | capture works, the buffer caps at 50, the oldest lines are the ones dropped, runtime info carries the same tail |
-| Crash (5) | `CRASHED`, exit code 3 recorded, explanation, no pid, the child's last stderr line kept |
-| Missing binary (3) | `ERROR` rather than `CRASHED`, reason recorded, no pid |
-| SIGTERM-ignoring child (5) | ends up `STOPPED`, process gone, and SIGKILL genuinely followed the grace period (**3009 ms**) |
-| Disabled / non-stdio (2) | `SERVER_DISABLED`, `UNSUPPORTED_TRANSPORT` |
-| Child env, observed (6) | the child prints its own `process.env`: no Stripe key, no relay secret, no other `ASTERIM_*`, but PATH, the configured value and `ASTERIM_DATA_DIR` present |
-| Delete / disable (6) | running process stopped first, row gone, second delete harmless; disabling stops a running server |
-| `shutdownAll` (3) | three children started, all stopped, all reported `STOPPED` |
-| Routes (28) | 401 unauthenticated; create 201; invalid 400 + code; workspace listing; start/stop/restart over HTTP with live pids; single fetch; logs; rename; 404 for unknown id on fetch, start and logs; delete then 404 |
+| Framing (13) | request written as one line; a response split across three chunks reassembled; two messages in one chunk; answers matched by id, not order; banner line, notification and stray id survived; request timeout names its method; dispose fails what is in flight |
+| `discover()` (13) | protocol version and `serverInfo` returned; tools read with schemas intact; unadvertised lists empty and **never requested**; `initialize` first, then `notifications/initialized`; the client's own identity sent |
+| Full server, supervised (10) | `RUNNING` with a pid; protocol version, server identity, 2 tools, 1 resource, 1 prompt; schema survives the round trip; no error recorded |
+| Refresh (3) | stays `RUNNING`; a tool added since the last handshake appears; the snapshot is newer |
+| Tools-only server (5) | `RUNNING`; resources and prompts empty; the server never complained about an unadvertised request |
+| Advertise-but-not-implement (3) | still usable; the missing method degrades to an empty list |
+| Silent server (6) | `ERROR` by timeout, reason recorded naming the request, no capabilities claimed, **process not left running**, stderr still available for diagnosis |
+| Whole-handshake bound (3) | with a generous per-request timeout, the outer bound is what stops it |
+| Refusing server (3) | `ERROR` carrying the server's own message |
+| EventBus (9) | `server_started` + `capabilities_updated` on start; payload carries the server, status and capabilities; **no `projectId`**; `server_stopped` on stop; `server_crashed` on crash |
+| Autostart (7) | only enabled servers considered; good ones `RUNNING`; disabled untouched; broken one `ERROR`; autostart itself never throws; capabilities available immediately |
+| Routes (14) | capabilities 200 with `null` before any handshake; served after; refresh updates the list; refresh on a stopped server 409 `NOT_RUNNING`; last-known capabilities still readable; 404s; 401 unauthenticated |
 
-Processes are real, not mocked: a pid that can be probed with `kill(pid, 0)`, a ring buffer
-fed by an actual pipe, a SIGKILL that had to wait out a real grace period.
+### 4.3 Graceful shutdown, against a real Core
 
-### 4.3 The shutdown hook
-
-A scratch run installing exactly the wiring from `index.ts`:
+A Core booted on a scratch data dir, an MCP server registered and started **through the HTTP API**,
+then a real `SIGTERM`:
 
 ```
-[MCP] Started onclose (pid 336765)
-child pid 336765 alive before close: true
-[MCP] Stopping 1 MCP server(s)
-alive after fastify.close(): false
-status: STOPPED
+started: RUNNING pid 361057 tools 1
+child alive before shutdown: true      server.json present: true
+--- after SIGTERM ---
+child alive: false                     server.json present: false     port released: true
 ```
 
-### 4.4 Against the running Core
+This is the change that could not be proven by unit tests alone, since the behaviour it fixes was a
+conflict between two signal handlers in a booted process.
 
-The dev server picked the change up; the full lifecycle was driven over HTTP and left no
-residue in the real database:
+### 4.4 Boot autostart, against a real Core
+
+A server registered on one boot and never started, then the Core restarted:
 
 ```
-POST   /api/v1/mcp/servers            → 201, id mcp_723767f1-…
-POST   /api/v1/mcp/servers/:id/start  → 200 RUNNING, real pid
-GET    /api/v1/mcp/servers/:id/logs   → {"logs":["mcp up"]}     ← the child's own stderr
-POST   /api/v1/mcp/servers/:id/stop   → 200 STOPPED, pid null
-DELETE /api/v1/mcp/servers/:id        → {"deleted":true}
-GET    /api/v1/mcp/servers            → {"servers":[]}
+registered: autostart-stub  enabled: true  status: STOPPED
+after reboot -> status: RUNNING  pid: 361722
+capabilities: 2 tools from autostub
+GET /capabilities -> ["alpha","beta"]
 ```
+
+Nothing asked it to start, and its tools were known before any client connected.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `mcp_servers` created idempotently during initialisation** — inside the existing
-      `CREATE TABLE IF NOT EXISTS` block; asserted against `sqlite_master`, table and index.
-- [x] **2. Spawns, tracks, stops and restarts with pid and stderr logging** — 30 assertions
-      across start/stop/restart/logs, all against real processes with pid liveness probes.
-- [x] **3. Crashing children transition cleanly to `CRASHED`** — exit code 3 → `CRASHED`
-      with the code, an explanation, no pid, and the child's final stderr line retained.
-      A failed *spawn* is `ERROR` instead, which is a different problem for a UI to show.
-- [x] **4. All endpoints return accurate status and handle invalid input with structured
-      errors** — 28 route assertions; every error carries `code`; 401/400/404/409 covered.
-- [x] **5. `McpProcessSupervisor.test.ts` passes** — 115/115.
-- [x] **6. CI gates pass, 25 test suites** — typecheck 11/11, lint 7/7 (0 errors), test
-      **25 suites / 1,917 assertions**, build 7/7.
+- [x] **1. `McpStdioClient` conducts the handshake and retrieves all three lists** — 26 assertions
+      across framing and discovery, plus real child processes serving all three lists.
+- [x] **2. Capabilities cached; `RUNNING` only after a successful handshake** — asserted on the
+      supervisor and observed end-to-end (§4.4). The P6-01 suite had to be updated precisely because
+      this contract changed (§7.1).
+- [x] **3. Failures and timeouts mark `ERROR` with the reason recorded** — timeout, whole-handshake
+      bound, JSON-RPC error and mid-handshake death all covered; the unusable process is stopped.
+- [x] **4. `autostartEnabledServers()` starts enabled servers without blocking boot** — 7
+      assertions including a broken server that ends `ERROR` while the others run; called un-awaited
+      from `index.ts`; verified across a real restart (§4.4).
+- [x] **5. `mcp.*` events emitted on all state transitions** — 9 assertions; started, stopped,
+      crashed and capabilities_updated all observed on the bus.
+- [x] **6. Unified graceful shutdown terminates MCP children on `SIGINT`/`SIGTERM`** — verified on a
+      booted Core: child gone, descriptor removed, port released (§4.3).
+- [x] **7. `McpCapabilityDiscovery.test.ts` passes** — 89/89.
+- [x] **8. CI gates pass with 0 errors** — typecheck 11/11, lint 7/7, test 26 suites / 2,006
+      assertions, build 7/7.
 
-Definition of Done:
-
-- [x] `mcp_servers` table added to SQLite schema
-- [x] Shared MCP types added to `@asterim/shared`
-- [x] `McpProcessSupervisor.ts` implemented
-- [x] `/api/v1/mcp/servers` routes registered and functional
-- [x] `McpProcessSupervisor.test.ts` created and passing
-- [x] `pnpm run test` passes across all packages
-- [x] Clean Git diff
+Definition of Done: all nine items complete.
 
 ## 6. Git Diff Review
 
-Four new files, four modified, all within `apps/server` and `packages/shared`.
-Reviewed against §6:
+Three new files, eight modified, all within `apps/server` and `packages/shared`. Reviewed against §6:
 
-- **No elevated privileges.** `spawn` is called with no `uid`/`gid`, no `shell`, and no
-  privilege escalation of any kind; the child inherits the Core's user and nothing more.
-- **No internal token reaches a child.** Verified from the child's side: a process printing
-  its own `process.env` shows no `STRIPE_SECRET_KEY`, no `ASTERIM_RELAY_SECRET`, and no
-  other `ASTERIM_*` variable, while still receiving `PATH` and its own configured values.
-  The `server.json` loopback token is not an environment variable and is never passed;
-  the honest caveat about filesystem access is in §3.3.
-- **Nothing existing broke.** 25 suites, 1,917 assertions, exit 0 — the 24 prior suites
-  unchanged at 1,802, plus 115 new. `apps/server` reports **0 lint errors and 241
-  warnings**, exactly the count before this task, so the new code adds none.
+- **Boot is never blocked by a failing MCP server.** `autostartEnabledServers()` catches per-server,
+  returns rather than throws, and is called without `await`. A server whose binary does not exist
+  ends `ERROR` while its neighbours run — asserted, and the Core in §4.4 booted normally.
+- **No tool payload reaches a log table.** The child's stdout is consumed by the JSON-RPC client and
+  written nowhere; only stderr enters the 50-line in-memory ring buffer, which is not persisted; and
+  `mcp.*` events carry no `projectId`, which is the condition `socketManager` uses to decide whether
+  to write an event to the database.
+- **Nothing existing broke.** 26 suites, 2,006 assertions, exit 0. One suite needed updating, and the
+  reason is a contract change this task exists to make (§7.1).
 
-Changes to existing files are additive: a schema block, a type export, a route
-registration, an `onClose` hook and a test-script entry. The new files are Prettier-clean;
-`index.ts` and `DatabaseService.ts` were already non-compliant before this task and were
-not reflowed.
+Two changes to existing behaviour, both deliberate:
+
+1. **`ServerRegistry.registerCleanup()` was removed.** It was the competing shutdown owner. Its
+   descriptor-removal duty is preserved in `GracefulShutdown` (both in the ordered sequence and in
+   the synchronous `exit` backstop), and it had exactly one caller.
+2. **`RUNNING` requires a handshake.** A supervised process that does not speak MCP now ends `ERROR`
+   rather than sitting in `RUNNING` forever. That is the point of the task, and it is why the P6-01
+   fixtures changed.
+
+New files are Prettier-clean; `index.ts` and `DatabaseService.ts` were already non-compliant before
+this task and were not reflowed.
 
 ## 7. Problems Discovered
 
-1. **A just-spawned child has not installed its signal handlers yet.** The suite's
-   SIGTERM-ignoring process was being terminated by the *first* SIGTERM, because Node had
-   not finished booting and running the `-e` script when the stop arrived — so the default
-   signal action still applied. The test now waits for the child to announce itself on
-   stderr before stopping it. Worth knowing beyond the test: a supervisor that starts and
-   immediately stops a server cannot assume the child's own shutdown handling exists yet.
-2. **`ServerRegistry`'s signal handler pre-empts graceful shutdown.** It handles
-   `SIGINT`/`SIGTERM` and calls `process.exit(0)`, which skips every async `onClose` hook
-   — including this one. Hence the synchronous `process.on('exit')` sweep (§3.5); without
-   it, `Ctrl-C` on a workstation or `docker stop` on a container would leave MCP children
-   orphaned.
-3. **`kill(pid, 0)` succeeds for a zombie**, which briefly made a stop look successful when
-   it had not happened. Assertions poll until the pid is genuinely unreachable rather than
-   sampling once.
-4. **Prettier reformats a comment placed inside a parenthesised ternary cast** into
-   something it then disagrees with, so `--write` never converges. Restructuring the
-   statement — comment above, cast on a simple expression — fixed it. Cosmetic, but it
-   cost a couple of cycles.
+1. **The P6-01 suite asserted the old contract.** Its fixtures were plain `node -e` processes that
+   stay alive without speaking MCP, so under the new rule they were stopped and marked `ERROR` —
+   23 of 115 assertions failed. Fixed by giving every long-lived fixture a minimal `initialize` +
+   `tools/list` responder; what each case actually tests (a pid, a stderr buffer, a refused signal,
+   an env dump) is unchanged, and the suite is back to 115/115. This is the expected cost of a
+   deliberate contract change, not collateral damage.
+2. **An `unref()`'d timeout can be skipped entirely.** The request timer was `unref`'d, so when the
+   event loop had nothing else to hold it open the process exited *before* the timer fired — a test
+   run ended silently mid-suite with exit code 0 and no tally. In production a child-process handle
+   keeps the loop alive and it never showed. Both the request timeout and the handshake bound are now
+   ordinary timers, cleared on every settling path.
+3. **A child that dies during the handshake used to cost a full timeout** and then overwrote the more
+   informative `CRASHED` status with `ERROR`. The handshake now races the child's exit.
+4. **A bodiless `POST` with `content-type: application/json` is a 400.** Fastify rejects an empty
+   body under that header, so `POST /start` fails for a client that always sets it. Not changed —
+   this is framework behaviour shared by every bodiless POST in the codebase — but worth knowing
+   before the web UI is written against these routes.
+5. **A stale Core from an earlier verification run held the port**, so a later run silently measured
+   the *old* process and reported a shutdown failure that was not real. Worth recording because the
+   symptom looked exactly like the bug under test. All strays were cleaned up; the user's dev servers
+   on 3000/5173/5174 were left untouched.
 
 ## 8. Architectural Concerns
 
-1. **This supervises processes; it does not sandbox them.** An MCP server is third-party
-   code running with the developer's full privileges: it can read `~/.asterim/asterim.db`
-   and `server.json`, reach the network, and write anywhere the user can. Environment
-   sanitisation narrows what Asterim *hands over*, nothing more. If MCP servers are going
-   to be installed from a marketplace (the Phase 6 roadmap), the boundary needs to be a
-   real one — a container, a user, or at minimum a documented trust model.
-2. **Shutdown ordering needs one owner.** Three subsystems now have opinions about process
-   exit (`ServerRegistry`, this supervisor, the crash handlers). A single graceful-shutdown
-   sequence — signal → `fastify.close()` → registered hooks → exit — would replace the
-   synchronous backstop and make `onClose` meaningful for everything, not just for callers
-   who close programmatically.
-3. **Nothing starts these servers automatically.** `isEnabled` is honoured for stopping but
-   nothing starts enabled servers when the Core boots, so after a restart every MCP server
-   is down until something asks. That is a deliberate scope line for P6-01, but it is the
-   first thing a user will notice.
-4. **`sse` transport is stored but not supervised.** A server configured as `sse` is
-   refused at start with a clear reason. Either the supervisor gains an HTTP/SSE health
-   probe, or the type should not accept a value the system cannot honour.
-5. **The routes are authenticated but not authorised.** Any authenticated user can register
-   an MCP server, which is a command the Core will execute. On a single-user workstation
-   that is exactly right; the moment accounts and roles matter, this endpoint deserves an
-   `rbacGuard` — it is the most powerful API in the product.
+1. **`tests/report.md` currently says `BLOCKED`, and it is not a code defect.** A QA agent ran
+   TEST-P6-01 against the working tree *while this task was mid-flight* and recorded transient
+   failures — the `fullId` lint error, the `TS18048`/`TS18046` errors, and the 92/115 supervisor
+   suite — every one of which is a state I passed through and fixed. At the tree this report
+   describes: typecheck 11/11, lint 0 errors, `McpProcessSupervisor.test.ts` 115/115, full battery
+   26 suites / 2,006 assertions. The gate is re-runnable as soon as this work is committed. The
+   deeper lesson is procedural: a QA gate and an implementation task must not run against the same
+   working tree at the same time.
+2. **Capabilities are a snapshot, and nothing invalidates them.** MCP defines
+   `notifications/tools/list_changed`; the client ignores notifications entirely. A server that
+   gains or loses a tool is only noticed on the next explicit refresh, so a cached catalogue can be
+   quietly wrong. Handling that notification is the natural next increment.
+3. **The open session is not used for anything yet.** One `McpStdioClient` per running child is kept
+   alive deliberately, but nothing calls a tool through it. Until `tools/call` exists, the MCP
+   subsystem can describe capabilities it cannot yet exercise.
+4. **`sse` remains stored but unsupported**, unchanged from P6-01 and now more visible: a server
+   configured as `sse` can never reach `RUNNING`.
+5. **Autostart has no backoff and no supervision after the fact.** A server that crashes a second
+   after autostart stays `CRASHED` until someone asks. A restart policy (`always` / `on-failure` /
+   `never`) with exponential backoff is the obvious companion to autostart, and belongs in the config
+   row rather than in code.
 
 ## 9. Recommended Next Step
 
-**`P6-02` — MCP capability discovery and autostart.** The supervisor can run a server;
-Asterim still cannot say what any of them *offers*. The natural next unit is the JSON-RPC
-`initialize` handshake over the child's stdio: negotiate, read `tools/list` and
-`resources/list`, cache the capabilities against the server row, and expose them on
-`GET /api/v1/mcp/servers/:id/capabilities`. That turns `RUNNING` into a claim about
-readiness rather than about a pid, and gives the agent layer something to route against.
-Autostart of `isEnabled` servers on Core boot (§8.3) belongs in the same task, since both
-need the handshake to know a server actually came up.
+**`P6-03` — tool invocation and live capability tracking.** The catalogue exists; nothing can call
+into it. In order:
 
-Before that, one small thing worth doing while it is cheap: **give shutdown a single
-owner** (§8.2). It is a contained change today and gets harder with every subsystem that
-adds an exit opinion.
+1. **`tools/call` through the open session**, exposed as `POST /api/v1/mcp/servers/:id/tools/:name`
+   with argument validation against the cached `inputSchema`, and a per-call timeout. This is the
+   point of everything built in P6-01 and P6-02.
+2. **Handle `notifications/tools/list_changed`** (§8.2) so a cached catalogue cannot go quietly
+   stale, re-emitting `mcp.capabilities_updated` when it does.
+3. **A restart policy on the server row** (§8.5), which is what makes autostart trustworthy on a
+   workstation that stays up for days.
+
+Before any of that: **commit this work and re-run TEST-P6-01** (§8.1). The gate is blocked on tree
+state, not on defects, and it should be cleared before more code lands on top of it.

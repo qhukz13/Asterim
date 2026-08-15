@@ -2,13 +2,19 @@ import { ChildProcess, spawn } from 'child_process';
 import crypto from 'crypto';
 import { sanitizeAgentEnv } from '@asterim/adapters';
 import {
+  MCP_EVENTS,
+  McpEventType,
+  McpServerCapabilities,
   McpServerConfig,
+  McpServerEventPayload,
   McpServerInput,
   McpServerRuntimeInfo,
   McpServerStatus,
   McpTransport
 } from '@asterim/shared';
 import { dbService } from '../DatabaseService';
+import { eventBus } from '../EventBus';
+import { McpStdioClient } from './McpStdioClient';
 
 /**
  * Supervises the MCP servers a developer has registered with Asterim.
@@ -23,7 +29,12 @@ import { dbService } from '../DatabaseService';
  */
 
 export type McpErrorCode =
-  'NOT_FOUND' | 'INVALID_CONFIG' | 'SERVER_DISABLED' | 'UNSUPPORTED_TRANSPORT' | 'SPAWN_FAILED';
+  | 'NOT_FOUND'
+  | 'INVALID_CONFIG'
+  | 'SERVER_DISABLED'
+  | 'UNSUPPORTED_TRANSPORT'
+  | 'SPAWN_FAILED'
+  | 'NOT_RUNNING';
 
 export class McpError extends Error {
   constructor(
@@ -40,6 +51,26 @@ export const STDERR_BUFFER_LINES = 50;
 
 /** How long a child is given to exit on SIGTERM before it is killed. */
 export const TERMINATE_GRACE_MS = 3000;
+
+/** Bound on the whole opening sequence, not on one request within it. */
+export const HANDSHAKE_TIMEOUT_MS = 10000;
+
+/** Rejects if `promise` has not settled in time. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      // Not unref'd: this timer is the only thing that ends a handshake against
+      // a server that never answers. Always cleared in the finally below.
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * Environment variables an MCP child must never receive, on top of the
@@ -91,6 +122,9 @@ export function sanitizeMcpEnv(
 interface RuntimeState {
   status: McpServerStatus;
   child: ChildProcess | null;
+  /** The open JSON-RPC session, kept for refreshes and future tool calls. */
+  client: McpStdioClient | null;
+  capabilities: McpServerCapabilities | null;
   pid: number | null;
   startedAt: number | null;
   stderr: string[];
@@ -148,6 +182,8 @@ function idleState(): RuntimeState {
   return {
     status: 'STOPPED',
     child: null,
+    client: null,
+    capabilities: null,
     pid: null,
     startedAt: null,
     stderr: [],
@@ -158,9 +194,46 @@ function idleState(): RuntimeState {
   };
 }
 
+export interface McpSupervisorOptions {
+  /** Per-JSON-RPC-request timeout. */
+  requestTimeoutMs?: number;
+  /** Bound on the complete handshake. */
+  handshakeTimeoutMs?: number;
+}
+
 export class McpProcessSupervisor {
   private readonly runtimes = new Map<string, RuntimeState>();
+  private readonly requestTimeoutMs: number;
+  private readonly handshakeTimeoutMs: number;
   private exitHookInstalled = false;
+
+  constructor(options: McpSupervisorOptions = {}) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 5000;
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
+  }
+
+  /**
+   * Publishes a state change onto the EventBus.
+   *
+   * The payload carries no `projectId`, which is what keeps these events
+   * broadcast-only: `socketManager` persists an event to the project log only
+   * when one is present, so no tool traffic can reach a database table.
+   */
+  private emit(type: McpEventType, id: string): void {
+    const server = this.getServerStatus(id);
+    if (!server) return;
+    try {
+      eventBus.publish<McpServerEventPayload>({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'system:mcp',
+        type,
+        payload: { server }
+      });
+    } catch (err) {
+      console.error(`[MCP] Failed to publish ${type}: ${(err as Error).message}`);
+    }
+  }
 
   // --- Configuration -------------------------------------------------------
 
@@ -287,7 +360,15 @@ export class McpProcessSupervisor {
 
   public isRunning(id: string): boolean {
     const state = this.runtimes.get(id);
-    return Boolean(state && (state.status === 'RUNNING' || state.status === 'STARTING'));
+    return Boolean(
+      state &&
+      (state.status === 'RUNNING' || state.status === 'STARTING' || state.status === 'INITIALIZING')
+    );
+  }
+
+  /** The current status, read fresh — asynchronous handlers move it. */
+  private statusOf(id: string): McpServerStatus {
+    return this.runtimes.get(id)?.status ?? 'STOPPED';
   }
 
   private state(id: string): RuntimeState {
@@ -300,9 +381,12 @@ export class McpProcessSupervisor {
   }
 
   /**
-   * Spawns the child. Resolves once the process exists (or has failed to), not
-   * once it is ready — a stdio MCP server announces readiness only through a
-   * JSON-RPC handshake, which belongs to the client that will speak to it.
+   * Spawns the child and completes the MCP handshake.
+   *
+   * `RUNNING` is reached only once the server has answered `initialize` and its
+   * capabilities are known. A process that spawns but never finishes the
+   * handshake is stopped and reported as `ERROR`: it cannot serve a tool call,
+   * and leaving it alive would be a supervised process nothing can use.
    */
   public async startServer(id: string): Promise<McpServerRuntimeInfo> {
     const config = this.requireConfig(id);
@@ -342,11 +426,8 @@ export class McpProcessSupervisor {
     state.child = child;
     state.startCount += 1;
 
-    // stdout is the JSON-RPC transport. It is drained so the child never blocks
-    // on a full pipe, and deliberately not stored: it carries tool traffic, not
-    // diagnostics.
-    child.stdout?.on('data', () => undefined);
-
+    // stdout is the JSON-RPC transport, consumed by McpStdioClient below. It is
+    // never written to a log: it carries tool traffic, not diagnostics.
     child.stderr?.on('data', (chunk: Buffer) => {
       this.appendStderr(state, chunk.toString('utf8'));
     });
@@ -356,31 +437,33 @@ export class McpProcessSupervisor {
       state.pid = null;
       state.startedAt = null;
       state.lastExitCode = code;
+      state.client?.dispose();
+      state.client = null;
 
-      if (state.stopping) {
+      if (state.status === 'ERROR') {
+        // A handshake failure already explained itself; the kill that followed
+        // is not a second, different problem.
+      } else if (state.stopping || code === 0) {
+        // Asked to stop, or exited cleanly on its own: nothing is wrong, but
+        // nothing is running either.
         state.status = 'STOPPED';
-      } else if (code === 0) {
-        // Exited cleanly without being asked to: nothing is wrong, but nothing
-        // is running either.
-        state.status = 'STOPPED';
+        this.emit(MCP_EVENTS.SERVER_STOPPED, id);
       } else {
         state.status = 'CRASHED';
         state.lastError = signal
           ? `Process terminated by signal ${signal}`
           : `Process exited with code ${code}`;
         console.warn(`[MCP] ${config.name} crashed: ${state.lastError}`);
+        this.emit(MCP_EVENTS.SERVER_CRASHED, id);
       }
     });
 
-    return new Promise<McpServerRuntimeInfo>(resolve => {
-      const settle = () => resolve(this.getServerStatus(id) as McpServerRuntimeInfo);
-
+    const spawned = await new Promise<boolean>(resolve => {
       child.once('spawn', () => {
-        state.status = 'RUNNING';
         state.pid = child.pid ?? null;
         state.startedAt = Date.now();
-        console.log(`[MCP] Started ${config.name} (pid ${state.pid})`);
-        settle();
+        console.log(`[MCP] Spawned ${config.name} (pid ${state.pid})`);
+        resolve(true);
       });
 
       child.once('error', (err: Error) => {
@@ -391,9 +474,133 @@ export class McpProcessSupervisor {
         state.pid = null;
         state.lastError = err.message;
         console.error(`[MCP] Failed to start ${config.name}: ${err.message}`);
-        settle();
+        this.emit(MCP_EVENTS.SERVER_CRASHED, id);
+        resolve(false);
       });
     });
+
+    if (!spawned) {
+      return this.getServerStatus(id) as McpServerRuntimeInfo;
+    }
+
+    state.status = 'INITIALIZING';
+    try {
+      state.capabilities = await this.handshake(id, child);
+      state.status = 'RUNNING';
+      console.log(
+        `[MCP] ${config.name} ready: ${state.capabilities.tools.length} tool(s), ` +
+          `${state.capabilities.resources.length} resource(s), ${state.capabilities.prompts.length} prompt(s)`
+      );
+      this.emit(MCP_EVENTS.SERVER_STARTED, id);
+      this.emit(MCP_EVENTS.CAPABILITIES_UPDATED, id);
+    } catch (err) {
+      // A child that crashed on its own has already explained itself, and that
+      // explanation is the better one; do not overwrite it with the handshake's
+      // view of the same event. Read through statusOf(): the exit handler
+      // mutates the status asynchronously, which narrowing cannot see.
+      if (this.statusOf(id) !== 'CRASHED') {
+        state.status = 'ERROR';
+        state.lastError = `Handshake failed: ${(err as Error).message}`;
+        console.error(`[MCP] ${config.name}: ${state.lastError}`);
+        // The process is alive but unusable. Stopping it is the only honest
+        // outcome; `stopping` keeps the exit from being read as a crash.
+        state.stopping = true;
+        await this.terminate(config.name, child);
+        state.stopping = false;
+        this.emit(MCP_EVENTS.SERVER_CRASHED, id);
+      }
+    }
+
+    return this.getServerStatus(id) as McpServerRuntimeInfo;
+  }
+
+  /**
+   * Runs the MCP opening sequence over the child's stdio and keeps the client
+   * for later use — a refresh, and eventually tool invocation, speak over the
+   * same session rather than opening a second one.
+   */
+  private async handshake(id: string, child: ChildProcess): Promise<McpServerCapabilities> {
+    const state = this.state(id);
+    state.client?.dispose();
+
+    if (!child.stdin || !child.stdout) {
+      throw new Error('child process has no stdio pipes');
+    }
+
+    const client = new McpStdioClient(child.stdin, child.stdout, {
+      timeoutMs: this.requestTimeoutMs
+    });
+    state.client = client;
+
+    // A child that dies mid-handshake should fail immediately rather than make
+    // the caller wait out a timeout for an answer that can never come.
+    const exited = new Promise<never>((_, reject) => {
+      child.once('exit', (code, signal) =>
+        reject(new Error(`process exited during handshake (code ${code}, signal ${signal})`))
+      );
+    });
+
+    try {
+      return await withTimeout(
+        Promise.race([client.discover(), exited]),
+        this.handshakeTimeoutMs,
+        `handshake did not complete within ${this.handshakeTimeoutMs}ms`
+      );
+    } catch (err) {
+      client.dispose();
+      state.client = null;
+      throw err;
+    }
+  }
+
+  /**
+   * Re-runs discovery against a server that is already up.
+   *
+   * A server whose tool list changed — a filesystem server given a new root, a
+   * database server pointed at another schema — reports the change only when
+   * asked again.
+   */
+  public async refreshCapabilities(id: string): Promise<McpServerRuntimeInfo> {
+    const config = this.requireConfig(id);
+    const state = this.state(id);
+
+    if (!state.child || state.status !== 'RUNNING') {
+      throw new McpError(
+        'NOT_RUNNING',
+        `${config.name} is not running; start it before refreshing capabilities.`
+      );
+    }
+
+    state.capabilities = await this.handshake(id, state.child);
+    this.emit(MCP_EVENTS.CAPABILITIES_UPDATED, id);
+    return this.getServerStatus(id) as McpServerRuntimeInfo;
+  }
+
+  /**
+   * Starts every enabled server, on boot.
+   *
+   * Never rejects: a workstation with one broken MCP server must still get an
+   * Asterim. Failures are logged and left visible in each server's status.
+   */
+  public async autostartEnabledServers(): Promise<McpServerRuntimeInfo[]> {
+    const enabled = this.listConfigs().filter(
+      config => config.isEnabled && config.transport === 'stdio'
+    );
+    if (enabled.length === 0) return [];
+
+    console.log(`[MCP] Autostarting ${enabled.length} enabled server(s)`);
+    const results = await Promise.all(
+      enabled.map(config =>
+        this.startServer(config.id).catch(err => {
+          console.warn(`[MCP] Autostart of ${config.name} failed: ${(err as Error).message}`);
+          return this.getServerStatus(config.id) as McpServerRuntimeInfo;
+        })
+      )
+    );
+
+    const ready = results.filter(server => server.status === 'RUNNING').length;
+    console.log(`[MCP] Autostart complete: ${ready}/${results.length} ready`);
+    return results;
   }
 
   /** SIGTERM, then SIGKILL if the child is still there after the grace period. */
@@ -407,15 +614,33 @@ export class McpProcessSupervisor {
         state.status === 'CRASHED' || state.status === 'ERROR' ? state.status : 'STOPPED';
       state.child = null;
       state.pid = null;
+      state.client?.dispose();
+      state.client = null;
       return this.getServerStatus(id) as McpServerRuntimeInfo;
     }
 
     state.stopping = true;
+    await this.terminate(config.name, child);
+    state.stopping = false;
 
-    await new Promise<void>(resolve => {
+    state.status = 'STOPPED';
+    state.child = null;
+    state.pid = null;
+    state.startedAt = null;
+    return this.getServerStatus(id) as McpServerRuntimeInfo;
+  }
+
+  /** Signals a child and resolves once it is actually gone. */
+  private terminate(name: string, child: ChildProcess): Promise<void> {
+    return new Promise<void>(resolve => {
+      if (child.exitCode !== null) {
+        resolve();
+        return;
+      }
+
       const kill = setTimeout(() => {
         if (child.exitCode === null) {
-          console.warn(`[MCP] ${config.name} ignored SIGTERM; sending SIGKILL`);
+          console.warn(`[MCP] ${name} ignored SIGTERM; sending SIGKILL`);
           child.kill('SIGKILL');
         }
       }, TERMINATE_GRACE_MS);
@@ -429,13 +654,6 @@ export class McpProcessSupervisor {
 
       child.kill('SIGTERM');
     });
-
-    state.stopping = false;
-    state.status = 'STOPPED';
-    state.child = null;
-    state.pid = null;
-    state.startedAt = null;
-    return this.getServerStatus(id) as McpServerRuntimeInfo;
   }
 
   public async restartServer(id: string): Promise<McpServerRuntimeInfo> {
@@ -472,7 +690,8 @@ export class McpProcessSupervisor {
       recentStderrLogs: [...state.stderr],
       lastError: state.lastError,
       lastExitCode: state.lastExitCode,
-      startCount: state.startCount
+      startCount: state.startCount,
+      capabilities: state.capabilities
     };
   }
 

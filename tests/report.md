@@ -1,15 +1,16 @@
 # TEST REPORT
 
 Task:
-GATE-P5 — Phase 5 Comprehensive Production & Integration Gate
+TEST-P6-01 — MCP Server Supervisor & Monorepo Regression Gate
 
 Status:
-PARTIAL
+BLOCKED
 
 ## Environment
 
 Repository state:
-`d10c422` on `main`, working tree clean at start and at end of verification.
+`dde3586` on `main`, working tree **dirty and changing throughout the entire verification window**.
+6 modified files, 3 untracked files at the last observation. See §"Blocking Condition".
 
 Relevant packages:
 `asterim` (apps/server), `@asterim/web`, `@asterim/marketing`, `@asterim/relay`,
@@ -22,351 +23,285 @@ Package manager:
 pnpm 9.0.0 (turbo monorepo)
 
 Other relevant environment information:
-- No test runner exists in the repository; every suite is a standalone `tsx` script that
-  exits non-zero on failure. CI runs only `lint` and `build`, so none of these suites run in CI.
-- `agy` (Antigravity) CLI present on PATH; `aider` CLI absent (warned by one suite, not fatal).
-- A local process was listening on :4000 during the socket probe, which allowed the
-  non-sovereign baseline to establish a real relay connection.
-- Real-execution probe scripts were written to the session scratchpad, never to the repository.
+- Every turbo task was run with `--force`. The first `pnpm run typecheck` of the session returned
+  `11/11 cached, FULL TURBO` in 115 ms; a cached pass is not evidence for a QA gate, so every
+  result below comes from an uncached execution.
+- No test runner exists in the repository; every suite is a standalone `tsx` script that exits
+  non-zero on failure. CI runs only `lint` and `build`, so none of these suites run in CI.
+- Probe scripts were written to the session scratchpad, never to the repository.
+- No product code, test code, or test expectation was modified by this QA pass.
+
+---
+
+## Blocking Condition — the implementation was being written during the gate
+
+`tests/current.md` assigns verification of **P6-01**. `tasks/current.md` on disk is **P6-02**
+(*MCP Capability Discovery, Stdio Handshake & Boot Autostart*), and P6-02 was being actively
+implemented in the working tree while this gate ran. The tree never held still long enough to
+produce a single coherent verification snapshot.
+
+Observed write timeline (mtimes, all 2026-08-15):
+
+| Time | Event |
+|---|---|
+| ~21:20 | Session start — `git status` **clean** at `dde3586` |
+| 21:22:27 | `McpProcessSupervisor.test.ts` written |
+| 21:36–21:39 | `McpProcessSupervisor.ts`, `routes/mcp.ts`, `shared/types/mcp.ts` rewritten (338 lines) |
+| 21:42:23 | Watcher reports tree quiet for 91 s — **false stabilization** |
+| 21:44:21 | `McpCapabilityDiscovery.test.ts` created (new, untracked) |
+| 21:46:17 | `McpProcessSupervisor.ts` rewritten again — *during the test battery* |
+| 21:51:31 | `McpProcessSupervisor.test.ts` rewritten |
+| 21:53:54 | `McpCapabilityDiscovery.test.ts` rewritten |
+
+Consequence: results that depend on the tree flipped between runs and cannot be certified.
+
+- Step 2 first execution aborted at **36/37** with an uncaught
+  `TypeError: this.terminate is not a function` and `Handshake failed: McpStdioClient is not defined`.
+  A module probe minutes later showed `terminate` present on the prototype and `McpStdioClient`
+  exported cleanly. **That failure was an artifact of a half-written file and is not reported as a
+  defect.**
+- `asterim#typecheck` and `asterim#lint` each failed, then passed, then failed again — every error
+  located in `McpCapabilityDiscovery.test.ts`, the file being authored at that moment.
+
+The verdict is therefore **BLOCKED**, not PASS and not FAIL. One finding (§Finding 1) reproduced
+identically across three runs at three different tree states and is reported with confidence; the
+volatile results are recorded but explicitly not certified.
+
+---
 
 ## Tests Executed
 
-### Test 1 — Prerequisite builds
-Command:
-`pnpm --filter @asterim/shared build` ; `pnpm --filter @asterim/mcp-memory-server build`
-Result:
-PASS
+### Step 1 — Full monorepo typecheck & lint
 
-Evidence:
-`tsc` clean for shared. `tsup` for MCP: `CJS dist/index.js 80.18 KB`, `Build success in 41ms`.
+`npx turbo run typecheck --force` — **VOLATILE, NOT CERTIFIED**
 
-### Test 2 — The 12 suites named in tests/current.md §5
-Command:
-`pnpm --filter asterim exec tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts`
-`pnpm --filter asterim exec tsx src/routes/__tests__/memory.test.ts`
-`pnpm --filter asterim exec tsx src/routes/__tests__/memory-candidates.test.ts`
-`pnpm --filter asterim exec tsx src/services/memory/__tests__/DecisionExtractor.test.ts`
-`pnpm --filter asterim exec tsx src/services/git/__tests__/GitDriftDetector.test.ts`
-`pnpm --filter asterim exec tsx src/services/__tests__/SovereignMode.test.ts`
-`pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/retrieval_tools.test.ts`
-`pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/record_decision.test.ts`
-`pnpm --filter @asterim/mcp-memory-server exec tsx src/__tests__/dogfood_scenario.test.ts`
-`pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/DecisionExplorer.test.ts`
-`pnpm --filter @asterim/web exec tsx src/components/memory/__tests__/CandidateReview.test.ts`
-`pnpm --filter @asterim/adapters exec tsx src/sdk/__tests__/ProcessManager.test.ts`
-Result:
-PASS (12/12, every command exit 0)
+| Run | Time | Result |
+|---|---|---|
+| 1 | 21:35 | 11/11 tasks successful, 0 errors |
+| 2 | 21:43 | `asterim#typecheck` FAILED — 5 × `TS18048`/`TS2532` in `McpCapabilityDiscovery.test.ts` |
+| 3 | 21:51 | `asterim` passes (`tsc --noEmit` exit 0) |
+| 4 | 21:54 | `asterim#typecheck` FAILED — `TS18046: 'init.params' is of type 'unknown'` (line 388) |
 
-Evidence:
+`npx turbo run lint --force` — **VOLATILE, NOT CERTIFIED**
 
-| Suite | Assertions | Exit |
-| :--- | ---: | :--- |
-| MemoryRelevanceEngine | 63/63 | 0 |
-| memory routes | 140/140 | 0 |
-| memory-candidates | 52/52 | 0 |
-| DecisionExtractor | 60/60 | 0 |
-| GitDriftDetector | 64/64 | 0 |
-| SovereignMode | 21/21 | 0 |
-| MCP retrieval_tools | 87/87 | 0 |
-| MCP record_decision | 82/82 | 0 |
-| MCP dogfood_scenario | 62/62 | 0 |
-| web DecisionExplorer | 151/151 | 0 |
-| web CandidateReview | 37/37 | 0 |
-| adapters ProcessManager | 23/23 | 0 |
-| **Total** | **842/842** | |
+| Run | Time | Result |
+|---|---|---|
+| 1 | 21:37 | 7/7 packages, **0 errors**, 558 warnings |
+| 2 | 21:43 | `asterim#lint` FAILED — 1 error, `no-useless-assignment` on `fullId`, `McpCapabilityDiscovery.test.ts:389` |
+| 3 | 21:53 | 7/7 packages, **0 errors**, 565 warnings |
 
-### Test 3 — Eight further Phase 5 suites present in the repository
-Command:
-`... tsx packages/mcp-memory-server/src/__tests__/relay_e2e.test.ts` (and `relay-client`,
-`resolver`, `stdio_scaffold`), `... tsx apps/web/src/components/memory/__tests__/MemoryTimeline.test.ts`,
-`... tsx apps/web/src/stores/__tests__/useMemoryStore.test.ts`,
-`... tsx apps/server/src/routes/__tests__/internal.test.ts`,
-`... tsx apps/server/src/services/__tests__/ProjectMemoryService.test.ts`
-Result:
-PASS (8/8, every command exit 0)
+Warning distribution at run 3 (all pre-existing, overwhelmingly `@typescript-eslint/no-explicit-any`):
+`@asterim/web` 256, `asterim` 248, `@asterim/adapters` 28, `@asterim/marketing` 18,
+`@asterim/mcp-memory-server` 12, `@asterim/shared` 3.
 
-Evidence:
-relay_e2e 24/24 · relay-client 23/23 · resolver 42/42 · stdio_scaffold 28/28 ·
-MemoryTimeline 134/134 · useMemoryStore 113/113 · internal 51/51 · ProjectMemoryService 231/231
-= **646/646**. These were run because §3.1.4, §3.5.3 and §3.7.3 of the plan's scope are covered
-by these suites and not by the twelve named commands. Grand total across all 20 suites:
-**1,488/1,488 assertions, 0 failures.**
+Gate expectation of "11 Turbo tasks" for typecheck is correct only when the task graph completes;
+a failing `asterim#typecheck` truncates it to 9 because dependents are skipped.
 
-### Test 4 — Full monorepo build
-Command:
-`pnpm run build`
-Result:
-PASS
+### Step 2 — MCP Process Supervisor unit & route tests
 
-Evidence:
-`Tasks: 7 successful, 7 total` · `Cached: 4 cached, 7 total` · `Time: 22.447s` · exit 0.
+`pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts`
 
-### Test 5 — Typecheck (`tsc --noEmit`) across packages
-Command:
-`pnpm --filter <pkg> exec tsc --noEmit` for `asterim`, `@asterim/web`, `@asterim/shared`,
-`@asterim/adapters`, `@asterim/mcp-memory-server`
-Result:
-FAIL (1 of 5 packages)
+**FAIL — 92 / 115 assertions passed, 23 failed.** Reproduced identically three times
+(standalone at 21:45, inside the battery at 21:47, standalone again at 21:52), across three
+different states of `McpProcessSupervisor.ts`. Exit code 1.
 
-Evidence:
-`asterim` exits 1 with 4 errors; the other four packages exit 0 with 0 errors.
+The gate's expectation of 115 assertions is confirmed accurate — the suite has 107 static
+assertion call sites, several inside loops, totalling 115 at runtime.
+
+Sections that passed fully: `mcp_servers` table creation, `sanitizeMcpEnv` (all 16 assertions),
+configuration CRUD, stderr ring buffer, crash detection, unknown-command handling, disabled
+servers, non-stdio transports, child-environment observation, deletion, and the majority of the
+REST route surface.
+
+### Step 3 — Full monorepo test battery
+
+`npx turbo run test --force`
+
+**FAIL — 24 / 25 suites pass. 1894 / 1917 assertions passed, 23 failed.**
+
+| Package | Suites | Assertions | Result |
+|---|---|---|---|
+| `asterim` (Server) | 12 | 1017 / 1040 | **FAIL** (1 suite) |
+| `@asterim/mcp-memory-server` | 7 | 348 / 348 | PASS |
+| `@asterim/web` | 4 | 435 / 435 | PASS |
+| `@asterim/relay` | 1 | 71 / 71 | PASS |
+| `@asterim/adapters` | 1 | 23 / 23 | PASS |
+| **Total** | **25** | **1894 / 1917** | **FAIL** |
+
+The 23 failures are entirely within `McpProcessSupervisor.test.ts`. The other 11 server suites
+contributed 925/925. **No regression was detected anywhere outside the MCP subsystem** — memory,
+git, relay, adapters, web, and marketing suites are unaffected.
+
+### Step 4 — Full production build
+
+`npx turbo run build --force`
+
+**PASS — 7 / 7 Turbo packages built successfully.**
+
+Cold (`--force`, no cache): 40.3 s. Warm/cached: 115 ms (`FULL TURBO`). The gate's "under 10
+seconds" expectation is only meetable warm; a cold build of seven packages including two Vite
+apps and two `tsc` project builds does not complete in 10 s on this machine. Recording as PASS on
+the substantive criterion (7/7 succeed) and flagging the timing expectation as unrealistic for a
+cold run.
+
+An earlier invocation reported "4 successful, 4 total" because a partial task graph was scheduled;
+the authoritative forced run enumerates all seven build tasks (`@asterim/shared`, `@asterim/adapters`,
+`@asterim/relay`, `@asterim/web`, `@asterim/marketing`, `asterim`, `@asterim/mcp-memory-server`).
+`@asterim/eslint-config` has no `build` script and is correctly absent.
+
+---
+
+## Findings
+
+### Finding 1 — P6-02 handshake gate breaks all 23 process-lifecycle assertions in the P6-01 suite
+
+Severity: **HIGH** — violates an explicit P6-02 prohibition.
+Confidence: **CONFIRMED** (reproduced 3×, 3 distinct tree states).
+
+Every one of the 23 failures shares a single root cause:
+
 ```
-src/controllers/AuthController.ts(354,34): error TS2304: Cannot find name 'OAuthCodeExchangeRequest'.
-src/services/AgentService.ts(164,17): error TS2339: Property 'socketManager' does not exist on type 'typeof import(".../sockets/socketManager")'.
-src/services/ContextService.ts(109,59): error TS2339: Property 'type' does not exist on type 'ContextEntry'.
-src/services/ai/providers/GeminiProvider.ts(2,29): error TS2307: Cannot find module './IAIProvider' or its corresponding type declarations.
+[MCP] Spawned stay-alive (pid …)
+[MCP] stay-alive: Handshake failed: MCP request 'initialize' timed out after 5000ms
+  FAIL  the status becomes RUNNING  — expected "RUNNING", got "ERROR"
 ```
-`git diff --name-only f036b89~1 HEAD` shows none of these four files was touched by the Phase 5
-commits; they were last modified 2026-07-23, 2026-08-07 and 2026-08-08.
 
-### Test 6 — Real-execution socket differential, sovereign vs normal (plan §3.6.1)
-Command:
-Built binary `node apps/server/dist/index.js` started twice with a temp `ASTERIM_DATA_DIR`,
-sockets enumerated from `/proc/<pid>/fd` matched against `/proc/net/{tcp,tcp6,udp,udp6}`.
-Result:
-PASS (with one finding)
+`McpProcessSupervisor.startServer()` now gates the `RUNNING` transition on a successful JSON-RPC
+`initialize` handshake; on timeout it sets `status = 'ERROR'`, records `lastError`, terminates the
+child, and emits `SERVER_CRASHED`.
 
-Evidence:
+The P6-01 suite's fixtures are ordinary Node processes that never speak JSON-RPC:
+
+```js
+const STAY_ALIVE = 'setInterval(() => {}, 1000)';   // McpProcessSupervisor.test.ts:73
 ```
-MODE=sovereign  (ASTERIM_SOVEREIGN_MODE=true)
-  TCP6  LISTEN   local=:::3995
-  UDP   ---      local=0.0.0.0:5353
-  [RelayClient] Sovereign Mode active: Cloud Relay connection disabled.
 
-MODE=normal (baseline)
-  TCP   ESTABLISHED  local=127.0.0.1:37510  remote=127.0.0.1:4000
-  TCP6  LISTEN       local=:::3998
-  UDP   ---          local=0.0.0.0:5353
-```
-The outbound relay socket present in the baseline is absent under sovereign mode.
-Finding: UDP 5353 (mDNS) stays bound in both modes — see Failure F2.
+Such a child can never answer `initialize`, so every start now times out after 5000 ms and lands
+in `ERROR`. This cascades into every downstream assertion about pid tracking, start counts, stop,
+restart, SIGTERM/SIGKILL escalation, `shutdownAll`, and the REST status surface — including
+`SIGKILL followed the grace period (took 0ms)`, which now measures a process that was already dead.
 
-### Test 7 — Cross-process concurrent SQLite writes (plan §3.7.1)
-Command:
-Real-execution probe: 4 MCP memory-server processes × 15 `record_decision` calls against one
-database, with the real Core Fastify process live on the same file.
-Result:
-PASS
+**The supervisor behaviour is correct per spec.** `tasks/current.md` §7 AC #2 requires transition
+to `RUNNING` "only after successful handshake", and AC #3 requires timeouts to mark `ERROR`. The
+defect is that the P6-01 fixtures were not migrated alongside it, while `tasks/current.md` §6
+states: *"Do NOT break any existing tests or typechecks."*
 
-Evidence:
-```
-journal_mode at seed: {"journal_mode":"wal"}
-  writer 0..3: 15 ok, 0 tool-errors, SQLITE_BUSY seen: false   (each)
-  expected decisions:        60
-  successful tool responses: 60
-  rows in project_decisions: 60
-  memory.* rows in events (Core-side writes): 60
-  any SQLITE_BUSY / database-is-locked observed: false
-  core process alive at end: true
-```
-`PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000` confirmed at
-`apps/server/src/services/DatabaseService.ts:45` and `:59`.
+Remediation is the implementer's call, not QA's, but the spec already points at it —
+`tasks/current.md` §5 calls for *"a small Node script responding to `initialize`, `tools/list`,
+`resources/list`"*. The P6-01 fixtures need the same treatment: replace `STAY_ALIVE` / `NOISY`
+with minimal MCP-speaking stubs, keeping a genuinely-silent child only for the tests that
+legitimately assert handshake-timeout behaviour.
 
-### Test 8 — MCP stdio resilience to malformed JSON-RPC (plan §3.7.2)
-Command:
-Real-execution probe: 7 hostile frames written to the built MCP binary's stdin, followed by a
-valid `tools/list` survival check.
-Result:
-PASS (with one finding)
+### Finding 2 — `McpCapabilityDiscovery.test.ts` is not wired into the test script
 
-Evidence:
-Process survived all 7 frames. Unknown method → `-32601`; unknown tool, missing args and
-wrong-typed args → `isError: true` with actionable messages. Post-abuse `tools/list` answered
-with 3 tools. stdout across the whole session: **6 lines, 0 non-JSON**.
-Finding: garbage, truncated JSON and missing-`method` frames drew **no response at all** —
-see Failure F3.
+Severity: **MEDIUM** — open P6-02 Definition-of-Done item; suite invisible to `pnpm run test`.
+Confidence: **CONFIRMED**.
 
-## Acceptance Criteria
+The new suite exists and, run directly, **passes 89/89 assertions**. It is absent from the `"test"`
+script in `apps/server/package.json`, so the full battery never executes it — the monorepo reports
+25 suites when 26 exist. `tasks/current.md` §5 explicitly requires *"Wire into
+`apps/server/package.json` `"test"` script."*
 
-### §3.1 End-to-End Multi-Agent Memory & Relay Flow
-Status:
-VERIFIED (items 2–4 through real execution; items 1 and 5 through automated tests)
-Evidence:
-`resolver.test.ts` asserts nested and deeply-nested subfolders resolve to the innermost project.
-`dogfood_scenario.test.ts` drives the built binary against the live `~/.asterim/asterim.db` and
-proves it is not mutated (size + sha256 unchanged). `relay_e2e.test.ts` spawns the Core in its
-own process, a real Socket.IO client and the built MCP binary, and asserts delivery is prompt,
-not poll-based. `ProjectMemoryService.test.ts` covers `supersedeDecision` lineage
-(`supersededBy` null on new, old decision transitions to `SUPERSEDED`) and intent archival.
-Test 7 independently shows 60/60 relay notifications under concurrency.
+Because it is unwired, its failures surface only through `typecheck`/`lint`, which is how the
+volatile Step 1 errors in §Step 1 arose.
 
-### §3.2 Decision Extraction & Human Confirmation Lifecycle
-Status:
-VERIFIED through automated tests
-Evidence:
-`DecisionExtractor.test.ts` (60/60): candidates staged `PENDING` with extraction timestamp and
-no review timestamp, and "project_decisions is untouched (DEC-027)".
-`memory-candidates.test.ts` (52/52): approval/rejection lifecycle, and "rejecting every
-candidate deletes no existing decision".
+### Finding 3 — `dde3586` commit message describes work that is not in the commit
 
-### §3.3 Real Git Drift & Staleness Engine
-Status:
-VERIFIED (items 1–3 through real execution; 4–5 through automated tests)
-Evidence:
-`GitDriftDetector.test.ts` (64/64) creates real temporary Git repositories and shells to the
-real `git` CLI, including degraded paths (non-repo, non-existent path). Non-destructiveness is
-confirmed from the route side: `memory.test.ts` asserts "the drifted decision is still returned,
-not filtered out (DEC-027)" carrying its drift annotation. `DecisionExplorer.test.ts` covers the
-drift filter and badge rendering.
+Severity: **LOW** — hygiene / traceability.
+Confidence: **CONFIRMED**.
 
-### §3.4 Relevance Ranking, Scoped Briefings & Governance Invariants
-Status:
-VERIFIED through automated tests
-Evidence:
-`MemoryRelevanceEngine.test.ts` (63/63) asserts the cap keeps the highest-ranked rather than the
-first seen, and — at `limit: 0` — "even a zero limit keeps every rule", "and the intent", "while
-returning no decisions". `retrieval_tools.test.ts` confirms the same across the MCP boundary and
-that repeated identical scoped requests return byte-identical briefings.
+HEAD `dde3586` reads *"feat: implement MCP stdio handshake, capability discovery, autostart, and
+unified graceful shutdown"*, but `McpStdioClient.ts`, `GracefulShutdown.ts`, and
+`McpCapabilityDiscovery.test.ts` are all **untracked** on disk, and `McpProcessSupervisor.ts`,
+`routes/mcp.ts`, `index.ts`, `DatabaseService.ts`, `ServerRegistry.ts`, and
+`packages/shared/src/types/mcp.ts` all carry uncommitted modifications. The commit does not
+contain the feature it names, so no revision in history corresponds to a testable state of P6-02.
 
-### §3.5 Cross-Project Security & Isolation
-Status:
-VERIFIED (item 2 through real execution; 1 and 3 through automated tests)
-Evidence:
-`memory.test.ts`: over HTTP, "Project B sees none of Project A decisions/rules/intent".
-`memory-candidates.test.ts`: acting on another project's candidate returns 400 and mutates
-nothing. `record_decision.test.ts` seeds a second genuinely-registered project so the
-cross-project rejection cannot pass vacuously. `resolver.test.ts` has a `segment-safe
-containment` block and asserts a path outside every project does not match by prefix.
+---
 
-### §3.6 Sovereign Mode Air-Gap Gate
-Status:
-PARTIAL — items 2 and 3 VERIFIED; item 1 VERIFIED for relay/push/AI/telemetry, NOT SATISFIED
-for mDNS
-Evidence:
-Item 1: Test 6 shows the outbound relay socket is absent in sovereign mode while present in the
-baseline; `SovereignMode.test.ts` proves `socket.io-client` and `web-push` are never invoked
-under the switch (and *are* invoked with it off, so the assertion is not vacuous); a dependency
-scan finds zero telemetry/analytics SDKs. **But UDP 5353 (mDNS) remains bound in sovereign
-mode**, so the literal "ZERO outbound network requests" criterion is not met (Failure F2).
-Item 2: `ProcessManager.test.ts` (23/23) with real `spawn` — the child cannot see the relay URL
-or the sovereign flag but keeps `ASTERIM_DATA_DIR`.
-Item 3: documented in `docs/phase5-production-gate.md` §8.5. Note this boundary is *not*
-currently stated in DEC-028 itself.
+## Acceptance Criteria Review
 
-### §3.7 Failure, Concurrency & Recovery Testing
-Status:
-VERIFIED through real execution
-Evidence:
-Item 1 — Test 7: 60/60 rows, zero `SQLITE_BUSY`, WAL and `busy_timeout = 5000` confirmed.
-Item 2 — Test 8: survives all 7 malformed frames, stdout purity preserved, recovers fully
-(minor spec deviation recorded as F3).
-Item 3 — `relay_e2e.test.ts` covers the Core being absent (descriptor removed, recording still
-succeeds, decisions durable); `relay-client.test.ts` covers the Core being unresponsive
-(abandoned at timeout, failures never surface to the caller).
+Criteria are those of `tests/current.md` §3.
 
-### §4 Required Deliverables
-Status:
-VERIFIED
-Evidence:
-`docs/phase5-production-gate.md` created with all 16 required sections.
-`reports/current.md` overwritten with the execution summary.
+- [ ] **Step 1 — `pnpm run typecheck`: 0 errors across 11 Turbo tasks**
+      NOT CERTIFIED. Passed at 21:35 and 21:51; failed at 21:43 and 21:54. All errors confined to
+      `McpCapabilityDiscovery.test.ts` while it was being authored. Last observation: FAILING.
+- [ ] **Step 1 — `pnpm run lint`: 0 errors across 7 workspace packages**
+      NOT CERTIFIED. 0 errors at 21:37 and 21:53; 1 error at 21:43
+      (`no-useless-assignment`, `McpCapabilityDiscovery.test.ts:389`). Last observation: 0 errors,
+      565 warnings. Warnings are pre-existing and outside this gate's scope.
+- [ ] **Step 2 — MCP supervisor suite: 115/115 assertions passing**
+      **FAILED.** 92/115, 23 failures, reproduced 3×. See Finding 1.
+- [ ] **Step 3 — All 25 suites pass, 0 failures across 1,917+ assertions**
+      **FAILED.** 24/25 suites, 1894/1917 assertions. Sub-criteria:
+  - [ ] `asterim` (Server) 12 suites / 1,040 assertions — 1017/1040, 1 suite failing
+  - [x] `@asterim/mcp-memory-server` 7 suites / 348 assertions — 348/348
+  - [x] `@asterim/web` 4 suites / 435 assertions — 435/435
+  - [x] `@asterim/relay` 1 suite / 71 assertions — 71/71
+  - [x] `@asterim/adapters` 1 suite / 23 assertions — 23/23
+- [x] **Step 4 — 7/7 Turbo packages build successfully**
+      PASSED. 7/7 built. Timing criterion ("under 10 seconds") not met cold (40.3 s); met warm
+      (115 ms). Flagged as an unrealistic expectation for an uncached build, not as a defect.
 
-### §6 Self-Review Checklist
-Status:
-VERIFIED
-Evidence:
-All 10 dimensions audited with real evidence; no product feature code altered (`git status`
-clean apart from the two intended deliverables); 16-section gate document created; verdict
-issued with blockers classified; `reports/current.md` updated.
+Mandates from `tests/current.md` §2:
 
-## Failures
+- [x] **QA role only** — no product code, test code, or expectation was modified.
+- [ ] **Full monorepo regression** — executed; 24/25 clean. Not certifiable against a moving tree.
+- [ ] **Process lifecycle verification** — **could not be verified.** PID tracking, SIGTERM/SIGKILL
+      termination, and HTTP status reporting are all gated behind a handshake the fixtures cannot
+      complete, so these paths are never exercised. Stderr ring-buffer logging **is** verified and
+      passing.
+- [x] **Environment sanitization verification** — **VERIFIED AND PASSING.** All 16 `sanitizeMcpEnv`
+      assertions pass. Confirmed blocked from children: `ASTERIM_RELAY_URL`, `ASTERIM_RELAY_SECRET`,
+      `RELAY_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GITHUB_TOKEN`,
+      `AWS_SECRET_ACCESS_KEY`, `DB_PASSWORD`, `MY_API_KEY`. Confirmed passed through: `PATH`,
+      `HOME`, locale, `ASTERIM_DATA_DIR`, and operator-set explicit vars.
 
-- Classification: PRODUCT_FAILURE (pre-existing, outside Phase 5 scope)
-- Command: `pnpm --filter asterim exec tsc --noEmit`
-- Expected: exit 0, no type errors
-- Actual: exit 1, 4 errors in `AuthController.ts`, `AgentService.ts`, `ContextService.ts`,
-  `GeminiProvider.ts`
-- Evidence: full error text in Test 5. `git diff --name-only f036b89~1 HEAD` shows the Phase 5
-  commits touched none of these files; they were last modified 2026-07-23 / 08-07 / 08-08.
-  `pnpm run build` passes because `tsup` transpiles without typechecking, so the green build
-  hides this.
-- Affected criterion: none of §3 directly; it fails the `CLAUDE.md` self-review cycle, which
-  mandates `tsc --noEmit`.
-
-- Classification: DOCUMENTATION_FAILURE (specification gap; implementation matches the approved ADR)
-- Command: `/proc`-based socket enumeration of `node apps/server/dist/index.js` with
-  `ASTERIM_SOVEREIGN_MODE=true`
-- Expected: per plan §3.6.1, zero outbound network activity
-- Actual: no outbound TCP (correct), but `UDP 0.0.0.0:5353` (mDNS) stays bound and advertising
-- Evidence: Test 6 socket table; both modes hold the 5353 socket. DEC-028 §3 enumerates only
-  RelayClient, Web Push and remote AI providers as suppressed — mDNS is not listed, so the code
-  matches the ADR while falling short of the gate's literal wording.
-- Affected criterion: §3.6.1
-
-- Classification: PRODUCT_FAILURE (minor, non-blocking)
-- Command: malformed-frame probe against `packages/mcp-memory-server/dist/index.js`
-- Expected: per JSON-RPC 2.0, `-32700` for a parse error and `-32600` for an invalid request
-- Actual: garbage, truncated JSON and missing-`method` frames receive no response at all
-- Evidence: Test 8 table — the three unparseable/invalid frames show `(no stdout response)`
-  while the four well-formed-but-wrong frames answer correctly. The server never crashes and
-  stdout purity is preserved, but a client sending a malformed frame with an `id` waits for its
-  own timeout.
-- Affected criterion: §3.7.2 (resilience is satisfied; protocol conformance is not)
-
-Security findings — reported under plan §4.1 item 12 rather than as test failures, and detailed
-in `docs/phase5-production-gate.md` §12:
-
-- **PIN brute-force unmitigated (High).** `PairingService.validatePin` is plain string equality;
-  no attempt counter, lockout, delay, or rate limiting exists anywhere in the server (repo-wide
-  search for `rate-limit`/`rateLimit`/`@fastify/rate` returns nothing). `/api/v1/auth/pair` is
-  exempt from auth middleware and the server binds `::`. 6-digit PIN = 10⁶ keyspace.
-- **`pairing_pin.txt` tracked in Git (High).** `git ls-files` lists both `pairing_pin.txt` and
-  `apps/server/pairing_pin.txt`; neither is matched by `.gitignore`.
-- **`~/.asterim/asterim.db` is mode 0644 and unencrypted (Medium)** while `server.json` is
-  correctly 0600.
-- **VAPID private key stored as plaintext JSON** in the `settings` table (Low–Medium).
-
-Positive security findings: API keys are stored hashed (`key_hash` UNIQUE + `key_prefix`); the
-`/api/v1/internal/*` relay endpoint is defended by loopback-address check + `server.json` token +
-`memory.*` event-shape allowlist; zero telemetry or analytics dependencies exist in the monorepo.
+---
 
 ## Verification Summary
 
-Tests:
-20 passed (test suites, 1,488/1,488 assertions)
-0 failed
-0 blocked
-Plus 3 real-execution probes: 3 passed (2 with findings recorded above)
+| Step | Criterion | Result |
+|---|---|---|
+| 1 | typecheck, 0 errors | NOT CERTIFIED (flip-flopped 4×) |
+| 1 | lint, 0 errors | NOT CERTIFIED (flip-flopped 3×) |
+| 2 | supervisor 115/115 | **FAIL — 92/115** |
+| 3 | 25 suites, 1917 assertions | **FAIL — 24/25, 1894/1917** |
+| 4 | 7/7 packages build | **PASS** |
 
-Build:
-PASS — `pnpm run build`, 7/7 turbo tasks, 22.4s
+Gate verdict: **BLOCKED**.
 
-Typecheck:
-FAIL — `apps/server` 4 errors (pre-existing, non-Phase-5 files); `@asterim/web`,
-`@asterim/shared`, `@asterim/adapters`, `@asterim/mcp-memory-server` all clean
+The one substantive defect (Finding 1) is a direct and predictable consequence of unfinished
+P6-02 work landing on top of P6-01's test fixtures. It is real and reproducible, but it is not
+evidence that P6-01 is broken — it is evidence that the gate was run against a tree mid-migration.
 
-Acceptance criteria:
-6 / 7 scope dimensions fully verified; §3.6 partial (mDNS, F2). Both §4 deliverables produced.
-All 23 numbered sub-items across §3.1–§3.7 verified except §3.6.1 in its literal "zero outbound"
-form.
+---
 
 ## Recommendation
 
-PARTIAL — some criteria verified, others remain unresolved.
+TEST-P6-01 should not be re-run until the tree is committed and quiescent. Specifically:
 
-Every functional claim of the Phase 5 subsystem holds, most of them under real process execution
-rather than mocks. What is unresolved is not Phase 5 feature behaviour: the server does not
-typecheck (pre-existing), the sovereign-mode criterion is worded more strongly than DEC-028
-actually specifies, and the security posture has real gaps the plan itself asked to be surfaced.
-
-The corresponding verdict recorded in the gate document is **CONDITIONAL PASS**.
+1. **Finish and commit P6-02.** No revision in history currently contains the feature under test
+   (Finding 3), so there is nothing stable to certify.
+2. **Migrate the P6-01 fixtures** to minimal MCP-speaking stubs (Finding 1), preserving a silent
+   child only where handshake-timeout behaviour is the assertion under test.
+3. **Wire `McpCapabilityDiscovery.test.ts` into the `asterim` test script** (Finding 2) so the
+   battery covers 26 suites.
+4. **Re-issue the gate against a committed SHA.** Consider retargeting it as TEST-P6-02, since
+   `tasks/current.md` has already advanced to P6-02 while `tests/current.md` still names P6-01.
+5. **Revise the Step 4 timing expectation** to distinguish cold (~40 s) from warm (~115 ms) builds.
 
 ## Recommended Next Step
 
-For the Antigravity orchestrator:
+Return this gate to the orchestrator as BLOCKED. Once P6-02 is committed, re-run all four steps
+against that SHA; the expected delta is 23 assertions restored in `McpProcessSupervisor.test.ts`
+plus 89 added from `McpCapabilityDiscovery.test.ts`, giving 26 suites / 2,006 assertions.
 
-1. **Rule on F2 (mDNS under sovereign mode).** This is a specification decision, not an
-   implementation bug — either amend DEC-028 §3 to state that LAN discovery is deliberately
-   retained, or assign a task to suppress the advertisement when the switch is on. The audit
-   cannot resolve this without an architectural ruling.
-2. **Dispatch a Phase 5.5 hardening task** covering H1–H4 in the gate document: restore
-   `tsc --noEmit` to green and add a `typecheck` task to `turbo.json` and CI; add attempt-limiting
-   to the pairing PIN; untrack both `pairing_pin.txt` files and treat the committed PINs as
-   disclosed; tighten `~/.asterim` file modes to 0700/0600.
-3. **Consider wiring the existing 20 suites into CI.** They are high quality and currently run
-   only by hand — CI executes `lint` and `build` only, so none of these 1,488 assertions guard
-   the repository today.
-4. Phase 6 feature work should not begin until H1 lands; further modules written against
-   `AgentService` or `ContextService` compound the existing type debt.
+---
 
-No implementation was performed. Product code is unmodified.
+## Reporting Note
+
+`tests/current.md` §4 directs the report to `reports/current.md`; the operator instruction for this
+run directed it to `tests/report.md`. This report was written to `tests/report.md` per the operator
+instruction. `reports/current.md` was left untouched (it still holds the prior Stripe billing task
+report). The two locations should be reconciled in the protocol.

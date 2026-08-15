@@ -587,6 +587,22 @@ export class DatabaseService {
   public getDb(): DatabaseSync {
     return this.db;
   }
+
+  /**
+   * Closes the connection so WAL is checkpointed rather than abandoned.
+   * Idempotent: shutdown may reach this more than once.
+   */
+  public close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.db.close();
+    } catch (err) {
+      console.warn('[Database] Could not close cleanly:', (err as Error).message);
+    }
+  }
+
+  private closed = false;
 }
 
 export const dbService = new DatabaseService();
