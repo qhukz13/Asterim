@@ -1,6 +1,6 @@
-# [P6-03] — MCP Tool Invocation Engine, Change Notifications & Registry UI
+# [P6-04] — Agent Tool Bridge, Schema Validation & Per-Server Queueing
 
-**Task ID:** P6-03  
+**Task ID:** P6-04  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,29 +11,27 @@
 
 ## 1. Objective
 
-Implement direct MCP tool invocation in `McpProcessSupervisor` / `McpStdioClient` (`tools/call` over active stdio sessions), support dynamic capability invalidation (`notifications/tools/list_changed`), expose `POST /api/v1/mcp/servers/:id/tools/:toolName` REST endpoints, and construct the complete MCP Server Registry & Management UI in `apps/web` (`McpServerExplorer.tsx`, `McpServerModal.tsx`, `McpServerDetailDrawer.tsx`).
+Implement the Agent MCP Tool Bridge (`McpAgentBridge.ts`) connecting running AI agents to supervised MCP servers: perform input schema validation against cached tool definitions, enforce per-server invocation queueing to prevent stdio stream corruption under concurrent load, aggregate available tools across enabled servers, unify remote auth token handling in the Web UI, and author comprehensive unit tests.
 
 ---
 
 ## 2. Why This Task Exists
 
-In P6-01 and P6-02, Asterim built the process supervisor, handshake discovery, and autostart engine. However:
-1. Asterim cannot yet execute tools through those open MCP sessions on behalf of agents or users.
-2. If an MCP server updates its tools dynamically (e.g. connecting a database or mounting a directory), Asterim does not catch `notifications/tools/list_changed`.
-3. Developers need a visual control plane in the Asterim Web UI to view registered MCP servers, inspect discovered tools & schemas, review real-time stderr logs, toggle enabled status, and add new servers with one click.
+Asterim can now discover MCP servers and execute tools over stdio. However:
+1. **Agent Access**: AI agents running in Asterim (`claude`, `aider`, `antigravity`) need a unified bridge to discover and invoke tools provided by any running MCP server.
+2. **Pipe Safety**: A stdio MCP server communicates over a single standard input/output pipe. Concurrent tool invocations without queueing risk interleaved bytes and protocol crashes.
+3. **Schema Validation**: Passing malformed tool arguments down to a third-party MCP server produces obscure error messages. Pre-validating arguments against the cached `inputSchema` provides immediate, actionable feedback to the calling agent.
+4. **Token Consistency**: `useMcpStore` and `useMemoryStore` currently use `asterim_token` while remote workstations require `asterim_token_<url>`.
 
 ---
 
 ## 3. Context
 
-* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP Management System) & `blueprint/DESIGN_SYSTEM.md`.
-* **JSON-RPC Protocol**:
-  - Request: `{"jsonrpc": "2.0", "id": N, "method": "tools/call", "params": {"name": "tool_name", "arguments": {...}}}`
-  - Response: `{"jsonrpc": "2.0", "id": N, "result": {"content": [{"type": "text", "text": "..."}], "isError": false}}`
-* **UI Architecture**:
-  - Integrate into `apps/web` navigation and routing.
-  - Follow the Asterim dark monochrome aesthetic with surgical emerald accents (`#10b981`).
-  - Real-time Socket.IO updates on `mcp.*` events with zero page reloads.
+* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP System) & `blueprint/ARCHITECTURE.md` § 4 (Adapters).
+* **Architecture Pattern**:
+  - `McpAgentBridge` sits between `AgentService` / `AdapterManager` and `McpProcessSupervisor`.
+  - When an agent is initialized for a project, `McpAgentBridge.getToolsForAgent(workspaceId)` returns tools from all global and workspace-scoped `RUNNING` MCP servers.
+  - When an agent executes a tool (`mcp__<serverName>__<toolName>`), `McpAgentBridge.executeTool()` validates input schemas, enqueues the call, routes to `McpProcessSupervisor.callTool()`, and returns formatted results into the agent's context.
 
 ---
 
@@ -42,86 +40,72 @@ In P6-01 and P6-02, Asterim built the process supervisor, handshake discovery, a
 Inspect:
 * [`apps/server/src/services/mcp/McpProcessSupervisor.ts`](file:///c:/Projects/Asterim/apps/server/src/services/mcp/McpProcessSupervisor.ts)
 * [`apps/server/src/services/mcp/McpStdioClient.ts`](file:///c:/Projects/Asterim/apps/server/src/services/mcp/McpStdioClient.ts)
-* [`apps/server/src/routes/mcp.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/mcp.ts)
-* [`apps/web/src/components/memory/DecisionExplorer.tsx`](file:///c:/Projects/Asterim/apps/web/src/components/memory/DecisionExplorer.tsx) (UI patterns, drawers, modals, tables)
-* [`apps/web/src/stores/useWorkspaceStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useWorkspaceStore.ts)
+* [`packages/adapters/src/BaseAdapter.ts`](file:///c:/Projects/Asterim/packages/adapters/src/BaseAdapter.ts) (Command queueing patterns)
+* [`apps/web/src/stores/useMcpStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useMcpStore.ts)
+* [`apps/web/src/stores/useMemoryStore.ts`](file:///c:/Projects/Asterim/apps/web/src/stores/useMemoryStore.ts)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **Tool Invocation Engine (`McpStdioClient.ts` & `McpProcessSupervisor.ts`)**:
-   - In `McpStdioClient.ts`:
-     - Implement `callTool(name: string, args?: Record<string, unknown>, timeoutMs = 30000)`:
-       - Sends JSON-RPC `tools/call`.
-       - Handles timeout and tool execution errors (`result.isError`).
-       - Returns `McpToolCallResult` (`content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>`, `isError: boolean`).
-     - Handle `notifications/tools/list_changed`:
-       - When received, re-trigger `discover()` and notify supervisor callback.
-   - In `McpProcessSupervisor.ts`:
-     - Implement `callTool(serverId: string, toolName: string, args?: Record<string, unknown>)`:
-       - Verify server is `RUNNING` and tool exists in cached capabilities.
-       - Execute tool via active `McpStdioClient`.
-       - On `list_changed` notification from client, update cached capabilities and emit `mcp.capabilities_updated` over `EventBus`.
+1. **Schema Validation Helper (`apps/server/src/services/mcp/SchemaValidator.ts`)**:
+   - Validate incoming tool argument objects against cached `inputSchema` (properties, required fields, type checks: string, number, boolean, object, array).
+   - Return `{ valid: boolean; errors?: string[] }`.
+   - Pre-validate before routing to stdio.
 
-2. **REST API Extensions (`apps/server/src/routes/mcp.ts`)**:
-   - `POST /api/v1/mcp/servers/:id/tools/:toolName` — Authenticated; accepts `{ arguments: {...} }`, calls tool and returns `{ result, isError }`.
-   - Returns 404 if tool does not exist, 409 if server is not `RUNNING`, 504 on tool execution timeout.
+2. **Per-Server Concurrency Queue (`apps/server/src/services/mcp/McpProcessSupervisor.ts` / `McpStdioClient.ts`)**:
+   - Implement invocation queue per running server instance.
+   - Enforce maximum concurrent active tool calls (default: 1 concurrent per stdio pipe to guarantee zero stream multiplexing collisions).
+   - Additional concurrent calls wait in FIFO order with bounded queue depth (e.g. 20) and timeout.
 
-3. **Frontend MCP Management Store & Components (`apps/web`)**:
-   - Store: `apps/web/src/stores/useMcpStore.ts`:
-     - Manages `servers: McpServerRuntimeInfo[]`, `activeServerId: string | null`, `isLoading: boolean`.
-     - Listens to Socket.IO events (`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`) for live state updates.
-     - Actions: `loadServers(workspaceId?)`, `startServer(id)`, `stopServer(id)`, `restartServer(id)`, `refreshCapabilities(id)`, `deleteServer(id)`, `callTool(id, name, args)`.
-   - Component: `apps/web/src/components/mcp/McpServerExplorer.tsx`:
-     - Server list with status badge (`RUNNING` emerald, `INITIALIZING` yellow, `STOPPED` slate, `CRASHED` red, `ERROR` red).
-     - Tool count chip, process PID chip, uptime, transport pill.
-     - Action buttons: Start, Stop, Restart, Refresh, Add Server (`+ New MCP Server`), Delete.
-   - Component: `apps/web/src/components/mcp/McpServerModal.tsx`:
-     - Modal for creating/editing an MCP server configuration (Name, Transport, Command, Arguments, Environment Variables JSON/Key-Value, Global vs Workspace).
-   - Component: `apps/web/src/components/mcp/McpServerDetailDrawer.tsx`:
-     - Slide-over drawer with tabs:
-       - **Tools Tab**: List of discovered tools with descriptions, parameter JSON schemas, and an interactive "Try Tool" execution runner.
-       - **Resources & Prompts Tab**: List of URI resources and prompt templates.
-       - **Logs Tab**: Real-time 50-line stderr rolling log viewer with auto-scroll and copy button.
+3. **`McpAgentBridge.ts` (`apps/server/src/services/mcp/McpAgentBridge.ts`)**:
+   - `getAvailableTools(workspaceId?: string)`:
+     - Returns namespaced tools: `mcp__${server.name}__${tool.name}` with description and parameters formatted for agent consumption.
+   - `executeTool(namespacedToolName: string, args: Record<string, unknown>, workspaceId?: string)`:
+     - Parses server name and tool name.
+     - Resolves server instance and validates schema.
+     - Executes via `McpProcessSupervisor.callTool()`.
+     - Returns agent-standard tool result string / error string.
 
-4. **Navigation & View Integration (`apps/web`)**:
-   - Add MCP Registry tab / route in Workspace navigation shell (e.g. `/workspace/mcp` or Environment Settings MCP tab).
+4. **Unified Auth Helper (`apps/web/src/utils/auth.ts`)**:
+   - Create shared `getAuthHeaders(backendUrl?: string)` supporting both local `asterim_token` and per-backend `asterim_token_<url>`.
+   - Update `useMcpStore.ts` and `useMemoryStore.ts` to use the unified helper.
 
-5. **Automated Unit Tests**:
-   - Server: `apps/server/src/services/mcp/__tests__/McpToolInvocation.test.ts` (tool invocation, error handling, timeout, dynamic list_changed notification).
-   - Web: `apps/web/src/components/mcp/__tests__/McpServerExplorer.test.ts` (store actions, component rendering, status badge mapping).
-   - Wire tests into `apps/server/package.json` and `apps/web/package.json` `"test"` scripts.
+5. **Automated Unit Test Suite (`apps/server/src/services/mcp/__tests__/McpAgentBridge.test.ts`)**:
+   - Test `SchemaValidator` (required parameters, type mismatches, missing fields).
+   - Test per-server serialized queueing (burst of 5 concurrent tool calls resolve cleanly in sequence without pipe corruption).
+   - Test `McpAgentBridge` tool aggregation and namespaced invocation.
+   - Test error formatting for agent consumption.
+   - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** execute tools when server is `STOPPED` or `CRASHED` (enforce 409 `SERVER_NOT_RUNNING`).
-* Do **NOT** leak sensitive environment variables in the UI log viewer.
-* Do **NOT** break any of the 26 existing test suites.
+* Do **NOT** allow unbounded queue growth (reject calls beyond queue depth with 429 `QUEUE_FULL`).
+* Do **NOT** allow unhandled schema validation errors to crash the process.
+* Do **NOT** break any of the 28 existing test suites.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. `McpStdioClient` and `McpProcessSupervisor` execute `tools/call` over active stdio sessions and return structured tool responses.
-2. `notifications/tools/list_changed` dynamically invalidates and refreshes cached capabilities with `mcp.capabilities_updated` emitted on the EventBus.
-3. `POST /api/v1/mcp/servers/:id/tools/:toolName` handles invocations, timeouts, and structured errors.
-4. `McpServerExplorer.tsx`, `McpServerModal.tsx`, and `McpServerDetailDrawer.tsx` render in `apps/web` with live Socket.IO reactivity.
-5. All automated unit tests pass cleanly.
-6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (27+ test suites), `pnpm run build`.
+1. `SchemaValidator` validates tool arguments against `inputSchema` and returns detailed field errors.
+2. Concurrent tool calls to a single stdio MCP server are serialized through the per-server queue without stream corruption.
+3. `McpAgentBridge` aggregates tools across all `RUNNING` servers and executes namespaced tool calls.
+4. `useMcpStore` and `useMemoryStore` use unified `getAuthHeaders` across local and remote connections.
+5. `McpAgentBridge.test.ts` passes with comprehensive assertions.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (29 test suites), `pnpm run build`.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] `callTool` implemented in supervisor and stdio client
-- [ ] `list_changed` notification handling active
-- [ ] Tool execution REST route functional
-- [ ] `useMcpStore.ts` implemented with Socket.IO event binding
-- [ ] `McpServerExplorer.tsx`, `McpServerModal.tsx`, `McpServerDetailDrawer.tsx` built
-- [ ] New server and web test suites created and passing
+- [ ] `SchemaValidator.ts` created and verified
+- [ ] Per-server queueing implemented in supervisor/client
+- [ ] `McpAgentBridge.ts` implemented and tested
+- [ ] `getAuthHeaders` unified in `apps/web/src/utils/auth.ts`
+- [ ] `McpAgentBridge.test.ts` passing
 - [ ] Monorepo CI gates pass cleanly
 
 ---
@@ -129,11 +113,11 @@ Inspect:
 ## 9. Verification Commands
 
 ```bash
-# Run server tool invocation test suite
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpToolInvocation.test.ts
+# Run new Agent Bridge & Schema Validation test suite
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpAgentBridge.test.ts
 
-# Run web MCP component test suite
-pnpm --filter @asterim/web exec tsx src/components/mcp/__tests__/McpServerExplorer.test.ts
+# Run all MCP test suites
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpToolInvocation.test.ts
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
@@ -146,8 +130,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Inspect `git diff` to ensure tool execution timeouts are bounded and do not leave hanging promises.
-- Verify UI components adhere to WCAG contrast and accessibility standards.
+- Verify concurrent tool calls properly release the queue mutex even when a tool execution fails or times out.
+- Ensure schema validator does not throw unhandled exceptions on circular or malformed schemas.
 
 ---
 
