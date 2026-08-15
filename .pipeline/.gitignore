@@ -1,0 +1,10 @@
+state.json
+state.json.tmp
+pipeline.log
+logs/
+runner.lock
+worker.lock
+control.json
+workers.json
+*.token
+worker.json
