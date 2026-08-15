@@ -258,35 +258,34 @@ See `docs/phase5-3-completion-report.md`. 692 assertions across full memory batt
 - [x] P5.3-02 `DecisionActions.tsx`, `SupersedeDecisionModal.tsx`, `ArchiveDecisionModal.tsx`
 - [x] P5.3-03 `CreateRuleModal.tsx`, `UpdateIntentModal.tsx`, `decisionHelpers.ts`, title resolution
 
-# Phase 5.4 — Intelligent Memory & Continuous Governance (PLANNED)
+# Phase 5.4 — Intelligent Memory & Continuous Governance (DONE)
 
-See `docs/phase5-4-task-plan.md`.
+See `docs/phase5-4-task-plan.md` and `docs/phase5-production-gate.md`.
 
-- [ ] **P5.4-01: Cross-Process Memory Event Relay & Live Sync**
-  - [ ] Implement `ServerRegistry` writing `~/.asterim/server.json` on startup with loopback token.
-  - [ ] Implement `POST /api/v1/internal/memory-events` loopback endpoint on Core Server.
-  - [ ] Implement MCP relay client in `packages/mcp-memory-server` notifying Core on writes.
-  - [ ] Verify 0ms UI update when external terminal agent records a decision via MCP stdio.
-- [ ] **P5.4-02: Git Staleness & Drift Engine**
-  - [ ] Implement `GitDriftDetector` in `apps/server/src/services/git/GitDriftDetector.ts`.
-  - [ ] Calculate `FILE_MODIFIED`, `FILE_DELETED`, `SYMBOL_NOT_FOUND` against working tree.
-  - [ ] Expose drift status in `getProjectBriefing` and render visual caution badges in UI.
-- [ ] **P5.4-03: Decision Extraction Queue & Candidate Review UI**
-  - [ ] Add `candidate_decisions` table to SQLite schema.
-  - [ ] Implement `DecisionExtractor` analyzing session logs/tool invocations upon completion.
-  - [ ] Implement Candidate Decision review drawer in UI with 1-click Approve / Reject.
-- [ ] **P5.4-04: Relevance Ranking, Scoped Briefings & Noise Reduction**
-  - [ ] Implement path-proximity ranking and token-budget bounding in `getProjectBriefing`.
-  - [ ] Scope architectural rules by `scopePattern` against target files.
+- [x] **P5.4-01: Cross-Process Memory Event Relay & Live Sync**
+- [x] **P5.4-02: Git Staleness & Drift Engine**
+- [x] **P5.4-03: Decision Extraction Queue & Candidate Review UI**
+- [x] **P5.4-04: Relevance Ranking, Scoped Briefings & Noise Reduction**
 
 ---
 
-# Phase 5 — SaaS Foundation & Beta Release Tasks
+# Phase 5.5 — Security Hardening & Technical Debt Resolution (DONE)
 
-- [ ] **PR 1: Zero-Friction Git Credentials & SSH Auto-Detection**
-  - [ ] Implement `SSH_AUTH_SOCK` socket auto-discovery and inheritance in `GitProvider.ts`.
-  - [ ] Implement global `credential.helper` resolution and non-interactive Git credential provider integration.
-  - [ ] Implement automatic silent retry & format conversion (HTTPS <-> SSH) on initial push failure.
+- [x] **P5.5-01: Technical Debt, Security Hardening & CI Typecheck Integration**
+
+---
+
+# Phase 5.6 — SaaS Foundation & Commercial Beta Release (DONE)
+
+See `docs/phase5-reconciliation.md`, `docs/phase5-remaining-plan.md`, and `docs/phase5-beta-production-gate.md`.
+
+- [x] **P5.6-01: CI Test Suite Automation & ESLint Debt Resolution**
+- [x] **P5.6-02: Zero-Friction Git Credential & SSH Auto-Detection Engine**
+- [x] **P5.6-03: Production Cloud Relay Hardening & Authentication**
+- [x] **P5.6-04: Stripe Checkout, Customer Portal & Cryptographic Webhook Security**
+- [x] **P5.6-05: Multi-Stage Production Containerization, Dockerfiles & Release Pipeline**
+- [x] **GATE-P5-BETA: Commercial Public Beta Production Gate (VERIFIED & SIGNED OFF)**
+
 
 
 
