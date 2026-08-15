@@ -1,6 +1,6 @@
-# [P6-01] — MCP Server Manager Core & Multi-Process Supervisor
+# [P6-02] — MCP Capability Discovery, Stdio Handshake & Boot Autostart
 
-**Task ID:** P6-01  
+**Task ID:** P6-02  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -11,162 +11,153 @@
 
 ## 1. Objective
 
-Implement the core MCP Server Management subsystem in `apps/server`: create SQLite schema for registered MCP servers, author `McpProcessSupervisor.ts` for spawning, health-monitoring, restarting, and capturing stderr logs from child MCP processes (stdio transport), and expose authenticated `/api/v1/mcp/servers` REST endpoints.
+Implement JSON-RPC 2.0 stdio handshake and capability discovery in `McpProcessSupervisor`: perform `initialize` negotiation upon process spawn, query `tools/list`, `resources/list`, and `prompts/list`, cache discovered capabilities on the server runtime model, expose `GET /api/v1/mcp/servers/:id/capabilities`, emit `mcp.*` status events onto the Asterim `EventBus`, implement boot-time autostart for enabled servers, and consolidate process graceful shutdown into a unified sequence.
 
 ---
 
 ## 2. Why This Task Exists
 
-Asterim is evolving into the universal control plane for AI engineering. While Asterim now provides its own Project Memory MCP Server (`@asterim/mcp-memory-server`), developers frequently rely on multiple external MCP servers (filesystem, Postgres, GitHub, Brave Search, custom tools).
+In P6-01, `McpProcessSupervisor` was built to supervise child processes and capture stderr logs. However, process existence (`RUNNING`) is not yet semantic readiness: Asterim does not know what tools, resources, or prompts an MCP server provides until a JSON-RPC 2.0 `initialize` handshake is performed.
 
-Currently, external MCP servers must be configured by hand in individual agent configuration files. The MCP Server Manager provides Asterim with a centralized supervisor that manages the lifecycle, configuration, health monitoring, and log capture of all MCP servers running on the developer's workstation.
+Discovering and caching capabilities allows Asterim to:
+1. Guarantee that a server is truly ready to handle agent tool invocations.
+2. Provide Asterim UI and Agent profiles with a searchable catalog of available tools (e.g. `filesystem:read_file`, `postgres:query`, `github:create_issue`).
+3. Auto-start enabled MCP servers on Asterim Core boot so agent tools are instantly available without manual intervention.
 
 ---
 
 ## 3. Context
 
-* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP Management System) & `blueprint/ARCHITECTURE.md`.
-* **Subsystem Architecture**:
-  - MCP servers run as isolated child processes communicating over `stdio` (JSON-RPC) or local HTTP/SSE.
-  - The supervisor tracks process state (`STOPPED`, `STARTING`, `RUNNING`, `CRASHED`), ping health, memory/uptime, and a rolling ring-buffer of recent stderr logs.
-  - Configuration persists locally in SQLite `~/.asterim/asterim.db`.
+* **Blueprint Reference**: `blueprint/ROADMAP.md` Phase 6 Deliverable 1 (MCP Registry & Capability Control) & `blueprint/ARCHITECTURE.md`.
+* **JSON-RPC 2.0 Protocol (Model Context Protocol Specification)**:
+  - Client sends `initialize` request with client info & capabilities.
+  - Server responds with server info, protocol version, and server capabilities.
+  - Client sends `notifications/initialized`.
+  - Client queries `tools/list`, `resources/list`, `prompts/list`.
+* **EventBus Bridge**: Status transitions (`mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, `mcp.capabilities_updated`) should emit to `eventBus` so connected Web UI clients receive instant state updates over Socket.IO.
 
 ---
 
 ## 4. Repository Evidence
 
 Inspect:
-* [`apps/server/src/services/DatabaseService.ts`](file:///c:/Projects/Asterim/apps/server/src/services/DatabaseService.ts) (Table schema creation and `PRAGMA busy_timeout = 5000`)
-* [`packages/adapters/src/sdk/ProcessManager.ts`](file:///c:/Projects/Asterim/packages/adapters/src/sdk/ProcessManager.ts) (Child process management patterns)
-* [`apps/server/src/services/ProcessTreeManager.ts`](file:///c:/Projects/Asterim/apps/server/src/services/ProcessTreeManager.ts)
+* [`apps/server/src/services/mcp/McpProcessSupervisor.ts`](file:///c:/Projects/Asterim/apps/server/src/services/mcp/McpProcessSupervisor.ts)
+* [`packages/shared/src/types/mcp.ts`](file:///c:/Projects/Asterim/packages/shared/src/types/mcp.ts)
+* [`apps/server/src/services/EventBus.ts`](file:///c:/Projects/Asterim/apps/server/src/services/EventBus.ts)
 * [`packages/mcp-memory-server/src/index.ts`](file:///c:/Projects/Asterim/packages/mcp-memory-server/src/index.ts)
+* [`apps/server/src/routes/mcp.ts`](file:///c:/Projects/Asterim/apps/server/src/routes/mcp.ts)
 * [`apps/server/src/index.ts`](file:///c:/Projects/Asterim/apps/server/src/index.ts)
 
 ---
 
 ## 5. Implementation Scope
 
-1. **SQLite Database Schema (`DatabaseService.ts`)**:
-   - Add `mcp_servers` table:
-     ```sql
-     CREATE TABLE IF NOT EXISTS mcp_servers (
-       id TEXT PRIMARY KEY,
-       workspace_id TEXT,
-       name TEXT NOT NULL,
-       transport TEXT NOT NULL DEFAULT 'stdio',
-       command TEXT NOT NULL,
-       args_json TEXT NOT NULL DEFAULT '[]',
-       env_json TEXT NOT NULL DEFAULT '{}',
-       is_enabled INTEGER NOT NULL DEFAULT 1,
-       is_global INTEGER NOT NULL DEFAULT 0,
-       created_at INTEGER NOT NULL,
-       updated_at INTEGER NOT NULL
-     );
-     CREATE INDEX IF NOT EXISTS idx_mcp_servers_workspace ON mcp_servers(workspace_id);
-     ```
-
-2. **Shared Types (`packages/shared/src/types/mcp.ts`)**:
-   - Define:
+1. **Shared Types (`packages/shared/src/types/mcp.ts`)**:
+   - Define capability interfaces:
      ```ts
-     export type McpTransport = 'stdio' | 'sse';
-     export type McpServerStatus = 'STOPPED' | 'STARTING' | 'RUNNING' | 'CRASHED' | 'ERROR';
-
-     export interface McpServerConfig {
-       id: string;
-       workspaceId?: string | null;
+     export interface McpToolDefinition {
        name: string;
-       transport: McpTransport;
-       command: string;
-       args: string[];
-       env?: Record<string, string>;
-       isEnabled: boolean;
-       isGlobal: boolean;
-       createdAt: number;
-       updatedAt: number;
+       description?: string;
+       inputSchema?: Record<string, unknown>;
      }
 
-     export interface McpServerRuntimeInfo extends McpServerConfig {
-       status: McpServerStatus;
-       pid?: number | null;
-       uptimeSeconds?: number;
-       recentStderrLogs: string[];
-       lastError?: string | null;
+     export interface McpResourceDefinition {
+       uri: string;
+       name: string;
+       description?: string;
+       mimeType?: string;
+     }
+
+     export interface McpPromptDefinition {
+       name: string;
+       description?: string;
+       arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+     }
+
+     export interface McpServerCapabilities {
+       tools: McpToolDefinition[];
+       resources: McpResourceDefinition[];
+       prompts: McpPromptDefinition[];
+       protocolVersion?: string;
+       serverInfo?: { name: string; version: string };
+       discoveredAt: number;
      }
      ```
-   - Export from `packages/shared/src/index.ts`.
+   - Augment `McpServerRuntimeInfo` with `capabilities?: McpServerCapabilities | null` and status `INITIALIZING`.
 
-3. **`McpProcessSupervisor.ts` (`apps/server/src/services/mcp/McpProcessSupervisor.ts`)**:
-   - Manages lifecycle for registered MCP servers:
-     - `startServer(id: string)`: Spawns the child process via `child_process.spawn` (with `env` isolation and path resolution), captures stdout/stderr, tracks PID.
-     - `stopServer(id: string)`: Sends `SIGTERM` with 3s timeout before `SIGKILL`.
-     - `restartServer(id: string)`: Performs clean stop and start.
-     - `getServerStatus(id: string)`: Returns `McpServerRuntimeInfo` with status, PID, and rolling buffer of last 50 stderr lines.
-     - `listServers(workspaceId?: string)`: Loads server configs from SQLite and augments with live runtime info.
-     - `saveServer(config)` / `deleteServer(id)`: Database CRUD operations.
-     - `shutdownAll()`: Gracefully terminates all active MCP processes on Asterim Core shutdown.
+2. **Stdio JSON-RPC 2.0 Handshake Client (`apps/server/src/services/mcp/McpStdioClient.ts`)**:
+   - Connects to child process stdin/stdout with newline-delimited JSON-RPC framing.
+   - Implements request/response multiplexing with timeout (default: 5000ms):
+     - Sends `initialize` request (`protocolVersion: '2024-11-05'`, `clientInfo: { name: 'asterim-core', version: '0.1.0' }`).
+     - Awaits response, then sends `notifications/initialized`.
+     - Calls `tools/list`, `resources/list`, and `prompts/list` (handling optional capability flags).
+   - Returns structured `McpServerCapabilities`.
+   - Keeps tool session open for dynamic queries or closes gracefully when only probing.
 
-4. **REST API Routes (`apps/server/src/routes/mcp.ts`)**:
-   - `GET /api/v1/mcp/servers` — List MCP servers (filtered by optional `?workspaceId=`) with runtime status.
-   - `POST /api/v1/mcp/servers` — Create a new MCP server configuration.
-   - `GET /api/v1/mcp/servers/:id` — Get server config & runtime metrics.
-   - `PATCH /api/v1/mcp/servers/:id` — Update server config (name, command, args, env, isEnabled).
-   - `DELETE /api/v1/mcp/servers/:id` — Stop process and delete server configuration.
-   - `POST /api/v1/mcp/servers/:id/start` — Start stopped server.
-   - `POST /api/v1/mcp/servers/:id/stop` — Stop running server.
-   - `POST /api/v1/mcp/servers/:id/restart` — Restart server process.
-   - `GET /api/v1/mcp/servers/:id/logs` — Retrieve rolling stderr logs.
-   - Register route in `apps/server/src/index.ts`.
+3. **`McpProcessSupervisor.ts` Upgrades**:
+   - State transition during start: `STARTING` → `INITIALIZING` (handshake in progress) → `RUNNING` (ready with cached capabilities) or `ERROR` (handshake failed/timeout).
+   - EventBus emissions: publish `mcp.server_started`, `mcp.server_stopped`, `mcp.server_crashed`, and `mcp.capabilities_updated` with `McpServerRuntimeInfo`.
+   - Boot Autostart: `autostartEnabledServers()` reads all servers with `is_enabled = 1` from SQLite and starts them in parallel on Asterim Core boot.
+   - Graceful Shutdown Consolidation: Implement single-owner `setupGracefulShutdown(fastifyServer)` that traps `SIGINT`/`SIGTERM`, closes Fastify, shuts down all MCP servers, closes SQLite connections, and removes `server.json`.
 
-5. **Automated Unit Test Suite (`apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts`)**:
-   - Test CRUD operations on `mcp_servers` SQLite table.
-   - Test starting a sample child process (e.g. `node -e "..."` or mock echo stdio server), verifying status changes to `RUNNING` and PID tracking.
-   - Test stderr capture in rolling ring-buffer.
-   - Test stopping and restarting child process.
-   - Test crash detection (process exiting with non-zero exit code marks status `CRASHED`).
-   - Test REST route handlers using `fastify.inject()`.
+4. **REST API Extensions (`apps/server/src/routes/mcp.ts`)**:
+   - `GET /api/v1/mcp/servers/:id/capabilities` — Returns cached tools, resources, and prompts for the server.
+   - `POST /api/v1/mcp/servers/:id/refresh` — Re-runs discovery handshake and updates cached capabilities.
+
+5. **Automated Unit & Integration Test Suite (`apps/server/src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts`)**:
+   - Test JSON-RPC handshake against a real mock stdio MCP server (e.g. small Node script responding to `initialize`, `tools/list`, `resources/list`).
+   - Test capability caching and schema parsing.
+   - Test handshake timeout (slow child transitions to `ERROR`).
+   - Test `autostartEnabledServers()` booting only `isEnabled: true` servers.
+   - Test EventBus emissions on status changes.
+   - Test REST route `GET /capabilities` and `POST /refresh`.
    - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 6. Explicitly Forbidden Changes
 
-* Do **NOT** run external child processes with elevated/root privileges.
-* Do **NOT** allow MCP processes to inherit Asterim Core's internal server tokens (`server.json` or `STRIPE_*` keys).
-* Do **NOT** break any of the existing 24 test suites or monorepo build gates.
+* Do **NOT** block Asterim startup if an external MCP server fails to start (log warning, mark `ERROR`, continue boot).
+* Do **NOT** leak stdin/stdout tool payload data into persistent log tables.
+* Do **NOT** break any existing tests or typechecks.
 
 ---
 
 ## 7. Acceptance Criteria
 
-1. SQLite table `mcp_servers` is created idempotently during database initialization.
-2. `McpProcessSupervisor` reliably spawns, tracks, stops, and restarts child processes with PID and stderr logging.
-3. Crashing child processes are detected and transition status cleanly to `CRASHED`.
-4. All `/api/v1/mcp/servers` REST endpoints return accurate status and handle invalid inputs with structured error responses.
-5. `McpProcessSupervisor.test.ts` passes with comprehensive assertions.
-6. All monorepo CI gates pass cleanly: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (25 test suites), `pnpm run build`.
+1. `McpStdioClient` conducts JSON-RPC 2.0 `initialize` handshake and retrieves `tools/list`, `resources/list`, `prompts/list`.
+2. `McpProcessSupervisor` caches discovered capabilities and transitions status to `RUNNING` only after successful handshake.
+3. Handshake failures or timeouts cleanly mark the server as `ERROR` with the error reason recorded.
+4. `autostartEnabledServers()` starts enabled servers on Core boot without blocking server startup on failed children.
+5. `mcp.*` events are emitted onto `EventBus` on all state transitions.
+6. Unified graceful shutdown terminates all MCP child processes cleanly on `SIGINT`/`SIGTERM`.
+7. `McpCapabilityDiscovery.test.ts` passes with comprehensive assertions.
+8. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
 
 ---
 
 ## 8. Definition of Done
 
-- [ ] `mcp_servers` table added to SQLite schema
-- [ ] Shared MCP types added to `@asterim/shared`
-- [ ] `McpProcessSupervisor.ts` implemented
-- [ ] `/api/v1/mcp/servers` routes registered and functional
-- [ ] `McpProcessSupervisor.test.ts` created and passing
-- [ ] `pnpm run test` passes across all packages
-- [ ] Clean Git diff
+- [ ] Shared capability types defined in `@asterim/shared`
+- [ ] `McpStdioClient.ts` implemented and tested
+- [ ] Handshake discovery integrated into `McpProcessSupervisor`
+- [ ] `autostartEnabledServers()` implemented
+- [ ] EventBus notifications active
+- [ ] `GET /capabilities` REST route functional
+- [ ] Unified graceful shutdown sequence in `index.ts`
+- [ ] New test suite passing
+- [ ] Monorepo CI gates pass cleanly
 
 ---
 
 ## 9. Verification Commands
 
 ```bash
-# Run new MCP Process Supervisor unit test suite
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts
+# Run new MCP Capability Discovery unit test suite
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts
 
-# Run all server test suites
-pnpm --filter asterim exec tsx src/routes/__tests__/internal.test.ts
+# Run all MCP test suites
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
@@ -179,8 +170,8 @@ pnpm run build
 
 ## 10. Self-Review Requirements
 
-- Inspect `git diff` to ensure environment variables passed to child MCP processes are sanitized (never leaking Asterim server private keys).
-- Verify `shutdownAll()` is registered on Fastify server shutdown hook.
+- Verify JSON-RPC message framing handles fragmented buffers over stdio streams.
+- Ensure `EventBus` events adhere to the established `@asterim/shared` event format.
 
 ---
 
