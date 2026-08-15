@@ -1,27 +1,26 @@
-# [TEST-P6-03] — MCP Tool Invocation Engine & Web Registry UI Gate
+# [TEST-P6-04] — Agent Tool Bridge, Schema Validation & Per-Server Queueing Gate
 
-**Gate ID:** TEST-P6-03  
+**Gate ID:** TEST-P6-04  
 **Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Assigned Agent:** Claude Code (QA / Test Runner Agent)  
 **Orchestrator:** Antigravity (CTO / Lead Architect)  
 **Status:** ASSIGNED  
-**Date:** 2026-08-15  
+**Date:** 2026-08-16  
 
 ---
 
 ## 1. Objective
 
-Execute independent quality assurance verification on the newly implemented MCP Tool Invocation Engine, dynamic capability invalidation (`list_changed`), and the React Web Registry UI (`apps/web`), and run full regression testing across all 28 test suites in the monorepo (2,153+ assertions).
+Execute independent quality assurance verification on the newly implemented Agent Tool Bridge (`McpAgentBridge.ts`), input schema validation engine (`SchemaValidator.ts`), per-server invocation queueing (`SerialQueue`), and unified auth headers (`apps/web/src/utils/auth.ts`), and run full regression testing across all 29 test suites in the monorepo (2,220+ assertions).
 
 ---
 
 ## 2. Testing Mandates & Protocols
 
 * **QA Role Only**: Do **not** modify product code, add features, or alter test expectations.
-* **Full Monorepo Regression**: Verify that all 28 test suites across Server, Web, Relay, MCP Server, and Adapters execute cleanly without regressions.
-* **Tool Invocation Verification**: Verify that `tools/call` over active stdio sessions correctly executes tools, returns structured content/error status, and survives timeouts without pipe corruption.
-* **Dynamic Invalidation Verification**: Confirm that `notifications/tools/list_changed` automatically triggers capability re-discovery and emits `mcp.capabilities_updated` on the EventBus.
-* **Web Component & Store Verification**: Confirm `useMcpStore.ts` and `McpServerExplorer.tsx` render accurately and react to Socket.IO events.
+* **Full Monorepo Regression**: Verify that all 29 test suites across Server, Web, Relay, MCP Server, and Adapters execute cleanly without regressions.
+* **Schema Validation & Queue Safety**: Verify that `SchemaValidator` properly rejects malformed arguments with detailed field paths, and `SerialQueue` strictly serializes concurrent tool calls to a single stdio child process without stream collisions or slot leaks.
+* **Unified Auth Verification**: Confirm that `getAuthHeaders` correctly resolves both local `asterim_token` and remote `asterim_token_<url>`.
 
 ---
 
@@ -34,21 +33,18 @@ pnpm run lint
 ```
 * **Expectation**: 0 TypeScript compiler errors (11 Turbo tasks) and 0 ESLint errors (7 workspace packages).
 
-### Step 2: Run MCP Tool Invocation & Web Explorer Test Suites
+### Step 2: Run MCP Agent Bridge & Schema Validation Test Suite
 ```bash
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpToolInvocation.test.ts
-pnpm --filter @asterim/web exec tsx src/components/mcp/__tests__/McpServerExplorer.test.ts
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/McpAgentBridge.test.ts
 ```
-* **Expectation**:
-  - `McpToolInvocation.test.ts`: 43 / 43 assertions passing.
-  - `McpServerExplorer.test.ts`: 104 / 104 assertions passing.
+* **Expectation**: 67 / 67 assertions passing across schema validation, queue serialization, namespacing, and error formatting.
 
 ### Step 3: Run Full Monorepo Test Battery
 ```bash
 pnpm run test
 ```
-* **Expectation**: All 28 test suites pass with 0 failures across 2,153+ assertions:
-  - `asterim` (Server): 14 suites (1,172 assertions)
+* **Expectation**: All 29 test suites pass with 0 failures across 2,220+ assertions:
+  - `asterim` (Server): 15 suites (1,239 assertions)
   - `@asterim/mcp-memory-server`: 7 suites (348 assertions)
   - `@asterim/web`: 5 suites (539 assertions)
   - `@asterim/relay`: 1 suite (71 assertions)
