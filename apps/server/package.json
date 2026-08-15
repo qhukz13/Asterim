@@ -6,6 +6,9 @@
     "asterim": "./dist/index.js"
   },
   "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup && node -e \"require('fs').cpSync('../../apps/web/dist', './dist/web', {recursive: true})\"",
     "typecheck": "tsc --noEmit",

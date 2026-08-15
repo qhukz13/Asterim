@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+#
+# Asterim Cloud Relay — a blind WebSocket forwarder. Everything it routes is
+# E2E encrypted between the workstation and the mobile client (DEC-028), so this
+# image holds no project data and needs no volume. Build from the repository
+# root:
+#
+#   docker build -f Dockerfile.relay -t asterim-relay .
+#
+# See docs/operations-runbook.md for RELAY_SECRET generation and rotation.
+
+##############################################################################
+# Stage 1 — builder
+##############################################################################
+FROM node:22-alpine AS builder
+
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+
+WORKDIR /repo
+
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+COPY apps/relay/package.json apps/relay/
+COPY apps/marketing/package.json apps/marketing/
+COPY packages/shared/package.json packages/shared/
+COPY packages/adapters/package.json packages/adapters/
+COPY packages/config-eslint/package.json packages/config-eslint/
+COPY packages/mcp-memory-server/package.json packages/mcp-memory-server/
+# --ignore-scripts keeps the workspace's native postinstalls out of this image:
+# apps/server's node-pty would otherwise demand a C toolchain the relay has no
+# use for. Nothing the relay itself depends on has a build step.
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter=@asterim/relay...
+
+COPY . .
+
+# The relay's build is a plain `tsc` with no cross-package dependency, so it
+# needs no turbo orchestration.
+RUN pnpm --filter=@asterim/relay build
+RUN pnpm --filter=@asterim/relay --prod deploy /app
+
+# The relay's tsconfig compiles src/**, which includes its test suite. The
+# suite is kept under typecheck there and has no place in a deployed image.
+RUN rm -rf /app/dist/__tests__
+
+##############################################################################
+# Stage 2 — runner
+##############################################################################
+FROM node:22-alpine AS runner
+
+ENV NODE_ENV=production
+ENV PORT=4000
+
+WORKDIR /app
+COPY --from=builder --chown=node:node /app ./
+
+# No volume: routing tables are in memory by design and must not be persisted.
+USER node
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "dist/index.js"]

@@ -4,7 +4,13 @@
     "outDir": "dist",
     "rootDir": "src",
     "composite": true,
-    "types": ["node"]
+    "types": ["node"],
+    // The relay is run directly as `node dist/index.js`, with no bundler in
+    // front of it. The workspace default (esnext + bundler resolution) emits
+    // extensionless ESM imports, which Node cannot resolve at runtime; CommonJS
+    // is what this output has to be.
+    "module": "commonjs",
+    "moduleResolution": "node"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

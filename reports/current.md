@@ -1,6 +1,6 @@
-# Execution Report: P5.6-04 — Stripe Checkout, Customer Portal & Cryptographic Webhook Security
+# Execution Report: P5.6-05 — Multi-Stage Production Containerization, Dockerfiles & Release Pipeline
 
-**Task ID:** P5.6-04  
+**Task ID:** P5.6-05  
 **Phase:** Phase 5.6 — SaaS Foundation & Commercial Beta Release  
 **Status:** IMPLEMENTED & VERIFIED  
 **Date:** 2026-08-15  
@@ -10,121 +10,146 @@
 
 ## 1. Summary
 
-`BillingService` creates Stripe Checkout and Customer Portal sessions and reports a subscription
-overview; three authenticated `/api/v1/billing` routes expose it. The Stripe webhook is now
-cryptographically verified — HMAC-SHA256 over the **raw** request bytes, compared in constant time,
-with a five-minute freshness window that stops a captured delivery from being replayed — and drives
-the full subscription lifecycle into SQLite: `created`/`updated` set the plan and sync
-`feature_entitlements`, `deleted` returns the account to Community, `invoice.payment_failed` flags
-billing without taking anything away.
+Both images exist, were **actually built and run** (podman is available on this
+machine), and behave correctly: `asterim-server` at **333 MB** and
+`asterim-relay` at **182 MB**, multi-stage, no toolchain or source in the final
+layer, both running as `node` (uid 1000).
 
-Two things had to be fixed for any of it to work in production. The webhook endpoint was behind
-`authMiddleware`, which would have 401'd every Stripe delivery when `NODE_ENV=production`; it is now
-exempt, because it authenticates itself. And Fastify's JSON parser destroys the bytes Stripe signed,
-so the webhook plugin captures the raw body before parsing — asserted by a test that replays a valid
-signature against a body edited in flight and expects a 400.
+Building them for real rather than authoring them on faith found three things
+that would have shipped broken:
 
-Stripe is reached through a small injectable gateway rather than the vendor SDK, so no dependency was
-added and no test opens a socket. A new **102-assertion** suite is wired into `pnpm run test`, now
-**24 suites / 1,802 assertions**. All four CI gates pass.
+1. **The relay's compiled output could not run at all.** `apps/relay` builds with
+   plain `tsc` under the workspace default (`module: esnext`), which emits
+   extensionless ESM imports Node cannot resolve. It went unnoticed because the
+   relay was a single file until P5.6-03 split it; `node dist/index.js` failed
+   with `ERR_MODULE_NOT_FOUND`. No gate covers running the built artifact.
+2. **`.dockerignore` patterns are not recursive.** `*.tsbuildinfo` matched only
+   the repository root, so the host's incremental build state entered the
+   context and `tsc` skipped emitting entirely — an empty `dist` in a
+   "successful" build.
+3. **`puppeteer` was a production dependency of the workspace root**, so
+   `pnpm deploy --prod` pulled it and its browser into the server image.
+
+`docs/operations-runbook.md` documents every environment variable the code
+actually reads — enumerated from the source, not from memory — plus deployment
+recipes and three rotation playbooks. `.github/workflows/release.yml` gates a
+`v*` tag behind typecheck, lint, test and build, then builds, smoke-tests and
+archives both images and opens a draft release.
+
+All four CI gates pass: **24 suites / 1,802 assertions**, 0 errors.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/BillingService.ts` | Created | Checkout, portal, subscription overview, customer lookup, payment-failure flag; `HttpStripeGateway`; `BillingError` |
-| `apps/server/src/routes/billing.ts` | Created | `POST /checkout`, `POST /portal`, `GET /subscription` with error→status mapping |
-| `apps/server/src/routes/webhooks.ts` | Modified | `verifyStripeSignature()`, `resolvePlanId()`, raw-body capture, signature enforcement, `invoice.payment_failed` |
-| `apps/server/src/middleware/authMiddleware.ts` | Modified | Exempt `/api/v1/webhooks/` — it carries its own proof |
-| `apps/server/src/index.ts` | Modified | Register `billingRoutes` |
-| `apps/server/src/services/__tests__/BillingService.test.ts` | Created | 102 assertions across signature, checkout, portal, overview, webhook lifecycle, REST surface, free tier |
-| `apps/server/package.json` | Modified | Suite wired into `test` |
+| `Dockerfile.server` | Created | Multi-stage Core image: builds via turbo, deploys production-only, prunes native build artefacts, runs as `node` with a healthcheck |
+| `Dockerfile.relay` | Created | Multi-stage relay image: no native deps, no volume, healthcheck |
+| `.dockerignore` | Created | Keeps host build output, databases, PINs, secrets and workflow files out of the context |
+| `docs/operations-runbook.md` | Created | Configuration, deployment recipes, secret generation and rotation playbooks (287 lines) |
+| `.github/workflows/release.yml` | Created | Tag-triggered verify → images (+ smoke test) → draft release |
+| `apps/relay/tsconfig.json` | Modified | `module: commonjs`, `moduleResolution: node` — the emitted output has to be runnable by `node dist/index.js` |
+| `apps/relay/package.json` | Modified | `main`, `files: ["dist"]` |
+| `apps/server/package.json` | Modified | `files: ["dist"]` |
+| `apps/server/src/index.ts` | Modified | Honour `HOST` (see §6) |
+| `package.json` (root) | Modified | `puppeteer` moved to `devDependencies` |
+| `pnpm-lock.yaml` | Modified | Follows the puppeteer move |
 
 ## 3. Implementation Details
 
-### 3.1 Webhook signature verification
+### 3.1 `Dockerfile.server`
+
+**Builder** (`node:22-alpine`) installs `python3 make g++` for `node-pty`'s
+native build, enables pnpm through corepack, copies manifests and the lockfile
+*before* the sources so a code change reuses the dependency layer, then:
 
 ```
-expected = HMAC-SHA256(`${t}.${rawBody}`, STRIPE_WEBHOOK_SECRET)   // hex
-header   = t=<unix seconds>,v1=<hex>[,v1=<hex>…]
+pnpm install --frozen-lockfile
+pnpm exec turbo run build --filter=asterim     # asterim#build → @asterim/web#build
+pnpm --filter=asterim --prod deploy /app       # production tree, no dev deps
 ```
 
-`verifyStripeSignature(rawBody, header, secret, toleranceSeconds = 300)` returns
-`{ valid, reason? }` rather than a boolean, so the route can log *why* without telling the caller.
+turbo is what makes one command enough: `asterim#build` depends on
+`@asterim/web#build`, and the server's own build script copies `apps/web/dist`
+into `dist/web`, which the packaged binary serves. The marketing site and the
+relay are not built — they are not part of this image.
 
-- **Freshness first.** A signature never expires on its own; without the window a captured delivery
-  could be replayed later to re-apply an old subscription state. Checked before any HMAC work.
-- **Constant time.** `crypto.timingSafeEqual`, with a length comparison in front of it — it throws on
-  unequal lengths, which would turn a one-character signature into a crash instead of a rejection.
-  Asserted.
-- **Rotation.** Stripe sends several `v1` values while an endpoint secret is being rotated; any match
-  counts. Asserted.
-- Direction: only *old* timestamps are refused, matching Stripe's own library. A future timestamp is
-  clock skew, and forging one still requires the secret because the timestamp is inside the signature.
+Then two prunes, both measured: node-gyp's intermediate objects, and node-pty's
+prebuilt addons for macOS and Windows. node-pty ships **no** Linux prebuild — on
+Linux it loads the addon compiled in the builder — so those 58 MB can never be
+opened. That single step took the image from 455 MB to **333 MB**, and a real
+PTY spawn inside the pruned image proves nothing load-bearing was removed (§4.2).
 
-**The raw body.** Fastify parses JSON into an object; `JSON.stringify` of that object is not the
-bytes Stripe signed (key order, whitespace, number formatting). The webhook plugin therefore
-registers its own `application/json` parser with `parseAs: 'string'`, stashes the exact string on
-`request.rawBody`, and then parses. Content-type parsers are encapsulated per plugin, so no other
-route is affected — verified against the running server, where a JSON body on
-`/api/v1/billing/checkout` still parses normally.
+**Runner** copies only `/app`, sets `NODE_ENV=production` and
+`ASTERIM_DATA_DIR=/home/node/.asterim`, declares that path as a volume, chowns
+it to `node`, drops to `USER node`, exposes 3000, and declares a `HEALTHCHECK`
+that probes `/health` with Node's built-in `fetch` — no `curl` or `wget` needed
+in the image.
 
-**Reachability.** `authMiddleware`'s `preHandler` guards everything under `/api/v1/` and had no
-webhook exemption, so with `NODE_ENV=production` every Stripe delivery would have been rejected with
-401 before the handler ran. `/api/v1/webhooks/` is now exempt with a comment explaining that its
-credential is the signature.
+### 3.2 `Dockerfile.relay`
 
-### 3.2 Event handling
+Same shape without the native build. Two details worth naming:
 
-| Event | Effect |
-| :--- | :--- |
-| `customer.subscription.created` / `.updated` | `planService.updateAccountPlan(accountId, planId, customerId)` — sets the plan, records the Stripe customer, upserts every entitlement of the tier |
-| `customer.subscription.deleted` | `updateAccountPlan(accountId, 'free')` — paid entitlements withdrawn, Community entitlements retained |
-| `invoice.payment_failed` | `billing_status = 'payment_failed'`, `subscription_status = 'past_due'`; **plan and entitlements untouched** |
-| anything else | acknowledged with `{ received: true }`, no change |
+- `pnpm install --frozen-lockfile --ignore-scripts`: a workspace install
+  otherwise runs `apps/server`'s node-pty postinstall, which fails without a C
+  toolchain the relay has no reason to carry. Nothing the relay depends on has a
+  build step.
+- `rm -rf /app/dist/__tests__`: the relay's `tsconfig` compiles `src/**`, which
+  includes its test suite. Excluding tests from the tsconfig instead would have
+  dropped them out of `typecheck` too, so they are removed from the image rather
+  than from the build.
 
-**Account resolution** tries `metadata.accountId`, then `client_reference_id`, then a lookup by
-`stripe_customer_id`. That last step is what makes `invoice.payment_failed` work at all — invoices do
-not carry our subscription metadata. All three paths are asserted.
+No volume is declared: the relay's routing tables are in memory by design and
+must not be persisted.
 
-**Plan resolution** (`resolvePlanId`) accepts a known plan and otherwise falls back to `pro` with a
-warning. The metadata is written by our own checkout, so anything else is our bug or an old session;
-`pro` is the cheapest paid tier, so guessing low is the only safe direction to guess.
+### 3.3 `.dockerignore`
 
-A failed payment deliberately does not revoke access: a declined card must not take a developer's
-workstation away mid-task. Stripe retries, and the next `customer.subscription.*` event settles it.
-Asserted (`teams` stays enabled through `payment_failed`).
+Excludes dependencies and build output (`node_modules`, `dist`, `.turbo`,
+`**/*.tsbuildinfo`), local data that must never enter an image (`**/*.db`,
+`pairing_pin.txt`, `**/.env*`), VCS and CI metadata, the agent workflow
+directories (`tasks/`, `reports/`, `docs/`, `blueprint/`, `.agents/`) and the
+leftover debug scripts `CLAUDE.md` warns about.
 
-### 3.3 `BillingService`
+Every pattern that needs to match at depth is spelled `**/…`. Docker's ignore
+patterns are not implicitly recursive, which is what caused §7.2.
 
-`createCheckoutSession` validates the plan against `PURCHASABLE_PLANS` (`pro`, `team` — `free` is
-granted and `enterprise` is sold by hand), loads the account, resolves the Stripe price id from
-`STRIPE_PRICE_PRO`/`STRIPE_PRICE_TEAM`, and reuses an existing `stripe_customer_id` when there is
-one. The account id is sent in `client_reference_id` **and** `subscription_data[metadata]`, which is
-how the webhook later finds its way home. `createPortalSession` requires a customer;
-`getSubscriptionOverview` returns plan, price, subscription and billing status, customer id,
-`billingConfigured`, the purchasable plans and the live entitlement rows.
+### 3.4 The runbook
 
-Failures are a typed `BillingError` with one of five codes, mapped in the route layer:
+`docs/operations-runbook.md` covers, for both processes: every variable with its
+default and effect, the endpoints and what authenticates them, image sizes and
+contents, `docker run` recipes (including a Sovereign Mode one), healthcheck
+configuration for orchestrators that ignore the image directive, reverse-proxy
+caveats, secret generation, and rotation playbooks for `RELAY_SECRET`,
+`STRIPE_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY` and the pairing PIN.
 
-| Code | HTTP | When |
-| :--- | :---: | :--- |
-| `INVALID_PLAN` | 400 | plan is not purchasable, or a required URL is missing |
-| `ACCOUNT_NOT_FOUND` | 404 | no such account |
-| `NO_CUSTOMER_RECORD` | 409 | portal requested before any checkout |
-| `STRIPE_NOT_CONFIGURED` | 503 | no `STRIPE_SECRET_KEY` or no price for the plan |
-| `STRIPE_REQUEST_FAILED` | 502 | Stripe rejected the call |
+The variable list was enumerated from the source rather than from the task text,
+which turned up two corrections:
 
-`STRIPE_NOT_CONFIGURED` answers 503 rather than 500 because it is a deployment state, not a bug, and
-its message says so explicitly — including that the Community edition is unaffected.
+- **`HOST` did not exist.** The Core hardcoded `host: '::'`. Since the runbook
+  scope names `HOST` as an operator-facing variable, and documenting a variable
+  that does nothing is exactly the failure `.env.example` already demonstrates,
+  it is now read (§6).
+- **`VAPID_*` are not environment variables.** `CLAUDE.md` says they are; the
+  keys are in fact generated on first run and stored in the `settings` table.
+  The runbook says so.
 
-**No SDK.** `StripeGateway` is a two-method interface; `HttpStripeGateway` implements it with
-form-encoded `fetch` calls to `api.stripe.com`. The task specifies hand-rolled HMAC verification
-rather than `stripe.webhooks.constructEvent`, the surface we need is two POSTs, and an injectable
-gateway is what lets the tests assert *what would have been sent* without a network call (§6).
+Rotation is documented honestly. `STRIPE_WEBHOOK_SECRET` genuinely rotates with
+zero downtime, because Stripe signs with both secrets during a roll and the
+verifier accepts any matching `v1` (asserted in P5.6-04). `RELAY_SECRET` does
+**not**: the relay verifies against exactly one secret, so the playbook is a
+blue/green pair of relays, with the single-instance restart written out as the
+accept-a-few-seconds alternative and the missing multi-secret support flagged as
+a gap.
 
-The account for every route comes from `request.user.acc`, never from the request body — a caller
-must not be able to start a checkout against someone else's account.
+### 3.5 `release.yml`
+
+Three jobs. `verify` runs the same four gates as CI on Node 22. `images` builds
+both Dockerfiles with buildx and GHA layer caching, then **smoke-tests them**:
+starts both containers, waits for `/health` on each, asserts `id -u` is 1000 in
+both (the non-root requirement, enforced rather than assumed) and that the relay
+reports `authMode: hmac_enabled`. It then saves gzipped image archives as
+artifacts. `release` downloads those and opens a **draft** GitHub Release with
+generated notes — a human decides when it goes public. Images are built, not
+pushed, because no registry has been chosen; the runbook says so.
 
 ## 4. Verification
 
@@ -137,162 +162,177 @@ pnpm run test       → 9 successful, 9 total   (24 suites, 1,802 assertions), e
 pnpm run build      → 7 successful, 7 total
 ```
 
-### 4.2 The new suite — 102/102
+### 4.2 The images, built and run
 
-`pnpm --filter asterim exec tsx src/services/__tests__/BillingService.test.ts`
+Built with `podman build` (Docker-compatible) and exercised as containers:
 
-| Group | Covers |
-| :--- | :--- |
-| `verifyStripeSignature` (14) | genuine signature; `Buffer` body; forged signature; another secret; body altered after signing; truncated signature (no throw); empty header; no `t`; no `v1`; non-numeric `t`; replayed delivery refused with a reason; delivery inside the window; multiple `v1` during rotation |
-| `resolvePlanId` (4) | known plan, missing, unknown, `free` |
-| `createCheckoutSession` (16) | unconfigured → `STRIPE_NOT_CONFIGURED` mentioning the Community edition; `free`/`enterprise`/`platinum` → `INVALID_PLAN`; unknown account; session id and URL returned; correct price per plan; account and plan carried in metadata; first-time buyer has no customer; returning buyer reuses theirs; missing price id names the env var to set |
-| `createPortalSession` (7) | no customer → `NO_CUSTOMER_RECORD`; portal URL for a paying account; correct customer and return URL; unconfigured rejects |
-| `getSubscriptionOverview` (11) | free account shape; `billingConfigured: false`; purchasable plans listed; after upgrade the plan, price, customer and ≥9 entitlements including the paid ones; unknown account rejects |
-| Webhook signature enforcement (7) | unsigned → 400 and no change; forged → 400 and no change; **valid signature against a body edited in flight → 400 and no upgrade** |
-| Subscription lifecycle (22) | `created` → pro, customer recorded, `premium_extensions` on with no cap, `teams` still off; `updated` → team, `teams` on; `payment_failed` → found by customer alone, `billing_status`/`subscription_status` set, plan and entitlements retained; `deleted` → free, paid entitlements off, `remote_relay` still on, billing back to `ok`; `client_reference_id`-only account resolves; unhandled event acknowledged; non-JSON body → 400 |
-| Development mode (2) | with no `STRIPE_WEBHOOK_SECRET`, an unsigned delivery is processed |
-| The REST surface (11) | 401 unauthenticated; overview 200 with plan and entitlements; missing plan 400; unknown plan 400 + `INVALID_PLAN`; unconfigured 503 + `STRIPE_NOT_CONFIGURED`; portal without a customer 409 + `NO_CUSTOMER_RECORD` |
-| Community edition (4) | `remote_relay`, `mcp_marketplace` and `cloud_sync` remain accessible on the free plan with no card; paid features are simply off |
+| Check | `asterim-server` | `asterim-relay` |
+| :--- | :--- | :--- |
+| Image size | **333 MB** | **182 MB** (base `node:22-alpine` is 167 MB) |
+| `/app` contents | `dist`, `node_modules`, `package.json` | `dist`, `node_modules`, `package.json` |
+| Runs as | `uid=1000(node)` | `uid=1000(node)` |
+| `GET /health` | `{"status":"ok","service":"asterim-server",…}` | `{"status":"ok","service":"asterim-relay","version":"0.1.0","authMode":"hmac_enabled",…}` |
+| `GET /metrics` | — | counters returned |
+| Dashboard | `GET /` → **200** (the web build reached `dist/web`) | — |
+| Data volume | `/home/node/.asterim` → `drwx------`, `asterim.db` and both WAL sidecars `-rw-------` | none, by design |
+| Sovereign Mode | `ASTERIM_SOVEREIGN_MODE=true` → log reads `[RelayClient] Sovereign Mode active: Cloud Relay connection disabled.` | — |
+| Production auth | `GET /api/v1/system` → 401 without a token (`NODE_ENV=production` disables the dev fallback user) | — |
+| Native addon | `pty.spawn('/bin/sh', …)` inside the pruned image returned `pty-works` | n/a |
 
-The webhook cases run against the real Fastify route and a real SQLite database in a temp directory,
-so `accounts` and `feature_entitlements` are asserted as rows, not as return values.
+The permission row is worth calling out: the `0700`/`0600` enforcement written
+in P5.5-01 is confirmed here inside a container, on a fresh volume.
 
-### 4.3 Against the running server
+### 4.3 Workflow validation
 
-The live dev server picked the changes up and was exercised directly (nothing that mutates the real
-database was sent):
-
-```
-GET  /api/v1/billing/subscription
-  → {"accountId":"acc_dev","planId":"free","planName":"Community Edition","priceMonthly":0,
-     "subscriptionStatus":"active","billingStatus":"ok","stripeCustomerId":null,
-     "billingConfigured":false,"purchasablePlans":["pro","team"],"entitlements":[]}
-POST /api/v1/billing/checkout {"planId":"pro",…}   → 503   (no Stripe keys on this machine)
-POST /api/v1/webhooks/stripe  {}                    → 400   {"error":"Invalid webhook payload"}
-POST /api/v1/webhooks/stripe  "not json"            → 400
-```
-
-The 503 and the parsed-JSON 400 together confirm the scoped content-type parser did not leak: the
-billing route still receives a normally parsed body.
+`release.yml` and `ci.yml` both parse as YAML; `release.yml` resolves to three
+jobs with the intended `needs` graph (`verify` → `images` → `release`). GitHub
+Actions cannot be executed locally, so the workflow is verified structurally
+only — every command inside it (`pnpm run …`, `docker build -f …`) is one that
+was run by hand here.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `verifyStripeSignature()` validates genuine signatures and rejects forged or replayed ones
-      in constant time** — `crypto.timingSafeEqual` behind a length check; 14 assertions including
-      forgery, another secret, tampering, truncation, and a 10-minute-old replay.
-- [x] **2. The webhook updates `accounts` and `feature_entitlements` across the lifecycle** — 22
-      assertions on real rows for `created`, `updated`, `deleted` and `payment_failed`.
-- [x] **3. `/checkout` and `/portal` return valid URLs or descriptive configuration errors** — URLs
-      via the recording gateway; 503 `STRIPE_NOT_CONFIGURED` (message names the missing variable and
-      states the Community edition is unaffected), 409 `NO_CUSTOMER_RECORD`, 400 `INVALID_PLAN`.
-      Confirmed live (§4.3).
-- [x] **4. `GET /billing/subscription` returns accurate plan and entitlement state** — asserted on a
-      free account and after an upgrade; confirmed live.
-- [x] **5. `BillingService.test.ts` passes** — 102/102.
-- [x] **6. CI gates pass with 0 errors, 24 test suites** — typecheck 11/11, lint 7/7 (0 errors),
-      test **24 suites / 1,802 assertions**, build 7/7.
+- [x] **1. Both Dockerfiles build minimal, production-ready images with
+      multi-stage builds and run as non-root** — built and run (§4.2); two
+      stages each, no compiler/pnpm/source in the runner, `USER node` verified
+      as `uid=1000` inside both containers.
+- [x] **2. The runbook documents all environment variables, secret rotation and
+      deployment recipes** — 287 lines; the variable list was enumerated from
+      the source and corrected two inaccuracies (§3.4); three rotation
+      playbooks, with `RELAY_SECRET`'s limitation stated rather than glossed.
+- [x] **3. `release.yml` triggers on version tags and enforces all gates before
+      packaging** — `on: push: tags: ['v*']`; `images` and `release` both
+      `needs: verify`, which runs typecheck → lint → test → build.
+- [x] **4. All 24 suites pass (1,802+ assertions, 0 failures)** — 24 suites,
+      1,802/1,802, exit 0.
+- [x] **5. CI gates pass with 0 errors** — typecheck 11/11, lint 7/7 (0 errors),
+      test 24/24, build 7/7.
 
 Definition of Done:
 
-- [x] `BillingService.ts` implemented
-- [x] `/api/v1/billing` routes registered and functional
-- [x] Stripe webhook signature verification active
-- [x] `BillingService.test.ts` passing
-- [x] `pnpm run test` passes across all packages
-- [x] Monorepo CI gates pass: typecheck, lint, test, build
+- [x] `Dockerfile.server` created and valid *(built, run, probed)*
+- [x] `Dockerfile.relay` created and valid *(built, run, probed)*
+- [x] `.dockerignore` created
+- [x] `docs/operations-runbook.md` authored
+- [x] `.github/workflows/release.yml` created
+- [x] All 24 test suites pass (1,802 assertions)
+- [x] Monorepo CI gates pass cleanly
 
 ## 6. Git Diff Review
 
-Four modified files (one of them a `package.json` script) and three new files, all inside
-`apps/server`. Reviewed against §6:
+Five new files and six modified. Reviewed against §6:
 
-- **The Community edition is not gated.** Nothing was added that requires payment to use Asterim: no
-  entitlement check was inserted into any existing path, and `PlanService`'s free-tier definition is
-  untouched. Four assertions confirm `remote_relay`, `mcp_marketplace` and `cloud_sync` still resolve
-  on the free plan with no card and no Stripe configuration. A failed payment explicitly does not
-  revoke entitlements.
-- **No test makes a network call.** Stripe is behind `StripeGateway`; the suite injects a recording
-  implementation. `HttpStripeGateway` — the only code that would call out — is never constructed in
-  the tests.
-- **No card data and no secret is stored or logged.** The only Stripe identifiers written to SQLite
-  are `stripe_customer_id` (an opaque `cus_…` handle, already in the schema). `STRIPE_SECRET_KEY`
-  lives in an in-memory field, is sent only in an `Authorization` header, and appears in no log line;
-  the webhook secret is only ever an HMAC key. Error text from Stripe is surfaced, which carries no
-  credential.
+- **Nothing runs as root.** Both runners end with `USER node`; `id` inside each
+  running container returns `uid=1000(node)`. The release workflow asserts the
+  same thing on every tagged build, so a regression fails CI rather than
+  shipping.
+- **No secret is baked into an image.** Neither Dockerfile has an `ARG` or `ENV`
+  carrying a credential; every secret is supplied at `docker run`. `.dockerignore`
+  excludes `**/.env*`, `pairing_pin.txt` and `**/*.db` so a developer's local
+  state cannot enter a layer. Verified: the built server image's `/app` holds
+  only `dist`, `node_modules` and `package.json`.
+- **No test or build command broke.** All four gates pass, at the same 24
+  suites / 1,802 assertions as the previous task.
 
-Behaviour deliberately changed:
+Changes to existing files, each with a reason:
 
-1. `/api/v1/webhooks/` is exempt from `authMiddleware` (§3.1). Without it the feature cannot work in
-   production. The endpoint is not unauthenticated — it authenticates cryptographically instead.
-2. The webhook plugin installs its own `application/json` parser to retain the raw body. Scoped to
-   that plugin; verified not to affect other routes (§4.3).
-3. `invoice.payment_failed` is newly handled.
+1. **`apps/relay/tsconfig.json` → `module: commonjs`, `moduleResolution: node`.**
+   Not cosmetic: without it the relay's built output does not run (§7.1). The
+   suite still passes 71/71 and `tsc --noEmit` is unaffected.
+2. **`files: ["dist"]` on both apps.** `pnpm deploy` copies a package's publish
+   file set; without this the image carried `src/`, `tsconfig.json`,
+   `tsup.config.ts`, `eslint.config.js` and two leftover debug scripts.
+3. **`puppeteer` moved to root `devDependencies`.** It is a visual-QA tool
+   (`CLAUDE.md` § Visual QA); as a production dependency it was deployed into
+   the server image. Still resolvable for the QA scripts — verified by requiring
+   it after the move.
+4. **`HOST` is now read** (`process.env.HOST || '::'`), a one-line change. The
+   runbook scope names `HOST` as operator-facing; the alternative was to
+   document that it does not work. Flagged here because it is product behaviour
+   touched by a task whose implementation scope is Dockerfiles, docs and CI.
 
-**One deviation from the task text, deliberate.** §5.3 says to set `billing_status = 'past_due'`.
-`past_due` is not a member of `BillingStatus` in `@asterim/shared` (`'ok' | 'payment_failed' |
-'grace_period'`), and `SubscriptionOverview.billingStatus` is typed with that union — writing it
-would put a value in the database that the domain type says cannot exist. Per AGENTS.md §7 the shared
-types are the source of truth for domain models, so the row records `billing_status =
-'payment_failed'` **and** `subscription_status = 'past_due'` — the latter *is* a declared
-`SubscriptionStatus`. The account therefore reads as past due in the column whose vocabulary has that
-word, with no type violation. Both columns are asserted. If the orchestrator wants the literal value,
-the fix is a one-word change plus widening `BillingStatus` in `@asterim/shared`.
-
-`webhooks.ts` was Prettier-clean at `HEAD` and was reformatted after editing; the three new files are
-Prettier-clean. `index.ts` and `authMiddleware.ts` were already non-compliant, so they were left
-alone rather than reflowed. `apps/server` reports **0 lint errors and 241 warnings** — one fewer than
-the 242 baseline, since the new code adds none and replaced a pre-existing `any` in `webhooks.ts`.
+The new Dockerfiles and `.dockerignore` have no Prettier parser; the runbook and
+`release.yml` are Prettier-clean. `apps/server/src/index.ts` was already
+non-compliant before this task, so it was not reflowed.
 
 ## 7. Problems Discovered
 
-1. **The webhook endpoint was unreachable in production.** `authMiddleware` guards all of
-   `/api/v1/` and exempted only the public auth routes and `/api/v1/internal/`. With
-   `NODE_ENV=production`, every Stripe delivery would have been 401'd before the handler ran — the
-   subscription lifecycle would silently never have worked. Found by reading the middleware rather
-   than by a failing test, because in development the middleware injects a default user and hides it.
-2. **Signature verification is meaningless without the raw body.** `JSON.stringify(request.body)` is
-   not what Stripe signed. The test that replays a valid signature against a body edited in flight
-   fails loudly if the raw-body capture is ever removed.
-3. **`crypto.timingSafeEqual` throws on unequal lengths** — the same trap as the relay work in
-   P5.6-03. A truncated `v1` would have crashed the handler; the length check in front of it is what
-   makes it a rejection.
-4. **`invoice.payment_failed` carries no account metadata.** Invoices are not subscriptions; only the
-   `customer` field connects them to us. Hence the `stripe_customer_id` lookup, asserted with an
-   event that has no metadata at all.
-5. **`accounts.owner_user_id` is a foreign key**, so a test cannot seed an account without first
-   seeding its owner. The first run failed with `FOREIGN KEY constraint failed`; the fixture now
-   inserts the user.
+1. **The relay's build output was not runnable.** `tsc` under the workspace
+   default emits `import { … } from './relayServer'` — extensionless ESM — which
+   Node resolves as ESM (it has no `"type": "module"`, but Node 22 detects module
+   syntax) and then fails with `ERR_MODULE_NOT_FOUND`. The relay was a single
+   file with no relative imports until P5.6-03 split it, so this broke then and
+   nothing caught it: `build` compiles, `typecheck` passes, and the tests run the
+   TypeScript through `tsx`. **No gate runs the built artifact.** Fixed by
+   emitting CommonJS; found only because the image was actually started.
+2. **`.dockerignore` patterns are not recursive.** `*.tsbuildinfo` matched the
+   repository root only, so `apps/relay/tsconfig.tsbuildinfo` from the host went
+   into the build context. `tsc` read it, concluded everything was up to date,
+   and emitted nothing — producing an image with an empty `dist` from a build
+   that reported success. Every depth-matching pattern is now `**/…`.
+3. **`puppeteer` was a production dependency of the workspace root**, so
+   `pnpm deploy --prod` put it — and its downloaded browser — into the server
+   image. Moving it to `devDependencies` plus `PUPPETEER_SKIP_DOWNLOAD=true` in
+   the builder removed ~50 MB and a large download from every build.
+4. **`pnpm deploy --legacy` does not exist in pnpm 9.0.0** (added later). The
+   flag is unnecessary here; removed.
+5. **A workspace install compiles `node-pty` even when the target does not need
+   it** — the relay build failed on a missing Python until `--ignore-scripts`.
+6. **`podman` ignores `HEALTHCHECK` in OCI image format** (`--format docker`
+   restores it). A Dockerfile concern only in that the runbook now tells
+   operators to configure the probe themselves where the directive is dropped —
+   Kubernetes ignores it too.
+7. **`server.log` inside the data directory is `0644`** and contains the pairing
+   PIN, which the Core prints on start. The `0700` directory keeps other users
+   out, so it is contained rather than exposed — but the file's own mode is not
+   covered by the `0600` enforcement that protects the database.
 
 ## 8. Architectural Concerns
 
-1. **Webhook deliveries are not idempotent.** Stripe retries on any non-2xx and can deliver the same
-   event twice; nothing records `event.id`, so a replayed *valid* event re-applies its state. The
-   operations are idempotent in effect today (setting the same plan twice is harmless), but an
-   out-of-order `deleted` → `created` pair would land wrong. A `processed_webhook_events` table keyed
-   on `event.id`, or checking the subscription's `current_period_end`, is the durable fix.
-2. **The webhook trusts metadata for the plan.** `metadata.planId` decides the tier, and it is set by
-   our checkout — but a `price` → plan mapping read from the subscription's line items would be
-   authoritative rather than advisory. Worth doing when the price ids are actually configured.
-3. **`HttpStripeGateway` has no retry, timeout, or idempotency key.** A network blip during checkout
-   creation surfaces as a 502 to the user, and a retried POST could create a second Checkout Session.
-   Stripe's `Idempotency-Key` header is the standard answer; I did not add it because nothing yet
-   retries.
-4. **No Stripe configuration is documented anywhere.** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM` are read by the code and mentioned in no document —
-   the same gap as `RELAY_SECRET` in P5.6-03. `.env.example` is already known to be stale.
-5. **The marketing site's pricing page has no path into checkout.** `apps/marketing` sells the tiers
-   but its CTAs do not call `/api/v1/billing/checkout`, so the commercial loop is implemented but not
-   yet reachable by a user.
+1. **Nothing runs the built output.** Four gates, 24 suites, and the one failure
+   mode that reaches a user first — "does the artifact start?" — is covered by
+   none of them. `release.yml`'s smoke test now does this for the containers,
+   but only on a tag. A `node dist/index.js --version`-style check in CI, or
+   moving the container smoke test into `ci.yml`, would have caught §7.1 the day
+   it was introduced.
+2. **The server image cannot actually drive an agent.** `claude`, `aider` and
+   `agy` are not in it, and `GET /health` in the running container reports
+   `claude: false, aider: false`. A containerized Core is useful for the API,
+   the dashboard and memory, but the agent adapters need their binaries mounted
+   in or installed — worth a decision about whether an "agents included" image
+   variant exists, because today the image quietly can't do the product's
+   central job.
+3. **`antigravity: true` in a container with no `agy` binary.** The same
+   `/health` response claims the Antigravity adapter is available. Either the
+   detection in `StartupService` has a false positive or it is reporting
+   something other than binary presence; either way an operator reading `/health`
+   is being told something untrue.
+4. **`/app` must remain writable** because the Core writes `pairing_pin.txt` to
+   its working directory. That blocks `read_only: true` root filesystems, which
+   is otherwise the obvious hardening for this image. Writing the PIN into the
+   (already `0700`) data directory instead would remove the constraint.
+5. **Image publishing is deliberately not wired.** The workflow builds and
+   archives; pushing needs a registry, an org account and credentials — all
+   decisions rather than code. The archives are 7-day artifacts, which is a
+   stopgap, not a distribution channel.
 
 ## 9. Recommended Next Step
 
-**`P5.6-05` — connect the commercial loop and document its configuration.** Two halves, both small:
+**`P5.6-06` — make the gates cover the artifact, then choose a registry.** In
+order:
 
-1. **Wire the UI.** Point the Pro/Team CTAs on `apps/marketing`'s pricing page at
-   `POST /api/v1/billing/checkout` and redirect to `checkoutUrl`; add a "Manage billing" action in
-   the account portal calling `POST /api/v1/billing/portal`; render `GET /billing/subscription` on
-   the account overview, including the `past_due` state, which currently has no way of reaching a
-   user. `AccountLayout` already has a Billing tab with nothing behind it.
-2. **Document and de-risk the configuration** (§8.4): a single operations document covering
-   `STRIPE_*` and `RELAY_SECRET` — what each is, where to get it, how to rotate it — plus webhook
-   event idempotency (§8.1), which is the one correctness gap I would not ship a public beta without.
+1. **Run what is built.** Add the container smoke test from `release.yml` to
+   `ci.yml`, or at minimum a `node dist/index.js` start-and-probe step for both
+   apps. §7.1 was a runtime-breaking regression that lived through three tasks
+   and four green gates.
+2. **Settle the agent-binary question** (§8.2) and fix the `/health` binary
+   report (§8.3) — an operator-facing endpoint that misreports capability is
+   worse than one that reports nothing.
+3. **Pick a registry** (GHCR is the path of least resistance from GitHub
+   Actions) and turn the two `push: false` steps into real publishes with
+   `docker/login-action`, then replace the archive artifacts in the draft release
+   with image references.
+
+Local images `asterim-server:test` and `asterim-relay:test` were left on this
+machine as evidence; `podman rmi localhost/asterim-server:test
+localhost/asterim-relay:test` removes them.

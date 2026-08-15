@@ -1,0 +1,163 @@
+name: Release
+
+# Tagging is the release trigger. Nothing is packaged that has not first passed
+# the same four gates CI runs on every push.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+  images:
+    name: Container images
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Built, not pushed: this proves the Dockerfiles still build at the tagged
+      # commit. Publishing waits on a registry decision (docs/operations-runbook.md §6).
+      - name: Build asterim-server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.server
+          tags: asterim-server:${{ github.ref_name }}
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build asterim-relay
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.relay
+          tags: asterim-relay:${{ github.ref_name }}
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the images
+        run: |
+          set -euo pipefail
+
+          docker run -d --name relay-smoke -p 4000:4000 \
+            -e RELAY_SECRET=ci-smoke-secret asterim-relay:${{ github.ref_name }}
+          docker run -d --name server-smoke -p 3000:3000 \
+            -e MOCK_AGENT=true asterim-server:${{ github.ref_name }}
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/health >/dev/null \
+               && curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          echo "--- relay /health ---"
+          curl -fsS http://127.0.0.1:4000/health
+          echo
+          echo "--- server /health ---"
+          curl -fsS http://127.0.0.1:3000/health
+          echo
+
+          # The images must never run as root.
+          test "$(docker exec relay-smoke id -u)" = "1000"
+          test "$(docker exec server-smoke id -u)" = "1000"
+
+          # And the relay must be authenticating.
+          curl -fsS http://127.0.0.1:4000/health | grep -q '"authMode":"hmac_enabled"'
+
+          docker rm -f relay-smoke server-smoke
+
+      - name: Export image archives
+        run: |
+          mkdir -p release-assets
+          docker save asterim-server:${{ github.ref_name }} \
+            | gzip > release-assets/asterim-server-${{ github.ref_name }}.tar.gz
+          docker save asterim-relay:${{ github.ref_name }} \
+            | gzip > release-assets/asterim-relay-${{ github.ref_name }}.tar.gz
+
+      - name: Upload image archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-images
+          path: release-assets/
+          retention-days: 7
+
+  release:
+    name: Draft GitHub Release
+    needs: [verify, images]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download image archives
+        uses: actions/download-artifact@v4
+        with:
+          name: container-images
+          path: release-assets
+
+      # A draft, not a publish: a human decides when a release goes out.
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*

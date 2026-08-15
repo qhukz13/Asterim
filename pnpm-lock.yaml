@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      puppeteer:
-        specifier: ^25.3.0
-        version: 25.3.0
     devDependencies:
       eslint:
         specifier: ^10.3.0
@@ -18,6 +14,9 @@ importers:
       prettier:
         specifier: ^3.9.5
         version: 3.9.5
+      puppeteer:
+        specifier: ^25.3.0
+        version: 25.3.0
       turbo:
         specifier: ^2.0.0
         version: 2.9.18

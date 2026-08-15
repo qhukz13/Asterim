@@ -165,8 +165,12 @@ const start = async () => {
     projectMemoryService.initEventBusListeners();
 
     const port = parseInt(process.env.PORT || '3000', 10);
+    // `::` accepts both IPv6 and IPv4 on every interface, which is what a LAN
+    // workstation wants. A deployment that should not be reachable from the
+    // network — or one behind a reverse proxy — overrides it with HOST.
+    const host = process.env.HOST || '::';
     console.log('[DEBUG] fastify.listen...');
-    await fastify.listen({ port, host: '::' });
+    await fastify.listen({ port, host });
     console.log(`[Server] Asterim server listening on port ${port}`);
 
     // Tell other Asterim processes on this machine how to reach us, so an MCP

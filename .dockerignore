@@ -1,0 +1,70 @@
+# Build context exclusions. Everything the image needs is source, manifests and
+# the lockfile — dependencies and build output are produced inside the builder
+# stage so the image never inherits whatever the host happened to have.
+
+# Dependencies and build output
+node_modules
+**/node_modules
+dist
+**/dist
+dev-dist
+**/dev-dist
+.next
+out
+**/*.tsbuildinfo
+
+# Caches
+.turbo
+**/.turbo
+.pnpm-store
+**/coverage
+
+# Version control and CI metadata
+.git
+.github
+.gitignore
+.dockerignore
+
+# Local data. Never copy a database or a live pairing PIN into an image.
+**/*.db
+**/*.db-shm
+**/*.db-wal
+pairing_pin.txt
+**/pairing_pin.txt
+.asterim
+.agentdeck
+
+# Secrets
+**/.env
+**/.env.*
+!.env.example
+
+# Logs
+**/*.log
+**/npm-debug.log*
+**/pnpm-debug.log*
+
+# Agent workflow files and documentation — not part of any runtime
+.agents
+tasks
+tests
+reports
+docs
+blueprint
+scratch
+temp_test_nogit
+AGENTS.md
+CLAUDE.md
+README.md
+
+# Editor and OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Leftover debug scripts (see CLAUDE.md § Housekeeping)
+**/test-*.js
+**/run-loop-test*.js
+**/test_*.ts
+**/clear_*.js
