@@ -1,7 +1,7 @@
-# Execution Report: P5.6-05 — Multi-Stage Production Containerization, Dockerfiles & Release Pipeline
+# Execution Report: P6-01 — MCP Server Manager Core & Multi-Process Supervisor
 
-**Task ID:** P5.6-05  
-**Phase:** Phase 5.6 — SaaS Foundation & Commercial Beta Release  
+**Task ID:** P6-01  
+**Phase:** Phase 6 — AI Ecosystem & Multi-Agent Orchestration  
 **Status:** IMPLEMENTED & VERIFIED  
 **Date:** 2026-08-15  
 **Author:** Claude Code  
@@ -10,146 +10,114 @@
 
 ## 1. Summary
 
-Both images exist, were **actually built and run** (podman is available on this
-machine), and behave correctly: `asterim-server` at **333 MB** and
-`asterim-relay` at **182 MB**, multi-stage, no toolchain or source in the final
-layer, both running as `node` (uid 1000).
+The MCP Server Manager is in: an `mcp_servers` table, MCP types in `@asterim/shared`,
+`McpProcessSupervisor` supervising real child processes, and nine authenticated
+`/api/v1/mcp/servers` endpoints registered on the Core.
 
-Building them for real rather than authoring them on faith found three things
-that would have shipped broken:
+The supervisor spawns stdio MCP servers, tracks pid and status, keeps a 50-line rolling
+tail of each child's stderr, stops with SIGTERM then SIGKILL after a 3-second grace, and
+distinguishes three ways of not running: `STOPPED` (asked to, or exited cleanly),
+`CRASHED` (exited on its own with a non-zero code or a signal) and `ERROR` (never
+started — a command that does not exist). Configuration is persisted; process state
+deliberately is not, because a row claiming `RUNNING` after a Core restart would be a lie.
 
-1. **The relay's compiled output could not run at all.** `apps/relay` builds with
-   plain `tsc` under the workspace default (`module: esnext`), which emits
-   extensionless ESM imports Node cannot resolve. It went unnoticed because the
-   relay was a single file until P5.6-03 split it; `node dist/index.js` failed
-   with `ERR_MODULE_NOT_FOUND`. No gate covers running the built artifact.
-2. **`.dockerignore` patterns are not recursive.** `*.tsbuildinfo` matched only
-   the repository root, so the host's incremental build state entered the
-   context and `tsc` skipped emitting entirely — an empty `dist` in a
-   "successful" build.
-3. **`puppeteer` was a production dependency of the workspace root**, so
-   `pnpm deploy --prod` pulled it and its browser into the server image.
+Child environments are sanitised. The supervisor builds on the repository's existing
+`sanitizeAgentEnv` — which already strips `ASTERIM_*` except `ASTERIM_DATA_DIR` — and adds
+Asterim's own credentials plus anything credential-shaped. That is asserted not by
+inspecting the sanitiser's return value but by having a child print its **own** environment
+and checking what is missing from it.
 
-`docs/operations-runbook.md` documents every environment variable the code
-actually reads — enumerated from the source, not from memory — plus deployment
-recipes and three rotation playbooks. `.github/workflows/release.yml` gates a
-`v*` tag behind typecheck, lint, test and build, then builds, smoke-tests and
-archives both images and opens a draft release.
-
-All four CI gates pass: **24 suites / 1,802 assertions**, 0 errors.
+A new **115-assertion** suite spawns genuine `node -e` processes; `pnpm run test` is now
+**25 suites / 1,917 assertions**. All four gates pass, and the whole flow was exercised
+against the running Core over HTTP (§4.4).
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `Dockerfile.server` | Created | Multi-stage Core image: builds via turbo, deploys production-only, prunes native build artefacts, runs as `node` with a healthcheck |
-| `Dockerfile.relay` | Created | Multi-stage relay image: no native deps, no volume, healthcheck |
-| `.dockerignore` | Created | Keeps host build output, databases, PINs, secrets and workflow files out of the context |
-| `docs/operations-runbook.md` | Created | Configuration, deployment recipes, secret generation and rotation playbooks (287 lines) |
-| `.github/workflows/release.yml` | Created | Tag-triggered verify → images (+ smoke test) → draft release |
-| `apps/relay/tsconfig.json` | Modified | `module: commonjs`, `moduleResolution: node` — the emitted output has to be runnable by `node dist/index.js` |
-| `apps/relay/package.json` | Modified | `main`, `files: ["dist"]` |
-| `apps/server/package.json` | Modified | `files: ["dist"]` |
-| `apps/server/src/index.ts` | Modified | Honour `HOST` (see §6) |
-| `package.json` (root) | Modified | `puppeteer` moved to `devDependencies` |
-| `pnpm-lock.yaml` | Modified | Follows the puppeteer move |
+| `apps/server/src/services/mcp/McpProcessSupervisor.ts` | Created | Lifecycle, CRUD, stderr ring buffer, env sanitisation, `shutdownAll()` |
+| `apps/server/src/routes/mcp.ts` | Created | The nine REST endpoints with error→status mapping |
+| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Created | 115 assertions over real processes, real SQLite and the real routes |
+| `packages/shared/src/types/mcp.ts` | Created | `McpTransport`, `McpServerStatus`, `McpServerConfig`, `McpServerRuntimeInfo`, `McpServerInput` |
+| `packages/shared/src/index.ts` | Modified | Export the MCP types |
+| `apps/server/src/services/DatabaseService.ts` | Modified | `mcp_servers` table + workspace index |
+| `apps/server/src/index.ts` | Modified | Register `mcpRoutes`; `onClose` hook calling `shutdownAll()` |
+| `apps/server/package.json` | Modified | Suite wired into `test` |
 
 ## 3. Implementation Details
 
-### 3.1 `Dockerfile.server`
+### 3.1 Schema
 
-**Builder** (`node:22-alpine`) installs `python3 make g++` for `node-pty`'s
-native build, enables pnpm through corepack, copies manifests and the lockfile
-*before* the sources so a code change reuses the dependency layer, then:
+`mcp_servers` and `idx_mcp_servers_workspace` were added inside the existing
+`CREATE TABLE IF NOT EXISTS` block, so initialisation stays idempotent and an existing
+`~/.asterim/asterim.db` keeps opening — no migration framework involved, per the
+repository's established pattern. Only configuration is stored; `pid`, `status` and logs
+have no columns.
+
+### 3.2 `McpProcessSupervisor`
+
+| Method | Behaviour |
+| :--- | :--- |
+| `startServer(id)` | `spawn(command, args, { env: sanitizeMcpEnv(…), shell: false })`. Resolves on the `spawn` event (`RUNNING` + pid) or the `error` event (`ERROR` + reason). Already-running is a no-op that does not double-count. |
+| `stopServer(id)` | SIGTERM, then SIGKILL after `TERMINATE_GRACE_MS` (3s); resolves when the child has actually exited. Idempotent. |
+| `restartServer(id)` | Stop then start; the new pid differs. |
+| `getServerStatus(id)` | Config + `status`, `pid`, `uptimeSeconds`, `recentStderrLogs`, `lastError`, `lastExitCode`, `startCount`. |
+| `listServers(workspaceId?)` | Configs with runtime attached. With a workspace: its own servers **plus** the global ones. |
+| `saveServer(input, id?)` / `deleteServer(id)` | Validated CRUD. Deleting stops the process first; disabling a running server stops it too. |
+| `getLogs(id)` | The rolling stderr tail, oldest first. |
+| `shutdownAll()` | Stops every live child in parallel. |
+
+Two details worth naming. `spawn` is called with `shell: false`, so a command or argument
+containing shell metacharacters is an argument rather than syntax. And the child's
+**stdout is drained but never stored**: on stdio transport it is the JSON-RPC channel
+carrying tool traffic, so keeping it would be both a leak and a memory problem, while not
+reading it at all would block the child on a full pipe.
+
+`RUNNING` means "the process exists", not "the server is ready". A stdio MCP server
+announces readiness only through a JSON-RPC `initialize` handshake, which belongs to the
+client that will speak to it, not to a supervisor.
+
+### 3.3 Environment isolation (§6)
 
 ```
-pnpm install --frozen-lockfile
-pnpm exec turbo run build --filter=asterim     # asterim#build → @asterim/web#build
-pnpm --filter=asterim --prod deploy /app       # production tree, no dev deps
+sanitizeMcpEnv(process.env, config.env)
+  = sanitizeAgentEnv(process.env)      // ASTERIM_* dropped except ASTERIM_DATA_DIR
+    minus BLOCKED_ENV_PATTERNS         // STRIPE_*, RELAY_SECRET, VAPID_*,
+                                       // *SECRET*, *TOKEN*, *PASSWORD*, *API_KEY*,
+                                       // *PRIVATE_KEY*, *CREDENTIAL*
+    plus config.env                    // explicit operator intent wins
 ```
 
-turbo is what makes one command enough: `asterim#build` depends on
-`@asterim/web#build`, and the server's own build script copies `apps/web/dist`
-into `dist/web`, which the packaged binary serves. The marketing site and the
-relay are not built — they are not part of this image.
+Reusing `sanitizeAgentEnv` keeps one policy for "what a child process may inherit" rather
+than two that drift. The generic patterns are deliberately blunt: an MCP server is
+third-party code, and a developer's `GITHUB_TOKEN` should reach it because someone decided
+so in the server's own `env`, not because it happened to be exported in the shell that
+started Asterim.
 
-Then two prunes, both measured: node-gyp's intermediate objects, and node-pty's
-prebuilt addons for macOS and Windows. node-pty ships **no** Linux prebuild — on
-Linux it loads the addon compiled in the builder — so those 58 MB can never be
-opened. That single step took the image from 455 MB to **333 MB**, and a real
-PTY spawn inside the pruned image proves nothing load-bearing was removed (§4.2).
+`ASTERIM_DATA_DIR` is kept on purpose — an MCP memory server resolves the database through
+it, and removing it would break the very servers this subsystem exists to run.
 
-**Runner** copies only `/app`, sets `NODE_ENV=production` and
-`ASTERIM_DATA_DIR=/home/node/.asterim`, declares that path as a volume, chowns
-it to `node`, drops to `USER node`, exposes 3000, and declares a `HEALTHCHECK`
-that probes `/health` with Node's built-in `fetch` — no `curl` or `wget` needed
-in the image.
+**What this is not.** The child runs as the same user and can read anything that user can,
+`~/.asterim/server.json` included. Sanitisation stops Asterim from *handing over* its
+secrets; it is not a sandbox, and §8.1 says what a real one would need.
 
-### 3.2 `Dockerfile.relay`
+### 3.4 REST surface
 
-Same shape without the native build. Two details worth naming:
+`GET/POST /servers`, `GET/PATCH/DELETE /servers/:id`, `POST /servers/:id/{start,stop,restart}`,
+`GET /servers/:id/logs` — all requiring `request.user`. Supervisor failures map to status
+codes: `NOT_FOUND` → 404, `INVALID_CONFIG` → 400, `SERVER_DISABLED` → 409,
+`UNSUPPORTED_TRANSPORT` → 400, `SPAWN_FAILED` → 500, each with a machine-readable `code`.
 
-- `pnpm install --frozen-lockfile --ignore-scripts`: a workspace install
-  otherwise runs `apps/server`'s node-pty postinstall, which fails without a C
-  toolchain the relay has no reason to carry. Nothing the relay depends on has a
-  build step.
-- `rm -rf /app/dist/__tests__`: the relay's `tsconfig` compiles `src/**`, which
-  includes its test suite. Excluding tests from the tsconfig instead would have
-  dropped them out of `typecheck` too, so they are removed from the image rather
-  than from the build.
+### 3.5 Shutdown (§10)
 
-No volume is declared: the relay's routing tables are in memory by design and
-must not be persisted.
+`index.ts` registers `fastify.addHook('onClose', () => mcpProcessSupervisor.shutdownAll())`,
+verified by closing a Fastify instance with a live child and watching the child die (§4.3).
 
-### 3.3 `.dockerignore`
-
-Excludes dependencies and build output (`node_modules`, `dist`, `.turbo`,
-`**/*.tsbuildinfo`), local data that must never enter an image (`**/*.db`,
-`pairing_pin.txt`, `**/.env*`), VCS and CI metadata, the agent workflow
-directories (`tasks/`, `reports/`, `docs/`, `blueprint/`, `.agents/`) and the
-leftover debug scripts `CLAUDE.md` warns about.
-
-Every pattern that needs to match at depth is spelled `**/…`. Docker's ignore
-patterns are not implicitly recursive, which is what caused §7.2.
-
-### 3.4 The runbook
-
-`docs/operations-runbook.md` covers, for both processes: every variable with its
-default and effect, the endpoints and what authenticates them, image sizes and
-contents, `docker run` recipes (including a Sovereign Mode one), healthcheck
-configuration for orchestrators that ignore the image directive, reverse-proxy
-caveats, secret generation, and rotation playbooks for `RELAY_SECRET`,
-`STRIPE_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY` and the pairing PIN.
-
-The variable list was enumerated from the source rather than from the task text,
-which turned up two corrections:
-
-- **`HOST` did not exist.** The Core hardcoded `host: '::'`. Since the runbook
-  scope names `HOST` as an operator-facing variable, and documenting a variable
-  that does nothing is exactly the failure `.env.example` already demonstrates,
-  it is now read (§6).
-- **`VAPID_*` are not environment variables.** `CLAUDE.md` says they are; the
-  keys are in fact generated on first run and stored in the `settings` table.
-  The runbook says so.
-
-Rotation is documented honestly. `STRIPE_WEBHOOK_SECRET` genuinely rotates with
-zero downtime, because Stripe signs with both secrets during a roll and the
-verifier accepts any matching `v1` (asserted in P5.6-04). `RELAY_SECRET` does
-**not**: the relay verifies against exactly one secret, so the playbook is a
-blue/green pair of relays, with the single-instance restart written out as the
-accept-a-few-seconds alternative and the missing multi-secret support flagged as
-a gap.
-
-### 3.5 `release.yml`
-
-Three jobs. `verify` runs the same four gates as CI on Node 22. `images` builds
-both Dockerfiles with buildx and GHA layer caching, then **smoke-tests them**:
-starts both containers, waits for `/health` on each, asserts `id -u` is 1000 in
-both (the non-root requirement, enforced rather than assumed) and that the relay
-reports `authMode: hmac_enabled`. It then saves gzipped image archives as
-artifacts. `release` downloads those and opens a **draft** GitHub Release with
-generated notes — a human decides when it goes public. Images are built, not
-pushed, because no registry has been chosen; the runbook says so.
+The supervisor **also** installs a synchronous `process.on('exit')` sweep that signals every
+child. That is not belt-and-braces for its own sake: `ServerRegistry.registerCleanup()`
+already handles `SIGINT`/`SIGTERM` and calls `process.exit(0)`, which skips async
+`onClose` work entirely. Without the synchronous hook, a `Ctrl-C` or a container `SIGTERM`
+would orphan every MCP child. §8.2 proposes fixing the underlying ordering properly.
 
 ## 4. Verification
 
@@ -158,181 +126,162 @@ pushed, because no registry has been chosen; the runbook says so.
 ```
 pnpm run typecheck  → 11 successful, 11 total (0 errors)
 pnpm run lint       → 7 successful, 7 total   (0 errors)
-pnpm run test       → 9 successful, 9 total   (24 suites, 1,802 assertions), exit 0
+pnpm run test       → 9 successful, 9 total   (25 suites, 1,917 assertions), exit 0
 pnpm run build      → 7 successful, 7 total
 ```
 
-### 4.2 The images, built and run
+### 4.2 The new suite — 115/115
 
-Built with `podman build` (Docker-compatible) and exercised as containers:
+| Group | Covers |
+| :--- | :--- |
+| Schema (2) | `mcp_servers` and its index exist after initialisation |
+| `sanitizeMcpEnv` (14) | PATH/HOME/LANG pass; `ASTERIM_DATA_DIR` kept; nine credential-shaped variables dropped; an explicitly configured one honoured |
+| CRUD (18) | create, persisted row shape, partial update, id and `createdAt` preserved, unfiltered vs workspace-scoped listing (global servers included, other workspaces not), four invalid configurations refused, update of a missing id |
+| Start (8) | `RUNNING`, live pid, no error, start counted; starting twice is a no-op; the list agrees |
+| Stop (5) | `STOPPED`, pid released, process actually gone, not reported as a crash, idempotent |
+| Restart (4) | running again under a new pid, old process gone, start count reflects both runs |
+| stderr (6) | capture works, the buffer caps at 50, the oldest lines are the ones dropped, runtime info carries the same tail |
+| Crash (5) | `CRASHED`, exit code 3 recorded, explanation, no pid, the child's last stderr line kept |
+| Missing binary (3) | `ERROR` rather than `CRASHED`, reason recorded, no pid |
+| SIGTERM-ignoring child (5) | ends up `STOPPED`, process gone, and SIGKILL genuinely followed the grace period (**3009 ms**) |
+| Disabled / non-stdio (2) | `SERVER_DISABLED`, `UNSUPPORTED_TRANSPORT` |
+| Child env, observed (6) | the child prints its own `process.env`: no Stripe key, no relay secret, no other `ASTERIM_*`, but PATH, the configured value and `ASTERIM_DATA_DIR` present |
+| Delete / disable (6) | running process stopped first, row gone, second delete harmless; disabling stops a running server |
+| `shutdownAll` (3) | three children started, all stopped, all reported `STOPPED` |
+| Routes (28) | 401 unauthenticated; create 201; invalid 400 + code; workspace listing; start/stop/restart over HTTP with live pids; single fetch; logs; rename; 404 for unknown id on fetch, start and logs; delete then 404 |
 
-| Check | `asterim-server` | `asterim-relay` |
-| :--- | :--- | :--- |
-| Image size | **333 MB** | **182 MB** (base `node:22-alpine` is 167 MB) |
-| `/app` contents | `dist`, `node_modules`, `package.json` | `dist`, `node_modules`, `package.json` |
-| Runs as | `uid=1000(node)` | `uid=1000(node)` |
-| `GET /health` | `{"status":"ok","service":"asterim-server",…}` | `{"status":"ok","service":"asterim-relay","version":"0.1.0","authMode":"hmac_enabled",…}` |
-| `GET /metrics` | — | counters returned |
-| Dashboard | `GET /` → **200** (the web build reached `dist/web`) | — |
-| Data volume | `/home/node/.asterim` → `drwx------`, `asterim.db` and both WAL sidecars `-rw-------` | none, by design |
-| Sovereign Mode | `ASTERIM_SOVEREIGN_MODE=true` → log reads `[RelayClient] Sovereign Mode active: Cloud Relay connection disabled.` | — |
-| Production auth | `GET /api/v1/system` → 401 without a token (`NODE_ENV=production` disables the dev fallback user) | — |
-| Native addon | `pty.spawn('/bin/sh', …)` inside the pruned image returned `pty-works` | n/a |
+Processes are real, not mocked: a pid that can be probed with `kill(pid, 0)`, a ring buffer
+fed by an actual pipe, a SIGKILL that had to wait out a real grace period.
 
-The permission row is worth calling out: the `0700`/`0600` enforcement written
-in P5.5-01 is confirmed here inside a container, on a fresh volume.
+### 4.3 The shutdown hook
 
-### 4.3 Workflow validation
+A scratch run installing exactly the wiring from `index.ts`:
 
-`release.yml` and `ci.yml` both parse as YAML; `release.yml` resolves to three
-jobs with the intended `needs` graph (`verify` → `images` → `release`). GitHub
-Actions cannot be executed locally, so the workflow is verified structurally
-only — every command inside it (`pnpm run …`, `docker build -f …`) is one that
-was run by hand here.
+```
+[MCP] Started onclose (pid 336765)
+child pid 336765 alive before close: true
+[MCP] Stopping 1 MCP server(s)
+alive after fastify.close(): false
+status: STOPPED
+```
+
+### 4.4 Against the running Core
+
+The dev server picked the change up; the full lifecycle was driven over HTTP and left no
+residue in the real database:
+
+```
+POST   /api/v1/mcp/servers            → 201, id mcp_723767f1-…
+POST   /api/v1/mcp/servers/:id/start  → 200 RUNNING, real pid
+GET    /api/v1/mcp/servers/:id/logs   → {"logs":["mcp up"]}     ← the child's own stderr
+POST   /api/v1/mcp/servers/:id/stop   → 200 STOPPED, pid null
+DELETE /api/v1/mcp/servers/:id        → {"deleted":true}
+GET    /api/v1/mcp/servers            → {"servers":[]}
+```
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. Both Dockerfiles build minimal, production-ready images with
-      multi-stage builds and run as non-root** — built and run (§4.2); two
-      stages each, no compiler/pnpm/source in the runner, `USER node` verified
-      as `uid=1000` inside both containers.
-- [x] **2. The runbook documents all environment variables, secret rotation and
-      deployment recipes** — 287 lines; the variable list was enumerated from
-      the source and corrected two inaccuracies (§3.4); three rotation
-      playbooks, with `RELAY_SECRET`'s limitation stated rather than glossed.
-- [x] **3. `release.yml` triggers on version tags and enforces all gates before
-      packaging** — `on: push: tags: ['v*']`; `images` and `release` both
-      `needs: verify`, which runs typecheck → lint → test → build.
-- [x] **4. All 24 suites pass (1,802+ assertions, 0 failures)** — 24 suites,
-      1,802/1,802, exit 0.
-- [x] **5. CI gates pass with 0 errors** — typecheck 11/11, lint 7/7 (0 errors),
-      test 24/24, build 7/7.
+- [x] **1. `mcp_servers` created idempotently during initialisation** — inside the existing
+      `CREATE TABLE IF NOT EXISTS` block; asserted against `sqlite_master`, table and index.
+- [x] **2. Spawns, tracks, stops and restarts with pid and stderr logging** — 30 assertions
+      across start/stop/restart/logs, all against real processes with pid liveness probes.
+- [x] **3. Crashing children transition cleanly to `CRASHED`** — exit code 3 → `CRASHED`
+      with the code, an explanation, no pid, and the child's final stderr line retained.
+      A failed *spawn* is `ERROR` instead, which is a different problem for a UI to show.
+- [x] **4. All endpoints return accurate status and handle invalid input with structured
+      errors** — 28 route assertions; every error carries `code`; 401/400/404/409 covered.
+- [x] **5. `McpProcessSupervisor.test.ts` passes** — 115/115.
+- [x] **6. CI gates pass, 25 test suites** — typecheck 11/11, lint 7/7 (0 errors), test
+      **25 suites / 1,917 assertions**, build 7/7.
 
 Definition of Done:
 
-- [x] `Dockerfile.server` created and valid *(built, run, probed)*
-- [x] `Dockerfile.relay` created and valid *(built, run, probed)*
-- [x] `.dockerignore` created
-- [x] `docs/operations-runbook.md` authored
-- [x] `.github/workflows/release.yml` created
-- [x] All 24 test suites pass (1,802 assertions)
-- [x] Monorepo CI gates pass cleanly
+- [x] `mcp_servers` table added to SQLite schema
+- [x] Shared MCP types added to `@asterim/shared`
+- [x] `McpProcessSupervisor.ts` implemented
+- [x] `/api/v1/mcp/servers` routes registered and functional
+- [x] `McpProcessSupervisor.test.ts` created and passing
+- [x] `pnpm run test` passes across all packages
+- [x] Clean Git diff
 
 ## 6. Git Diff Review
 
-Five new files and six modified. Reviewed against §6:
+Four new files, four modified, all within `apps/server` and `packages/shared`.
+Reviewed against §6:
 
-- **Nothing runs as root.** Both runners end with `USER node`; `id` inside each
-  running container returns `uid=1000(node)`. The release workflow asserts the
-  same thing on every tagged build, so a regression fails CI rather than
-  shipping.
-- **No secret is baked into an image.** Neither Dockerfile has an `ARG` or `ENV`
-  carrying a credential; every secret is supplied at `docker run`. `.dockerignore`
-  excludes `**/.env*`, `pairing_pin.txt` and `**/*.db` so a developer's local
-  state cannot enter a layer. Verified: the built server image's `/app` holds
-  only `dist`, `node_modules` and `package.json`.
-- **No test or build command broke.** All four gates pass, at the same 24
-  suites / 1,802 assertions as the previous task.
+- **No elevated privileges.** `spawn` is called with no `uid`/`gid`, no `shell`, and no
+  privilege escalation of any kind; the child inherits the Core's user and nothing more.
+- **No internal token reaches a child.** Verified from the child's side: a process printing
+  its own `process.env` shows no `STRIPE_SECRET_KEY`, no `ASTERIM_RELAY_SECRET`, and no
+  other `ASTERIM_*` variable, while still receiving `PATH` and its own configured values.
+  The `server.json` loopback token is not an environment variable and is never passed;
+  the honest caveat about filesystem access is in §3.3.
+- **Nothing existing broke.** 25 suites, 1,917 assertions, exit 0 — the 24 prior suites
+  unchanged at 1,802, plus 115 new. `apps/server` reports **0 lint errors and 241
+  warnings**, exactly the count before this task, so the new code adds none.
 
-Changes to existing files, each with a reason:
-
-1. **`apps/relay/tsconfig.json` → `module: commonjs`, `moduleResolution: node`.**
-   Not cosmetic: without it the relay's built output does not run (§7.1). The
-   suite still passes 71/71 and `tsc --noEmit` is unaffected.
-2. **`files: ["dist"]` on both apps.** `pnpm deploy` copies a package's publish
-   file set; without this the image carried `src/`, `tsconfig.json`,
-   `tsup.config.ts`, `eslint.config.js` and two leftover debug scripts.
-3. **`puppeteer` moved to root `devDependencies`.** It is a visual-QA tool
-   (`CLAUDE.md` § Visual QA); as a production dependency it was deployed into
-   the server image. Still resolvable for the QA scripts — verified by requiring
-   it after the move.
-4. **`HOST` is now read** (`process.env.HOST || '::'`), a one-line change. The
-   runbook scope names `HOST` as operator-facing; the alternative was to
-   document that it does not work. Flagged here because it is product behaviour
-   touched by a task whose implementation scope is Dockerfiles, docs and CI.
-
-The new Dockerfiles and `.dockerignore` have no Prettier parser; the runbook and
-`release.yml` are Prettier-clean. `apps/server/src/index.ts` was already
-non-compliant before this task, so it was not reflowed.
+Changes to existing files are additive: a schema block, a type export, a route
+registration, an `onClose` hook and a test-script entry. The new files are Prettier-clean;
+`index.ts` and `DatabaseService.ts` were already non-compliant before this task and were
+not reflowed.
 
 ## 7. Problems Discovered
 
-1. **The relay's build output was not runnable.** `tsc` under the workspace
-   default emits `import { … } from './relayServer'` — extensionless ESM — which
-   Node resolves as ESM (it has no `"type": "module"`, but Node 22 detects module
-   syntax) and then fails with `ERR_MODULE_NOT_FOUND`. The relay was a single
-   file with no relative imports until P5.6-03 split it, so this broke then and
-   nothing caught it: `build` compiles, `typecheck` passes, and the tests run the
-   TypeScript through `tsx`. **No gate runs the built artifact.** Fixed by
-   emitting CommonJS; found only because the image was actually started.
-2. **`.dockerignore` patterns are not recursive.** `*.tsbuildinfo` matched the
-   repository root only, so `apps/relay/tsconfig.tsbuildinfo` from the host went
-   into the build context. `tsc` read it, concluded everything was up to date,
-   and emitted nothing — producing an image with an empty `dist` from a build
-   that reported success. Every depth-matching pattern is now `**/…`.
-3. **`puppeteer` was a production dependency of the workspace root**, so
-   `pnpm deploy --prod` put it — and its downloaded browser — into the server
-   image. Moving it to `devDependencies` plus `PUPPETEER_SKIP_DOWNLOAD=true` in
-   the builder removed ~50 MB and a large download from every build.
-4. **`pnpm deploy --legacy` does not exist in pnpm 9.0.0** (added later). The
-   flag is unnecessary here; removed.
-5. **A workspace install compiles `node-pty` even when the target does not need
-   it** — the relay build failed on a missing Python until `--ignore-scripts`.
-6. **`podman` ignores `HEALTHCHECK` in OCI image format** (`--format docker`
-   restores it). A Dockerfile concern only in that the runbook now tells
-   operators to configure the probe themselves where the directive is dropped —
-   Kubernetes ignores it too.
-7. **`server.log` inside the data directory is `0644`** and contains the pairing
-   PIN, which the Core prints on start. The `0700` directory keeps other users
-   out, so it is contained rather than exposed — but the file's own mode is not
-   covered by the `0600` enforcement that protects the database.
+1. **A just-spawned child has not installed its signal handlers yet.** The suite's
+   SIGTERM-ignoring process was being terminated by the *first* SIGTERM, because Node had
+   not finished booting and running the `-e` script when the stop arrived — so the default
+   signal action still applied. The test now waits for the child to announce itself on
+   stderr before stopping it. Worth knowing beyond the test: a supervisor that starts and
+   immediately stops a server cannot assume the child's own shutdown handling exists yet.
+2. **`ServerRegistry`'s signal handler pre-empts graceful shutdown.** It handles
+   `SIGINT`/`SIGTERM` and calls `process.exit(0)`, which skips every async `onClose` hook
+   — including this one. Hence the synchronous `process.on('exit')` sweep (§3.5); without
+   it, `Ctrl-C` on a workstation or `docker stop` on a container would leave MCP children
+   orphaned.
+3. **`kill(pid, 0)` succeeds for a zombie**, which briefly made a stop look successful when
+   it had not happened. Assertions poll until the pid is genuinely unreachable rather than
+   sampling once.
+4. **Prettier reformats a comment placed inside a parenthesised ternary cast** into
+   something it then disagrees with, so `--write` never converges. Restructuring the
+   statement — comment above, cast on a simple expression — fixed it. Cosmetic, but it
+   cost a couple of cycles.
 
 ## 8. Architectural Concerns
 
-1. **Nothing runs the built output.** Four gates, 24 suites, and the one failure
-   mode that reaches a user first — "does the artifact start?" — is covered by
-   none of them. `release.yml`'s smoke test now does this for the containers,
-   but only on a tag. A `node dist/index.js --version`-style check in CI, or
-   moving the container smoke test into `ci.yml`, would have caught §7.1 the day
-   it was introduced.
-2. **The server image cannot actually drive an agent.** `claude`, `aider` and
-   `agy` are not in it, and `GET /health` in the running container reports
-   `claude: false, aider: false`. A containerized Core is useful for the API,
-   the dashboard and memory, but the agent adapters need their binaries mounted
-   in or installed — worth a decision about whether an "agents included" image
-   variant exists, because today the image quietly can't do the product's
-   central job.
-3. **`antigravity: true` in a container with no `agy` binary.** The same
-   `/health` response claims the Antigravity adapter is available. Either the
-   detection in `StartupService` has a false positive or it is reporting
-   something other than binary presence; either way an operator reading `/health`
-   is being told something untrue.
-4. **`/app` must remain writable** because the Core writes `pairing_pin.txt` to
-   its working directory. That blocks `read_only: true` root filesystems, which
-   is otherwise the obvious hardening for this image. Writing the PIN into the
-   (already `0700`) data directory instead would remove the constraint.
-5. **Image publishing is deliberately not wired.** The workflow builds and
-   archives; pushing needs a registry, an org account and credentials — all
-   decisions rather than code. The archives are 7-day artifacts, which is a
-   stopgap, not a distribution channel.
+1. **This supervises processes; it does not sandbox them.** An MCP server is third-party
+   code running with the developer's full privileges: it can read `~/.asterim/asterim.db`
+   and `server.json`, reach the network, and write anywhere the user can. Environment
+   sanitisation narrows what Asterim *hands over*, nothing more. If MCP servers are going
+   to be installed from a marketplace (the Phase 6 roadmap), the boundary needs to be a
+   real one — a container, a user, or at minimum a documented trust model.
+2. **Shutdown ordering needs one owner.** Three subsystems now have opinions about process
+   exit (`ServerRegistry`, this supervisor, the crash handlers). A single graceful-shutdown
+   sequence — signal → `fastify.close()` → registered hooks → exit — would replace the
+   synchronous backstop and make `onClose` meaningful for everything, not just for callers
+   who close programmatically.
+3. **Nothing starts these servers automatically.** `isEnabled` is honoured for stopping but
+   nothing starts enabled servers when the Core boots, so after a restart every MCP server
+   is down until something asks. That is a deliberate scope line for P6-01, but it is the
+   first thing a user will notice.
+4. **`sse` transport is stored but not supervised.** A server configured as `sse` is
+   refused at start with a clear reason. Either the supervisor gains an HTTP/SSE health
+   probe, or the type should not accept a value the system cannot honour.
+5. **The routes are authenticated but not authorised.** Any authenticated user can register
+   an MCP server, which is a command the Core will execute. On a single-user workstation
+   that is exactly right; the moment accounts and roles matter, this endpoint deserves an
+   `rbacGuard` — it is the most powerful API in the product.
 
 ## 9. Recommended Next Step
 
-**`P5.6-06` — make the gates cover the artifact, then choose a registry.** In
-order:
+**`P6-02` — MCP capability discovery and autostart.** The supervisor can run a server;
+Asterim still cannot say what any of them *offers*. The natural next unit is the JSON-RPC
+`initialize` handshake over the child's stdio: negotiate, read `tools/list` and
+`resources/list`, cache the capabilities against the server row, and expose them on
+`GET /api/v1/mcp/servers/:id/capabilities`. That turns `RUNNING` into a claim about
+readiness rather than about a pid, and gives the agent layer something to route against.
+Autostart of `isEnabled` servers on Core boot (§8.3) belongs in the same task, since both
+need the handshake to know a server actually came up.
 
-1. **Run what is built.** Add the container smoke test from `release.yml` to
-   `ci.yml`, or at minimum a `node dist/index.js` start-and-probe step for both
-   apps. §7.1 was a runtime-breaking regression that lived through three tasks
-   and four green gates.
-2. **Settle the agent-binary question** (§8.2) and fix the `/health` binary
-   report (§8.3) — an operator-facing endpoint that misreports capability is
-   worse than one that reports nothing.
-3. **Pick a registry** (GHCR is the path of least resistance from GitHub
-   Actions) and turn the two `push: false` steps into real publishes with
-   `docker/login-action`, then replace the archive artifacts in the draft release
-   with image references.
-
-Local images `asterim-server:test` and `asterim-relay:test` were left on this
-machine as evidence; `podman rmi localhost/asterim-server:test
-localhost/asterim-relay:test` removes them.
+Before that, one small thing worth doing while it is cheap: **give shutdown a single
+owner** (§8.2). It is a contained change today and gets harder with every subsystem that
+adds an exit opinion.

@@ -562,6 +562,25 @@ export class DatabaseService {
       -- Briefing lookups scan sessions/approvals by project; neither table was indexed.
       CREATE INDEX IF NOT EXISTS idx_sessions_project_started ON sessions(project_id, started_at);
       CREATE INDEX IF NOT EXISTS idx_approvals_project_created ON approvals(project_id, created_at);
+
+      -- MCP Server Manager (Phase 6). Only configuration is stored: process
+      -- state, pids and logs are runtime facts held by McpProcessSupervisor and
+      -- are deliberately not persisted.
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT,
+        name TEXT NOT NULL,
+        transport TEXT NOT NULL DEFAULT 'stdio',
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL DEFAULT '[]',
+        env_json TEXT NOT NULL DEFAULT '{}',
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        is_global INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mcp_servers_workspace ON mcp_servers(workspace_id);
     `);
   }
 

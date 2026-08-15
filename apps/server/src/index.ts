@@ -122,6 +122,7 @@ import deviceRoutes from './routes/devices';
 import apiKeyRoutes from './routes/apikeys';
 import webhookRoutes from './routes/webhooks';
 import billingRoutes from './routes/billing';
+import mcpRoutes from './routes/mcp';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
@@ -144,6 +145,8 @@ const start = async () => {
     await fastify.register(webhookRoutes);
     console.log('[DEBUG] Registering billingRoutes');
     await fastify.register(billingRoutes);
+    console.log('[DEBUG] Registering mcpRoutes');
+    await fastify.register(mcpRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');
@@ -159,6 +162,14 @@ const start = async () => {
     console.log('[DEBUG] Registering memoryRoutes');
     await fastify.register(memoryRoutes);
     await fastify.register(internalRoutes);
+
+    // Supervised MCP servers are child processes of this one. Closing the
+    // server has to take them with it, or a restart leaves orphans holding
+    // whatever the previous run left open.
+    const { mcpProcessSupervisor } = await import('./services/mcp/McpProcessSupervisor');
+    fastify.addHook('onClose', async () => {
+      await mcpProcessSupervisor.shutdownAll();
+    });
 
     // Project Memory Core: register EventBus subscriptions once, before the
     // server starts accepting requests that could publish memory events.
