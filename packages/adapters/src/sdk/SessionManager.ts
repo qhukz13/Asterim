@@ -19,13 +19,20 @@ export class SessionManager {
     sessionId: string,
     config: LaunchConfig,
     onEvent: (event: AsterimEvent) => void,
-    onExit?: (code: number) => void
+    onExit?: (code: number) => void,
+    onAdapterCreated?: (adapter: BaseAdapter) => void
   ): Promise<void> {
     if (this.activeSessions.has(sessionId)) {
       throw new Error(`Session ${sessionId} is already active.`);
     }
 
     const adapter = globalProviderRegistry.createAdapter(providerId, sessionId);
+
+    // Before `start`, deliberately: a caller wiring up a tool executor has to
+    // be able to do it before the child can emit its first line of output.
+    if (onAdapterCreated) {
+      onAdapterCreated(adapter);
+    }
     
     // Wire the session-scoped event bus up to the global listener
     adapter.getEventBus().subscribe(onEvent);

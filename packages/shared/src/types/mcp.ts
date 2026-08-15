@@ -144,6 +144,79 @@ export const MCP_EVENTS = {
 
 export type McpEventType = (typeof MCP_EVENTS)[keyof typeof MCP_EVENTS];
 
+/**
+ * The tool-call protocol between an Asterim-instructed agent and the Core.
+ *
+ * Asterim drives agent CLIs over a PTY: it cannot register itself inside
+ * `claude`'s or `aider`'s own tool system, so the channel has to be the one
+ * channel that exists — the text stream. An agent that has been told about MCP
+ * tools asks for one by writing a single line:
+ *
+ *     ASTERIM_TOOL_CALL {"tool":"mcp__filesystem__read_file","arguments":{"path":"a.txt"}}
+ *
+ * and the Core writes the answer back on the agent's stdin:
+ *
+ *     ASTERIM_TOOL_RESULT {"tool":"…","isError":false,"text":"…"}
+ *
+ * One line each way, JSON after a sentinel, so a parser can find it in a stream
+ * that also carries prose, ANSI escapes and progress spinners.
+ */
+export const TOOL_CALL_PREFIX = 'ASTERIM_TOOL_CALL';
+export const TOOL_RESULT_PREFIX = 'ASTERIM_TOOL_RESULT';
+
+/** A tool call an agent has asked for. */
+export interface AgentToolCallRequest {
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+
+/** What the Core writes back for one call. */
+export interface AgentToolCallResponse {
+  tool: string;
+  isError: boolean;
+  text: string;
+}
+
+/** A tool as it is described to an agent. */
+export interface AgentToolDescriptor {
+  /** `mcp__<server>__<tool>` */
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/**
+ * Reads a tool call out of one line of agent output.
+ *
+ * Returns null for every line that is not one — which is almost all of them —
+ * and for a sentinel followed by something that is not a usable call, because a
+ * half-written line in a stream is not an error worth surfacing to anyone.
+ */
+export function parseAgentToolCall(line: string): AgentToolCallRequest | null {
+  const index = line.indexOf(TOOL_CALL_PREFIX);
+  if (index === -1) return null;
+
+  const payload = line.slice(index + TOOL_CALL_PREFIX.length).trim();
+  if (!payload) return null;
+
+  try {
+    const parsed = JSON.parse(payload) as Partial<AgentToolCallRequest>;
+    if (!parsed || typeof parsed.tool !== 'string' || !parsed.tool) return null;
+    const args = parsed.arguments;
+    return {
+      tool: parsed.tool,
+      arguments: args && typeof args === 'object' && !Array.isArray(args) ? args : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Formats one answer as the line the agent reads. */
+export function formatAgentToolResponse(response: AgentToolCallResponse): string {
+  return `${TOOL_RESULT_PREFIX} ${JSON.stringify(response)}`;
+}
+
 /** Fields a client may send when creating or updating a server. */
 export interface McpServerInput {
   name?: string;

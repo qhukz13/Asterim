@@ -11,6 +11,8 @@ import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 
 import { processTreeManager } from './ProcessTreeManager';
+import { mcpAgentBridge } from './mcp/McpAgentBridge';
+import { mcpToolGateway } from './mcp/McpToolGateway';
 
 export class AgentService {
   private sessionManager = new SessionManager();
@@ -222,10 +224,25 @@ export class AgentService {
 
       const { approvalManager } = await import('./ApprovalManager');
       const { questionManager } = await import('./QuestionManager');
+
+      // Whatever MCP is offering right now. Read at session start rather than
+      // held: a server the user starts later belongs to the next session, and a
+      // list captured once would go stale without anyone noticing.
+      const workspaceId = this.resolveWorkspaceId(projectId);
+      const mcpTools = this.discoverMcpTools(workspaceId);
+      const { toToolDescriptors, formatToolInstructions } = await import('./mcp/McpToolPrompt');
+      const toolDescriptors = toToolDescriptors(mcpTools);
+      const mcpToolInstructions = formatToolInstructions(toolDescriptors);
+
       await this.sessionManager.startSession(
         agentType,
         threadId,
-        { workspace, hasHistory },
+        {
+          workspace,
+          hasHistory,
+          mcpTools: toolDescriptors,
+          mcpToolInstructions
+        },
         (event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId, threadId };
           eventBus.publish(event);
@@ -311,8 +328,34 @@ export class AgentService {
           }
 
           this.stopAgent(threadId);
+        },
+        adapter => {
+          // Wired before the child process exists, so a tool call in its very
+          // first line of output already has somewhere to go.
+          adapter.setAvailableTools(toolDescriptors);
+          adapter.registerToolExecutor(
+            mcpToolGateway.createExecutor({
+              projectId,
+              threadId,
+              workspaceId,
+              workspacePath: workspace
+            })
+          );
         }
       );
+
+      // The startup payload: what this session can call, on the record.
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: 'agent.tools_available',
+        payload: {
+          projectId,
+          threadId,
+          tools: toolDescriptors.map(tool => ({ name: tool.name, description: tool.description }))
+        }
+      });
 
       const sessionId = crypto.randomUUID();
       const pid = this.sessionManager.getPid(threadId);
@@ -386,9 +429,49 @@ export class AgentService {
     }
   }
 
+  /**
+   * The workspace a project belongs to, if it belongs to one.
+   *
+   * Scopes the MCP catalogue: a workspace's servers plus the
+   * workstation-wide ones, which is the same rule the supervisor applies.
+   */
+  private resolveWorkspaceId(projectId: string): string | undefined {
+    try {
+      const db = dbService.getDb();
+      const row = db
+        .prepare('SELECT workspace_id FROM projects WHERE id = ?')
+        .get(projectId) as { workspace_id?: string | null } | undefined;
+      return row?.workspace_id ?? undefined;
+    } catch (err) {
+      console.warn(
+        `[AgentService] Could not resolve the workspace for project ${projectId}: ${(err as Error).message}`
+      );
+      return undefined;
+    }
+  }
+
+  /** The MCP tools available to a session. Never fatal: no tools is a session. */
+  private discoverMcpTools(workspaceId?: string) {
+    try {
+      return mcpAgentBridge.getAvailableTools(workspaceId);
+    } catch (err) {
+      console.error('[AgentService] Could not list MCP tools:', err);
+      return [];
+    }
+  }
+
   private async stopAgent(threadId: string) {
     this.userStopped.add(threadId);
     this.crashCounts.delete(threadId);
+
+    // Anything this thread was waiting on a human for is moot now. Left alone,
+    // the approval card outlives the session that asked for it.
+    const cancelled = mcpToolGateway.cancelPendingForThread(threadId);
+    if (cancelled > 0) {
+      console.log(
+        `[AgentService] Cancelled ${cancelled} pending tool approval(s) for thread ${threadId}`
+      );
+    }
 
     const config = this.adapterConfigs.get(threadId);
     this.adapterConfigs.delete(threadId);

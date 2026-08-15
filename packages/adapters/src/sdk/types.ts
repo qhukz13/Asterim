@@ -1,4 +1,4 @@
-import { AsterimEvent } from '@asterim/shared';
+import { AgentToolDescriptor, AsterimEvent } from '@asterim/shared';
 
 export interface AdapterCapabilities {
   supportsDiff: boolean;
@@ -27,6 +27,10 @@ export interface LaunchConfig {
   workspace: string;
   isMock?: boolean;
   hasHistory?: boolean;
+  /** MCP tools this session may call, for prompts and CLI tool definitions. */
+  mcpTools?: AgentToolDescriptor[];
+  /** The instructions describing those tools and how to call them. */
+  mcpToolInstructions?: string;
 }
 
 export interface IAgentProvider {
