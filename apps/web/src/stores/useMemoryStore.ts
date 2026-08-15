@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getAuthHeaders } from '../utils/auth';
 import type {
   ArchitecturalRule,
   AsterimEvent,
@@ -90,13 +91,9 @@ function memoryUrl(projectId: string, suffix: string): string {
   return `/api/v1/projects/${encodeURIComponent(projectId)}/memory${suffix}`;
 }
 
-/** Mirrors the auth header convention in useWorkspaceStore. */
+/** Delegates to the shared helper so a remote workstation gets its own token. */
 function authHeaders(json = false): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem('asterim_token');
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (json) headers['Content-Type'] = 'application/json';
-  return headers;
+  return getAuthHeaders({ json });
 }
 
 /**
@@ -151,8 +148,7 @@ function applyDecisionToBriefing(
   const withoutIt = briefing.activeDecisions.filter(d => d.id !== decision.id);
   return {
     ...briefing,
-    activeDecisions:
-      decision.status === 'ACTIVE' ? upsertDecision(withoutIt, decision) : withoutIt
+    activeDecisions: decision.status === 'ACTIVE' ? upsertDecision(withoutIt, decision) : withoutIt
   };
 }
 
@@ -196,11 +192,14 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   // --- Reads ---
 
-  fetchBriefing: async (projectId) => {
+  fetchBriefing: async projectId => {
     set({ loading: true, error: null });
     try {
       const res = await fetch(memoryUrl(projectId, '/briefing'), { headers: authHeaders() });
-      const { briefing } = await readJson<{ briefing: ProjectBriefing }>(res, 'Loading the briefing');
+      const { briefing } = await readJson<{ briefing: ProjectBriefing }>(
+        res,
+        'Loading the briefing'
+      );
       set({
         projectId,
         briefing,
@@ -219,15 +218,20 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const query = filter?.status ? `?status=${encodeURIComponent(filter.status)}` : '';
-      const res = await fetch(memoryUrl(projectId, `/decisions${query}`), { headers: authHeaders() });
-      const { decisions } = await readJson<{ decisions: ProjectDecision[] }>(res, 'Loading decisions');
+      const res = await fetch(memoryUrl(projectId, `/decisions${query}`), {
+        headers: authHeaders()
+      });
+      const { decisions } = await readJson<{ decisions: ProjectDecision[] }>(
+        res,
+        'Loading decisions'
+      );
       set({ projectId, decisions, loading: false });
     } catch (err) {
       set({ loading: false, error: (err as Error).message });
     }
   },
 
-  fetchRules: async (projectId) => {
+  fetchRules: async projectId => {
     set({ loading: true, error: null });
     try {
       const res = await fetch(memoryUrl(projectId, '/rules'), { headers: authHeaders() });
@@ -238,11 +242,14 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
-  fetchIntent: async (projectId) => {
+  fetchIntent: async projectId => {
     set({ loading: true, error: null });
     try {
       const res = await fetch(memoryUrl(projectId, '/intents/active'), { headers: authHeaders() });
-      const { intent } = await readJson<{ intent: ProjectIntent | null }>(res, 'Loading the intent');
+      const { intent } = await readJson<{ intent: ProjectIntent | null }>(
+        res,
+        'Loading the intent'
+      );
       set({ projectId, activeIntent: intent, loading: false });
     } catch (err) {
       set({ loading: false, error: (err as Error).message });
@@ -257,10 +264,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
    * A failure is swallowed into `error` and leaves the previous drift in place —
    * a stale badge is better than a view that fails to load because git is slow.
    */
-  fetchDrift: async (projectId) => {
+  fetchDrift: async projectId => {
     try {
       const res = await fetch(memoryUrl(projectId, '/drift'), { headers: authHeaders() });
-      const { drift } = await readJson<{ drift: Record<string, DecisionDriftInfo> }>(res, 'Loading drift');
+      const { drift } = await readJson<{ drift: Record<string, DecisionDriftInfo> }>(
+        res,
+        'Loading drift'
+      );
       set({ projectId, drift });
     } catch (err) {
       set({ error: (err as Error).message });
@@ -268,10 +278,15 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   /** Loads the review queue. Only PENDING candidates are actionable. */
-  fetchCandidates: async (projectId) => {
+  fetchCandidates: async projectId => {
     try {
-      const res = await fetch(memoryUrl(projectId, '/candidates?status=PENDING'), { headers: authHeaders() });
-      const { candidates } = await readJson<{ candidates: CandidateDecision[] }>(res, 'Loading candidates');
+      const res = await fetch(memoryUrl(projectId, '/candidates?status=PENDING'), {
+        headers: authHeaders()
+      });
+      const { candidates } = await readJson<{ candidates: CandidateDecision[] }>(
+        res,
+        'Loading candidates'
+      );
       set({ projectId, candidates });
     } catch (err) {
       set({ error: (err as Error).message });
@@ -293,7 +308,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         memoryUrl(projectId, `/candidates/${encodeURIComponent(candidateId)}/approve`),
         { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) }
       );
-      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Approving the candidate');
+      const { decision } = await readJson<{ decision: ProjectDecision }>(
+        res,
+        'Approving the candidate'
+      );
       set(state => ({
         loading: false,
         candidates: state.candidates.filter(c => c.id !== candidateId),
@@ -316,7 +334,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) }
       );
       await readJson<{ candidate: CandidateDecision }>(res, 'Discarding the candidate');
-      set(state => ({ loading: false, candidates: state.candidates.filter(c => c.id !== candidateId) }));
+      set(state => ({
+        loading: false,
+        candidates: state.candidates.filter(c => c.id !== candidateId)
+      }));
     } catch (err) {
       set({ loading: false, error: (err as Error).message });
       throw err;
@@ -337,7 +358,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         headers: authHeaders(true),
         body: JSON.stringify(data)
       });
-      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Recording the decision');
+      const { decision } = await readJson<{ decision: ProjectDecision }>(
+        res,
+        'Recording the decision'
+      );
       set(state => ({
         loading: false,
         decisions: upsertDecision(state.decisions, decision),
@@ -357,7 +381,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         memoryUrl(projectId, `/decisions/${encodeURIComponent(decisionId)}/supersede`),
         { method: 'POST', headers: authHeaders(true), body: JSON.stringify(data) }
       );
-      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Superseding the decision');
+      const { decision } = await readJson<{ decision: ProjectDecision }>(
+        res,
+        'Superseding the decision'
+      );
       set(state => {
         // The response describes the replacement. Mark the replaced decision here
         // rather than waiting for a refetch, so the explorer never shows two
@@ -387,7 +414,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         memoryUrl(projectId, `/decisions/${encodeURIComponent(decisionId)}/status`),
         { method: 'PATCH', headers: authHeaders(true), body: JSON.stringify({ status }) }
       );
-      const { decision } = await readJson<{ decision: ProjectDecision }>(res, 'Updating the decision');
+      const { decision } = await readJson<{ decision: ProjectDecision }>(
+        res,
+        'Updating the decision'
+      );
       set(state => ({
         loading: false,
         decisions: upsertDecision(state.decisions, decision),
@@ -416,7 +446,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         loading: false,
         rules: upsertRule(state.rules, rule),
         briefing: state.briefing
-          ? { ...state.briefing, architecturalRules: upsertRule(state.briefing.architecturalRules, rule) }
+          ? {
+              ...state.briefing,
+              architecturalRules: upsertRule(state.briefing.architecturalRules, rule)
+            }
           : state.briefing
       }));
       return rule;
@@ -449,7 +482,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   // --- Live updates ---
 
-  handleMemoryEvent: (event) => {
+  handleMemoryEvent: event => {
     if (!isMemoryEvent(event)) return;
 
     const payload = event.payload as { projectId?: string } | undefined;
@@ -485,11 +518,16 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       }
 
       case 'memory.decision_superseded': {
-        const { decisionId, supersededBy, decision } = event.payload as MemoryDecisionSupersededPayload;
+        const { decisionId, supersededBy, decision } =
+          event.payload as MemoryDecisionSupersededPayload;
         set(state => {
           const marked = state.decisions.map(d =>
             d.id === decisionId
-              ? { ...d, status: 'SUPERSEDED' as DecisionStatus, supersededBy: supersededBy ?? d.supersededBy }
+              ? {
+                  ...d,
+                  status: 'SUPERSEDED' as DecisionStatus,
+                  supersededBy: supersededBy ?? d.supersededBy
+                }
               : d
           );
           let briefing = state.briefing;
@@ -512,7 +550,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         set(state => ({
           rules: upsertRule(state.rules, rule),
           briefing: state.briefing
-            ? { ...state.briefing, architecturalRules: upsertRule(state.briefing.architecturalRules, rule) }
+            ? {
+                ...state.briefing,
+                architecturalRules: upsertRule(state.briefing.architecturalRules, rule)
+              }
             : state.briefing
         }));
         return;

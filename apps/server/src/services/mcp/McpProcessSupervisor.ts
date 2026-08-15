@@ -16,6 +16,7 @@ import {
 import { dbService } from '../DatabaseService';
 import { eventBus } from '../EventBus';
 import { DEFAULT_TOOL_TIMEOUT_MS, McpStdioClient, McpTimeoutError } from './McpStdioClient';
+import { validateToolArguments } from './SchemaValidator';
 
 /**
  * Supervises the MCP servers a developer has registered with Asterim.
@@ -37,7 +38,9 @@ export type McpErrorCode =
   | 'SPAWN_FAILED'
   | 'SERVER_NOT_RUNNING'
   | 'TOOL_NOT_FOUND'
-  | 'TOOL_TIMEOUT';
+  | 'TOOL_TIMEOUT'
+  | 'INVALID_ARGUMENTS'
+  | 'QUEUE_FULL';
 
 export class McpError extends Error {
   constructor(
@@ -57,6 +60,79 @@ export const TERMINATE_GRACE_MS = 3000;
 
 /** Bound on the whole opening sequence, not on one request within it. */
 export const HANDSHAKE_TIMEOUT_MS = 10000;
+
+/**
+ * Calls that may be waiting for one server at once.
+ *
+ * A queue that grows without limit turns a slow MCP server into unbounded
+ * memory and a pile of calls whose callers gave up long ago. Past this depth a
+ * call is refused immediately, which is information the caller can act on.
+ */
+export const MAX_QUEUE_DEPTH = 20;
+
+/** How long a call may sit in the queue before it is abandoned. */
+export const QUEUE_WAIT_TIMEOUT_MS = 60000;
+
+/**
+ * Runs one job at a time for one server.
+ *
+ * A stdio MCP server is a single pipe. Two concurrent `tools/call` writes are
+ * two interleaved byte streams, and the protocol has no framing that survives
+ * that — so invocations are serialised per server rather than per process.
+ *
+ * The slot is released in a `finally`, which is the whole point: a tool that
+ * throws, times out, or is abandoned must not leave the queue wedged behind it.
+ */
+class SerialQueue {
+  private active = false;
+  private readonly waiting: (() => void)[] = [];
+
+  constructor(
+    private readonly maxDepth: number,
+    private readonly waitTimeoutMs: number
+  ) {}
+
+  get depth(): number {
+    return this.waiting.length;
+  }
+
+  get isBusy(): boolean {
+    return this.active;
+  }
+
+  async run<T>(job: () => Promise<T>, onFull: () => Error): Promise<T> {
+    if (this.active) {
+      if (this.waiting.length >= this.maxDepth) {
+        throw onFull();
+      }
+      await this.waitTurn();
+    }
+
+    this.active = true;
+    try {
+      return await job();
+    } finally {
+      this.active = false;
+      this.waiting.shift()?.();
+    }
+  }
+
+  private waitTurn(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const index = this.waiting.indexOf(release);
+        if (index !== -1) this.waiting.splice(index, 1);
+        reject(new Error(`waited more than ${this.waitTimeoutMs}ms for the server to be free`));
+      }, this.waitTimeoutMs);
+
+      const release = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.waiting.push(release);
+    });
+  }
+}
 
 /** Rejects if `promise` has not settled in time. */
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -125,8 +201,10 @@ export function sanitizeMcpEnv(
 interface RuntimeState {
   status: McpServerStatus;
   child: ChildProcess | null;
-  /** The open JSON-RPC session, kept for refreshes and future tool calls. */
+  /** The open JSON-RPC session, kept for refreshes and tool calls. */
   client: McpStdioClient | null;
+  /** Serialises tool calls: one pipe, one call at a time. */
+  queue: SerialQueue;
   capabilities: McpServerCapabilities | null;
   pid: number | null;
   startedAt: number | null;
@@ -181,11 +259,15 @@ function rowToConfig(row: McpServerRow): McpServerConfig {
   };
 }
 
-function idleState(): RuntimeState {
+function idleState(
+  maxQueueDepth = MAX_QUEUE_DEPTH,
+  queueWaitMs = QUEUE_WAIT_TIMEOUT_MS
+): RuntimeState {
   return {
     status: 'STOPPED',
     child: null,
     client: null,
+    queue: new SerialQueue(maxQueueDepth, queueWaitMs),
     capabilities: null,
     pid: null,
     startedAt: null,
@@ -204,6 +286,10 @@ export interface McpSupervisorOptions {
   handshakeTimeoutMs?: number;
   /** Bound on a single tool call. */
   toolTimeoutMs?: number;
+  /** Calls that may wait for one server before further ones are refused. */
+  maxQueueDepth?: number;
+  /** How long a call may wait in the queue before it is abandoned. */
+  queueWaitTimeoutMs?: number;
 }
 
 export class McpProcessSupervisor {
@@ -211,12 +297,16 @@ export class McpProcessSupervisor {
   private readonly requestTimeoutMs: number;
   private readonly handshakeTimeoutMs: number;
   private readonly toolTimeoutMs: number;
+  private readonly maxQueueDepth: number;
+  private readonly queueWaitTimeoutMs: number;
   private exitHookInstalled = false;
 
   constructor(options: McpSupervisorOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? 5000;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
     this.toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    this.maxQueueDepth = options.maxQueueDepth ?? MAX_QUEUE_DEPTH;
+    this.queueWaitTimeoutMs = options.queueWaitTimeoutMs ?? QUEUE_WAIT_TIMEOUT_MS;
   }
 
   /**
@@ -381,7 +471,7 @@ export class McpProcessSupervisor {
   private state(id: string): RuntimeState {
     let state = this.runtimes.get(id);
     if (!state) {
-      state = idleState();
+      state = idleState(this.maxQueueDepth, this.queueWaitTimeoutMs);
       this.runtimes.set(id, state);
     }
     return state;
@@ -612,25 +702,50 @@ export class McpProcessSupervisor {
       );
     }
 
-    const known = state.capabilities?.tools.some(tool => tool.name === toolName);
-    if (!known) {
+    const tool = state.capabilities?.tools.find(candidate => candidate.name === toolName);
+    if (!tool) {
       throw new McpError(
         'TOOL_NOT_FOUND',
         `${config.name} does not expose a tool named '${toolName}'.`
       );
     }
 
-    try {
-      return await state.client.callTool(toolName, args, this.toolTimeoutMs);
-    } catch (err) {
-      if (err instanceof McpTimeoutError) {
-        throw new McpError(
-          'TOOL_TIMEOUT',
-          `${config.name} did not answer '${toolName}' within ${this.toolTimeoutMs}ms.`
-        );
-      }
-      throw err;
+    // Checked here rather than in the bridge so every caller — agent, REST
+    // route, UI — gets the same answer to the same mistake.
+    const validation = validateToolArguments(args, tool.inputSchema, toolName);
+    if (!validation.valid) {
+      throw new McpError(
+        'INVALID_ARGUMENTS',
+        `${toolName} was called with invalid arguments: ${(validation.errors || []).join('; ')}`
+      );
     }
+
+    const client = state.client;
+    return state.queue.run(
+      async () => {
+        try {
+          return await client.callTool(toolName, args, this.toolTimeoutMs);
+        } catch (err) {
+          if (err instanceof McpTimeoutError) {
+            throw new McpError(
+              'TOOL_TIMEOUT',
+              `${config.name} did not answer '${toolName}' within ${this.toolTimeoutMs}ms.`
+            );
+          }
+          throw err;
+        }
+      },
+      () =>
+        new McpError(
+          'QUEUE_FULL',
+          `${config.name} already has ${this.maxQueueDepth} calls waiting; try again shortly.`
+        )
+    );
+  }
+
+  /** Calls waiting on a server, for diagnostics and tests. */
+  public queueDepth(serverId: string): number {
+    return this.runtimes.get(serverId)?.queue.depth ?? 0;
   }
 
   /**
@@ -762,7 +877,8 @@ export class McpProcessSupervisor {
   }
 
   private withRuntime(config: McpServerConfig): McpServerRuntimeInfo {
-    const state = this.runtimes.get(config.id) ?? idleState();
+    const state =
+      this.runtimes.get(config.id) ?? idleState(this.maxQueueDepth, this.queueWaitTimeoutMs);
     return {
       ...config,
       status: state.status,

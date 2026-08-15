@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getAuthHeaders } from '../utils/auth';
 import type {
   AsterimEvent,
   McpServerEventPayload,
@@ -60,13 +61,9 @@ interface McpState {
 
 const BASE = '/api/v1/mcp/servers';
 
-/** Mirrors the auth header convention in useMemoryStore and useWorkspaceStore. */
+/** Delegates to the shared helper so a remote workstation gets its own token. */
 function authHeaders(json = false): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem('asterim_token');
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (json) headers['Content-Type'] = 'application/json';
-  return headers;
+  return getAuthHeaders({ json });
 }
 
 /**

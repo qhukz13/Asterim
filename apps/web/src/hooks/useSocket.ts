@@ -5,6 +5,7 @@ import {
   AgentStatusPayload,
   FileChangedPayload,
   ApprovalRequestPayload,
+  McpServerEventPayload,
   QuestionRequestPayload
 } from '@asterim/shared';
 import {
@@ -105,20 +106,29 @@ export function useSocket(
 
     // Restore or clear transient states based on historical status
     const approvalEvents = threadEvents.filter(e => e.type === 'agent.approval_request');
-    const latestApproval = approvalEvents.length > 0 ? approvalEvents[approvalEvents.length - 1] : null;
-    const currentStatus = statusEvents.length > 0 ? statusEvents[statusEvents.length - 1].payload?.status : 'idle';
+    const latestApproval =
+      approvalEvents.length > 0 ? approvalEvents[approvalEvents.length - 1] : null;
+    const currentStatus =
+      statusEvents.length > 0 ? statusEvents[statusEvents.length - 1].payload?.status : 'idle';
 
     if (currentStatus === 'waiting_approval' && latestApproval?.payload) {
-      setApprovalRequest({ ...latestApproval.payload, timestamp: latestApproval.timestamp || Date.now() });
+      setApprovalRequest({
+        ...latestApproval.payload,
+        timestamp: latestApproval.timestamp || Date.now()
+      });
     } else {
       setApprovalRequest(null);
     }
 
     const questionEvents = threadEvents.filter(e => e.type === 'agent.question_required');
-    const latestQuestion = questionEvents.length > 0 ? questionEvents[questionEvents.length - 1] : null;
+    const latestQuestion =
+      questionEvents.length > 0 ? questionEvents[questionEvents.length - 1] : null;
 
     if (currentStatus === 'waiting_question' && latestQuestion?.payload) {
-      setQuestionRequest({ ...latestQuestion.payload, timestamp: latestQuestion.timestamp || Date.now() });
+      setQuestionRequest({
+        ...latestQuestion.payload,
+        timestamp: latestQuestion.timestamp || Date.now()
+      });
     } else {
       setQuestionRequest(null);
     }
@@ -282,12 +292,20 @@ export function useSocket(
       }
 
       // Thread-specific filtering
-      if (threadIdRef.current && event.payload?.threadId && event.payload.threadId !== threadIdRef.current) {
+      if (
+        threadIdRef.current &&
+        event.payload?.threadId &&
+        event.payload.threadId !== threadIdRef.current
+      ) {
         rawHistoryRef.current.push(event); // keep in raw history for switching threads
         return;
       }
 
-      if (event.type === 'chat.message' && threadIdRef.current && event.payload?.threadId !== threadIdRef.current) {
+      if (
+        event.type === 'chat.message' &&
+        threadIdRef.current &&
+        event.payload?.threadId !== threadIdRef.current
+      ) {
         rawHistoryRef.current.push(event);
         return;
       }
@@ -316,7 +334,9 @@ export function useSocket(
           ];
         });
       } else if (event.type === 'agent.status') {
-        console.log(`[PIPELINE_DEBUG] [STATUS_CHANGE] ts=${Date.now()} status=${event.payload?.status} message=${event.payload?.message}`);
+        console.log(
+          `[PIPELINE_DEBUG] [STATUS_CHANGE] ts=${Date.now()} status=${event.payload?.status} message=${event.payload?.message}`
+        );
         setAgentStatus(event.payload);
         if (event.payload.status === 'error' && event.payload.message) {
           setMessages(prev => [
@@ -368,7 +388,7 @@ export function useSocket(
     // MCP servers belong to the workstation, so these arrive as broadcasts
     // rather than through a project room.
     for (const mcpType of MCP_EVENT_TYPES) {
-      newSocket.on(mcpType, (event: any) => {
+      newSocket.on(mcpType, (event: AsterimEvent<McpServerEventPayload>) => {
         useMcpStore.getState().handleMcpEvent(event);
       });
     }
@@ -431,7 +451,12 @@ export function useSocket(
   };
 
   const sendApproval = (actionId: string, approved: boolean) => {
-    sendInternalEvent('client.approval_response', { actionId, approved, projectId, threadId: threadIdRef.current });
+    sendInternalEvent('client.approval_response', {
+      actionId,
+      approved,
+      projectId,
+      threadId: threadIdRef.current
+    });
     setApprovalRequest(null);
   };
 
@@ -463,7 +488,11 @@ export function useSocket(
 
   const sendChatMessage = (message: string) => {
     console.log(`[PIPELINE_DEBUG] [INPUT] ts=${Date.now()} sending chat message`);
-    sendInternalEvent('client.chat_message', { content: message, projectId, threadId: threadIdRef.current });
+    sendInternalEvent('client.chat_message', {
+      content: message,
+      projectId,
+      threadId: threadIdRef.current
+    });
   };
 
   return {

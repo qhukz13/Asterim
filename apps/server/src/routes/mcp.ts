@@ -13,7 +13,10 @@ const STATUS_BY_CODE: Record<McpErrorCode, number> = {
   TOOL_NOT_FOUND: 404,
   // The tool was reached and simply took too long: a gateway timeout, not a
   // failure of this server.
-  TOOL_TIMEOUT: 504
+  TOOL_TIMEOUT: 504,
+  INVALID_ARGUMENTS: 400,
+  // Too many calls already waiting on this server: a retry is the right move.
+  QUEUE_FULL: 429
 };
 
 function sendMcpError(reply: FastifyReply, err: unknown): FastifyReply {
