@@ -1,9 +1,9 @@
-Task-ID: P8-01
+Task-ID: P8-02
 Phase: 8
 
-# [P8-01] — Git Worktree Sandboxing & Subagent Working Tree Isolation
+# [P8-02] — Automated Verification Pipelines over Sandboxed Worktrees
 
-**Task ID:** P8-01  
+**Task ID:** P8-02  
 **Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -14,127 +14,127 @@ Phase: 8
 
 ## 1. Objective
 
-Implement Git Worktree Sandboxing in `apps/server`: author `GitWorktreeService.ts` to provision, inspect, diff, and prune isolated subagent working trees (`.asterim/worktrees/<threadId>`), extend SQLite `threads` schema with worktree metadata, integrate worktree isolation into `AgentDelegationService` so subagents execute in dedicated file-system sandboxes without dirtying the parent's working copy, and author comprehensive unit tests in real temporary Git repositories.
+Implement the Automated Verification Pipeline engine in `apps/server`: author `VerificationPipelineService.ts` to automatically discover, configure, and execute verification commands (typecheck, lint, test, build, or custom project pipeline steps) within a subagent's sandboxed worktree or project working directory. Integrate automated verification into `AgentDelegationService` so subagent completions produce factual `VerificationPipelineReport` execution evidence alongside Git diffs, expose REST verification triggers at `/api/v1/threads/:id/worktree/verify`, integrate sandbox orphan retention pruning, and author comprehensive unit tests.
 
 ---
 
 ## 2. Why This Task Exists
 
-In Phase 7, Asterim established the Multi-Agent Delegation Protocol (`delegateTask`, `delegateParallel`). However, child subagents currently share the parent thread's primary repository working directory. 
+With P8-01, delegated subagents execute in isolated Git worktrees (`.asterim/worktrees/<threadId>`), preventing concurrent file collisions and dirtying of the parent workspace.
 
-When multiple subagents execute concurrently or when an experimental subagent modifies files, changes collide directly in the parent's working tree. Git Worktree Sandboxing provides physical file-system and Git branch isolation:
-1. Each subagent operates on its own ephemeral worktree (`.asterim/worktrees/<threadId>`) branched from the parent's commit.
-2. Concurrent subagents (e.g. from `delegate_parallel`) edit files simultaneously with zero Git index locking or file collision.
-3. Subagent changes produce clean, isolated Git diffs that the parent or operator can review and merge with one click.
+However, parents and operators currently only receive file diffs and subagent text summaries. Subagents may claim that "all tests pass and types are clean" when syntax errors, broken imports, or test regressions exist.
+
+Automated Verification Pipelines close the trust gap:
+1. **Factual Verification**: Asterim autonomously runs the project's actual typechecker, linter, tests, and build inside the subagent's isolated worktree before the task is concluded.
+2. **Zero Pollution**: Verification commands execute entirely inside the isolated sandbox directory, producing no temporary build artifacts in the operator's primary tree.
+3. **Structured Evidence**: `DelegationResult` receives a structured `VerificationPipelineReport` (`passed`, `steps`, `exitCode`, `stdoutSummary`, `durationMs`) which is formatted into the parent agent's brief and exposed via REST/UI.
+4. **Lifecycle Hygiene**: Safe orphan pruning prevents disk accumulation of abandoned worktree sandboxes.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Git Worktree Primitives**:
-  - `git worktree add <path> -b <branchName> <baseCommit>`: Creates an isolated directory sharing the primary repository's `.git/objects` and refs.
-  - Ephemeral Branch Naming: `asterim/sandbox/<threadId>`.
-  - Directory Path: `<projectRoot>/.asterim/worktrees/<threadId>`.
-  - `git worktree remove --force <path>` & `git worktree prune`: Clean teardown.
+- **Verification Pipeline Discovery**:
+  - Auto-discovery inspects the target directory for project descriptors:
+    - Node / JavaScript / TypeScript: inspects `package.json` `scripts` for standard lifecycle commands (`typecheck`, `lint`, `test`, `build`), detecting the package manager (`pnpm`, `npm`, `yarn`, `bun`).
+    - Explicit Configuration: inspects `.asterim/verification.json` (or `.asterim/pipeline.json`) if present for custom multi-language commands (e.g. `cargo test`, `pytest`, `go test`).
+  - Safe Execution:
+    - Executes steps sequentially via `child_process.spawn` / `exec` with per-step timeouts (default 60s, configurable), environment variable inheritance, and non-blocking stream capture.
+    - Output bounds: captures and truncates stdout/stderr per step (capped at 50,000 characters) to prevent memory inflation.
+    - Resilience: unhandled exceptions, non-zero exits, or killed processes fail the step cleanly and report `passed: false` without crashing Asterim Core.
 - **Delegation Integration**:
-  - `DelegationRequest` supports `isolateWorktree?: boolean` (defaults to `true` for `TASK` subagents when in a Git repository).
-  - Child session `workingDirectory` is set to the provisioned worktree path.
-  - On subagent completion, `GitWorktreeService.getDiff` captures the exact changes made and attaches them to `DelegationResult.diff`.
+  - `DelegationRequest` supports `verifyPipeline?: boolean` (defaults to `true` for `TASK` delegations with an active worktree).
+  - On subagent session completion, `AgentDelegationService` triggers `verificationPipelineService.runPipeline(worktreePath)` before returning the result.
+  - `DelegationResult` carries `verificationReport?: VerificationPipelineReport`.
+  - `formatDelegationReport` includes a `VERIFICATION:` summary section.
+- **REST Surface**:
+  - `POST /api/v1/threads/:id/worktree/verify` — manually execute verification in the thread's worktree.
+  - `GET /api/v1/threads/:id/worktree/verify` — get latest verification report for thread.
+- **Worktree Orphan Retention**:
+  - Wire `GitWorktreeService.pruneOrphans(repoPath, activeThreadIds)` into `StartupService` / `recoverDelegations` to clean up unreferenced sandboxes safely without touching active delegations.
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Database Schema (`DatabaseService.ts`)**:
-   - Add columns to `threads` table:
-     ```sql
-     ALTER TABLE threads ADD COLUMN worktree_path TEXT;
-     ALTER TABLE threads ADD COLUMN worktree_branch TEXT;
-     ```
-
-2. **Shared Types (`packages/shared/src/types/worktree.ts` & `delegation.ts`)**:
-   - `WorktreeInfo`: `threadId`, `path`, `branch`, `baseCommit`, `createdAt`, `status` (`ACTIVE` | `MERGED` | `PRUNED`).
-   - Extend `DelegationRequest` with `isolateWorktree?: boolean`.
-   - Extend `DelegationResult` with `diff?: string`, `changedFiles?: string[]`, `worktreePath?: string`.
+1. **Shared Types (`packages/shared/src/types/verification.ts` & `delegation.ts`)**:
+   - Define `VerificationStep`: `name`, `command`, `timeoutMs?`.
+   - Define `VerificationStepResult`: `name`, `command`, `passed`, `exitCode`, `durationMs`, `stdoutSummary?`, `stderrSummary?`, `error?`.
+   - Define `VerificationPipelineReport`: `passed: boolean`, `totalSteps: number`, `passedSteps: number`, `failedSteps: number`, `durationMs: number`, `steps: VerificationStepResult[]`, `executedAt: number`, `cwd: string`.
+   - Extend `DelegationRequest` with `verifyPipeline?: boolean`, `verificationSteps?: string[]`.
+   - Extend `DelegationResult` with `verificationReport?: VerificationPipelineReport`.
    - Export from `packages/shared/src/index.ts`.
 
-3. **`GitWorktreeService.ts` (`apps/server/src/services/git/GitWorktreeService.ts`)**:
-   - `createWorktree(repoPath: string, threadId: string, baseCommit?: string)`:
-     - Validates `repoPath` is a valid Git repository.
-     - Provisions `<repoPath>/.asterim/worktrees/<threadId>` on branch `asterim/sandbox/<threadId>`.
-     - Ensures `.asterim` is ignored in `.git/info/exclude` if not already present in `.gitignore`.
-     - Returns `WorktreeInfo`.
-   - `getDiff(worktreePath: string, baseCommit?: string)`:
-     - Returns unified git diff of all staged and unstaged changes in the worktree against base commit.
-     - Returns list of changed file paths.
-   - `mergeWorktree(repoPath: string, threadId: string, targetBranch?: string)`:
-     - Merges sandbox branch into the target branch.
-   - `removeWorktree(repoPath: string, threadId: string)`:
-     - Deletes worktree directory and deletes ephemeral branch `asterim/sandbox/<threadId>`.
-     - Executes `git worktree prune`.
+2. **`VerificationPipelineService.ts` (`apps/server/src/services/verification/VerificationPipelineService.ts`)**:
+   - `discoverPipeline(targetDir: string)`: inspects directory for `.asterim/verification.json` or `package.json` scripts, returning ordered `VerificationStep[]`.
+   - `runStep(step: VerificationStep, targetDir: string, timeoutMs?: number)`: executes command in `targetDir` with timeout and output capture.
+   - `runPipeline(targetDir: string, options?: { steps?: string[]; timeoutMs?: number })`: executes all discovered or specified steps, returning `VerificationPipelineReport`.
+   - Safe execution guards against command injection, missing binaries, and hung processes (escalating SIGTERM -> SIGKILL).
 
-4. **Integration with `AgentDelegationService.ts`**:
-   - Before launching child session: if `isolateWorktree` is true and project is a Git repository, call `gitWorktreeService.createWorktree`.
-   - Set child `session.workingDirectory = worktree.path`.
-   - On child session completion: capture diff via `gitWorktreeService.getDiff` and include in child summary.
-   - Store `worktree_path` and `worktree_branch` on the child thread row.
+3. **Integration with `AgentDelegationService.ts`**:
+   - In `runDelegation`: after child session finishes and if `verifyPipeline` is enabled (and worktree/target exists), execute `verificationPipelineService.runPipeline`.
+   - Attach `verificationReport` to `DelegationResult`.
+   - Update `formatDelegationReport` to format verification results into the brief returned to the parent agent.
 
-5. **REST API Endpoints (`apps/server/src/routes/worktrees.ts`)**:
-   - `GET /api/v1/threads/:id/worktree` — Get worktree metadata and live git diff for a thread.
-   - `POST /api/v1/threads/:id/worktree/merge` — Merge subagent worktree changes into parent branch.
-   - `DELETE /api/v1/threads/:id/worktree` — Discard and prune subagent worktree.
-   - Register in `apps/server/src/index.ts`.
+4. **REST Endpoints (`apps/server/src/routes/worktrees.ts` or `routes/verification.ts`)**:
+   - `POST /api/v1/threads/:id/worktree/verify` — runs verification pipeline in thread's worktree sandbox and returns report.
+   - `GET /api/v1/threads/:id/worktree/verify` — returns cached or latest verification report.
 
-6. **Automated Unit Test Suite (`apps/server/src/services/git/__tests__/GitWorktreeService.test.ts`)**:
-   - Test worktree creation in real temporary git repositories.
-   - Test file modifications within worktree producing isolated diffs.
-   - Test merge-back to main branch.
-   - Test clean removal, branch deletion, and orphan cleanup.
-   - Test fallback behavior if project is not a git repository.
-   - Wire into `apps/server/package.json` `"test"` script.
+5. **Sandbox Retention Pruning Integration**:
+   - Wire `gitWorktreeService.pruneOrphans` during `recoverDelegations` on server startup so abandoned worktrees from killed processes are reclaimed.
+
+6. **Unit & Integration Tests (`apps/server/src/services/verification/__tests__/VerificationPipelineService.test.ts`)**:
+   - Test auto-discovery from `package.json` (pnpm/npm/yarn/bun).
+   - Test custom config via `.asterim/verification.json`.
+   - Test passing steps, failing steps (non-zero exit code), and timed-out steps.
+   - Test execution inside real temporary directories and Git worktree sandboxes.
+   - Test delegation integration asserting `DelegationResult.verificationReport` populated.
+   - Wire into `apps/server/package.json` `"test"` script (20 → 21 server test suites).
 
 ---
 
-## 5. Constraints & Forbidden Changes
+## 5. Explicitly Forbidden Changes
 
-- Do NOT corrupt or overwrite the primary repository's working tree during worktree creation or removal.
-- Ensure `.asterim/worktrees/` is never committed to upstream Git tracking.
-- Do NOT break any of the existing 36 test suites.
+- Do NOT invent external SaaS dependencies or network services.
+- Do NOT modify the primary repository files during sandbox verification.
+- Do NOT delete active worktrees during orphan pruning.
+- Do NOT break any of the existing 37 test suites.
 
 ---
 
 ## 6. Acceptance Criteria
 
-1. `GitWorktreeService` creates, diffs, merges, and removes Git worktrees safely using native Git CLI commands.
-2. `AgentDelegationService` automatically runs subagents in isolated worktrees when requested.
-3. Subagent file modifications produce isolated Git diffs that return in `DelegationResult`.
-4. REST endpoints `/api/v1/threads/:id/worktree` support inspection, merging, and discarding worktrees.
-5. `GitWorktreeService.test.ts` passes with comprehensive assertions in real temporary git repositories.
-6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (37 test suites), `pnpm run build`.
+1. `VerificationPipelineService` automatically discovers verification commands from `package.json` or custom `.asterim/verification.json` configuration.
+2. `VerificationPipelineService` executes verification steps sequentially with per-step timeouts, process management, and structured output capture.
+3. `AgentDelegationService` automatically runs verification in a subagent's sandboxed worktree upon task completion and attaches `VerificationPipelineReport` to `DelegationResult`.
+4. REST endpoint `POST /api/v1/threads/:id/worktree/verify` supports on-demand execution of verification pipelines with authenticated access control.
+5. Orphan worktree pruning is safely wired into server startup/recovery.
+6. `VerificationPipelineService.test.ts` passes with comprehensive assertions in real temporary directories.
+7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (38 test suites), `pnpm run build`.
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] `threads.worktree_path` columns added to SQLite schema
-- [ ] Shared worktree types in `@asterim/shared`
-- [ ] `GitWorktreeService.ts` implemented
-- [ ] `AgentDelegationService` worktree isolation integrated
-- [ ] `/api/v1/threads/:id/worktree` REST endpoints registered
-- [ ] `GitWorktreeService.test.ts` created and passing
-- [ ] Monorepo CI gates pass cleanly
+- [ ] Shared verification types in `@asterim/shared`
+- [ ] `VerificationPipelineService.ts` implemented with auto-discovery and bounded step execution
+- [ ] `AgentDelegationService` integrated with automated sandbox verification
+- [ ] REST verification endpoints implemented and registered
+- [ ] Orphan worktree pruning wired into startup lifecycle
+- [ ] `VerificationPipelineService.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly (38/38 test suites, 0 lint errors, 0 typecheck errors, build succeeds)
 
 ---
 
 ## 8. Verification Commands
 
 ```bash
-# Run new Git Worktree Service test suite
-pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts
+# Run new Verification Pipeline test suite
+pnpm --filter asterim exec tsx src/services/verification/__tests__/VerificationPipelineService.test.ts
 
-# Run all git subsystem test suites
-pnpm --filter asterim exec tsx src/services/git/__tests__/RemoteManager.test.ts
-pnpm --filter asterim exec tsx src/services/git/__tests__/GitDriftDetector.test.ts
+# Run Git Worktree and Delegation test suites
+pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts
+pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
@@ -145,6 +145,15 @@ pnpm run build
 
 ---
 
-## 9. Required Report
+## 9. Self-Review Requirements
+
+Execute the mandatory Claude Code self-review cycle:
+1. Inspect git diff (`git diff`) before declaring complete.
+2. Check every acceptance criterion against real test assertions.
+3. Confirm zero regressions across all existing test suites.
+
+---
+
+## 10. Required Report
 
 Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
