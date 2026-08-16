@@ -75,6 +75,10 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
         diff?: string;
         /** Whether the child gets its own worktree; unset means the default. */
         isolateWorktree?: boolean;
+        /** Whether its work is verified before it is handed back; unset means the default. */
+        verifyPipeline?: boolean;
+        /** Which discovered verification steps to run, by name. */
+        verificationSteps?: string[];
       } | null) || null;
 
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
@@ -88,6 +92,16 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
     // for a review — would be overwritten with `false` on every request.
     const isolateWorktree =
       typeof body.isolateWorktree === 'boolean' ? body.isolateWorktree : undefined;
+    // Same rule for verification (P8-02), and for the same reason: unset means
+    // "whatever the service decides", which is a pipeline for a sandboxed task
+    // and nothing for a review.
+    const verifyPipeline =
+      typeof body.verifyPipeline === 'boolean' ? body.verifyPipeline : undefined;
+    // Names of steps the project already declares, never commands — the service
+    // normalizes them and the pipeline only ever runs what it discovered.
+    const verificationSteps = Array.isArray(body.verificationSteps)
+      ? body.verificationSteps.filter((step): step is string => typeof step === 'string')
+      : undefined;
 
     try {
       const result =
@@ -99,7 +113,9 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
               role: body.role,
               profileId: body.profileId,
               timeoutMs: body.timeoutMs,
-              isolateWorktree
+              isolateWorktree,
+              verifyPipeline,
+              verificationSteps
             })
           : await agentDelegationService.delegateTask({
               parentThreadId: id,
@@ -108,7 +124,9 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
               taskDescription: body.task ?? body.taskDescription ?? '',
               inputContext: body.context ?? body.inputContext,
               timeoutMs: body.timeoutMs,
-              isolateWorktree
+              isolateWorktree,
+              verifyPipeline,
+              verificationSteps
             });
       return reply.send({ result });
     } catch (err) {

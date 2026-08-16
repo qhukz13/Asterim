@@ -1,9 +1,9 @@
-Task-ID: P8-02
+Task-ID: P8-03
 Status: COMPLETE
 
-# Execution Report: P8-02 — Automated Verification Pipelines over Sandboxed Worktrees
+# Execution Report: P8-03 — Worktree Sandboxing & Verification Pipeline Dashboard UI
 
-**Task ID:** P8-02
+**Task ID:** P8-03
 **Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing
 **Status:** IMPLEMENTED / VERIFIED
 **Date:** 2026-08-17
@@ -13,338 +13,290 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Asterim now runs a project's own verification commands over a delegated subagent's
-work and reports the exit codes, so "types are clean and the tests pass" stops
-being a sentence an agent writes and becomes something the Core established.
+The operator-facing half of Phase 8 is in. `DelegationOutcomeCard` and
+`DelegationBatchOutcomeCard` now render the evidence a delegation produced
+rather than only its prose summary: a verification badge, a collapsible
+step-by-step breakdown with commands, durations and exit codes, bounded
+monospace output for failing steps, the sandbox branch, the changed-file list,
+a tokenised diff preview, and the two buttons that decide what happens to the
+work. `useProjectStore` gained the sandbox state and the five actions that talk
+to the P8-01/P8-02 REST surface. `ThreadTree` badges sandboxed rows and
+verification outcomes, the chat header says whether this thread's work is going
+into a sandbox at all, and `DelegateModal` exposes the two switches that decide
+it up front.
 
-`VerificationPipelineService` discovers a pipeline (an explicit
-`.asterim/verification.json`, otherwise the lifecycle scripts in `package.json`
-run through whichever package manager the lockfile names), executes the steps
-sequentially in one directory with per-step timeouts and bounded output capture,
-and returns a `VerificationPipelineReport`. `AgentDelegationService` runs it
-automatically in a `TASK` child's worktree sandbox once the child's session has
-been stopped and before the parent is released, attaches the report to
-`DelegationResult`, and writes a `VERIFICATION:` section — including the failing
-step's own output — into the brief the parent reads.
-`POST`/`GET /api/v1/threads/:id/worktree/verify` expose the same thing on demand,
-and orphaned sandboxes are reclaimed at startup.
+The three-valued reading of a pipeline is preserved end to end: **passed**,
+**failed**, and **nothing ran** — a report with `totalSteps: 0` renders as
+"No verification pipeline configured" in the idle tone and never as a pass.
 
-Verified: 196/196 new assertions against real subprocesses, real temp
-directories and a real `git worktree`; 38/38 monorepo suites (2468 server
-assertions, no regressions); typecheck clean in all 7 packages; 0 lint errors;
-every package builds.
+`DelegationUI.test.ts` grew from 401 to **686 assertions**, all passing. All 38
+monorepo test suites, both lint gates (0 errors) and every typecheck and build
+are green.
 
 ---
 
 ## 2. Files Changed
 
-| File | Status | Purpose |
-| :--- | :--- | :--- |
-| `packages/shared/src/types/verification.ts` | created | The contract: `VerificationStep`, `VerificationStepResult`, `VerificationPipelineReport`, the discovery constants, `isSafeScriptName`, `summarizeVerificationReport`. |
-| `packages/shared/src/types/delegation.ts` | modified | `DelegationRequest.verifyPipeline` / `.verificationSteps`, the same two on `ParallelDelegationItem`, `DelegationResult.verificationReport`. |
-| `packages/shared/src/index.ts` | modified | Exports `./types/verification`. |
-| `apps/server/src/services/verification/VerificationPipelineService.ts` | created | Discovery, bounded step execution, whole-pipeline runs. |
-| `apps/server/src/services/verification/threadVerificationStore.ts` | created | Reads/writes a thread's latest report, shared by the delegation service and the REST surface. |
-| `apps/server/src/services/verification/__tests__/VerificationPipelineService.test.ts` | created | 196 assertions (suite 21 of the server's 21). |
-| `apps/server/src/services/ai/AgentDelegationService.ts` | modified | `attachVerification`, `pruneOrphanSandboxes`, `compactVerificationReport`, `normalizeStepNames`, `formatVerificationFailures`, and the `VERIFICATION:` section of `formatDelegationReport`. |
-| `apps/server/src/routes/worktrees.ts` | modified | `POST` and `GET /api/v1/threads/:id/worktree/verify`. |
-| `apps/server/src/services/DatabaseService.ts` | modified | `threads.verification_report_json`, via the existing ALTER-in-a-try pattern. |
-| `apps/server/src/index.ts` | modified | `pruneOrphanSandboxes()` after `recoverDelegations()`. |
-| `apps/server/package.json` | modified | The new suite in `test` (20 → 21 server suites, 37 → 38 monorepo). |
+| File | Change |
+| :--- | :--- |
+| `apps/web/src/stores/useProjectStore.ts` | `threadWorktrees` / `threadDiffs` / `threadVerificationReports` / `worktreeActions` state; `fetchThreadWorktree`, `fetchThreadVerification`, `mergeThreadWorktree`, `discardThreadWorktree`, `verifyThreadWorktree`; `verificationStatusTone` / `verificationStepTone`; evidence recorded off `delegation.completed` and `delegation.batch_completed` |
+| `apps/web/src/components/delegation/DelegationStatus.tsx` | `VerificationEvidence`, `SandboxEvidence`, `DelegationEvidence`, `ThreadSandboxIndicator` / `ThreadSandboxStatus`; helpers `diffLineTone`, `diffLineColor`, `diffPreview`, `sandboxBranchLabel`, `verificationStepDetail`, `stepOutput`; container wiring (panel state, two-click confirmation, notices, hydration) |
+| `apps/web/src/components/delegation/ThreadTree.tsx` | `threadSandbox()`; `[sandbox]` badge and verification tick/cross per row; `verificationReports` prop threaded through nesting |
+| `apps/web/src/components/delegation/DelegateModal.tsx` | "Isolate in Git Worktree" and "Run Verification Pipeline" switches; `defaultSandboxOptions`, `applySandboxOption`; both flags carried in `buildDelegationBody` and `buildParallelDelegationBody` |
+| `apps/web/src/components/SessionSidebar.tsx` | Passes `threadVerificationReports` into `ThreadTreeView` |
+| `apps/web/src/App.tsx` | `ThreadSandboxStatus` in the chat thread header |
+| `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts` | +285 assertions across 15 new blocks (401 → 686) |
+| `apps/server/src/routes/delegation.ts` | Forwards `verifyPipeline` / `verificationSteps` on `POST /delegate` (see §7) |
+| `apps/server/src/services/ai/AgentDelegationService.ts` | `parseParallelItems` reads `isolateWorktree` / `verifyPipeline` / `verificationSteps`; `requestReview` accepts the two verification fields; `asOptionalBoolean` helper |
 
 ---
 
 ## 3. Implementation Details
 
-### Discovery
+**Store.** Sandbox state is keyed by the *child* thread id, because a sandbox
+belongs to the thread that ran in it. `null` and "absent" are different answers:
+`null` means "asked, and there is none" (a thread that never had a sandbox, or
+one that was just discarded) and an absent key means "never asked". That
+distinction is what stops a discarded sandbox from falling back to the stale
+diff still sitting on the delegation payload.
 
-`discoverPipeline(targetDir, { configDir })` returns ordered `VerificationStep[]`:
+`evidenceFromResult` folds the diff, the changed files and the report off the
+`delegation.completed` payload into those maps, and does the same for every
+child of a `delegation.batch_completed`. It is deliberately additive: a
+delegation with no sandbox writes nothing rather than writing `null`, so an
+unsandboxed sibling cannot erase what an on-demand read established.
 
-1. `.asterim/verification.json`, then `.asterim/pipeline.json`. Both a bare array
-   and `{ steps: [...] }` are accepted; an entry may be a string. An explicit
-   configuration wins outright **including when it is empty** — an operator who
-   configured no steps has said not to verify this project. A file that is not
-   readable JSON falls through to `package.json` rather than failing.
-2. Otherwise `package.json` scripts, in the order `typecheck → lint → test →
-   build` (cheapest and most localising first), each with its common alternate
-   spellings (`type-check`, `types`). The package manager comes from the lockfile
-   (`pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`/`bun.lock`, `package-lock.json`),
-   then from `packageManager`, then npm.
+`worktreeActions` is named (`MERGING` / `DISCARDING` / `VERIFYING`) rather than
+boolean so the button that spins is the one that was pressed. Every action
+clears it in a `finally`, including on a refusal or a network failure.
 
-`configDir` is the fix for a real hole: `.asterim/` is excluded from Git
-tracking (P8-01), so a worktree sandbox — a checkout of *tracked* files — does
-not carry the operator's configured pipeline. The delegation path passes the
-project root, so a sandbox is verified with the pipeline the operator actually
-wrote.
+**Merge failures come back two ways** and both are read: a `409` from the route,
+and a `200` carrying `result.merged: false` with `reason` and `conflicts` (which
+is how `GitWorktreeService` reports a non-conflict refusal). Both become the
+same operator-facing string.
 
-### Execution
+**Evidence rendering.** `DelegationEvidence` is one component used by both cards,
+so a fan-out's four children each get their own panel, their own diff and their
+own two buttons — merging one says nothing about the other three. All interaction
+state is keyed by child thread id and handed down as props, keeping every view in
+the file props-only and testable under `react-dom/server`.
 
-`runStep` spawns through the platform shell in the target directory with
-`detached` (its own process group, so a timeout kills the whole tree, not just
-the shell), `stdio: ['ignore','pipe','pipe']`, and an environment carrying
-`CI=1`, `NO_COLOR`, `FORCE_COLOR=0`, `GIT_TERMINAL_PROMPT=0` — each of which
-turns something that would block forever with no terminal attached into an
-immediate answer. Output is bounded **as it arrives** (50,000 chars per stream)
-rather than trimmed afterwards. The timeout escalates SIGTERM → SIGKILL after a
-5s grace. It never throws and never rejects: a missing binary, an unspawnable
-shell, a non-existent directory and a hung process are all
-`{ passed: false, error }`.
+**Merging and discarding both ask twice.** The first click arms the button
+("Confirm Merge" / "Confirm Discard"), the second one acts. Merging is the only
+thing in the dashboard that writes to the operator's real checkout and
+discarding destroys work; neither belongs to a stray click. This matches
+`blueprint/GIT.md`'s rule that agents never commit without explicit approval —
+merging remains an operator-initiated `POST` with no agent route to it.
 
-`runPipeline` runs every step sequentially and **does not stop at the first
-failure** — a parent told only that the typecheck failed does not know whether
-the tests would have passed, and steps in the same directory contend for the
-same build output.
+**Diff preview** is tinted by `diffLineTone`, which checks `---`/`+++` before
+`-`/`+` so file headers are not drawn as deletions, and bounded at
+`MAX_DIFF_PREVIEW_LINES = 400` with a line saying how much was left out. Colours
+come from `--color-state-completed` / `--color-state-error` / `--color-text-muted`;
+no hex value appears anywhere in the new markup (asserted).
 
-`passed` is `totalSteps > 0 && failedSteps === 0`. A pipeline that discovered
-nothing has verified nothing, so it is not a pass; `summarizeVerificationReport`
-prints "no verification pipeline was discovered in …" rather than "failed", so
-the two are never confused.
+**Hydration.** The diff and the report travel on `delegation.completed`, which a
+dashboard that reloaded never saw — `latestOutcomeFor` rebuilds the outcome from
+the children list, which carries neither. A one-shot effect (guarded by a ref)
+calls `fetchThreadWorktree` and `fetchThreadVerification` per child, so the
+evidence and the merge/discard controls survive a reload. The server already
+persists the delegation's report via `saveThreadVerificationReport`, so
+`GET /worktree/verify` returns it.
 
-### Delegation integration
-
-Default: on for a `TASK` that got a sandbox, off for `REVIEW` (nothing changed
-to verify) and for a task with no sandbox (a build in the project directory
-would write artefacts into the operator's own tree). `verifyPipeline` overrides
-both ways; set explicitly it will also run in the project directory.
-
-Ordering inside `runDelegation` is deliberate: diff → record outcome → publish
-child state → **stop the child's session** → verify → release the parent → write
-the report. Verifying after the stop means a build never races an agent still
-writing files; verifying before the release means the parent reads the verdict
-at the same time as the claim. A **cancelled** delegation is never verified —
-`cancelDelegation` answers with what the delegation settles as, and a
-four-minute build there would be four minutes of a cancel button that has not
-done anything yet, about work that has been abandoned.
-
-The full report is stored on the thread row; a **compacted** copy (per-step
-output tail-bounded to 2,000 chars) goes onto `DelegationResult`, because that
-becomes a `delegation.completed` payload broadcast to every dashboard watching
-the project — the same rule `MAX_DIFF_CHARS` follows in P8-01.
-
-### Command-injection surface
-
-The only string Asterim assembles itself is `<manager> run <script>`, and the
-script name is refused unless `isSafeScriptName` accepts it. The REST endpoint
-and `DelegationRequest` accept **step names**, never commands, so a caller can
-only choose among what the project already declares (`{"steps":["test; touch
-/tmp/x"]}` is a 400, asserted). A command inside `.asterim/verification.json` is
-run as written — that is the file's entire purpose, and it is trusted exactly as
-much as the repository's own build scripts already are.
-
-### Orphan pruning
-
-`agentDelegationService.pruneOrphanSandboxes()` runs at startup after
-`recoverDelegations()`, un-awaited. It skips projects with no `.git`, and
-projects that have neither a recorded sandbox nor an `.asterim/worktrees`
-directory, so startup costs nothing on a workstation not using the feature. It
-passes every thread that still records a sandbox as the keep list, and
-`pruneOrphans` itself deletes nothing whose directory still exists — a finished
-delegation whose diff is waiting to be reviewed survives any number of restarts.
+**Design system.** Sandbox indicators use the violet `--color-state-waiting`
+tokens (distinct from working-emerald, paused-amber and error-rose), monospace
+comes from `--font-family-mono`, all transitions are 150ms, and the step
+accordion and diff toggle carry `aria-expanded`. No new dependency was added —
+the diff is tinted `<div>`s, not a syntax highlighter.
 
 ---
 
 ## 4. Verification
 
-Every command below was run in this session.
+Every command was run from the repository root. Turbo's root-level aggregate
+scripts were unavailable in this sandbox, so each workspace was invoked directly;
+the union is the same set of tasks `pnpm run <script>` fans out to.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| New suite | `pnpm --filter asterim exec tsx src/services/verification/__tests__/VerificationPipelineService.test.ts` | **196/196 assertions passed** |
-| Worktree suite (P8-01) | `… GitWorktreeService.test.ts` | 111/111 |
-| Delegation suite (P7) | `… AgentDelegationService.test.ts` | 461/461 |
-| Server suites | `pnpm --filter asterim test` | **21/21 suites, 2468 assertions, 0 failures** |
-| Web suites | `pnpm --filter @asterim/web test` | 8/8 suites, 1159 assertions |
-| Relay suite | `pnpm --filter @asterim/relay test` | 71/71 |
-| Adapters suite | `pnpm --filter @asterim/adapters test` | 23/23 |
-| MCP memory suites | `pnpm --filter @asterim/mcp-memory-server test` | 7/7 suites, 348 assertions |
-| **Total** | | **38/38 suites** |
-| Typecheck | `tsc --noEmit` in shared, server, web, relay, adapters, mcp-memory-server; `tsc -b` in marketing | **0 errors in all 7** |
-| Lint | `eslint` in server, shared, web | **0 errors** (warnings only, all pre-existing `no-explicit-any`/`no-unused-vars` in untouched files) |
-| Build | `pnpm --filter <pkg> build` for shared, adapters, web, asterim, marketing, relay, mcp-memory-server | **all succeed** |
+| Delegation UI suite | `pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts` | **686/686 assertions passed**, exit 0 |
+| Web suites (8) | `pnpm --filter @asterim/web test` | 8/8 suites, all green |
+| Server suites (21) | `pnpm --filter asterim test` | 21/21 suites, all green (incl. `GitWorktreeService` 111/111, `VerificationPipelineService` 196/196, `AgentDelegationService` 461/461) |
+| Relay / adapters / mcp-memory (9) | `pnpm --filter @asterim/relay|@asterim/adapters|@asterim/mcp-memory-server test` | 9/9 suites green |
+| **Total** | | **38/38 test suites passing** |
+| Typecheck | `pnpm --filter <each> typecheck` (web, server, shared, adapters, relay, marketing, mcp-memory) | 0 errors |
+| Lint | `pnpm --filter @asterim/web lint` / `pnpm --filter asterim lint` | **0 errors** (302 / 273 pre-existing warnings, unchanged in kind and count) |
+| Build | `pnpm --filter @asterim/shared|@asterim/adapters|@asterim/web|asterim|@asterim/marketing|@asterim/relay|@asterim/mcp-memory-server build` | all succeeded; server build copied `apps/web/dist` into `dist/web` |
 
-`pnpm run typecheck` / `lint` / `test` / `build` at the repo root were blocked by
-this session's command sandbox, so each was run per workspace instead — the same
-work turbo would fan out, covering every package that defines the script.
-
-What the new suite actually exercises, with no mocks: discovery across four
-package managers and both configuration filenames; a passing command, a
-non-zero exit, a missing binary, a 200,000-character build and a process that
-never returns (killed at 400ms); execution inside a real `git worktree` with the
-primary checkout asserted clean (`git status --porcelain` empty, no artefact at
-the repo root) afterwards; a delegated child whose claim "everything typechecks
-and all tests pass" is contradicted by the project's own typecheck exiting 1;
-the REST surface including the injection attempt; and orphan pruning against a
-repository with one abandoned and one under-review sandbox.
+No screenshot capture was run: this session is non-interactive and the task's
+verification commands do not include a visual gate. Rendering is asserted
+instead through `react-dom/server` static markup in the test suite.
 
 ---
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. Auto-discovery from `package.json` or `.asterim/verification.json`** —
-  `discoverPipeline`. Asserted for pnpm/yarn/bun/npm lockfiles, the
-  `packageManager` field, the npm fallback, script ordering, alternate
-  spellings, partial script sets, both configuration filenames, both
-  configuration shapes, precedence over `package.json`, explicit-empty,
-  malformed-JSON fallback, junk entries, and the `configDir` fallback a sandbox
-  depends on. Suite § *"discoverPipeline reads a Node project's own lifecycle
-  scripts"* through *"a sandbox is verified with the pipeline the project
-  configured"*.
-- [x] **2. Sequential execution with per-step timeouts, process management and
-  structured capture** — `runStep`/`runPipeline`. Asserted: order preserved and
-  a failing step does not stop the ones behind it (`order.txt === '123'`); real
-  exit codes; SIGTERM→SIGKILL kill of a hung step inside 5s; a 200,000-char
-  stream bounded to ~50,000 with a truncation marker; correct cwd; caller
-  timeout override. Suite § *"runStep — …"* and *"runPipeline — …"*.
-- [x] **3. `AgentDelegationService` verifies a sandbox on completion and attaches
-  `VerificationPipelineReport` to `DelegationResult`** — `attachVerification`.
-  Asserted: report present, `cwd` equals the sandbox path, `passed: true` for
-  good work and `passed: false` naming `typecheck` with `exitCode: 1` for a
-  child that claimed otherwise; the diff excludes verification artefacts; a
-  `REVIEW`, an opted-out task and a cancelled delegation are not verified.
-  Suite § *"a delegated child's work is verified before the parent hears about
-  it"*, *"a child that broke the build cannot report otherwise"*, *"what is not
-  verified, and why"*.
-- [x] **4. `POST /api/v1/threads/:id/worktree/verify` with authenticated access
-  control** — `apps/server/src/routes/worktrees.ts`. Asserted: 401 anonymous
-  (POST and GET), 404 unknown thread, 400 for a command dressed up as a step
-  name / non-array steps / negative timeout, 200 with the report, `sandboxed`
-  flag, subset execution, and `GET` returning the persisted report (and `null`,
-  not 404, for a thread never verified). Suite § *"POST and GET
-  /api/v1/threads/:id/worktree/verify"*.
-- [x] **5. Orphan pruning safely wired into startup/recovery** —
-  `pruneOrphanSandboxes()` in `AgentDelegationService`, called from
-  `apps/server/src/index.ts:239` immediately after `recoverDelegations()`.
-  Asserted: the sandbox whose directory was deleted is de-registered and its
-  branch removed; the one awaiting review keeps its directory, its registration
-  and its branch; a second pass is a no-op; a non-repository project and a
-  project whose directory is gone do not break the pass. Suite §
-  *"pruneOrphanSandboxes reclaims what nothing is using"*.
-- [x] **6. `VerificationPipelineService.test.ts` passes with comprehensive
-  assertions in real temporary directories** — 196/196, 48 temp directories,
-  real subprocesses, a real git repository and a real worktree. No mocks except
-  the agent PTY.
-- [x] **7. CI gates pass with 0 errors** — typecheck 0 errors (7 packages), lint
-  0 errors, **38/38 test suites**, every package builds. Table in § 4.
+- [x] **1 — Verification summary badges and collapsible step breakdowns in both cards.**
+  `VerificationEvidence` renders the badge from `verificationStatusTone` and a
+  `Show Steps (n)` / `Hide Steps` accordion with per-step pill, command, duration
+  and exit code. Evidence: `DelegationOutcomeCard — verification evidence`
+  ("the card has a verification block", "with the summary badge", "every step is
+  broken out", "with the command behind it", "its duration", "and its exit code",
+  "the breakdown starts closed"), and `DelegationBatchOutcomeCard — evidence per
+  child` ("the one that passed says so", "and the one that failed says which
+  step"). The unverified state is covered: `an empty pipeline says so plainly`,
+  `and never claims a pass`.
 
-**Definition of Done**
+- [x] **2 — Failing steps render bounded monospace `stdoutSummary`/`stderrSummary`.**
+  Failing rows render a `maxHeight: 180px` scrollable `<pre>` in
+  `--font-family-mono`, labelled `<step> output`, with a Copy button. Evidence:
+  "the failing step’s output is shown", "both streams of it", "in a labelled
+  box", "that can be copied", "and the passing step carries no diagnostic box";
+  plus `stepOutput` unit assertions.
 
-- [x] Shared verification types in `@asterim/shared`
-- [x] `VerificationPipelineService.ts` with auto-discovery and bounded step execution
-- [x] `AgentDelegationService` integrated with automated sandbox verification
-- [x] REST verification endpoints implemented and registered (the existing
-      `worktreeRoutes` registration in `index.ts:161` covers them)
-- [x] Orphan worktree pruning wired into the startup lifecycle
-- [x] `VerificationPipelineService.test.ts` created and passing
-- [x] Monorepo CI gates pass cleanly (38/38, 0 lint errors, 0 typecheck errors, build succeeds)
+- [x] **3 — Changed file counts, diff preview toggle, working Merge/Discard buttons.**
+  Evidence: `DelegationOutcomeCard — sandbox diff and lifecycle` ("naming the
+  branch it sits on", "counting the files it changed", "and listing them", "the
+  diff can be opened", "the work can be kept", "or thrown away", singular/plural
+  file count, expanded-diff tinting, bounded preview, confirmation labels, busy
+  labels, success/error notices) and `sandbox and verification controls — the
+  clicks themselves` (clicking Merge/Discard/View Diff names the right child).
+  The store side is proven end to end in `useProjectStore — mergeThreadWorktree`
+  (URL, method, token, target branch, conflict, 409 refusal, spinner cleared)
+  and `— discardThreadWorktree` (DELETE, state cleared, refusal).
+
+- [x] **4 — "Re-run Verification" triggers `POST /worktree/verify` and updates the UI.**
+  `useProjectStore — verifyThreadWorktree` asserts the exact URL, `POST`, the
+  Authorization header, that step *names* (never commands) are sent, that the
+  report replaces the previous one, and that a 500 leaves the last report alone.
+  The button and its loading state are asserted in the card
+  ("verification can be re-run", "a verification in flight is visible", "and the
+  button is spent") and the click is driven in `— the clicks themselves`.
+
+- [x] **5 — `ThreadTree` shows sandbox indicators and verification badges.**
+  `ThreadTreeView — sandbox and verification badges (P8-03)`: `threadSandbox`
+  reads the brief with the thread row as fallback, the sandboxed row is badged
+  and titled `Isolated in <branch>`, verified/failed rows carry a tick/cross with
+  the summary as its tooltip, exactly one row is badged, grandchildren inherit
+  the props, and a tree with no reports claims nothing about verification.
+
+- [x] **6 — `DelegateModal` offers worktree and verification toggles.**
+  `defaultSandboxOptions` (task/batch on, review off), `applySandboxOption`
+  (turning isolation off takes verification with it; verification cannot be
+  armed without a sandbox), the rendered switches with their explanatory copy,
+  the disabled state and its reason, and the two `onChange` handlers driven
+  directly. The flags reach the wire: `buildDelegationBody` /
+  `buildParallelDelegationBody` assertions, and a silent form still sends
+  `undefined` so the Core keeps its own defaults.
+
+- [x] **7 — `DelegationUI.test.ts` expanded and passing with exit code 0.**
+  401 → **686 assertions**, exit 0. New blocks: `verificationStatusTone`,
+  `diff and step presentation helpers`, `resolveEvidence`, `evidence from a
+  finished delegation`, `fetchThreadWorktree`, `fetchThreadVerification`,
+  `mergeThreadWorktree`, `discardThreadWorktree`, `verifyThreadWorktree`,
+  `ThreadSandboxIndicator`, two outcome-card blocks, the batch block, the click
+  block, the tree block, and three modal blocks.
+
+- [x] **8 — CI gates pass with 0 errors.** See §4: 38/38 suites, 0 typecheck
+  errors, 0 lint errors, every build green.
+
+**Definition of Done** — all six boxes met: store extended; `DelegationStatus`
+carries evidence, steps, diff and controls; `ThreadTree` badged; `DelegateModal`
+switched; tests expanded; CI green.
 
 ---
 
 ## 6. Git Diff Review
 
-Reviewed `git diff` and `git status` file by file against § 5 of the task
-(Explicitly Forbidden Changes):
+`git diff` was read in full before writing this report. Nine files changed
+(+2,822 / −151, of which +1,153 is the test suite).
 
-- **No external SaaS dependency or network service.** No new package was added
-  to any `package.json`; the only new runtime import is `child_process.spawn`.
-- **The primary repository is not modified during sandbox verification.** Every
-  step runs in the directory passed to `runPipeline`, which for a delegation is
-  the sandbox. The suite asserts this against a real repository: after a step
-  that writes `dist.txt`, the file is inside the worktree, absent from the repo
-  root, and `git status --porcelain` on the primary checkout is empty. The only
-  path on which verification touches the project directory is an explicit
-  `verifyPipeline: true` with no sandbox, or the REST endpoint on a thread that
-  has none — both operator-initiated.
-- **No active worktree is deleted during pruning.** The keep list names every
-  thread that still records a sandbox, and `pruneOrphans` skips anything whose
-  directory exists; asserted directly.
-- **No existing suite broken.** All 37 pre-existing suites pass unchanged,
-  including the 461-assertion delegation suite and the 111-assertion worktree
-  suite. The only edits to existing files are additive: five optional fields on
-  two shared interfaces, one nullable column, one constructor parameter with a
-  default, two new routes, one startup call, and one new section in
-  `formatDelegationReport` guarded by `if (result.verificationReport)`.
-
-One change outside the strict letter of the scope, for a reason worth flagging:
-`import type` was needed in `packages/shared/src/types/delegation.ts` because
-`apps/marketing` compiles with `verbatimModuleSyntax`. Without it the marketing
-build fails.
-
-`tests/report.md` was already modified in the working tree when this task
-started (it is in the pre-task `git status`). It is unrelated to P8-02 and has
-been left uncommitted rather than folded into this commit.
+- No new dependency: `apps/web/package.json` is untouched. The diff preview is
+  tinted `<div>`s inside a `<pre>`, not a highlighter.
+- No hardcoded colours anywhere in the new markup — asserted negatively
+  (`!/#[0-9a-fA-F]{6}/`) on every new render block.
+- No existing delegation event handler, store subscription or route was changed
+  in behaviour. `applyDelegationCompleted` and `applyDelegationBatchCompleted`
+  gained additive fields only; every pre-existing assertion in the suite still
+  passes unmodified.
+- One pre-existing test-harness default was adjusted rather than an assertion:
+  `renderModal` now passes `isolateWorktree: true, verifyPipeline: true`, which
+  is what the container hands the view for a `TASK`. Without it the harness
+  would render a mode the real modal never shows. No assertion text was
+  weakened; one was strengthened (`!html.includes('disabled=""')`).
+- `tests/report.md` was already modified in the working tree when this session
+  started (an uncommitted P8-02 *test gate* report from a previous run). It was
+  not touched and is **not** part of this commit.
 
 ---
 
 ## 7. Problems Discovered
 
-1. **A sandbox has no `node_modules`, and that is not the subagent's fault.** A
-   `git worktree` checks out tracked files; `node_modules` is not one. Running
-   `pnpm run typecheck` in a fresh sandbox therefore fails because `tsc` is not
-   installed there — which, reported as a failed verification, is exactly the
-   false signal this subsystem exists to remove. So package.json discovery
-   requires `node_modules` to be present in the target directory; a sandbox
-   without it reports `totalSteps: 0` ("nothing was verified") rather than a
-   fabricated failure. An explicit `.asterim/verification.json` is unaffected.
-   The consequence is in § 8.
-2. **`.asterim/` is untracked, so a sandbox does not carry the operator's
-   pipeline configuration.** Found while wiring the delegation path; solved with
-   the `configDir` fallback, which is now the mechanism by which any sandboxed
-   Node monorepo gets verified at all.
-3. **Bounded capture is not the same as a bounded payload.** 20 steps × 50,000
-   characters is megabytes in a `delegation.completed` event going out to every
-   connected dashboard. Split into a stored full report and a compacted one on
-   the result, following the P8-01 precedent for the diff.
-4. **`tsc -b` in `apps/marketing` runs with `verbatimModuleSyntax`**, which the
-   rest of the monorepo does not. A plain `import` of a type in `packages/shared`
-   compiles everywhere else and fails there. Worth knowing before the next
-   shared-types change.
+**The `verifyPipeline` toggle had no wire to travel on.** `DelegationRequest`
+declares `verifyPipeline` and `verificationSteps` (P8-02) and
+`AgentDelegationService.delegateTask` reads them, but `POST /delegate` never
+forwarded them and `parseParallelItems` never parsed them — nor did it parse
+`isolateWorktree`, which the single-delegation route does forward. Shipping the
+checkbox without this would have made acceptance criterion 6 cosmetic: the
+operator unticks "Run Verification Pipeline" and the pipeline runs anyway.
+
+Three minimal pass-throughs were added, all inside the existing contract, none
+architectural:
+
+1. `POST /delegate` forwards `verifyPipeline` and `verificationSteps` using the
+   same "only when the caller stated it" rule the route already applies to
+   `isolateWorktree`, so an unset field still means the service's own default.
+2. `parseParallelItems` reads the same three fields (the batch service at
+   `delegateParallel` already looked for `item.verifyPipeline`).
+3. `requestReview` accepts the two verification fields and passes them down;
+   it already accepted `isolateWorktree`.
+
+Step names are filtered by the existing `normalizeStepNames` / `isSafeScriptName`
+guard, so this adds no way to introduce a command — only to choose among the
+ones the project already declares. Flagged here for Antigravity because it is
+the one change outside `apps/web`.
+
+**Reload loses the socket-borne evidence.** `latestOutcomeFor` rebuilds an
+outcome from `GET /children`, which carries no diff and no report, so a card
+shown after a reload would have had a summary and nothing else. Handled with a
+one-shot hydration effect over `GET /worktree` and `GET /worktree/verify`; the
+latter needed a fifth store action (`fetchThreadVerification`) beyond the four
+the task names. It reads the P8-02 endpoint under the same `/worktree*` prefix
+the task specifies and runs nothing.
+
+**Discard versus stale evidence.** Because the merge/discard actions write
+`null` into the maps, `resolveEvidence` had to distinguish an explicit `null`
+from an absent key (`in` rather than `??`) — otherwise discarding a sandbox
+would leave the card still showing the diff and still offering to merge it.
+Covered by `resolveEvidence` assertions.
 
 ---
 
 ## 8. Architectural Concerns
 
-**The one that needs a decision (recommend a Change Proposal, not a quiet fix).**
-Because of § 7.1, the flagship path — delegate a task, get it sandboxed, get it
-verified — currently reports "no pipeline discovered" for a Node project unless
-the operator writes a `.asterim/verification.json` whose commands do not need
-`node_modules`. Making it work out of the box means giving a sandbox access to
-the project's installed dependencies, and every way of doing that is an
-architectural decision, not an implementation detail:
-
-- symlink the primary repo's `node_modules` into the sandbox (fails for pnpm
-  workspaces, where each package has its own, and shares a mutable
-  `node_modules/.cache` between an agent's build and the operator's);
-- run an install in the sandbox (minutes per delegation, and network access from
-  a directory an agent controls);
-- run the pipeline in the primary tree against the merged result instead
-  (contradicts the zero-pollution property P8-01 exists for).
-
-I have deliberately not chosen one. The honest "nothing was verified" is correct
-and safe in the meantime, and it is visible to the operator rather than silent.
-
-**Smaller notes.**
-- Every one of `refs/asterim/base/<threadId>` outlives its sandbox; `pruneOrphans`
-  reclaims worktrees and branches but not those refs. Bytes, not a bug, but they
-  accumulate.
-- `verification_report_json` keeps only the latest report per thread. If a phase
-  ever wants "did this delegation verify at the time it finished, and does it
-  still?", that needs a table rather than a column.
-- The verification pipeline is currently only reachable for a *thread*. A
-  workspace-level or pre-merge gate ("verify before `POST /worktree/merge`
-  succeeds") is the obvious next surface, and would make the merge route refuse
-  unverified work — but that is a product decision about whether an operator may
-  merge something red.
+1. **The thread header indicator is not in the task's Implementation Scope** but
+   is in its Objective ("sandbox status indicators to `ThreadTree.tsx` and thread
+   headers"). It is implemented as `ThreadSandboxStatus` in `App.tsx`'s chat
+   header. Flagging the ambiguity in case a different surface was meant.
+2. **`SessionSidebar` badges only what the store has seen.** Verification badges
+   in the tree appear for threads whose evidence arrived on the socket or was
+   hydrated by an opened card. A list-wide badge would need `GET /children` to
+   carry a verification summary per child — a P8-02 contract change, so it was
+   not made here. Worth a Change Proposal if the tree is expected to be
+   authoritative on load.
+3. **`DelegationStatus.tsx` is now ~1,600 lines** and exports eleven non-component
+   helpers alongside its components (hence the `react-refresh/only-export-components`
+   warnings it already had). Splitting the evidence panel into its own module is
+   a clean follow-up; it was not done here to keep the diff reviewable against
+   the named file list.
 
 ---
 
 ## 9. Recommended Next Step
 
-Antigravity to review, then either:
-
-- **P8-03 — Verification evidence in the dashboard**: surface
-  `VerificationPipelineReport` on the delegation/worktree UI (a per-step
-  pass/fail row against `blueprint/DESIGN_SYSTEM.md` tokens, the failing step's
-  output in the Inspector, a "Verify" action on a sandbox). The data and both
-  endpoints exist; nothing renders them yet.
-- or resolve § 8 first via a Change Proposal on sandbox dependency provisioning,
-  since it decides how much of the Node ecosystem P8-02 actually covers.
+Phase 8's vertical is complete: sandboxes (P8-01), pipelines (P8-02) and the
+operator loop over both (P8-03). Recommended next is a **Phase 8 verification
+gate** in `tests/current.md` exercising the full loop against a real repository —
+delegate with isolation on, let the pipeline fail, re-run it from the card, then
+merge and confirm the sandbox branch and directory are cleaned up — plus a
+visual QA pass over the outcome card and the two new badges, which is the one
+thing the static-markup suite cannot judge.

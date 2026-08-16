@@ -23,7 +23,7 @@ import { DecisionExplorer } from './components/memory/DecisionExplorer';
 import { McpServerExplorer } from './components/mcp/McpServerExplorer';
 import { SkillsExplorer } from './components/skills/SkillsExplorer';
 import { ContextView } from './components/workspace/ContextView';
-import { DelegationStatus } from './components/delegation/DelegationStatus';
+import { DelegationStatus, ThreadSandboxStatus } from './components/delegation/DelegationStatus';
 import { DelegateModal } from './components/delegation/DelegateModal';
 import { EnvironmentSettingsView } from './components/environment/EnvironmentSettingsView';
 import { AISettings } from './components/AISettings';
@@ -709,6 +709,10 @@ function ProjectWorkspace({
         </div>
 
         <div className="view-navigation-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Whether this thread's work is going into a sandbox rather than the
+              operator's checkout, and what the project's own checks last said
+              about it (P8-03). */}
+          {activeTab === 'chat' && activeThreadId && <ThreadSandboxStatus />}
           {activeTab === 'chat' && activeThreadId && (
             <button
               onClick={() => setShowDelegateModal(true)}

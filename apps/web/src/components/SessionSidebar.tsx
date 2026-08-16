@@ -33,6 +33,7 @@ export function SessionSidebar({
   const parentStates = useProjectStore(s => s.parentStates);
   const childStates = useProjectStore(s => s.childStates);
   const cancellingChildren = useProjectStore(s => s.cancellingChildren);
+  const verificationReports = useProjectStore(s => s.threadVerificationReports);
   const cancelDelegation = useProjectStore(s => s.cancelDelegation);
   const activeThreadId = useThreadStore(s => s.activeThreadId);
   const perThreadViewState = useViewStore(s => s.perThreadViewState);
@@ -263,6 +264,7 @@ export function SessionSidebar({
               setCollapsed(current => ({ ...current, [threadId]: !current[threadId] }))
             }
             cancellingThreads={cancellingChildren}
+            verificationReports={verificationReports}
             onCancelChild={threadId => {
               void cancelDelegation(
                 threadId,

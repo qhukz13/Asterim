@@ -1090,6 +1090,10 @@ export class AgentDelegationService {
       timeoutMs?: number;
       /** A reviewer gets no sandbox unless the caller asks for one (P8-01). */
       isolateWorktree?: boolean;
+      /** Nor is a review verified unless the caller asks for it (P8-02). */
+      verifyPipeline?: boolean;
+      /** Which discovered verification steps to run for it, by name. */
+      verificationSteps?: string[];
     },
     options: DelegationOptions = {}
   ): Promise<DelegationResult> {
@@ -1101,6 +1105,8 @@ export class AgentDelegationService {
         profileId: params?.profileId,
         kind: 'REVIEW',
         isolateWorktree: params?.isolateWorktree,
+        verifyPipeline: params?.verifyPipeline,
+        verificationSteps: params?.verificationSteps,
         taskDescription:
           'Review the changes below against the criteria given. Report findings; do not rewrite the feature.',
         inputContext: diff,
@@ -2052,7 +2058,13 @@ export function parseParallelItems(value: unknown): ParallelDelegationItem[] {
       inputContext: asOptionalString(entry.context ?? entry.inputContext ?? entry.diff),
       timeoutMs: asOptionalNumber(entry.timeoutMs),
       kind: String(entry.kind).toUpperCase() === 'REVIEW' ? ('REVIEW' as const) : ('TASK' as const),
-      reviewCriteria: normalizeCriteria(entry.criteria ?? entry.reviewCriteria)
+      reviewCriteria: normalizeCriteria(entry.criteria ?? entry.reviewCriteria),
+      // Left undefined unless the caller said so, so the per-item defaults —
+      // a sandbox for a task, verified in it — survive a body that is silent
+      // about them (P8-01, P8-02).
+      isolateWorktree: asOptionalBoolean(entry.isolateWorktree),
+      verifyPipeline: asOptionalBoolean(entry.verifyPipeline),
+      verificationSteps: normalizeStepNames(entry.verificationSteps)
     }));
 }
 
@@ -2175,6 +2187,11 @@ function asOptionalString(value: unknown): string | undefined {
 
 function asOptionalNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** A boolean the caller actually stated, or nothing — never a defaulted `false`. */
+function asOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function truncate(value: string, max: number): string {

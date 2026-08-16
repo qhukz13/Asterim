@@ -20,7 +20,11 @@ import type {
   DelegationResult,
   DelegationStartedPayload,
   DelegationStatus,
-  ParallelDelegationItem
+  ParallelDelegationItem,
+  VerificationPipelineReport,
+  WorktreeDiff,
+  WorktreeInfo,
+  WorktreeMergeResult
 } from '@asterim/shared';
 import { getAuthHeaders, resolveBackendUrl } from '../utils/auth';
 
@@ -247,6 +251,42 @@ export function threadStatusTone(
 }
 
 /**
+ * What one pass of the verification pipeline reads as on a badge (P8-03).
+ *
+ * Three states, not two, and the third is the one that matters: a report with
+ * no steps in it has verified nothing, and the whole point of the subsystem is
+ * that "nothing was checked" must never look like "everything passed". So it
+ * takes the idle tone and says so in words, the same way `passed: false` with
+ * `totalSteps: 0` says it in the contract.
+ */
+export function verificationStatusTone(
+  report: VerificationPipelineReport | null | undefined
+): ThreadStatusDescriptor {
+  if (!report) return tone('idle', 'Not verified');
+  if (!report.totalSteps) return tone('idle', 'No verification pipeline configured');
+
+  const seconds = (report.durationMs / 1000).toFixed(1);
+  if (report.passed) {
+    return tone(
+      'completed',
+      `${report.passedSteps}/${report.totalSteps} verification steps passed (${seconds}s)`
+    );
+  }
+
+  const broken = report.steps.filter(step => !step.passed);
+  const first = broken[0];
+  const why = !first
+    ? 'verification failed'
+    : `${first.name} failed (${first.error ? first.error : `exit ${first.exitCode}`})`;
+  return tone('failed', broken.length > 1 ? `${why} +${broken.length - 1} more` : why);
+}
+
+/** How one step of a finished pipeline reads on its own row. */
+export function verificationStepTone(passed: boolean): ThreadStatusDescriptor {
+  return passed ? tone('completed', 'Passed') : tone('failed', 'Failed');
+}
+
+/**
  * The outcome to show for a parent thread.
  *
  * A live `delegation.completed` first, because it is the most recent thing that
@@ -281,6 +321,22 @@ export function latestOutcomeFor(
     verdict: newest.verdict,
     finishedAt: newest.finishedAt
   };
+}
+
+/** What a sandbox changed, as the dashboard holds it. */
+export interface ThreadDiffView {
+  diff: string;
+  changedFiles: string[];
+}
+
+/** Which sandbox lifecycle action is in flight for a thread. */
+export type WorktreeAction = 'MERGING' | 'DISCARDING' | 'VERIFYING';
+
+/** What a merge, a discard or a verification came back with. */
+export interface WorktreeActionResult {
+  success: boolean;
+  /** Why it did not happen, in the Core's own words, when it did not. */
+  error?: string;
 }
 
 interface ProjectState {
@@ -320,6 +376,29 @@ interface ProjectState {
    * show the same intervention as it happens.
    */
   cancellingChildren: Record<string, boolean>;
+
+  // --- Worktree sandboxes and verification (P8-03) ---
+  /**
+   * Thread id → the sandbox it ran in, or null when it has none.
+   *
+   * Keyed by the *child* thread, because that is what a sandbox belongs to: the
+   * parent's own checkout is never the thing being merged or discarded. Null is
+   * a real answer — "asked, and there is none" — and an absent key is "never
+   * asked", which is what decides whether the card fetches.
+   */
+  threadWorktrees: Record<string, WorktreeInfo | null>;
+  /** Thread id → what its sandbox changed, against the commit it branched from. */
+  threadDiffs: Record<string, ThreadDiffView | null>;
+  /** Thread id → the last thing the project's own checks said about it. */
+  threadVerificationReports: Record<string, VerificationPipelineReport | null>;
+  /**
+   * Thread id → the lifecycle action in flight for its sandbox.
+   *
+   * One at a time per thread, and named rather than boolean: merging, throwing
+   * away and re-verifying are three different things to have started, and the
+   * button that is spinning has to be the one that was pressed.
+   */
+  worktreeActions: Record<string, WorktreeAction>;
 
   // Actions
   setActiveProject: (id: string | null) => void;
@@ -362,6 +441,51 @@ interface ProjectState {
     reason?: string,
     backendUrl?: string | null
   ) => Promise<boolean>;
+
+  /**
+   * Reads the sandbox one thread ran in, and what it changed (P8-03).
+   *
+   * Resolves to the sandbox or to null — a thread that never had one, and a
+   * thread whose sandbox has been discarded, are both null and both perfectly
+   * ordinary. A read that could not be made leaves the maps alone.
+   */
+  fetchThreadWorktree: (
+    threadId: string,
+    backendUrl?: string | null
+  ) => Promise<WorktreeInfo | null>;
+  /**
+   * Reads the last thing verification said about a thread (P8-02).
+   *
+   * The report travels on `delegation.completed`, which a dashboard that
+   * reloaded never saw. This is how the card gets it back without running the
+   * pipeline again — a thread that has never been verified answers null, which
+   * is recorded as null rather than skipped.
+   */
+  fetchThreadVerification: (
+    threadId: string,
+    backendUrl?: string | null
+  ) => Promise<VerificationPipelineReport | null>;
+  /** Merges a sandbox into a real branch. The one action that writes to the checkout. */
+  mergeThreadWorktree: (
+    threadId: string,
+    targetBranch?: string,
+    backendUrl?: string | null
+  ) => Promise<WorktreeActionResult>;
+  /** Throws a sandbox away, branch and directory both. */
+  discardThreadWorktree: (
+    threadId: string,
+    backendUrl?: string | null
+  ) => Promise<WorktreeActionResult>;
+  /**
+   * Runs the project's own verification commands over a thread's directory on
+   * demand. `steps` names discovered steps — never commands.
+   */
+  verifyThreadWorktree: (
+    threadId: string,
+    steps?: string[],
+    backendUrl?: string | null
+  ) => Promise<VerificationPipelineReport | null>;
+
   resetDelegation: () => void;
 }
 
@@ -374,8 +498,50 @@ const emptyDelegation = () => ({
   delegationOutcomes: {} as Record<string, DelegationResult>,
   batchOutcomes: {} as Record<string, BatchDelegationResult>,
   delegationChildren: {} as Record<string, DelegationChildSummary[]>,
-  cancellingChildren: {} as Record<string, boolean>
+  cancellingChildren: {} as Record<string, boolean>,
+  threadWorktrees: {} as Record<string, WorktreeInfo | null>,
+  threadDiffs: {} as Record<string, ThreadDiffView | null>,
+  threadVerificationReports: {} as Record<string, VerificationPipelineReport | null>,
+  worktreeActions: {} as Record<string, WorktreeAction>
 });
+
+/**
+ * The sandbox evidence one finished delegation carried, folded into the maps.
+ *
+ * A `delegation.completed` payload already holds everything the outcome card
+ * needs — the diff, the changed files, the verification report — so the card
+ * renders without a fetch, and `fetchThreadWorktree` is only for the operator
+ * who comes back to a thread later or who wants it re-read.
+ *
+ * Deliberately additive: a result with no sandbox writes nothing rather than
+ * writing null, so a delegation that isolated nothing cannot erase what a
+ * later on-demand read established about the same thread.
+ */
+function evidenceFromResult(
+  state: {
+    threadDiffs: Record<string, ThreadDiffView | null>;
+    threadVerificationReports: Record<string, VerificationPipelineReport | null>;
+  },
+  result: DelegationResult | null | undefined
+): Partial<Pick<ProjectState, 'threadDiffs' | 'threadVerificationReports'>> {
+  const childThreadId = result?.childThreadId;
+  if (!result || !childThreadId) return {};
+
+  const patch: Partial<Pick<ProjectState, 'threadDiffs' | 'threadVerificationReports'>> = {};
+  if (result.worktreePath !== undefined || result.diff !== undefined) {
+    patch.threadDiffs = {
+      ...state.threadDiffs,
+      [childThreadId]: { diff: result.diff ?? '', changedFiles: result.changedFiles ?? [] }
+    };
+  }
+  if (result.verificationReport) {
+    patch.threadVerificationReports = {
+      ...state.threadVerificationReports,
+      [childThreadId]: result.verificationReport
+    };
+  }
+  return patch;
+}
 
 /** The same record without one key, or the record itself when it had none. */
 function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -539,7 +705,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           ...state.childStates,
           [payload.result.childThreadId]: payload.result.status
         },
-        delegationOutcomes: { ...state.delegationOutcomes, [payload.threadId]: payload.result }
+        delegationOutcomes: { ...state.delegationOutcomes, [payload.threadId]: payload.result },
+        // The diff and the verification report travel on the payload (P8-01,
+        // P8-02), so the outcome card has its evidence without asking for it.
+        ...evidenceFromResult(state, payload.result)
       };
     }),
 
@@ -554,12 +723,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
    * the batch it belonged to.
    */
   applyDelegationBatchCompleted: payload =>
-    set(state => ({
-      batchOutcomes: { ...state.batchOutcomes, [payload.threadId]: payload.batch },
-      delegationOutcomes: omitKey(state.delegationOutcomes, payload.threadId),
-      parentStates: { ...state.parentStates, [payload.threadId]: 'ACTIVE' },
-      pendingChildren: omitKey(state.pendingChildren, payload.threadId)
-    })),
+    set(state => {
+      // Every child's evidence, folded in one at a time so a batch that arrived
+      // without its per-child events — the `delegateParallel` response beating
+      // the socket — still fills the maps the cards read.
+      let threadDiffs = state.threadDiffs;
+      let threadVerificationReports = state.threadVerificationReports;
+      for (const result of payload.batch?.results || []) {
+        const patch = evidenceFromResult({ threadDiffs, threadVerificationReports }, result);
+        threadDiffs = patch.threadDiffs ?? threadDiffs;
+        threadVerificationReports = patch.threadVerificationReports ?? threadVerificationReports;
+      }
+
+      return {
+        batchOutcomes: { ...state.batchOutcomes, [payload.threadId]: payload.batch },
+        delegationOutcomes: omitKey(state.delegationOutcomes, payload.threadId),
+        parentStates: { ...state.parentStates, [payload.threadId]: 'ACTIVE' },
+        pendingChildren: omitKey(state.pendingChildren, payload.threadId),
+        threadDiffs,
+        threadVerificationReports
+      };
+    }),
 
   syncDelegations: async (threadId, backendUrl) => {
     if (!threadId) return;
@@ -772,6 +956,196 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         for (const childThreadId of pending) delete cancellingChildren[childThreadId];
         return { cancellingChildren };
       });
+    }
+  },
+
+  /**
+   * Reads one thread's sandbox and its diff off the Core (P8-03).
+   *
+   * `GET /worktree` answers 200 with `worktree: null` for a thread that has
+   * none, which is written through as null rather than skipped: the card has to
+   * tell "there is no sandbox" from "we have not looked yet", and an absent key
+   * is the second of those.
+   */
+  fetchThreadWorktree: async (threadId, backendUrl) => {
+    if (!threadId) return null;
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/worktree`,
+        { headers: getAuthHeaders({ backendUrl }) }
+      );
+      if (!res.ok) return null;
+
+      const body = (await res.json().catch(() => null)) as {
+        worktree?: WorktreeInfo | null;
+        diff?: WorktreeDiff | null;
+      } | null;
+      const worktree = body?.worktree ?? null;
+      const changes = body?.diff ?? null;
+
+      set(state => ({
+        threadWorktrees: { ...state.threadWorktrees, [threadId]: worktree },
+        threadDiffs: {
+          ...state.threadDiffs,
+          [threadId]: changes
+            ? { diff: changes.diff || '', changedFiles: changes.changedFiles || [] }
+            : null
+        }
+      }));
+      return worktree;
+    } catch {
+      return null;
+    }
+  },
+
+  fetchThreadVerification: async (threadId, backendUrl) => {
+    if (!threadId) return null;
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/worktree/verify`,
+        { headers: getAuthHeaders({ backendUrl }) }
+      );
+      if (!res.ok) return null;
+
+      const body = (await res.json().catch(() => null)) as {
+        report?: VerificationPipelineReport | null;
+      } | null;
+      const report = body?.report ?? null;
+      set(state => ({
+        threadVerificationReports: { ...state.threadVerificationReports, [threadId]: report }
+      }));
+      return report;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Merges a sandbox back into a real branch.
+   *
+   * The only action in this store that writes to the operator's own checkout,
+   * and the reason the card asks for a second click before calling it. A
+   * conflict comes back as `merged: false` with the paths, not as an HTTP
+   * failure, so both are read here and both become the same refusal string.
+   */
+  mergeThreadWorktree: async (threadId, targetBranch, backendUrl) => {
+    if (!threadId) return { success: false, error: 'No thread to merge.' };
+
+    set(state => ({ worktreeActions: { ...state.worktreeActions, [threadId]: 'MERGING' } }));
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/worktree/merge`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders({ backendUrl, json: true }),
+          body: JSON.stringify(targetBranch ? { targetBranch } : {})
+        }
+      );
+      const body = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        error?: string;
+        result?: WorktreeMergeResult;
+      } | null;
+
+      if (!res.ok) {
+        return { success: false, error: body?.error || `The merge was refused (${res.status}).` };
+      }
+
+      const result = body?.result;
+      if (result && !result.merged) {
+        const conflicts = result.conflicts?.length
+          ? ` Conflicts: ${result.conflicts.join(', ')}.`
+          : '';
+        return {
+          success: false,
+          error: `${result.reason || 'The sandbox could not be merged.'}${conflicts}`
+        };
+      }
+
+      // The sandbox is still on disk after a merge — `git worktree` keeps it
+      // until it is removed — so only its status changes here.
+      set(state => {
+        const known = state.threadWorktrees[threadId];
+        return known
+          ? { threadWorktrees: { ...state.threadWorktrees, [threadId]: { ...known, status: 'MERGED' } } }
+          : {};
+      });
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Could not reach the workstation.' };
+    } finally {
+      set(state => ({ worktreeActions: omitKey(state.worktreeActions, threadId) }));
+    }
+  },
+
+  /** Throws a sandbox away, and forgets everything the dashboard held about it. */
+  discardThreadWorktree: async (threadId, backendUrl) => {
+    if (!threadId) return { success: false, error: 'No thread to discard.' };
+
+    set(state => ({ worktreeActions: { ...state.worktreeActions, [threadId]: 'DISCARDING' } }));
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/worktree`,
+        { method: 'DELETE', headers: getAuthHeaders({ backendUrl, json: true }) }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        return { success: false, error: body?.error || `The sandbox could not be discarded (${res.status}).` };
+      }
+
+      set(state => ({
+        threadWorktrees: { ...state.threadWorktrees, [threadId]: null },
+        threadDiffs: { ...state.threadDiffs, [threadId]: null }
+      }));
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Could not reach the workstation.' };
+    } finally {
+      set(state => ({ worktreeActions: omitKey(state.worktreeActions, threadId) }));
+    }
+  },
+
+  /**
+   * Runs the project's own checks again, over whatever directory the thread's
+   * work is in (P8-02).
+   *
+   * `steps` are names the project already declares, never commands — the Core
+   * refuses anything else, and sending nothing means "all of them".
+   */
+  verifyThreadWorktree: async (threadId, steps, backendUrl) => {
+    if (!threadId) return null;
+
+    set(state => ({ worktreeActions: { ...state.worktreeActions, [threadId]: 'VERIFYING' } }));
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/worktree/verify`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders({ backendUrl, json: true }),
+          body: JSON.stringify(steps && steps.length > 0 ? { steps } : {})
+        }
+      );
+      if (!res.ok) return null;
+
+      const body = (await res.json().catch(() => null)) as {
+        report?: VerificationPipelineReport;
+      } | null;
+      const report = body?.report ?? null;
+      if (!report) return null;
+
+      set(state => ({
+        threadVerificationReports: { ...state.threadVerificationReports, [threadId]: report }
+      }));
+      return report;
+    } catch {
+      return null;
+    } finally {
+      set(state => ({ worktreeActions: omitKey(state.worktreeActions, threadId) }));
     }
   },
 

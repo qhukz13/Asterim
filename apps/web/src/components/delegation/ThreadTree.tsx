@@ -1,9 +1,14 @@
 import React from 'react';
-import type { DelegationChildState, DelegationParentState } from '@asterim/shared';
+import type {
+  DelegationChildState,
+  DelegationParentState,
+  VerificationPipelineReport
+} from '@asterim/shared';
 import {
   ThreadStatusDescriptor,
   ThreadTreeNode,
-  threadStatusTone
+  threadStatusTone,
+  verificationStatusTone
 } from '../../stores/useProjectStore';
 import { IconBot, IconChevronDown, IconChevronRight } from '../icons/Icons';
 
@@ -42,6 +47,34 @@ export interface ThreadTreeViewProps {
   onCancelChild?: (threadId: string) => void;
   /** Child thread ids with a cancellation already in flight. */
   cancellingThreads?: Record<string, boolean>;
+  /**
+   * Thread id → what the project's own checks said about its work (P8-03).
+   *
+   * Optional, and absent for almost every row: only a delegation that was
+   * verified has one, and a row without a report says nothing rather than
+   * saying "unverified", which would be a claim about every ordinary thread in
+   * the list.
+   */
+  verificationReports?: Record<string, VerificationPipelineReport | null>;
+}
+
+/**
+ * The sandbox a thread's session runs in, when it runs in one (P8-03).
+ *
+ * The brief is what carries it — `worktreePath` is written onto the child's
+ * `delegation_context_json` when the sandbox is provisioned — with the thread
+ * row's own column as a fallback, so a row served straight from storage badges
+ * the same as one the socket announced.
+ */
+export function threadSandbox(node: ThreadTreeNode): { path: string; branch?: string } | null {
+  const path =
+    node.context?.worktreePath ||
+    (typeof node.thread.worktree_path === 'string' ? node.thread.worktree_path : '');
+  if (!path) return null;
+  const branch =
+    node.context?.worktreeBranch ||
+    (typeof node.thread.worktree_branch === 'string' ? node.thread.worktree_branch : undefined);
+  return { path, branch };
 }
 
 /** Whether this row is a delegated child that has not finished. */
@@ -105,7 +138,8 @@ function ThreadTreeRow({
   onSelect,
   onToggleCollapse,
   onCancelChild,
-  cancellingThreads
+  cancellingThreads,
+  verificationReports
 }: ThreadTreeViewProps & { node: ThreadTreeNode }) {
   const thread = node.thread;
   const isActive = activeThreadId === thread.id;
@@ -115,6 +149,9 @@ function ThreadTreeRow({
   const role = node.context?.role;
   const isCancelling = !!cancellingThreads?.[thread.id];
   const canCancel = !!onCancelChild && isCancellableChild(node, childStates);
+  const sandbox = threadSandbox(node);
+  const report = verificationReports?.[thread.id];
+  const verification = report ? verificationStatusTone(report) : null;
 
   return (
     <div>
@@ -208,6 +245,20 @@ function ThreadTreeRow({
             L{node.depth}
           </Badge>
         )}
+        {sandbox && (
+          <span title={`Isolated in ${sandbox.branch || sandbox.path}`}>
+            <Badge color="var(--color-state-waiting)" background="var(--color-state-waiting-bg)">
+              sandbox
+            </Badge>
+          </span>
+        )}
+        {verification && (
+          <span title={verification.label}>
+            <Badge color={verification.color} background={verification.background}>
+              {verification.tone === 'completed' ? '✓' : verification.tone === 'failed' ? '✗' : '•'}
+            </Badge>
+          </span>
+        )}
         {canCancel && (
           <button
             onClick={event => {
@@ -253,6 +304,7 @@ function ThreadTreeRow({
               onToggleCollapse={onToggleCollapse}
               onCancelChild={onCancelChild}
               cancellingThreads={cancellingThreads}
+              verificationReports={verificationReports}
             />
           ))}
         </div>

@@ -100,13 +100,51 @@ export function canSubmitParallelDelegation(items: ParallelItemState[]): boolean
   return items.every(item => item.task.trim().length > 0);
 }
 
+/**
+ * How the two Phase 8 switches start out, for the mode being composed.
+ *
+ * The same defaults the Core applies when the operator says nothing (P8-01,
+ * P8-02): a task that is going to edit files gets a sandbox and is verified in
+ * it; a review reads changes rather than making them, so it gets neither. The
+ * form states them rather than leaving them implicit so the operator can see
+ * what is about to happen and turn it off.
+ */
+export function defaultSandboxOptions(mode: DelegateModalMode): {
+  isolateWorktree: boolean;
+  verifyPipeline: boolean;
+} {
+  const isolateWorktree = mode !== 'REVIEW';
+  return { isolateWorktree, verifyPipeline: isolateWorktree };
+}
+
+/**
+ * The switches after one of them has been moved.
+ *
+ * Turning isolation off takes verification with it: without a sandbox the
+ * pipeline would run in the operator's own checkout, which is not what anyone
+ * clicking a checkbox on a delegation form is asking for.
+ */
+export function applySandboxOption(
+  current: { isolateWorktree: boolean; verifyPipeline: boolean },
+  patch: Partial<{ isolateWorktree: boolean; verifyPipeline: boolean }>
+): { isolateWorktree: boolean; verifyPipeline: boolean } {
+  const next = { ...current, ...patch };
+  if (!next.isolateWorktree) next.verifyPipeline = false;
+  return next;
+}
+
 /** The body `POST /api/v1/threads/:id/delegate/parallel` expects. */
-export function buildParallelDelegationBody(items: ParallelItemState[]): Record<string, unknown> {
+export function buildParallelDelegationBody(
+  items: ParallelItemState[],
+  options?: { isolateWorktree?: boolean; verifyPipeline?: boolean }
+): Record<string, unknown> {
   const delegations: ParallelDelegationItem[] = items.map(item => ({
     profileId: item.profileId || undefined,
     taskDescription: item.task.trim(),
     inputContext: item.context.trim() || undefined,
-    kind: 'TASK'
+    kind: 'TASK',
+    isolateWorktree: options?.isolateWorktree,
+    verifyPipeline: options?.verifyPipeline
   }));
   return { delegations };
 }
@@ -139,7 +177,15 @@ export function canSubmitDelegation(mode: DelegateModalMode, task: string, conte
 /** The body `POST /api/v1/threads/:id/delegate` expects. */
 export function buildDelegationBody(
   mode: DelegateModalMode,
-  fields: { profileId?: string; role?: string; task: string; context: string }
+  fields: {
+    profileId?: string;
+    role?: string;
+    task: string;
+    context: string;
+    /** Left off entirely when the operator did not touch the switches. */
+    isolateWorktree?: boolean;
+    verifyPipeline?: boolean;
+  }
 ): Record<string, unknown> {
   if (mode === 'REVIEW') {
     return {
@@ -150,7 +196,9 @@ export function buildDelegationBody(
       criteria: fields.task
         .split('\n')
         .map(line => line.replace(/^[-*]\s*/, '').trim())
-        .filter(line => line.length > 0)
+        .filter(line => line.length > 0),
+      isolateWorktree: fields.isolateWorktree,
+      verifyPipeline: fields.verifyPipeline
     };
   }
   return {
@@ -158,7 +206,9 @@ export function buildDelegationBody(
     profileId: fields.profileId || undefined,
     role: fields.role || undefined,
     task: fields.task.trim(),
-    context: fields.context.trim() || undefined
+    context: fields.context.trim() || undefined,
+    isolateWorktree: fields.isolateWorktree,
+    verifyPipeline: fields.verifyPipeline
   };
 }
 
@@ -204,6 +254,12 @@ export interface DelegateModalViewProps {
   onParallelItemChange?: (id: string, patch: Partial<Omit<ParallelItemState, 'id'>>) => void;
   onAddParallelItem?: () => void;
   onRemoveParallelItem?: (id: string) => void;
+  /** Whether the subagent gets its own Git worktree (P8-01). */
+  isolateWorktree?: boolean;
+  onIsolateWorktreeChange?: (isolateWorktree: boolean) => void;
+  /** Whether its work is verified before the result comes back (P8-02). */
+  verifyPipeline?: boolean;
+  onVerifyPipelineChange?: (verifyPipeline: boolean) => void;
 }
 
 /** The modal's presentation, driven entirely by props. */
@@ -225,7 +281,11 @@ export function DelegateModalView({
   parallelItems = [],
   onParallelItemChange,
   onAddParallelItem,
-  onRemoveParallelItem
+  onRemoveParallelItem,
+  isolateWorktree = false,
+  onIsolateWorktreeChange,
+  verifyPipeline = false,
+  onVerifyPipelineChange
 }: DelegateModalViewProps) {
   const isReview = mode === 'REVIEW';
   const isParallel = mode === 'PARALLEL';
@@ -551,6 +611,94 @@ export function DelegateModalView({
             </>
           )}
 
+          {/* What the subagent runs in, and whether Asterim checks the result
+              before handing it back (P8-01, P8-02). Stated on the form rather
+              than left to the Core's defaults so the operator can see it and
+              turn it off. */}
+          <div
+            aria-label="Sandbox options"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--spacing-2)',
+              padding: 'var(--spacing-3)',
+              background: 'var(--color-surface-1)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-md)'
+            }}
+          >
+            <label
+              htmlFor="delegation-isolate-worktree"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 'var(--spacing-2)',
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                id="delegation-isolate-worktree"
+                type="checkbox"
+                aria-label="Isolate in Git worktree"
+                checked={isolateWorktree}
+                onChange={event => onIsolateWorktreeChange?.(event.target.checked)}
+                style={{ marginTop: '2px', accentColor: 'var(--color-accent-primary)', cursor: 'pointer' }}
+              />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span
+                  style={{
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    fontWeight: 'var(--font-weight-semibold)'
+                  }}
+                >
+                  Isolate in Git Worktree
+                </span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  The subagent edits its own checkout on a sandbox branch. Nothing touches your
+                  working tree until you merge it.
+                </span>
+              </span>
+            </label>
+
+            <label
+              htmlFor="delegation-verify-pipeline"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 'var(--spacing-2)',
+                cursor: isolateWorktree ? 'pointer' : 'not-allowed',
+                opacity: isolateWorktree ? 1 : 0.5
+              }}
+            >
+              <input
+                id="delegation-verify-pipeline"
+                type="checkbox"
+                aria-label="Run verification pipeline"
+                checked={verifyPipeline}
+                disabled={!isolateWorktree}
+                onChange={event => onVerifyPipelineChange?.(event.target.checked)}
+                style={{ marginTop: '2px', accentColor: 'var(--color-accent-primary)', cursor: 'inherit' }}
+              />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span
+                  style={{
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    fontWeight: 'var(--font-weight-semibold)'
+                  }}
+                >
+                  Run Verification Pipeline
+                </span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  {isolateWorktree
+                    ? 'Asterim runs this project’s own typecheck, lint, test and build in the sandbox and reports what they exited as.'
+                    : 'Needs a sandbox: without one the checks would run in your own working tree.'}
+                </span>
+              </span>
+            </label>
+          </div>
+
           {isDelegating && (
             <p
               role="alert"
@@ -628,6 +776,7 @@ export function DelegateModal({
   const [task, setTask] = useState('');
   const [context, setContext] = useState('');
   const [parallelItems, setParallelItems] = useState<ParallelItemState[]>(defaultParallelItems);
+  const [sandbox, setSandbox] = useState(() => defaultSandboxOptions('TASK'));
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -660,8 +809,8 @@ export function DelegateModal({
     const base = resolveBackendUrl(activeBackendUrl) || '';
     const isParallel = mode === 'PARALLEL';
     const body = isParallel
-      ? buildParallelDelegationBody(parallelItems)
-      : buildDelegationBody(mode, { profileId, task, context });
+      ? buildParallelDelegationBody(parallelItems, sandbox)
+      : buildDelegationBody(mode, { profileId, task, context, ...sandbox });
     // The batch endpoint, not the store action: `delegateParallel` reports a
     // refusal as `null`, and the refusal is the whole point of the banner —
     // 409 CONCURRENCY_LIMIT_EXCEEDED reads differently from 400, and the
@@ -707,6 +856,10 @@ export function DelegateModal({
         // A refusal belongs to the form that caused it; switching tabs is the
         // operator moving on from it.
         setError(null);
+        // And the switches go back to what that mode's default is: a review
+        // that inherited a task's sandbox would be given a checkout it has no
+        // use for.
+        setSandbox(defaultSandboxOptions(next));
       }}
       profileId={profileId}
       onProfileChange={setProfileId}
@@ -725,6 +878,14 @@ export function DelegateModal({
       }
       onAddParallelItem={() => setParallelItems(items => addParallelItem(items))}
       onRemoveParallelItem={id => setParallelItems(items => removeParallelItem(items, id))}
+      isolateWorktree={sandbox.isolateWorktree}
+      onIsolateWorktreeChange={next =>
+        setSandbox(current => applySandboxOption(current, { isolateWorktree: next }))
+      }
+      verifyPipeline={sandbox.verifyPipeline}
+      onVerifyPipelineChange={next =>
+        setSandbox(current => applySandboxOption(current, { verifyPipeline: next }))
+      }
     />,
     document.body
   );
