@@ -1,10 +1,10 @@
-Task-ID: P8-04
-Phase: 8
+Task-ID: P9-01
+Phase: 9
 
-# [P8-04] — Phase 8 Comprehensive Production Gate & Verification Pipeline / Worktree Sandboxing Audit
+# [P9-01] — Local Secret Vault & Cryptographic Keystore for Credentials at Rest
 
-**Task ID:** P8-04  
-**Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing  
+**Task ID:** P9-01  
+**Phase:** Phase 9 — Enterprise Hardening, Desktop Shell & Production Release  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -14,103 +14,104 @@ Phase: 8
 
 ## 1. Objective
 
-Conduct a comprehensive, end-to-end production gate audit for Phase 8 (Automated Verification Pipelines & Worktree Sandboxing), verifying Git worktree sandboxing (`GitWorktreeService`), automated verification pipeline discovery and execution (`VerificationPipelineService`), delegation lifecycle integration (`AgentDelegationService`), and operator dashboard UI controls (`DelegationStatus`, `ThreadTree`, `DelegateModal`, `useProjectStore`), and author the authoritative sign-off document `docs/phase8-production-gate.md`.
+Implement the Local Secret Vault subsystem (`SecretVaultService.ts`) in `apps/server`: encrypt all sensitive credentials, API keys, and private tokens stored at rest in SQLite using authenticated symmetric encryption (`AES-256-GCM` with machine-derived key derivation), provide seamless zero-downtime migration for existing plaintext `settings` rows, implement automatic secret redaction in logs and event payloads, and author a comprehensive automated unit test suite.
 
 ---
 
 ## 2. Why This Task Exists
 
-Phase 8 delivered physical file-system sandboxing and automated quality verification across Tasks P8-01 through P8-03:
-- **P8-01**: Git worktree sandboxing, branch isolation (`asterim/sandbox/<threadId>`), worktree lifecycle management (`createWorktree`, `getDiff`, `mergeWorktree`, `removeWorktree`, `pruneOrphans`), SQLite metadata (`threads.worktree_path`, `threads.worktree_branch`), and REST surface (`/api/v1/threads/:id/worktree*`).
-- **P8-02**: Automated verification pipeline engine (`VerificationPipelineService`), auto-discovery from `package.json` and `.asterim/verification.json`, bounded per-step execution, output stream capture/truncation, non-zero/timeout fault tolerance, `AgentDelegationService` integration, REST endpoints (`/api/v1/threads/:id/worktree/verify`), and startup orphan pruning.
-- **P8-03**: Operator dashboard UI in `apps/web`: verification summary badges, collapsible step-by-step accordion with duration/exit codes, bounded monospace failure output boxes, diff preview with additions/deletions tinting, 2-click merge and discard confirmation buttons, on-demand re-verification, `ThreadTree` and thread header sandbox status indicators, `DelegateModal` worktree/verification toggles, and store hydration.
+In Phase 8, Asterim achieved full multi-agent worktree sandboxing and automated verification pipelines. However, as documented in `blueprint/audit/IMPLEMENTATION_DRIFT.md` (Item 11), sensitive credentials (such as LLM provider API keys, Stripe secret keys, and VAPID private keys) are currently stored in plaintext within SQLite `settings` table.
 
-Before certifying Phase 8 complete and transitioning to the next milestone, we must execute a rigorous production gate audit across all monorepo test suites, verify all isolation guarantees, failure recovery paths, and security boundaries, and publish `docs/phase8-production-gate.md`.
+For production, commercial beta, and enterprise desktop deployment, all secrets stored on the workstation must be encrypted at rest:
+1. Protect developer credentials against unauthorized disk inspections or backup leaks.
+2. Prevent plaintext tokens from appearing in debug logs, error traces, or EventBus WebSocket broadcasts.
+3. Establish a tamper-proof cryptographic foundation for multi-tenant and desktop distributions.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Subsystems Under Audit**:
-  - `apps/server/src/services/git/GitWorktreeService.ts`
-  - `apps/server/src/services/verification/VerificationPipelineService.ts`
-  - `apps/server/src/services/ai/AgentDelegationService.ts`
-  - `apps/server/src/routes/worktrees.ts` & `apps/server/src/routes/delegation.ts`
-  - `apps/web/src/components/delegation/DelegationStatus.tsx`
-  - `apps/web/src/components/delegation/ThreadTree.tsx`
-  - `apps/web/src/components/delegation/DelegateModal.tsx`
-  - `apps/web/src/stores/useProjectStore.ts`
-  - `packages/shared/src/types/worktree.ts` & `packages/shared/src/types/verification.ts`
-- **Invariants to Verify**:
-  - **Worktree Isolation**: Subagents execute in dedicated `.asterim/worktrees/<threadId>` without polluting or dirtying the primary repository working copy.
-  - **Git Safety & Clean Diffing**: Base commit tracked in `refs/asterim/base/<threadId>`; clean diff generation against base; merge conflict detection aborts cleanly without dirtying primary tree; merge and discard are operator-only actions.
-  - **Non-Destructive Exclusion**: `.asterim` excluded via `.git/info/exclude`, never committed to upstream `.gitignore`.
-  - **Verification Reliability**: Pipeline auto-discovery from `package.json` scripts / `.asterim/verification.json`; three-valued status (`passed`, `failed`, `nothing ran` / empty); per-step timeouts (SIGTERM -> SIGKILL); bounded stream capture.
-  - **UI State & Hydration**: Two-click confirmation for merge and discard; 3-state verification tone; diff preview; store hydration on reload; real-time Socket.IO synchronization.
-  - **Orphan Pruning**: Clean startup and shutdown pruning of orphaned worktrees and branches.
+- **Cryptographic Specifications**:
+  - Algorithm: Authenticated `AES-256-GCM` (256-bit key, 12-byte random IV, 16-byte authentication tag).
+  - Key Derivation: PBKDF2-HMAC-SHA512 (100,000 iterations) derived from machine identity / user SID + local salt stored in `~/.asterim/vault.salt`.
+  - Serialized Format: `vault:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>`.
+- **Transparent Migration**:
+  - `SecretVaultService.getSecret(key)` checks if stored value begins with `vault:v1:`. If unencrypted (legacy plaintext), it returns the value and asynchronously upgrades the row to encrypted format.
+- **Redaction Engine**:
+  - In-memory set of active secret values sanitized from logging streams, error payloads, and process summaries.
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Production Gate Audit (`docs/phase8-production-gate.md`)**:
-   - Authoritative audit document covering:
-     - Executive Verdict (**PASS / READY FOR NEXT PHASE**).
-     - Subsystem Audit Matrix (Git Worktree Sandboxing, Automated Verification Engine, Delegation Integration, Dashboard UI & Operator Controls, REST Surface & Auth, Security & Data Sovereignty).
-     - Workstream Acceptance-Criteria Audit (P8-01 through P8-03).
-     - Full Test Suite Inventory (38+ suites, 4,360+ assertions, 0 failures).
-     - Safety Invariants & Security Boundaries (worktree isolation, non-dirtying merges, bounded process execution, operator-gated commit/merge).
-     - Observations & Architectural Notes (including `CLAUDE.md` test section update, `GET /children` verification metadata, and `DelegationStatus.tsx` modularization).
-     - Reproduction commands.
-     - Sign-off table.
+1. **`SecretVaultService.ts` (`apps/server/src/services/security/SecretVaultService.ts`)**:
+   - `encrypt(plaintext: string): string` — Generates random 12-byte IV, encrypts with AES-256-GCM, returns envelope string.
+   - `decrypt(envelope: string): string` — Validates envelope header, verifies 16-byte authentication tag in constant time, decrypts payload. Throws structured error if tampered.
+   - `setSecret(key: string, plaintext: string): void` — Encrypts and persists to SQLite `settings` table.
+   - `getSecret(key: string): string | null` — Retrieves and decrypts secret (with transparent legacy plaintext migration).
+   - `deleteSecret(key: string): void` — Removes secret row.
+   - `redactSecrets(text: string): string` — Replaces known secret values with `[REDACTED_SECRET]`.
 
-2. **Quality Gate Validation**:
-   - Run full monorepo typecheck: `pnpm run typecheck` (0 errors across all 11 Turbo tasks).
-   - Run full monorepo lint: `pnpm run lint` (0 errors across all 7 workspace packages).
-   - Run full monorepo test battery: `pnpm run test` (38+ test suites, 0 failures across 4,360+ assertions).
-   - Run production build: `pnpm run build` (all 7 packages building cleanly).
+2. **Integration with Services**:
+   - Update `DatabaseService.ts` and `PlanService.ts` / `BillingService.ts` to route secret reads/writes through `SecretVaultService`.
+   - Update `PushService.ts` to store encrypted VAPID keys.
+   - Add startup migration hook in `DatabaseService.init()` or `index.ts` to scan and encrypt unencrypted legacy keys (`ai_api_key`, `vapid_keys`, `stripe_secret_key`).
+
+3. **REST API Endpoints (`apps/server/src/routes/security.ts` or `routes/vault.ts`)**:
+   - `GET /api/v1/security/vault-status` — Returns vault health, encryption algorithm (`AES-256-GCM`), encrypted keys count, and plaintext migration status (never exposing actual secrets).
+   - Register in `apps/server/src/index.ts`.
+
+4. **Automated Unit & Integration Test Suite (`apps/server/src/services/security/__tests__/SecretVaultService.test.ts`)**:
+   - Test encryption/decryption round-trip.
+   - Test tamper detection: modified ciphertext or authentication tag throws `TAMPERED_SECRET_ERROR`.
+   - Test fresh random IV generation for every encryption call (identical plaintexts produce different ciphertexts).
+   - Test legacy plaintext migration on read.
+   - Test secret redaction in log strings.
+   - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 5. Constraints & Forbidden Changes
 
-- Do NOT weaken any isolation guarantees, safety checks, or verification timeouts.
-- Do NOT modify product code unless required to fix a discovered regression.
-- Keep `docs/phase8-production-gate.md` factual, evidence-backed, and reproducible.
+- Do NOT store decryption keys in plaintext in the SQLite database itself.
+- Do NOT use unauthenticated ciphers (e.g. raw AES-CBC without HMAC).
+- Do NOT break any of the existing 38 test suites.
 
 ---
 
 ## 6. Acceptance Criteria
 
-1. `docs/phase8-production-gate.md` is authored with complete subsystem audit matrices, workstream audits (P8-01 to P8-03), and verification evidence.
-2. All 3 Phase 8 workstreams (P8-01, P8-02, P8-03) are audited and verified against their acceptance criteria.
-3. 0 TypeScript compiler errors across all packages (`pnpm run typecheck`).
-4. 0 ESLint errors across all packages (`pnpm run lint`).
-5. All automated test suites pass with 0 failures (`pnpm run test` across 38 suites).
-6. Monorepo production build succeeds cleanly (`pnpm run build`).
+1. `SecretVaultService` encrypts and decrypts secrets using `AES-256-GCM` with random IVs and authenticated tags.
+2. Tampered ciphertext or forged authentication tags are detected and rejected.
+3. Legacy plaintext secrets in `settings` table are transparently migrated and encrypted at rest.
+4. `GET /api/v1/security/vault-status` reports vault encryption status without leaking secrets.
+5. `SecretVaultService.test.ts` passes with comprehensive cryptographic assertions.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (39 test suites), `pnpm run build`.
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] `docs/phase8-production-gate.md` created and complete
-- [ ] Monorepo typecheck clean (0 errors)
-- [ ] Monorepo lint clean (0 errors)
-- [ ] Full test battery passing (0 failures, 38+ suites)
-- [ ] Production build clean
+- [ ] `SecretVaultService.ts` implemented and tested
+- [ ] Database secret storage updated to use vault
+- [ ] Legacy plaintext migration hook operational
+- [ ] `/api/v1/security/vault-status` REST endpoint registered
+- [ ] `SecretVaultService.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
 
 ---
 
 ## 8. Verification Commands
 
 ```bash
-# Verify Phase 8 specialized test suites
-pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts
-pnpm --filter asterim exec tsx src/services/verification/__tests__/VerificationPipelineService.test.ts
-pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
-pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
+# Run new Secret Vault test suite
+pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts
 
-# Run full monorepo CI validation pipeline
+# Run all security & billing test suites
+pnpm --filter asterim exec tsx src/services/__tests__/BillingService.test.ts
+pnpm --filter asterim exec tsx src/services/__tests__/PairingService.test.ts
+
+# Run full monorepo CI pipeline
 pnpm run typecheck
 pnpm run lint
 pnpm run test

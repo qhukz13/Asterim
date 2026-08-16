@@ -1,4 +1,4 @@
-Task-ID: P8-04
+Task-ID: P9-01
 
 ## Verification Commands
 1. Run Typecheck:
@@ -9,20 +9,14 @@ Task-ID: P8-04
    `pnpm run lint`
    PASS: 0 ESLint errors across 7 workspace packages.
 
-3. Run Phase 8 Worktree, Verification & Delegation Server Test Suites:
-   `pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts`
-   `pnpm --filter asterim exec tsx src/services/verification/__tests__/VerificationPipelineService.test.ts`
-   `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts`
-   PASS: All server worktree, verification pipeline, and delegation assertions pass.
+3. Run Secret Vault Service Unit & Integration Tests:
+   `pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts`
+   PASS: All vault cryptographic assertions pass with exit code 0.
 
-4. Run Phase 8 Delegation UI Test Suite:
-   `pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts`
-   PASS: 686/686 UI assertions pass with exit code 0.
-
-5. Run Full Monorepo Test Battery:
+4. Run Full Monorepo Test Battery:
    `pnpm run test`
-   PASS: All 38+ test suites pass with 0 failures across 4,360+ assertions.
+   PASS: All 39+ test suites pass with 0 failures across 4,400+ assertions.
 
-6. Run Production Build:
+5. Run Production Build:
    `pnpm run build`
-   PASS: All 7 Turbo packages build successfully.
+   PASS: All 7 Turbo packages build successfully in under 10 seconds.
