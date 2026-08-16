@@ -15,6 +15,7 @@
  */
 
 import { AgentToolExecutor } from '@asterim/adapters';
+import { isSkillToolName } from '@asterim/shared';
 import { approvalManager, ApprovalManager, CommandSecurityAnalysis } from '../ApprovalManager';
 import { AgentToolResult, McpAgentBridge, mcpAgentBridge } from './McpAgentBridge';
 
@@ -103,7 +104,12 @@ export class McpToolGateway {
     }
 
     try {
-      return await this.bridge.executeTool(toolName, args, context.workspaceId);
+      return await this.bridge.executeTool(
+        toolName,
+        args,
+        context.workspaceId,
+        context.workspacePath
+      );
     } catch (err) {
       // `executeTool` is documented not to throw. If that ever stops being
       // true, the agent still gets an answer rather than silence.
@@ -127,10 +133,14 @@ export class McpToolGateway {
     args: Record<string, unknown>,
     analysis: CommandSecurityAnalysis
   ): Promise<boolean> {
+    // A skill is not an MCP tool and calling it spawns nothing, so the card
+    // must not describe it as one — a person deciding whether to allow this is
+    // owed an accurate account of what they are allowing.
+    const kind = isSkillToolName(toolName) ? 'skill' : 'MCP tool';
     const description =
       analysis.warnings.length > 0
-        ? `The agent wants to call the MCP tool '${toolName}'. ${analysis.warnings.join(' ')}`
-        : `The agent wants to call the MCP tool '${toolName}'.`;
+        ? `The agent wants to call the ${kind} '${toolName}'. ${analysis.warnings.join(' ')}`
+        : `The agent wants to call the ${kind} '${toolName}'.`;
 
     try {
       return await this.approvals.requestApproval(

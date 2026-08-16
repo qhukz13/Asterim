@@ -225,14 +225,16 @@ export class AgentService {
       const { approvalManager } = await import('./ApprovalManager');
       const { questionManager } = await import('./QuestionManager');
 
-      // Whatever MCP is offering right now. Read at session start rather than
-      // held: a server the user starts later belongs to the next session, and a
-      // list captured once would go stale without anyone noticing.
+      // Whatever MCP and the skills library are offering right now. Read at
+      // session start rather than held: a server the user starts or a skill the
+      // user writes later belongs to the next session, and a list captured once
+      // would go stale without anyone noticing.
       const workspaceId = this.resolveWorkspaceId(projectId);
-      const mcpTools = this.discoverMcpTools(workspaceId);
-      const { toToolDescriptors, formatToolInstructions } = await import('./mcp/McpToolPrompt');
+      const mcpTools = this.discoverMcpTools(workspaceId, workspace);
+      const skills = mcpAgentBridge.discoverSkills(workspace);
+      const { toToolDescriptors, formatSessionInstructions } = await import('./mcp/McpToolPrompt');
       const toolDescriptors = toToolDescriptors(mcpTools);
-      const mcpToolInstructions = formatToolInstructions(toolDescriptors);
+      const mcpToolInstructions = formatSessionInstructions(toolDescriptors, skills);
 
       await this.sessionManager.startSession(
         agentType,
@@ -450,10 +452,16 @@ export class AgentService {
     }
   }
 
-  /** The MCP tools available to a session. Never fatal: no tools is a session. */
-  private discoverMcpTools(workspaceId?: string) {
+  /**
+   * The tools available to a session — MCP tools and skills alike. Never fatal:
+   * no tools is a session.
+   *
+   * `workspacePath` is the project directory, which is what scopes skills; the
+   * workspace id scopes MCP servers.
+   */
+  private discoverMcpTools(workspaceId?: string, workspacePath?: string) {
     try {
-      return mcpAgentBridge.getAvailableTools(workspaceId);
+      return mcpAgentBridge.getAvailableTools(workspaceId, workspacePath);
     } catch (err) {
       console.error('[AgentService] Could not list MCP tools:', err);
       return [];

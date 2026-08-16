@@ -1,8 +1,16 @@
-import { McpToolCallResult, McpToolDefinition } from '@asterim/shared';
+import {
+  McpToolCallResult,
+  McpToolDefinition,
+  SkillDefinition,
+  SKILL_TOOL_PREFIX,
+  isSkillToolName,
+  skillToolName
+} from '@asterim/shared';
 import { McpError, mcpProcessSupervisor, McpProcessSupervisor } from './McpProcessSupervisor';
+import { SkillService, skillService } from '../skills/SkillService';
 
 /**
- * What an agent sees of the MCP subsystem.
+ * What an agent sees of the MCP subsystem and of the skills library.
  *
  * An agent does not know about servers, sessions or pipes. It knows a flat list
  * of tools with names it can call, so this flattens every running server's
@@ -11,21 +19,31 @@ import { McpError, mcpProcessSupervisor, McpProcessSupervisor } from './McpProce
  * The namespace is `mcp__<server>__<tool>`, the convention the agent CLIs
  * already use for MCP tools. Two servers may both publish `read_file`; the
  * server name is what keeps them apart.
+ *
+ * Reusable skills join the same list under `skill__<name>` (P6-06). They are
+ * not MCP and have no process behind them — calling one returns the skill's own
+ * instructions — but an agent choosing what to do next should see one list of
+ * everything it can invoke, not two catalogues it has to reconcile.
  */
 
 /** Separator between the prefix, the server name and the tool name. */
 const SEPARATOR = '__';
 const PREFIX = `mcp${SEPARATOR}`;
 
+/** Where an offered tool comes from. Absent means MCP, which came first. */
+export type AgentToolKind = 'mcp' | 'skill';
+
 /** A tool as an agent sees it: one flat name, one description, one schema. */
 export interface AgentTool {
-  /** `mcp__<server>__<tool>` */
+  /** `mcp__<server>__<tool>`, or `skill__<name>` for a skill. */
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
   serverId: string;
   serverName: string;
   toolName: string;
+  /** `'skill'` for a skill; omitted or `'mcp'` for an MCP tool. */
+  kind?: AgentToolKind;
 }
 
 /**
@@ -62,7 +80,10 @@ export function flattenContent(content: McpToolCallResult['content']): string {
 }
 
 export class McpAgentBridge {
-  constructor(private readonly supervisor: McpProcessSupervisor = mcpProcessSupervisor) {}
+  constructor(
+    private readonly supervisor: McpProcessSupervisor = mcpProcessSupervisor,
+    private readonly skills: SkillService = skillService
+  ) {}
 
   /**
    * Every tool an agent may call right now.
@@ -71,8 +92,12 @@ export class McpAgentBridge {
    * an agent can use, and offering it would produce a failure the agent cannot
    * do anything about. Scoping by workspace follows the supervisor's own rule —
    * that workspace's servers plus the workstation-wide ones.
+   *
+   * `workspacePath` is what scopes skills, and it is a different key from
+   * `workspaceId` on purpose: an MCP server is a database row, a skill is a
+   * directory on disk. Omitting the path yields the global skills alone.
    */
-  public getAvailableTools(workspaceId?: string): AgentTool[] {
+  public getAvailableTools(workspaceId?: string, workspacePath?: string): AgentTool[] {
     const tools: AgentTool[] = [];
 
     for (const server of this.supervisor.listServers(workspaceId)) {
@@ -85,12 +110,27 @@ export class McpAgentBridge {
           inputSchema: tool.inputSchema ?? { type: 'object', properties: {} },
           serverId: server.id,
           serverName: server.name,
-          toolName: tool.name
+          toolName: tool.name,
+          kind: 'mcp'
         });
       }
     }
 
+    for (const skill of this.discoverSkills(workspacePath)) {
+      tools.push(toSkillTool(skill));
+    }
+
     return tools;
+  }
+
+  /** The skills offered to a session. Never fatal: no skills is a session. */
+  public discoverSkills(workspacePath?: string): SkillDefinition[] {
+    try {
+      return this.skills.discoverSkills(workspacePath);
+    } catch (err) {
+      console.error('[Skills] Discovery failed:', err);
+      return [];
+    }
   }
 
   /**
@@ -100,8 +140,16 @@ export class McpAgentBridge {
    * because a server or tool name may itself contain the separator and there is
    * no way to split that unambiguously. Exposed for the error paths and tests.
    */
-  public resolveTool(namespacedName: string, workspaceId?: string): AgentTool | null {
-    return this.getAvailableTools(workspaceId).find(tool => tool.name === namespacedName) ?? null;
+  public resolveTool(
+    namespacedName: string,
+    workspaceId?: string,
+    workspacePath?: string
+  ): AgentTool | null {
+    return (
+      this.getAvailableTools(workspaceId, workspacePath).find(
+        tool => tool.name === namespacedName
+      ) ?? null
+    );
   }
 
   /**
@@ -116,15 +164,22 @@ export class McpAgentBridge {
   public async executeTool(
     namespacedName: string,
     args: Record<string, unknown> = {},
-    workspaceId?: string
+    workspaceId?: string,
+    workspacePath?: string
   ): Promise<AgentToolResult> {
-    const tool = this.resolveTool(namespacedName, workspaceId);
+    // A skill never reaches a server, so it is answered before the catalogue is
+    // consulted for one: the payload is the skill's own instructions.
+    if (isSkillToolName(namespacedName)) {
+      return this.executeSkill(namespacedName, args, workspacePath);
+    }
+
+    const tool = this.resolveTool(namespacedName, workspaceId, workspacePath);
 
     if (!tool) {
       return {
         name: namespacedName,
         isError: true,
-        text: this.explainUnknownTool(namespacedName, workspaceId)
+        text: this.explainUnknownTool(namespacedName, workspaceId, workspacePath)
       };
     }
 
@@ -146,13 +201,45 @@ export class McpAgentBridge {
   }
 
   /**
+   * Reads one skill and hands back its instructions.
+   *
+   * Never throws, for the same reason `executeTool` does not: the agent is
+   * mid-turn waiting on a line, and an exception here would look to it like a
+   * dead session rather than an answer it can correct.
+   */
+  private executeSkill(
+    namespacedName: string,
+    args: Record<string, unknown>,
+    workspacePath?: string
+  ): AgentToolResult {
+    try {
+      const result = this.skills.executeSkill(
+        namespacedName.slice(SKILL_TOOL_PREFIX.length),
+        args,
+        workspacePath
+      );
+      return { name: namespacedName, isError: result.isError, text: result.text };
+    } catch (err) {
+      return {
+        name: namespacedName,
+        isError: true,
+        text: `Reading the skill '${namespacedName}' failed: ${(err as Error).message}`
+      };
+    }
+  }
+
+  /**
    * Says why a name did not resolve, in the most useful way available: whether
    * the server exists but is not running, whether the tool is unknown to a
    * server that is, or whether the name was never MCP's to begin with.
    */
-  private explainUnknownTool(namespacedName: string, workspaceId?: string): string {
+  private explainUnknownTool(
+    namespacedName: string,
+    workspaceId?: string,
+    workspacePath?: string
+  ): string {
     if (!namespacedName.startsWith(PREFIX)) {
-      return `'${namespacedName}' is not an MCP tool name; MCP tools are called as ${PREFIX}<server>${SEPARATOR}<tool>.`;
+      return `'${namespacedName}' is not an MCP tool name; MCP tools are called as ${PREFIX}<server>${SEPARATOR}<tool>, and skills as ${SKILL_TOOL_PREFIX}<name>.`;
     }
 
     const remainder = namespacedName.slice(PREFIX.length);
@@ -166,11 +253,35 @@ export class McpAgentBridge {
       return `The MCP server '${stopped.name}' is ${stopped.status.toLowerCase()}, so '${namespacedName}' is unavailable. Start it and try again.`;
     }
 
-    const available = this.getAvailableTools(workspaceId).map(tool => tool.name);
+    const available = this.getAvailableTools(workspaceId, workspacePath).map(tool => tool.name);
     return available.length === 0
       ? `No MCP tools are available: no MCP server is running.`
       : `'${namespacedName}' is not an available MCP tool. Available: ${available.join(', ')}.`;
   }
+}
+
+/**
+ * One skill, in the shape the rest of the tool path already understands.
+ *
+ * `serverName` is the literal `skills` rather than a process, so a reader of an
+ * approval card or a log line can tell at a glance that nothing was spawned.
+ */
+export function toSkillTool(skill: SkillDefinition): AgentTool {
+  return {
+    name: skillToolName(skill.name),
+    description: describeSkill(skill),
+    inputSchema: skill.parametersSchema ?? { type: 'object', properties: {} },
+    serverId: skill.id,
+    serverName: 'skills',
+    toolName: skill.name,
+    kind: 'skill'
+  };
+}
+
+/** A description that says what the skill does and where it came from. */
+function describeSkill(skill: SkillDefinition): string {
+  const origin = skill.scope === 'workspace' ? 'this workspace' : 'this workstation';
+  return `${skill.description} (a reusable skill from ${origin}; calling it returns its instructions to follow)`;
 }
 
 /** A description an agent can choose from, with the server named for context. */

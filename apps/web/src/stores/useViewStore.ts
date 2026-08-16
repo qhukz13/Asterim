@@ -6,6 +6,7 @@ export type ViewType =
   | 'changes'
   | 'memory'
   | 'mcp'
+  | 'skills'
   | 'settings'
   | 'workspace'
   | 'environment';
@@ -22,7 +23,7 @@ interface ViewState {
 
 export const useViewStore = create<ViewState>((set) => ({
   activeView: 'chat',
-  availableViews: ['chat', 'terminal', 'changes', 'memory', 'settings', 'workspace', 'environment'],
+  availableViews: ['chat', 'terminal', 'changes', 'memory', 'skills', 'settings', 'workspace', 'environment'],
   viewHistory: [],
   perThreadViewState: {},
   

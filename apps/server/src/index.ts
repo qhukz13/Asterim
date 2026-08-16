@@ -123,6 +123,7 @@ import apiKeyRoutes from './routes/apikeys';
 import webhookRoutes from './routes/webhooks';
 import billingRoutes from './routes/billing';
 import mcpRoutes from './routes/mcp';
+import skillRoutes from './routes/skills';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
@@ -147,6 +148,8 @@ const start = async () => {
     await fastify.register(billingRoutes);
     console.log('[DEBUG] Registering mcpRoutes');
     await fastify.register(mcpRoutes);
+    console.log('[DEBUG] Registering skillRoutes');
+    await fastify.register(skillRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');
