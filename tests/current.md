@@ -1,4 +1,4 @@
-Task-ID: P7-01
+Task-ID: P7-02
 
 ## Verification Commands
 1. Run Typecheck:
@@ -9,14 +9,18 @@ Task-ID: P7-01
    `pnpm run lint`
    PASS: 0 ESLint errors across 7 workspace packages.
 
-3. Run Agent Delegation Service Unit & Integration Tests:
+3. Run Web Delegation Unit Tests:
+   `pnpm --filter @asterim/web test`
+   PASS: All web unit test suites pass with 0 failures.
+
+4. Run Server Delegation Test Suite:
    `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts`
    PASS: All delegation assertions pass with exit code 0.
 
-4. Run Full Monorepo Test Battery:
+5. Run Full Monorepo Test Battery:
    `pnpm run test`
-   PASS: All 35+ test suites pass with 0 failures across 3,000+ assertions.
+   PASS: All test suites pass with 0 failures across all packages.
 
-5. Run Production Build:
+6. Run Production Build:
    `pnpm run build`
-   PASS: All 7 Turbo packages build successfully in under 10 seconds.
+   PASS: All 7 Turbo packages build successfully.
