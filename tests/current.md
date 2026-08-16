@@ -1,4 +1,4 @@
-Task-ID: P7-04
+Task-ID: P7-05
 
 ## Verification Commands
 1. Run Typecheck:
@@ -11,11 +11,11 @@ Task-ID: P7-04
 
 3. Run Web Delegation Unit Tests:
    `pnpm --filter @asterim/web test`
-   PASS: All web unit test suites pass with 0 failures.
+   PASS: All web unit test suites (including DelegationUI parallel modal tests) pass with 0 failures.
 
 4. Run Server Delegation Test Suite:
    `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts`
-   PASS: All delegation assertions (including parallel fan-out, concurrency limits, and batch cancellation) pass with exit code 0.
+   PASS: All server delegation assertions pass with exit code 0.
 
 5. Run Full Monorepo Test Battery:
    `pnpm run test`
