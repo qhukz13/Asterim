@@ -63,7 +63,8 @@ export type DelegationErrorCode =
   | 'THREAD_NOT_FOUND'
   | 'PROFILE_NOT_FOUND'
   | 'DEPTH_EXCEEDED'
-  | 'ALREADY_DELEGATING';
+  | 'ALREADY_DELEGATING'
+  | 'NOT_DELEGATING';
 
 export class DelegationError extends Error {
   constructor(
@@ -85,6 +86,9 @@ export const MAX_OUTPUT_CHARS = 20000;
 export const MAX_SUMMARY_CHARS = 2000;
 /** How many hops the parent chain is walked before it is called a cycle. */
 const MAX_CHAIN_HOPS = 64;
+
+/** What a cancelled delegation records when the caller gave no reason (P7-03). */
+export const DEFAULT_CANCELLATION_REASON = 'Delegation cancelled by operator';
 
 /**
  * How a child session is started, fed and stopped.
@@ -198,11 +202,48 @@ interface ChildOutcome {
   output: string;
   /** Why it failed, when it did. */
   failure?: string;
+  /**
+   * Whether the failure was an intervention rather than the child's own doing.
+   *
+   * It changes only how the outcome reads: a cancelled delegation's summary is
+   * the reason it was cancelled, not that reason followed by whatever the child
+   * happened to have said when it was stopped mid-sentence.
+   */
+  cancelled?: boolean;
+}
+
+/**
+ * A delegation that is running right now (P7-03).
+ *
+ * `delegateTask` is one long await, so the only handle anything else has on a
+ * running delegation is what it registers here before it starts waiting. That
+ * is two things: a way to end the wait early, and the promise the outcome will
+ * arrive on — so a cancellation does not settle the delegation itself, it asks
+ * the delegation to settle and then reports what it settled as. One writer for
+ * the child row, one release of the parent, one set of events, whether the
+ * child finished, timed out or was stopped.
+ */
+interface ActiveDelegation {
+  /** Which thread is running the work; the map key is the parent waiting on it. */
+  childThreadId: string;
+  /** The result `delegateTask` will return, once it has one. */
+  settled: Promise<DelegationResult>;
+  /**
+   * Ends the wait with a cancellation. Absent for the moment between this
+   * record being registered and the watch being armed; `cancelReason` is what
+   * covers that window.
+   */
+  abort?: (reason: string) => void;
+  /** Set by the first cancellation; later ones ride the same settle. */
+  cancelReason?: string;
 }
 
 export class AgentDelegationService {
   /** Parent thread id → the child it is currently parked behind. */
   private waiting = new Map<string, string>();
+
+  /** Parent thread id → the delegation running under it, while it runs. */
+  private active = new Map<string, ActiveDelegation>();
 
   constructor(
     private readonly runner: DelegationSessionRunner = new EventBusSessionRunner(),
@@ -335,6 +376,7 @@ export class AgentDelegationService {
     // A parent parked in memory cannot outlive the process, but clearing is
     // free and makes the pass safe to call more than once.
     this.waiting.clear();
+    this.active.clear();
 
     let rows: ThreadRow[];
     try {
@@ -485,56 +527,163 @@ export class AgentDelegationService {
 
     this.setParentState(parent.project_id, parentThreadId, 'WAITING_FOR_CHILD', childThreadId);
 
-    let outcome: ChildOutcome;
-    try {
-      outcome = await this.runChild(parent, childThreadId, profile, context, timeoutMs);
-    } catch (err) {
-      // The runner itself failed — the session never started. Still an outcome,
-      // because the parent is waiting either way.
-      outcome = {
-        status: 'FAILED',
-        output: '',
-        failure: `The delegated session could not be started: ${(err as Error).message}`
-      };
-    }
-
-    const result = this.buildResult(childThreadId, profile, context, outcome, startedAt);
-
-    this.recordOutcome(childThreadId, context, result);
-    // Every delegation status is also a terminal child state, by construction.
-    this.publishChildState(
-      parent.project_id,
-      childThreadId,
-      parentThreadId,
-      result.status,
-      result.summary
-    );
-
-    // The child's process is stopped before the parent is resumed: the parent's
-    // next move may touch the same working tree, and two agents editing it at
-    // once is exactly what the parent parked itself to avoid.
-    await this.safeStop(parent.project_id, childThreadId);
-
-    this.waiting.delete(parentThreadId);
-    this.setParentState(parent.project_id, parentThreadId, 'ACTIVE', childThreadId);
-
-    // The report goes into the parent's session — unless the parent asked for
-    // this through a meta-tool, in which case it is already being written to
-    // that session as the tool's result line, and sending it again would have
-    // the agent read the same answer twice and treat the second as new work.
-    if (options.resumeParent !== false) {
-      await this.safeSend(parent.project_id, parentThreadId, formatDelegationReport(result));
-    }
-
-    this.bus.publish({
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      source: 'server:delegation',
-      type: DELEGATION_COMPLETED_EVENT,
-      payload: { projectId: parent.project_id, threadId: parentThreadId, result }
+    // Registered before the first await, so a cancellation that arrives while
+    // the child is still booting has something to hold on to.
+    let settle!: (result: DelegationResult) => void;
+    let reject!: (err: unknown) => void;
+    const settled = new Promise<DelegationResult>((resolve, fail) => {
+      settle = resolve;
+      reject = fail;
     });
+    // Nobody awaits this unless a cancellation does, and a rejection nothing is
+    // listening to would take the Core down as an unhandled rejection.
+    settled.catch(() => undefined);
 
-    return result;
+    const active: ActiveDelegation = { childThreadId, settled };
+    this.active.set(parentThreadId, active);
+
+    try {
+      let outcome: ChildOutcome;
+      try {
+        outcome = await this.runChild(parent, childThreadId, profile, context, timeoutMs, active);
+      } catch (err) {
+        // The runner itself failed — the session never started. Still an outcome,
+        // because the parent is waiting either way.
+        outcome = {
+          status: 'FAILED',
+          output: '',
+          failure: `The delegated session could not be started: ${(err as Error).message}`
+        };
+      }
+
+      const result = this.buildResult(childThreadId, profile, context, outcome, startedAt);
+
+      this.recordOutcome(childThreadId, context, result);
+      // Every delegation status is also a terminal child state, by construction.
+      this.publishChildState(
+        parent.project_id,
+        childThreadId,
+        parentThreadId,
+        result.status,
+        result.summary
+      );
+
+      // The child's process is stopped before the parent is resumed: the parent's
+      // next move may touch the same working tree, and two agents editing it at
+      // once is exactly what the parent parked itself to avoid. It is also what
+      // makes a cancellation mean something — the runaway child is gone by the
+      // time the operator's request answers.
+      await this.safeStop(parent.project_id, childThreadId);
+
+      this.waiting.delete(parentThreadId);
+      this.setParentState(parent.project_id, parentThreadId, 'ACTIVE', childThreadId);
+
+      // The report goes into the parent's session — unless the parent asked for
+      // this through a meta-tool, in which case it is already being written to
+      // that session as the tool's result line, and sending it again would have
+      // the agent read the same answer twice and treat the second as new work.
+      if (options.resumeParent !== false) {
+        await this.safeSend(parent.project_id, parentThreadId, formatDelegationReport(result));
+      }
+
+      this.bus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server:delegation',
+        type: DELEGATION_COMPLETED_EVENT,
+        payload: { projectId: parent.project_id, threadId: parentThreadId, result }
+      });
+
+      settle(result);
+      return result;
+    } catch (err) {
+      reject(err);
+      throw err;
+    } finally {
+      this.active.delete(parentThreadId);
+    }
+  }
+
+  // --- Cancellation (P7-03) ---------------------------------------------------
+
+  /**
+   * Stops a running delegation and gives the parent its thread back.
+   *
+   * Addressable from either end: an operator watching the parent's waiting
+   * banner names the parent, an operator looking at a runaway child in the tree
+   * names the child, and both mean the same delegation.
+   *
+   * It does not settle anything itself. It ends the wait and then returns what
+   * `delegateTask` settled as — which is what keeps a cancellation from being a
+   * second, competing writer of the child's row, a second release of the
+   * parent, and a second set of terminal events. The child's process is stopped
+   * on that same path, before the parent is resumed.
+   *
+   * Idempotent in the two ways it has to be. Two cancellations racing each other
+   * both wait on the one settle and get the same result; a cancellation that
+   * arrives after the child already finished answers with what it finished as,
+   * rather than failing because it lost by a few milliseconds.
+   */
+  public async cancelDelegation(threadId: string, reason?: string): Promise<DelegationResult> {
+    const id = requireText(threadId, 'threadId', 200);
+    const why = optionalText(reason, 'reason', MAX_SUMMARY_CHARS) || DEFAULT_CANCELLATION_REASON;
+
+    const thread = this.getThread(id);
+    if (!thread) {
+      throw new DelegationError('THREAD_NOT_FOUND', `No thread with id ${id}.`);
+    }
+
+    const active = this.active.get(id) ?? this.findActiveByChild(id);
+    if (active) {
+      // The first cancellation owns the reason; a second one would otherwise
+      // overwrite it after the outcome had already been built from it.
+      if (!active.cancelReason) {
+        active.cancelReason = why;
+        // Absent only in the window before the watch is armed, which the
+        // reason recorded above is what closes.
+        active.abort?.(why);
+      }
+      return active.settled;
+    }
+
+    // Nothing running under this thread. A child that has already settled
+    // answers with its own outcome, so a cancel that lost the race reads the
+    // same as one that won it.
+    const alreadySettled = this.settledResultFor(thread);
+    if (alreadySettled) return alreadySettled;
+
+    throw new DelegationError(
+      'NOT_DELEGATING',
+      `Thread ${id} is not waiting on a delegated agent and is not one itself.`
+    );
+  }
+
+  /** The running delegation whose child is this thread, if there is one. */
+  private findActiveByChild(childThreadId: string): ActiveDelegation | undefined {
+    for (const entry of this.active.values()) {
+      if (entry.childThreadId === childThreadId) return entry;
+    }
+    return undefined;
+  }
+
+  /** A finished child's row, read back as the result it settled as. */
+  private settledResultFor(row: ThreadRow): DelegationResult | null {
+    const context = parseDelegationContext(row.delegation_context_json);
+    if (!context?.status) return null;
+    return {
+      childThreadId: row.id,
+      status: context.status,
+      // The transcript is not reconstructed: it lives in the child's thread,
+      // and a caller that wants it opens that thread.
+      output: '',
+      summary: context.summary ?? '',
+      role: context.role,
+      profileId: context.profileId ?? row.profile_id ?? undefined,
+      depth: context.depth,
+      verdict: context.verdict,
+      startedAt: context.requestedAt,
+      finishedAt: context.finishedAt
+    };
   }
 
   /**
@@ -720,13 +869,19 @@ export class AgentDelegationService {
     childThreadId: string,
     profile: AgentProfile | null,
     context: DelegationContext,
-    timeoutMs: number
+    timeoutMs: number,
+    active: ActiveDelegation
   ): Promise<ChildOutcome> {
     this.publishChildState(parent.project_id, childThreadId, parent.id, 'STARTING');
 
     // Watching starts before the session does: a child that answers immediately
     // must not have its first line land before anything is listening.
-    const watching = this.watchChild(childThreadId, timeoutMs);
+    const watching = this.watchChild(childThreadId, timeoutMs, active);
+
+    // A delegation cancelled before its session was asked for does not get one.
+    // The window is small, but starting a subprocess in order to stop it a
+    // moment later is the kind of thing that leaves one behind.
+    if (active.cancelReason) return watching;
 
     await this.runner.start({
       projectId: parent.project_id,
@@ -752,20 +907,33 @@ export class AgentDelegationService {
    * child has said something and then reported itself idle. The `sawOutput`
    * guard is what separates that from the idle a session reports at startup,
    * before it has been asked anything.
+   *
+   * The fourth way it can end is an operator saying stop, which arrives through
+   * the abort this arms on the delegation record (P7-03).
    */
-  private watchChild(childThreadId: string, timeoutMs: number): Promise<ChildOutcome> {
+  private watchChild(
+    childThreadId: string,
+    timeoutMs: number,
+    active: ActiveDelegation
+  ): Promise<ChildOutcome> {
     return new Promise<ChildOutcome>(resolve => {
       const chunks: string[] = [];
       let sawOutput = false;
       let settled = false;
 
-      const finish = (status: DelegationStatus, failure?: string) => {
+      const finish = (status: DelegationStatus, failure?: string, cancelled = false) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        active.abort = undefined;
         this.bus.unsubscribe('chat.message', onChat);
         this.bus.unsubscribe('agent.status', onStatus);
-        resolve({ status, output: truncate(chunks.join('').trim(), MAX_OUTPUT_CHARS), failure });
+        resolve({
+          status,
+          output: truncate(chunks.join('').trim(), MAX_OUTPUT_CHARS),
+          failure,
+          cancelled
+        });
       };
 
       const onChat = (event: { payload?: Record<string, unknown> }) => {
@@ -814,6 +982,13 @@ export class AgentDelegationService {
 
       this.bus.subscribe('chat.message', onChat);
       this.bus.subscribe('agent.status', onStatus);
+
+      // A cancellation is a `FAILED` outcome with an operator behind it rather
+      // than a crash, which is the difference the summary carries.
+      active.abort = (reason: string) => finish('FAILED', reason, true);
+      // And one that arrived before this watch existed is honoured now, rather
+      // than leaving the parent parked until the timeout.
+      if (active.cancelReason) active.abort(active.cancelReason);
     });
   }
 
@@ -847,9 +1022,14 @@ export class AgentDelegationService {
     const summary =
       outcome.status === 'COMPLETED'
         ? tagged || tail(outcome.output, MAX_SUMMARY_CHARS) || 'The delegated agent produced no output.'
-        : `${outcome.failure ?? 'The delegated agent did not finish.'}${
-            outcome.output ? ` Last output: ${tail(outcome.output, 600)}` : ''
-          }`;
+        : // A cancellation is the operator's sentence, not the child's. Trailing
+          // it with whatever the child was mid-way through saying would read as
+          // an explanation of a failure that did not happen.
+          outcome.cancelled
+          ? (outcome.failure ?? DEFAULT_CANCELLATION_REASON)
+          : `${outcome.failure ?? 'The delegated agent did not finish.'}${
+              outcome.output ? ` Last output: ${tail(outcome.output, 600)}` : ''
+            }`;
 
     const artifacts = parseArtifacts(outcome.output);
 

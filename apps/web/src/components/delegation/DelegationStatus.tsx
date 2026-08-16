@@ -58,6 +58,20 @@ export function summarySnippet(text: string | undefined, max = 180): string {
   return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
+/** The shared shape of the two buttons on the waiting banner. */
+const bannerButton: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '4px 10px',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 'var(--font-weight-semibold)',
+  background: 'var(--color-surface-2)',
+  border: '1px solid var(--color-border-default)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  transition: 'background 0.15s, color 0.15s'
+};
+
 export interface DelegationWaitingBannerProps {
   /** The role the child runs under, when it has one. */
   role?: string;
@@ -65,6 +79,15 @@ export interface DelegationWaitingBannerProps {
   childState?: DelegationChildState;
   taskDescription?: string;
   onInspectChild: (childThreadId: string) => void;
+  /**
+   * Stops the child and gives this thread back (P7-03). Omitted when there is
+   * nothing that could carry the request — the banner then reads as before.
+   */
+  onCancel?: (childThreadId: string) => void;
+  /** A cancellation is in flight, so the button is spent. */
+  isCancelling?: boolean;
+  /** Why the last cancellation was refused, when one was. */
+  cancelError?: string | null;
 }
 
 export function DelegationWaitingBanner({
@@ -72,7 +95,10 @@ export function DelegationWaitingBanner({
   childThreadId,
   childState,
   taskDescription,
-  onInspectChild
+  onInspectChild,
+  onCancel,
+  isCancelling = false,
+  cancelError = null
 }: DelegationWaitingBannerProps) {
   return (
     <div
@@ -131,24 +157,32 @@ export function DelegationWaitingBanner({
             {summarySnippet(taskDescription)}
           </div>
         )}
+        {cancelError && (
+          <div role="alert" style={{ color: 'var(--color-state-error)' }}>
+            {cancelError}
+          </div>
+        )}
       </div>
-      <button
-        onClick={() => onInspectChild(childThreadId)}
-        style={{
-          flexShrink: 0,
-          padding: '4px 10px',
-          fontSize: 'var(--font-size-xs)',
-          fontWeight: 'var(--font-weight-semibold)',
-          background: 'var(--color-surface-2)',
-          border: '1px solid var(--color-border-default)',
-          borderRadius: 'var(--radius-sm)',
-          color: 'var(--color-text-primary)',
-          cursor: 'pointer',
-          transition: 'background 0.15s, color 0.15s'
-        }}
-      >
+      <button onClick={() => onInspectChild(childThreadId)} style={bannerButton}>
         Inspect Child Thread
       </button>
+      {onCancel && (
+        <button
+          onClick={() => onCancel(childThreadId)}
+          disabled={isCancelling}
+          aria-label="Cancel delegation"
+          title="Stop the delegated agent and continue in this thread"
+          style={{
+            ...bannerButton,
+            borderColor: 'var(--color-state-error)',
+            color: 'var(--color-state-error)',
+            cursor: isCancelling ? 'default' : 'pointer',
+            opacity: isCancelling ? 0.6 : 1
+          }}
+        >
+          {isCancelling ? 'Cancelling…' : 'Cancel Delegation'}
+        </button>
+      )}
     </div>
   );
 }
@@ -332,6 +366,9 @@ export interface DelegationStatusViewProps {
   onInspectChild: (childThreadId: string) => void;
   onOpenArtifact?: (path: string) => void;
   onDismissOutcome?: () => void;
+  onCancel?: (childThreadId: string) => void;
+  isCancelling?: boolean;
+  cancelError?: string | null;
 }
 
 /** The waiting banner, the outcome card, or nothing — in that order. */
@@ -344,7 +381,10 @@ export function DelegationStatusView({
   outcome,
   onInspectChild,
   onOpenArtifact,
-  onDismissOutcome
+  onDismissOutcome,
+  onCancel,
+  isCancelling,
+  cancelError
 }: DelegationStatusViewProps) {
   if (parentState === 'WAITING_FOR_CHILD' && pendingChildThreadId) {
     return (
@@ -354,6 +394,9 @@ export function DelegationStatusView({
         childState={pendingChildState}
         taskDescription={pendingChildTask}
         onInspectChild={onInspectChild}
+        onCancel={onCancel}
+        isCancelling={isCancelling}
+        cancelError={cancelError}
       />
     );
   }
@@ -396,13 +439,19 @@ export function DelegationStatus({
   const childRoles = useProjectStore(state => state.childRoles);
   const outcomes = useProjectStore(state => state.delegationOutcomes);
   const children = useProjectStore(state => state.delegationChildren);
+  const cancelling = useProjectStore(state => state.cancellingChildren);
   const syncDelegations = useProjectStore(state => state.syncDelegations);
+  const cancelDelegation = useProjectStore(state => state.cancelDelegation);
 
   const [dismissed, setDismissed] = React.useState<string | null>(null);
+  const [cancelError, setCancelError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (activeThreadId) void syncDelegations(activeThreadId, activeBackendUrl);
   }, [activeThreadId, activeBackendUrl, syncDelegations]);
+
+  // A refusal belongs to the delegation it was refused for, not to the thread.
+  React.useEffect(() => setCancelError(null), [activeThreadId]);
 
   if (!activeThreadId) return null;
 
@@ -420,6 +469,15 @@ export function DelegationStatus({
       onInspectChild={onInspectChild}
       onOpenArtifact={onOpenArtifact}
       onDismissOutcome={() => setDismissed(outcome?.childThreadId ?? null)}
+      onCancel={async () => {
+        setCancelError(null);
+        // Addressed to the parent, which is the thread that is open: the Core
+        // resolves the child from it, and doing so here would race the socket.
+        const accepted = await cancelDelegation(activeThreadId, undefined, activeBackendUrl);
+        if (!accepted) setCancelError('The workstation would not stop this delegation.');
+      }}
+      isCancelling={!!(pendingChildThreadId && cancelling[pendingChildThreadId])}
+      cancelError={cancelError}
     />
   );
 }

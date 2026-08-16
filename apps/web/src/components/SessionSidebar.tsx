@@ -32,6 +32,8 @@ export function SessionSidebar({
   const setThreads = useProjectStore(s => s.setThreads);
   const parentStates = useProjectStore(s => s.parentStates);
   const childStates = useProjectStore(s => s.childStates);
+  const cancellingChildren = useProjectStore(s => s.cancellingChildren);
+  const cancelDelegation = useProjectStore(s => s.cancelDelegation);
   const activeThreadId = useThreadStore(s => s.activeThreadId);
   const perThreadViewState = useViewStore(s => s.perThreadViewState);
   const [, setLocation] = useLocation();
@@ -260,6 +262,14 @@ export function SessionSidebar({
             onToggleCollapse={threadId =>
               setCollapsed(current => ({ ...current, [threadId]: !current[threadId] }))
             }
+            cancellingThreads={cancellingChildren}
+            onCancelChild={threadId => {
+              void cancelDelegation(
+                threadId,
+                'Stopped from the thread list.',
+                activeBackendUrl ?? null
+              );
+            }}
           />
         )}
       </div>

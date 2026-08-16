@@ -13,8 +13,11 @@
  *      recording `fetch` so the URL and method are asserted rather than assumed.
  *   3. Real rendering through `react-dom/server`, driving the props-only views.
  *
- * What it does NOT cover: click handlers, which need an event loop and a DOM
- * the repository does not have.
+ * Click handlers are reached without a DOM by calling a props-only function
+ * component directly and walking the element tree it returns for the button
+ * (`findElement` below). That works precisely because these views hold no state
+ * of their own; anything that used a hook would need a renderer, and the
+ * repository has none.
  *
  * Run:  pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
  */
@@ -163,6 +166,29 @@ function result(overrides: Partial<DelegationResult> = {}): DelegationResult {
 }
 
 const noop = () => undefined;
+
+interface ElementLike {
+  props?: Record<string, unknown> & { children?: unknown };
+}
+
+/** The first node in a returned element tree whose props match. */
+function findElement(
+  node: unknown,
+  match: (props: Record<string, unknown>) => boolean
+): ElementLike | null {
+  if (!node || typeof node !== 'object') return null;
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      const found = findElement(entry, match);
+      if (found) return found;
+    }
+    return null;
+  }
+  const element = node as ElementLike;
+  if (!element.props) return null;
+  if (match(element.props)) return element;
+  return findElement(element.props.children, match);
+}
 
 function renderTree(props: Partial<Parameters<typeof tree.ThreadTreeView>[0]> = {}) {
   return renderToStaticMarkup(
@@ -589,6 +615,90 @@ async function main(): Promise<void> {
     equal('and no thread means no request', requests.length, 0);
   }
 
+  describe('useProjectStore — cancelDelegation');
+  {
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setActiveProject(PROJECT);
+    useProjectStore.getState().setThreads([thread('root')]);
+
+    // A parent parked behind a child, exactly as the socket would have left it.
+    handleDelegationEvent('delegation.started', {
+      projectId: PROJECT,
+      threadId: 'root',
+      childThreadId: 'child-1',
+      depth: 1,
+      kind: 'TASK',
+      role: 'Security Auditor',
+      taskDescription: 'Harden the upload route.'
+    });
+    handleDelegationEvent('delegation.parent_state', {
+      projectId: PROJECT,
+      threadId: 'root',
+      state: 'WAITING_FOR_CHILD',
+      childThreadId: 'child-1'
+    });
+
+    requests.length = 0;
+    respond({
+      success: true,
+      result: result({ status: 'FAILED', summary: 'Delegation cancelled by operator' })
+    });
+    const accepted = await useProjectStore
+      .getState()
+      .cancelDelegation('root', 'Stopped from the banner.');
+
+    equal('it posts to the cancel endpoint', requests[0]?.url.endsWith('/api/v1/threads/root/delegate/cancel'), true);
+    equal('with POST', requests[0]?.method, 'POST');
+    equal('carrying the reason', (requests[0]?.body as { reason?: string })?.reason, 'Stopped from the banner.');
+    equal('and the token', requests[0]?.headers['Authorization'], 'Bearer test-token');
+    equal('the Core accepted it', accepted, true);
+
+    const after = useProjectStore.getState();
+    equal('the parent is released without waiting for the socket', after.parentStates['root'], 'ACTIVE');
+    equal('the banner has nothing left to show', after.pendingChildren['root'], undefined);
+    equal('the child ends FAILED', after.childStates['child-1'], 'FAILED');
+    equal(
+      'and the outcome card gets the cancellation',
+      after.delegationOutcomes['root']?.summary,
+      'Delegation cancelled by operator'
+    );
+    equal(
+      'and it is written back onto the stored brief',
+      parseDelegationContext(after.threads[1]?.delegation_context_json)?.status,
+      'FAILED'
+    );
+    equal('nothing is left marked as cancelling', Object.keys(after.cancellingChildren).length, 0);
+
+    // A refusal — the Core says this thread is not delegating.
+    requests.length = 0;
+    respond({ error: 'Thread root is not waiting on a delegated agent.', code: 'NOT_DELEGATING' }, 409);
+    const refused = await useProjectStore.getState().cancelDelegation('root');
+    equal('a refusal is reported back to the caller', refused, false);
+    equal('no reason is sent when none was given', (requests[0]?.body as { reason?: string })?.reason, undefined);
+    equal(
+      'and the spinner is cleared anyway',
+      Object.keys(useProjectStore.getState().cancellingChildren).length,
+      0
+    );
+
+    // Cancelling from the tree names the child, not the parent.
+    requests.length = 0;
+    respond({ success: true, result: result({ childThreadId: 'child-9', status: 'FAILED' }) });
+    const byChild = await useProjectStore.getState().cancelDelegation('child-9', 'Stopped from the thread list.');
+    equal('it addresses that child', requests[0]?.url.endsWith('/api/v1/threads/child-9/delegate/cancel'), true);
+    equal('the Core accepted it', byChild, true);
+    equal('and the row goes terminal', useProjectStore.getState().childStates['child-9'], 'FAILED');
+    equal(
+      'without inventing a parent to release',
+      useProjectStore.getState().parentStates['child-9'],
+      undefined
+    );
+
+    requests.length = 0;
+    equal('no thread means no request', await useProjectStore.getState().cancelDelegation(''), false);
+    equal('and nothing is sent', requests.length, 0);
+  }
+
   // --- Views ----------------------------------------------------------------
 
   describe('ThreadTreeView');
@@ -648,6 +758,69 @@ async function main(): Promise<void> {
     check('and does not pulse', !settled.includes('delegation-pulse'));
   }
 
+  describe('ThreadTreeView — stopping a child from the list (P7-03)');
+  {
+    const nodes = buildThreadTree([
+      thread('root', { name: 'Payments refactor' }),
+      thread('running', {
+        name: 'Security review',
+        parent_thread_id: 'root',
+        delegation_context_json: context()
+      }),
+      thread('done', {
+        name: 'Finished child',
+        parent_thread_id: 'root',
+        delegation_context_json: context({ status: 'COMPLETED' })
+      })
+    ]);
+
+    equal(
+      'a child with a live ACTIVE state can be stopped',
+      tree.isCancellableChild(nodes[0].children[0], { running: 'ACTIVE' }),
+      true
+    );
+    equal(
+      'so can one nothing has said anything about yet',
+      tree.isCancellableChild(nodes[0].children[0], {}),
+      true
+    );
+    equal(
+      'one that already finished cannot',
+      tree.isCancellableChild(nodes[0].children[1], {}),
+      false
+    );
+    equal(
+      'and neither can it once the socket says so',
+      tree.isCancellableChild(nodes[0].children[0], { running: 'FAILED' }),
+      false
+    );
+    equal(
+      'a root thread is not a delegated child at all',
+      tree.isCancellableChild(nodes[0], { root: 'ACTIVE' }),
+      false
+    );
+
+    const html = renderTree({ nodes, onCancelChild: noop, childStates: { running: 'ACTIVE' } });
+    check('the running child gets a stop control', html.includes('aria-label="Stop Security review"'));
+    check('named for what it does', html.includes('>Stop</button>'));
+    check('with a tooltip', html.includes('Stop this delegated agent'));
+    check('the finished one does not', !html.includes('aria-label="Stop Finished child"'));
+    check('nor does the parent', !html.includes('aria-label="Stop Payments refactor"'));
+    check('and no colour is hardcoded', !/#[0-9a-fA-F]{6}/.test(html));
+
+    const busy = renderTree({
+      nodes,
+      onCancelChild: noop,
+      childStates: { running: 'ACTIVE' },
+      cancellingThreads: { running: true }
+    });
+    check('a stop already in flight is disabled', busy.includes('disabled=""'));
+    check('and says nothing more', !busy.includes('>Stop</button>'));
+
+    const readOnly = renderTree({ nodes, childStates: { running: 'ACTIVE' } });
+    check('a tree with no cancel handler offers no stop', !readOnly.includes('aria-label="Stop Security review"'));
+  }
+
   describe('DelegationWaitingBanner');
   {
     const html = renderStatus({
@@ -674,6 +847,59 @@ async function main(): Promise<void> {
     equal('nothing stays nothing', status.summarySnippet(undefined), '');
     equal('an unknown child state reads as working', status.childStateLabel(undefined), 'Working');
     equal('STARTING has its own words', status.childStateLabel('STARTING'), 'Starting up');
+  }
+
+  describe('DelegationWaitingBanner — cancelling (P7-03)');
+  {
+    const waiting = {
+      parentState: 'WAITING_FOR_CHILD' as const,
+      pendingChildThreadId: 'child-1',
+      pendingChildRole: 'Security Auditor',
+      pendingChildState: 'ACTIVE' as const,
+      pendingChildTask: 'Review the upload route.'
+    };
+
+    const withCancel = renderStatus({ ...waiting, onCancel: noop });
+    check('the banner offers a way out', withCancel.includes('Cancel Delegation'));
+    check('labelled for a screen reader', withCancel.includes('aria-label="Cancel delegation"'));
+    check('and it says what it will do', withCancel.includes('Stop the delegated agent'));
+    check('alongside the way in', withCancel.includes('Inspect Child Thread'));
+    check('with no hardcoded colour', !/#[0-9a-fA-F]{6}/.test(withCancel));
+
+    const noCancel = renderStatus(waiting);
+    check('a banner given nothing to cancel with does not offer it', !noCancel.includes('Cancel Delegation'));
+    check('but still shows the child', noCancel.includes('Inspect Child Thread'));
+
+    const cancelling = renderStatus({ ...waiting, onCancel: noop, isCancelling: true });
+    check('a cancellation in flight is visible', cancelling.includes('Cancelling…'));
+    check('and the button is spent', cancelling.includes('disabled=""'));
+    check('the way into the child stays open', cancelling.includes('Inspect Child Thread'));
+
+    const refused = renderStatus({
+      ...waiting,
+      onCancel: noop,
+      cancelError: 'The workstation would not stop this delegation.'
+    });
+    check('a refusal is shown on the banner', refused.includes('would not stop this delegation'));
+    check('as an alert', refused.includes('role="alert"'));
+    check('and the button comes back', refused.includes('Cancel Delegation'));
+
+    // The click itself. `DelegationWaitingBanner` holds no state, so calling it
+    // returns the element tree its button lives in.
+    let cancelled: string | null = null;
+    const tree = (status.DelegationWaitingBanner as unknown as (props: unknown) => unknown)({
+      childThreadId: 'child-1',
+      role: 'Security Auditor',
+      onInspectChild: noop,
+      onCancel: (childThreadId: string) => {
+        cancelled = childThreadId;
+      }
+    });
+    const button = findElement(tree, props => props['aria-label'] === 'Cancel delegation');
+    check('the cancel button is in the tree', !!button);
+    (button?.props?.onClick as () => void)();
+    equal('clicking it names the child to stop', cancelled, 'child-1');
+    equal('and it is enabled by default', button?.props?.disabled, false);
   }
 
   describe('DelegationOutcomeCard');

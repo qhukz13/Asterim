@@ -284,6 +284,14 @@ interface ProjectState {
   delegationOutcomes: Record<string, DelegationResult>;
   /** Parent thread id → its children, as the Core last described them. */
   delegationChildren: Record<string, DelegationChildSummary[]>;
+  /**
+   * Child thread id → a cancellation is in flight for it (P7-03).
+   *
+   * Keyed by the child rather than by whoever asked, so the waiting banner and
+   * the row in the tree — two components that never talk to each other — both
+   * show the same intervention as it happens.
+   */
+  cancellingChildren: Record<string, boolean>;
 
   // Actions
   setActiveProject: (id: string | null) => void;
@@ -297,6 +305,16 @@ interface ProjectState {
   applyDelegationCompleted: (payload: DelegationCompletedPayload) => void;
   /** Reads the authoritative delegation state for one thread off the Core. */
   syncDelegations: (threadId: string, backendUrl?: string | null) => Promise<void>;
+  /**
+   * Stops the delegation a thread is part of. `threadId` may be the parent that
+   * is waiting or the child that is running. Resolves to whether the Core
+   * accepted it; the caller shows the refusal.
+   */
+  cancelDelegation: (
+    threadId: string,
+    reason?: string,
+    backendUrl?: string | null
+  ) => Promise<boolean>;
   resetDelegation: () => void;
 }
 
@@ -307,10 +325,11 @@ const emptyDelegation = () => ({
   childTasks: {} as Record<string, string>,
   childRoles: {} as Record<string, string>,
   delegationOutcomes: {} as Record<string, DelegationResult>,
-  delegationChildren: {} as Record<string, DelegationChildSummary[]>
+  delegationChildren: {} as Record<string, DelegationChildSummary[]>,
+  cancellingChildren: {} as Record<string, boolean>
 });
 
-export const useProjectStore = create<ProjectState>(set => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   activeProjectId: null,
   threads: [],
   gitStatus: null,
@@ -478,6 +497,68 @@ export const useProjectStore = create<ProjectState>(set => ({
       // A workstation that cannot be reached is already reported by the socket's
       // own disconnect banner; failing to read a hierarchy is not a second error
       // worth putting in front of the user.
+    }
+  },
+
+  /**
+   * Asks the Core to stop a running delegation (P7-03).
+   *
+   * Unlike `POST /delegate`, this one answers quickly, and it answers with the
+   * outcome the delegation settled as. That outcome is applied here rather than
+   * only waited for on the socket: the operator clicked a button and is owed
+   * the banner clearing, whether or not the event beat the response back.
+   * Applying it twice is idempotent — both paths write the same terminal state.
+   */
+  cancelDelegation: async (threadId, reason, backendUrl) => {
+    if (!threadId) return false;
+
+    // Cancelling from the waiting banner names the parent; cancelling from the
+    // tree names the child. The spinner belongs on the child either way.
+    const pendingChild = get().pendingChildren[threadId];
+    const childThreadId = pendingChild || threadId;
+    set(state => ({
+      cancellingChildren: { ...state.cancellingChildren, [childThreadId]: true }
+    }));
+
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/delegate/cancel`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders({ backendUrl, json: true }),
+          body: JSON.stringify(reason ? { reason } : {})
+        }
+      );
+      if (!res.ok) return false;
+
+      const body = (await res.json().catch(() => null)) as { result?: DelegationResult } | null;
+      const result = body?.result;
+      if (result) {
+        const projectId = get().activeProjectId || '';
+        if (pendingChild) {
+          get().applyDelegationCompleted({ projectId, threadId, result });
+        } else {
+          // Cancelled by child id, so which thread was parked behind it is not
+          // known here. The child's own terminal state is; the parent's release
+          // arrives on `delegation.parent_state`.
+          get().applyDelegationChildState({
+            projectId,
+            threadId: result.childThreadId,
+            parentThreadId: '',
+            state: result.status
+          });
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      set(state => {
+        const cancellingChildren = { ...state.cancellingChildren };
+        delete cancellingChildren[childThreadId];
+        return { cancellingChildren };
+      });
     }
   },
 

@@ -33,6 +33,28 @@ export interface ThreadTreeViewProps {
   collapsed: Record<string, boolean>;
   onSelect: (threadId: string) => void;
   onToggleCollapse: (threadId: string) => void;
+  /**
+   * Stops a child that is still running (P7-03). Offered on the row rather than
+   * only on the parent's banner because the runaway child is the thing the
+   * operator is looking at when they decide to stop it — and a parent parked
+   * behind a deeper chain is not the row that is pulsing.
+   */
+  onCancelChild?: (threadId: string) => void;
+  /** Child thread ids with a cancellation already in flight. */
+  cancellingThreads?: Record<string, boolean>;
+}
+
+/** Whether this row is a delegated child that has not finished. */
+export function isCancellableChild(
+  node: ThreadTreeNode,
+  childStates: Record<string, DelegationChildState>
+): boolean {
+  if (node.depth === 0 || !node.context) return false;
+  const live = childStates[node.thread.id];
+  if (live) return live === 'STARTING' || live === 'ACTIVE';
+  // No live state means nothing has been said since the row was served, so the
+  // row is what decides — and a child row with no recorded status is running.
+  return !node.context.status;
 }
 
 function StatusDot({ status }: { status: ThreadStatusDescriptor }) {
@@ -81,7 +103,9 @@ function ThreadTreeRow({
   childStates,
   collapsed,
   onSelect,
-  onToggleCollapse
+  onToggleCollapse,
+  onCancelChild,
+  cancellingThreads
 }: ThreadTreeViewProps & { node: ThreadTreeNode }) {
   const thread = node.thread;
   const isActive = activeThreadId === thread.id;
@@ -89,6 +113,8 @@ function ThreadTreeRow({
   const hasChildren = node.children.length > 0;
   const status = threadStatusTone(node, { parentStates, childStates });
   const role = node.context?.role;
+  const isCancelling = !!cancellingThreads?.[thread.id];
+  const canCancel = !!onCancelChild && isCancellableChild(node, childStates);
 
   return (
     <div>
@@ -182,6 +208,33 @@ function ThreadTreeRow({
             L{node.depth}
           </Badge>
         )}
+        {canCancel && (
+          <button
+            onClick={event => {
+              event.stopPropagation();
+              onCancelChild?.(thread.id);
+            }}
+            disabled={isCancelling}
+            aria-label={`Stop ${thread.name}`}
+            title="Stop this delegated agent and release the thread waiting on it"
+            style={{
+              padding: '0 5px',
+              borderRadius: 'var(--radius-full, 999px)',
+              fontSize: '10px',
+              fontWeight: 600,
+              lineHeight: '15px',
+              flexShrink: 0,
+              fontFamily: 'var(--font-family-mono)',
+              background: 'transparent',
+              border: '1px solid var(--color-state-error)',
+              color: 'var(--color-state-error)',
+              cursor: isCancelling ? 'default' : 'pointer',
+              opacity: isCancelling ? 0.6 : 1
+            }}
+          >
+            {isCancelling ? '…' : 'Stop'}
+          </button>
+        )}
         <StatusDot status={status} />
       </div>
 
@@ -198,6 +251,8 @@ function ThreadTreeRow({
               collapsed={collapsed}
               onSelect={onSelect}
               onToggleCollapse={onToggleCollapse}
+              onCancelChild={onCancelChild}
+              cancellingThreads={cancellingThreads}
             />
           ))}
         </div>

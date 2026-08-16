@@ -197,6 +197,11 @@ function threadRow(id: string): any {
   return dbService.getDb().prepare('SELECT * FROM threads WHERE id = ?').get(id);
 }
 
+/** Lets the event loop turn, so a delegation gets as far as parking its parent. */
+function pause(ms = 10): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /** Which error a call threw, or null when it did not throw. */
 async function codeOf(fn: () => unknown): Promise<string | null> {
   try {
@@ -591,6 +596,226 @@ async function main(): Promise<void> {
     equal('the first one still completes', result.status, 'COMPLETED');
     equal('and the parent is free again', service.getParentState('lead-8'), 'ACTIVE');
     equal('with nothing pending', service.getPendingChild('lead-8'), undefined);
+  }
+
+  // --- Cancellation (P7-03) ---------------------------------------------------
+  describe('cancelDelegation — stopping a child from the parent');
+  {
+    runner.reset();
+    insertThread('lead-cancel', 'Lead awaiting a cancellation');
+    runner.reply = null; // a child that will never answer on its own
+
+    const recorder = recordEvents([
+      DELEGATION_CHILD_STATE_EVENT,
+      DELEGATION_PARENT_STATE_EVENT,
+      DELEGATION_COMPLETED_EVENT
+    ]);
+
+    // A ten-minute timeout, so anything that returns here returned because it
+    // was cancelled and not because it was waited out.
+    const pending = service.delegateTask({
+      parentThreadId: 'lead-cancel',
+      targetRole: 'QA Engineer',
+      taskDescription: 'Run a suite that never finishes.',
+      timeoutMs: 600000
+    });
+    await pause();
+
+    equal('the parent is parked to begin with', service.getParentState('lead-cancel'), 'WAITING_FOR_CHILD');
+    const childThreadId = service.getPendingChild('lead-cancel');
+    check('behind a child', typeof childThreadId === 'string');
+
+    const startedAt = Date.now();
+    const cancelled = await service.cancelDelegation('lead-cancel', 'The child was looping on the same tool.');
+    const settled = await pending;
+    recorder.stop();
+
+    check('it answers immediately rather than at the timeout', Date.now() - startedAt < 5000);
+    equal('a cancelled delegation is FAILED', cancelled.status, 'FAILED');
+    equal('the summary is the reason it was given', cancelled.summary, 'The child was looping on the same tool.');
+    equal('it names the child that was stopped', cancelled.childThreadId, childThreadId);
+    equal('and the delegation itself settles as the same thing', settled.status, 'FAILED');
+    equal('for the same child', settled.childThreadId, cancelled.childThreadId);
+    equal('with the same summary', settled.summary, cancelled.summary);
+
+    // The child process
+    equal('the child session is stopped', runner.stopped.length, 1);
+    equal('and it is the child that stopped', runner.stopped[0].threadId, childThreadId);
+
+    // The parent
+    equal('the parent is released', service.getParentState('lead-cancel'), 'ACTIVE');
+    equal('with nothing pending', service.getPendingChild('lead-cancel'), undefined);
+    const toParent = runner.sentTo('lead-cancel');
+    equal('and told once', toParent.length, 1);
+    check('that the delegation failed', toParent[0].includes('FAILED'));
+    check('and why', toParent[0].includes('The child was looping on the same tool.'));
+
+    // Storage
+    const stored = JSON.parse(threadRow(childThreadId!).delegation_context_json);
+    equal('the child row records the failure', stored.status, 'FAILED');
+    equal('with the cancellation reason as its summary', stored.summary, 'The child was looping on the same tool.');
+    check('and a finish time', typeof stored.finishedAt === 'number');
+    equal('its brief is left intact', stored.taskDescription, 'Run a suite that never finishes.');
+
+    // The events a connected dashboard needs to clear its banner
+    const parentStates = recorder.events
+      .filter(event => event.type === DELEGATION_PARENT_STATE_EVENT)
+      .map(event => event.payload.state);
+    equal('the parent waits and is then released', parentStates, ['WAITING_FOR_CHILD', 'ACTIVE']);
+    equal(
+      'the child ends in a terminal state',
+      recorder.events
+        .filter(event => event.type === DELEGATION_CHILD_STATE_EVENT)
+        .map(event => event.payload.state),
+      ['STARTING', 'ACTIVE', 'FAILED']
+    );
+    const completed = recorder.events.filter(event => event.type === DELEGATION_COMPLETED_EVENT);
+    equal('the outcome is published exactly once', completed.length, 1);
+    equal('carrying the cancellation', completed[0].payload.result.summary, cancelled.summary);
+    equal('and routed to the parent’s room', completed[0].payload.threadId, 'lead-cancel');
+  }
+
+  describe('cancelDelegation — stopping a child from the child');
+  {
+    runner.reset();
+    insertThread('lead-cancel-2', 'Lead whose child is stopped directly');
+    runner.reply = null;
+
+    const pending = service.delegateTask({
+      parentThreadId: 'lead-cancel-2',
+      targetRole: 'QA Engineer',
+      taskDescription: 'Another one that never finishes.',
+      timeoutMs: 600000
+    });
+    await pause();
+
+    const childThreadId = service.getPendingChild('lead-cancel-2')!;
+    const cancelled = await service.cancelDelegation(childThreadId);
+    await pending;
+
+    equal('the child’s own id reaches the same delegation', cancelled.childThreadId, childThreadId);
+    equal('and it is cancelled', cancelled.status, 'FAILED');
+    equal('with the default reason when none was given', cancelled.summary, 'Delegation cancelled by operator');
+    equal('the parent behind it is released too', service.getParentState('lead-cancel-2'), 'ACTIVE');
+    equal('and its session is stopped', runner.stopped[0]?.threadId, childThreadId);
+  }
+
+  describe('cancelDelegation — a cancelled review has not passed');
+  {
+    runner.reset();
+    insertThread('impl-cancel', 'Implementer awaiting a review');
+    runner.reply = null;
+
+    const pending = service.requestReview({
+      parentThreadId: 'impl-cancel',
+      diff: 'diff --git a b',
+      timeoutMs: 600000
+    });
+    await pause();
+
+    const cancelled = await service.cancelDelegation('impl-cancel', 'Reviewing the wrong branch.');
+    await pending;
+
+    equal('the review is FAILED', cancelled.status, 'FAILED');
+    equal('and the verdict is NEEDS_FIX', cancelled.verdict, 'NEEDS_FIX');
+    equal(
+      'which is what is stored',
+      JSON.parse(threadRow(cancelled.childThreadId).delegation_context_json).verdict,
+      'NEEDS_FIX'
+    );
+    check('the parent is told the verdict', runner.sentTo('impl-cancel')[0].includes('VERDICT: NEEDS_FIX'));
+  }
+
+  describe('cancelDelegation — two operators clicking at once');
+  {
+    runner.reset();
+    insertThread('lead-cancel-3', 'Lead cancelled twice');
+    runner.reply = null;
+
+    const recorder = recordEvents([DELEGATION_COMPLETED_EVENT]);
+    const pending = service.delegateTask({
+      parentThreadId: 'lead-cancel-3',
+      targetRole: 'QA Engineer',
+      taskDescription: 'Cancelled from two places.',
+      timeoutMs: 600000
+    });
+    await pause();
+
+    const childThreadId = service.getPendingChild('lead-cancel-3')!;
+    const [first, second] = await Promise.all([
+      service.cancelDelegation('lead-cancel-3', 'First reason.'),
+      service.cancelDelegation(childThreadId, 'Second reason.')
+    ]);
+    await pending;
+    recorder.stop();
+
+    equal('both callers get the same outcome', first.childThreadId, second.childThreadId);
+    equal('with the same status', [first.status, second.status], ['FAILED', 'FAILED']);
+    equal('the first reason is the one recorded', first.summary, 'First reason.');
+    equal('for both of them', second.summary, 'First reason.');
+    equal('the child is stopped once, not twice', runner.stopped.length, 1);
+    equal('the parent is resumed once', runner.sentTo('lead-cancel-3').length, 1);
+    equal('and the outcome is published once', recorder.events.length, 1);
+
+    // A third one, long after the fact.
+    const late = await service.cancelDelegation(childThreadId, 'Too late.');
+    equal('a cancellation that arrives after the fact does not throw', late.status, 'FAILED');
+    equal('it answers with what the child settled as', late.summary, 'First reason.');
+    equal('and nothing is stopped a second time', runner.stopped.length, 1);
+  }
+
+  describe('cancelDelegation — a cancellation that beats the watch');
+  {
+    runner.reset();
+    insertThread('lead-cancel-4', 'Lead cancelled before its child started');
+    runner.reply = null;
+
+    // The one moment the abort has not been armed yet is while the child's
+    // STARTING event is still being published, because the EventBus delivers
+    // synchronously. A subscriber cancelling from there is the narrowest race
+    // this has, and a parent left parked until the timeout is what losing it
+    // would cost.
+    let raced: Promise<{ childThreadId: string }> | null = null;
+    const early = (event: AnyEvent) => {
+      if (
+        event.payload?.state === 'STARTING' &&
+        event.payload?.parentThreadId === 'lead-cancel-4' &&
+        !raced
+      ) {
+        raced = service.cancelDelegation('lead-cancel-4', 'Stopped before it started.');
+      }
+    };
+    eventBus.subscribe(DELEGATION_CHILD_STATE_EVENT, early);
+
+    const result = await service.delegateTask({
+      parentThreadId: 'lead-cancel-4',
+      targetRole: 'QA Engineer',
+      taskDescription: 'Should never run.',
+      timeoutMs: 600000
+    });
+    eventBus.unsubscribe(DELEGATION_CHILD_STATE_EVENT, early);
+
+    equal('the delegation does not wait out its timeout', result.status, 'FAILED');
+    equal('the reason is the operator’s', result.summary, 'Stopped before it started.');
+    equal('no agent session was ever started for it', runner.started.length, 0);
+    equal('so there is no subprocess to leave behind', runner.sentTo(result.childThreadId).length, 0);
+    equal('and the caller that cancelled gets the same result', (await raced!).childThreadId, result.childThreadId);
+    equal('the parent is released regardless', service.getParentState('lead-cancel-4'), 'ACTIVE');
+  }
+
+  describe('cancelDelegation — what it refuses');
+  {
+    equal(
+      'a thread that is neither waiting nor delegated',
+      await codeOf(() => service.cancelDelegation('lead-3')),
+      'NOT_DELEGATING'
+    );
+    equal(
+      'a thread that does not exist',
+      await codeOf(() => service.cancelDelegation('ghost')),
+      'THREAD_NOT_FOUND'
+    );
+    equal('and no thread at all', await codeOf(() => service.cancelDelegation('')), 'INVALID_INPUT');
   }
 
   // --- Validation --------------------------------------------------------------
@@ -998,6 +1223,77 @@ async function main(): Promise<void> {
       agentDelegationService.listChildren('rest-parent').length,
       1
     );
+
+    // --- Cancellation over HTTP (P7-03) ---
+    const anonymousCancel = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/cancel',
+      headers: { 'x-anonymous': 'yes' }
+    });
+    equal('an anonymous cancellation is 401', anonymousCancel.statusCode, 401);
+
+    const ghostCancel = await app.inject({ method: 'POST', url: '/api/v1/threads/ghost/delegate/cancel' });
+    equal('cancelling an unknown thread is 404', ghostCancel.statusCode, 404);
+
+    const idleCancel = await app.inject({ method: 'POST', url: '/api/v1/threads/lead/delegate/cancel' });
+    equal('cancelling a thread that is not delegating is 409', idleCancel.statusCode, 409);
+    equal('with a code a client can branch on', idleCancel.json().code, 'NOT_DELEGATING');
+
+    // A child nothing ever answers for, cancelled while its delegation request
+    // is still open. Only `start` is observed here — replying would finish it.
+    const idle: string[] = [];
+    const onStart = (event: AnyEvent) => {
+      if (event.payload?.command === 'start') idle.push(event.payload.threadId);
+    };
+    eventBus.subscribe('client.command', onStart);
+
+    insertThread('rest-cancel', 'REST cancel parent');
+    const inFlight = app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/rest-cancel/delegate',
+      payload: { role: 'QA Engineer', task: 'Never finishes.', timeoutMs: 600000 }
+    });
+    await pause(30);
+
+    equal('the delegation parked its parent', agentDelegationService.getParentState('rest-cancel'), 'WAITING_FOR_CHILD');
+
+    const cancelledOverHttp = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/rest-cancel/delegate/cancel',
+      payload: { reason: 'Stopped from the dashboard.' }
+    });
+    const delegationResponse = await inFlight;
+    eventBus.unsubscribe('client.command', onStart);
+
+    equal('cancelling over HTTP is 200', cancelledOverHttp.statusCode, 200);
+    equal('and says it worked', cancelledOverHttp.json().success, true);
+    equal('the outcome is a failure', cancelledOverHttp.json().result.status, 'FAILED');
+    equal('naming the reason given', cancelledOverHttp.json().result.summary, 'Stopped from the dashboard.');
+    equal('the open delegation returns the same outcome', delegationResponse.json().result.status, 'FAILED');
+    equal(
+      'for the same child',
+      delegationResponse.json().result.childThreadId,
+      cancelledOverHttp.json().result.childThreadId
+    );
+    equal('the parent is released', agentDelegationService.getParentState('rest-cancel'), 'ACTIVE');
+    equal('and the child that ran is the one that was started', idle, [
+      cancelledOverHttp.json().result.childThreadId
+    ]);
+
+    const settledChildId = cancelledOverHttp.json().result.childThreadId;
+    const alias = await app.inject({
+      method: 'POST',
+      url: `/api/v1/threads/${settledChildId}/delegation/cancel`
+    });
+    equal('the /delegation/cancel alias answers too', alias.statusCode, 200);
+    equal('idempotently, with what the child settled as', alias.json().result.status, 'FAILED');
+    equal('and the reason it settled with', alias.json().result.summary, 'Stopped from the dashboard.');
+
+    const noReason = await app.inject({
+      method: 'POST',
+      url: `/api/v1/threads/${settledChildId}/delegate/cancel`
+    });
+    equal('a cancellation with no body is accepted', noReason.statusCode, 200);
 
     await app.close();
   }
