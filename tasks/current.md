@@ -1,55 +1,68 @@
-Task-ID: P6-06
+Task-ID: P6-06-FIX
 Phase: 6
 
-Reusable Agent Skills Engine, Schema Parser & Workspace Discovery
+# P6-06-FIX — Hardened BaseAdapter Tool Call Echo De-Duplication & Flaky Test Resolution
 
-## Objective
-Implement Asterim's Reusable Skills Subsystem: discover `.agents/skills/*/SKILL.md` from the current workspace and global `~/.asterim/skills/`, parse YAML frontmatter and parameter schemas, expose skills to agents as callable tools via `McpAgentBridge` (`skill__<skillName>`) and system prompt instructions, provide authenticated REST endpoints (`GET /api/v1/skills`), and build the Skills Explorer UI in `apps/web`.
+**Task ID:** P6-06-FIX
+**Phase:** 6
+**Assigned Agent:** Claude Code
+**Orchestrator:** Antigravity
+**Status:** ASSIGNED
+**Date:** 2026-08-16
 
-## Context & Architecture
-- Skills in Asterim follow the open Agent Skill specification: a directory containing a required `SKILL.md` with YAML frontmatter (`name`, `description`, optional JSON parameter schema, entry scripts, reference files).
-- `SkillService.ts` discovers skills across two scopes:
-  1. Workspace: `<projectPath>/.agents/skills/*/SKILL.md`
-  2. Global: `~/.asterim/skills/*/SKILL.md`
-- Discovered skills are formatted into `McpToolPrompt` and registered into `McpAgentBridge` so agents can invoke skills (`skill__<name>`) or read their full execution instructions.
-- A dedicated Skills view (`SkillsExplorer.tsx`, `SkillDetailModal.tsx`) is added to `apps/web` allowing developers to browse, search, and inspect available skills and their parameters.
+---
 
-## Implementation Scope
-1. **Shared Types (`packages/shared/src/types/skills.ts`)**:
-   - `SkillDefinition`: `id`, `name`, `description`, `scope` (`workspace` | `global`), `path`, `parametersSchema?: Record<string, unknown>`, `instructions: string`, `scripts?: string[]`, `references?: string[]`.
-   - Export from `packages/shared/src/index.ts`.
-2. **`SkillService.ts` (`apps/server/src/services/skills/SkillService.ts`)**:
-   - `discoverSkills(workspacePath?: string)`: Scans workspace `.agents/skills` and global `~/.asterim/skills`, parses YAML frontmatter and markdown body safely without external unsafe YAML execution.
-   - `getSkill(nameOrId: string, workspacePath?: string)`: Retrieves full skill instructions and metadata.
-   - `executeSkill(name: string, params: Record<string, unknown>, workspacePath?: string)`: Resolves skill, validates params, returns formatted prompt/instruction payload for agent execution.
-3. **Agent Integration (`McpAgentBridge.ts` & `McpToolPrompt.ts`)**:
-   - Expose discovered skills alongside MCP tools as `skill__<name>` tools with `parametersSchema`.
-   - Include available skills summary in session startup instructions.
-4. **REST API Routes (`apps/server/src/routes/skills.ts`)**:
-   - `GET /api/v1/skills` — List discovered skills (filtered by optional `?workspacePath=`).
-   - `GET /api/v1/skills/:name` — Get full skill markdown, metadata, and parameter schema.
-   - Register in `apps/server/src/index.ts`.
-5. **Web UI (`apps/web`)**:
-   - `useSkillsStore.ts`: Store for listing and fetching skills.
-   - `SkillsExplorer.tsx`: Card grid / list of available skills with search filter, scope badge (`Workspace` / `Global`), and parameter preview.
-   - `SkillDetailModal.tsx`: Render rendered markdown instructions and input parameter schemas.
-   - Add Skills tab to navigation sidebar.
-6. **Automated Unit Tests (`apps/server/src/services/skills/__tests__/SkillService.test.ts`)**:
-   - Test discovery from temporary directories with real `SKILL.md` files.
-   - Test frontmatter parsing, parameter schema validation, and missing frontmatter fallback.
-   - Test REST route handlers.
-   - Wire into `apps/server/package.json` `"test"` script.
+## 1. Objective
+Fix the racy tool call de-duplication in `packages/adapters/src/sdk/BaseAdapter.ts` by introducing a TTL-based time-window de-duplication mechanism for recently executed tool calls, replacing the in-flight-only tracking state. Ensure `apps/server/src/services/mcp/__tests__/AgentMcpIntegration.test.ts` passes deterministically and clears the monorepo test battery gate.
 
-## Constraints & Forbidden Changes
-- Do NOT use unsafe `eval` or execute untrusted shell scripts during skill discovery.
-- Keep skill discovery read-only and resilient against corrupted or non-markdown files.
-- Do NOT break any of the 30 existing test suites.
+## 2. Why This Task Exists
+During verification of Task P6-06, step 4 of the test gate (`pnpm run test`) failed non-deterministically (2 of 5 runs failed). The failure was traced to a flaky assertion in `AgentMcpIntegration.test.ts` (`but only once, not twice - expected 3, got 4`).
+In `BaseAdapter.ts`, tool calls are currently de-duplicated based on `inFlightToolCalls: Set<string>`. When stdout chunks from node-pty arrive split across chunk boundaries, the first tool call completes and clears its in-flight key before the duplicate chunk is processed, causing the duplicate tool call to be dispatched a second time.
+Adding a short TTL window (e.g. 1500ms) for recently seen tool call signatures suppresses duplicate tool invocations across chunk boundaries without affecting distinct tool calls.
 
-## Acceptance Criteria
-1. `SkillService` discovers and parses skills from both workspace `.agents/skills` and global directories.
-2. Skill YAML frontmatter and parameter schemas are parsed accurately into `SkillDefinition`.
-3. Discovered skills are exposed to agents via `McpAgentBridge` as `skill__<name>` and included in `McpToolPrompt`.
-4. `GET /api/v1/skills` and `GET /api/v1/skills/:name` return accurate skill metadata and instructions.
-5. `SkillsExplorer.tsx` and `SkillDetailModal.tsx` render in `apps/web` with search and scope filtering.
-6. `SkillService.test.ts` passes with comprehensive assertions.
-7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (31 test suites), `pnpm run build`.
+## 3. Context & Repository Evidence
+- `packages/adapters/src/sdk/BaseAdapter.ts` (lines 229-256): `runToolCall` de-duplication logic.
+- `apps/server/src/services/mcp/__tests__/AgentMcpIntegration.test.ts` (lines 1035-1039): Flaky assertion test case.
+- `tests/report.md`: QA Test Report detailing Finding 1 and root cause analysis.
+
+## 4. Implementation Scope
+1. **`BaseAdapter.ts` (`packages/adapters/src/sdk/BaseAdapter.ts`)**:
+   - Update `BaseAdapter` tool call de-duplication to track executed tool call keys with timestamps in a TTL cache (e.g. 1500ms window).
+   - Suppress incoming tool calls matching a recently executed signature within the TTL window.
+   - Clean up expired cache entries to prevent memory growth.
+2. **Deterministic Verification**:
+   - Run `AgentMcpIntegration.test.ts` standalone 10 times consecutively.
+   - Run `pnpm run test` 5 times consecutively to verify 100% pass rate across all 32 test suites.
+
+## 5. Explicitly Forbidden Changes
+- Do NOT delete, weaken, or modify the assertion `but only once, not twice` in `AgentMcpIntegration.test.ts`.
+- Do NOT modify implementation files outside `packages/adapters/src/sdk/BaseAdapter.ts`.
+- Do NOT alter any P6-06 skills subsystem code in `apps/server/src/services/skills/`.
+
+## 6. Acceptance Criteria
+1. `BaseAdapter.ts` de-duplicates tool calls using a short TTL time window (e.g. 1500ms) alongside in-flight tracking.
+2. `AgentMcpIntegration.test.ts` passes 10 consecutive standalone runs with 0 failures.
+3. Monorepo CI gates pass with 0 errors across 5 consecutive runs: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (all 32 test suites pass), `pnpm run build`.
+
+## 7. Definition of Done
+- TypeScript typecheck passes with 0 errors (`pnpm run typecheck`).
+- ESLint passes with 0 errors (`pnpm run lint`).
+- All 32 monorepo test suites pass deterministically with 0 failures across multiple runs (`pnpm run test`).
+- Monorepo production build succeeds (`pnpm run build`).
+- Execution report written to `reports/current.md`.
+
+## 8. Verification Commands
+```bash
+pnpm run typecheck
+pnpm run lint
+pnpm --filter asterim exec tsx src/services/mcp/__tests__/AgentMcpIntegration.test.ts
+pnpm run test
+pnpm run build
+```
+
+## 9. Self-Review Requirements
+- Inspect `git diff packages/adapters/src/sdk/BaseAdapter.ts` to confirm clean implementation.
+- Verify that TTL map pruning operates cleanly without memory leaks.
+
+## 10. Required Report
+Write execution report to `reports/current.md` adhering to schema in `AGENTS.md`.
