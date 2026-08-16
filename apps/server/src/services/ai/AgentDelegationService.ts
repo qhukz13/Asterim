@@ -54,19 +54,28 @@ import {
   MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATION_DEPTH,
   MAX_DELEGATION_TIMEOUT_MS,
+  MAX_VERIFICATION_STEPS,
   ParallelDelegationItem,
   ParallelDelegationRequest,
   REQUEST_REVIEW_TOOL,
   ReviewVerdict,
+  VerificationPipelineReport,
   WorktreeInfo,
   aggregateDelegationStatus,
   aggregateReviewVerdict,
   isDelegationToolName,
-  parseReviewVerdict
+  isSafeScriptName,
+  parseReviewVerdict,
+  summarizeVerificationReport
 } from '@asterim/shared';
 import { dbService } from '../DatabaseService';
 import { EventBus, eventBus } from '../EventBus';
 import { GitWorktreeService, gitWorktreeService } from '../git/GitWorktreeService';
+import {
+  VerificationPipelineService,
+  verificationPipelineService
+} from '../verification/VerificationPipelineService';
+import { saveThreadVerificationReport } from '../verification/threadVerificationStore';
 import { ProfileService, profileService } from './ProfileService';
 
 /** How a delegation failure reads to a caller that has to answer over HTTP. */
@@ -279,7 +288,8 @@ export class AgentDelegationService {
     private readonly runner: DelegationSessionRunner = new EventBusSessionRunner(),
     private readonly profiles: ProfileService = profileService,
     private readonly bus: EventBus = eventBus,
-    private readonly worktrees: GitWorktreeService = gitWorktreeService
+    private readonly worktrees: GitWorktreeService = gitWorktreeService,
+    private readonly verification: VerificationPipelineService = verificationPipelineService
   ) {}
 
   private db() {
@@ -580,7 +590,9 @@ export class AgentDelegationService {
 
     return this.runDelegation(parent, profile, context, timeoutMs, {
       ...options,
-      isolateWorktree: request?.isolateWorktree
+      isolateWorktree: request?.isolateWorktree,
+      verifyPipeline: request?.verifyPipeline,
+      verificationSteps: normalizeStepNames(request?.verificationSteps)
     });
   }
 
@@ -616,6 +628,10 @@ export class AgentDelegationService {
       releaseParent?: boolean;
       /** Whether the child gets its own working tree (P8-01). */
       isolateWorktree?: boolean;
+      /** Whether the child's work is verified before it is reported (P8-02). */
+      verifyPipeline?: boolean;
+      /** Which discovered verification steps to run, by name (P8-02). */
+      verificationSteps?: string[];
     }
   ): Promise<DelegationResult> {
     const parentThreadId = parent.id;
@@ -705,6 +721,13 @@ export class AgentDelegationService {
       // makes a cancellation mean something — the runaway child is gone by the
       // time the operator's request answers.
       await this.safeStop(parent.project_id, childThreadId);
+
+      // And only now is the sandbox verified (P8-02): after the diff, which is
+      // what is being verified, and after the child's process has been asked to
+      // go, so a build does not race an agent that is still writing files. Still
+      // before the parent is released, because the whole point is that the
+      // parent reads the verdict at the same time as the claim.
+      await this.attachVerification(result, worktree, parent, context, outcome, options);
 
       // The parent sheds this child either way; whether that is what puts it
       // back to work depends on whether anything else is still running under it.
@@ -814,7 +837,9 @@ export class AgentDelegationService {
           releaseParent: false,
           // Isolation matters most here: this is the path on which several
           // agents edit the same repository at the same time.
-          isolateWorktree: entry.isolateWorktree
+          isolateWorktree: entry.isolateWorktree,
+          verifyPipeline: entry.verifyPipeline,
+          verificationSteps: entry.verificationSteps
         })
       )
     );
@@ -872,6 +897,8 @@ export class AgentDelegationService {
     profile: AgentProfile | null;
     timeoutMs: number;
     isolateWorktree?: boolean;
+    verifyPipeline?: boolean;
+    verificationSteps?: string[];
   } {
     const taskDescription = requireText(item?.taskDescription, 'taskDescription', MAX_TASK_CHARS);
     const inputContext = optionalText(item?.inputContext, 'inputContext', MAX_CONTEXT_CHARS);
@@ -899,7 +926,9 @@ export class AgentDelegationService {
       },
       profile,
       timeoutMs,
-      isolateWorktree: item?.isolateWorktree
+      isolateWorktree: item?.isolateWorktree,
+      verifyPipeline: item?.verifyPipeline,
+      verificationSteps: normalizeStepNames(item?.verificationSteps)
     };
   }
 
@@ -1340,6 +1369,142 @@ export class AgentDelegationService {
     }
   }
 
+  // --- Automated verification (P8-02) -----------------------------------------
+
+  /**
+   * Runs the project's own verification commands over what the child did.
+   *
+   * The default is the case this exists for: a `TASK` that got a sandbox. The
+   * child edited files in a directory nobody else is using, so the typechecker,
+   * the linter, the tests and the build can be run over exactly those edits
+   * without touching the operator's working tree — and the parent is handed the
+   * exit codes next to the child's own account of itself. A `REVIEW` changed
+   * nothing to verify, and a task that ran without a sandbox would be verified
+   * in the operator's own checkout, so neither is verified unless the caller
+   * asked for it in as many words.
+   *
+   * A cancelled delegation is never verified, whatever was asked for. An
+   * operator who has just stopped a runaway agent is waiting on that request,
+   * and `cancelDelegation` answers with what the delegation settles as — so a
+   * four-minute build here would be four minutes of a cancel button that has
+   * not done anything yet, to establish something about work that has been
+   * abandoned.
+   *
+   * Never throws. A pipeline that could not be run leaves the result without a
+   * report, which reads as "not verified" — the one thing it must never do is
+   * turn a finished delegation into a failed one.
+   */
+  private async attachVerification(
+    result: DelegationResult,
+    worktree: WorktreeInfo | null,
+    parent: ThreadRow,
+    context: DelegationContext,
+    outcome: ChildOutcome,
+    options: { verifyPipeline?: boolean; verificationSteps?: string[] }
+  ): Promise<void> {
+    if (outcome.cancelled) return;
+
+    const wanted = options.verifyPipeline ?? (!!worktree && context.kind === 'TASK');
+    if (!wanted) return;
+
+    const projectPath = this.getProjectPath(parent.project_id);
+    // Only an explicit request runs the pipeline anywhere but a sandbox: a
+    // build in the project directory writes artefacts into the tree the
+    // operator is working in, which is exactly what P8-01 exists to avoid.
+    const targetDir = worktree?.path ?? (options.verifyPipeline === true ? projectPath : null);
+    if (!targetDir) return;
+
+    try {
+      const report = await this.verification.runPipeline(targetDir, {
+        steps: options.verificationSteps,
+        // `.asterim/` is untracked, so a sandbox does not carry the operator's
+        // pipeline configuration even though the project it branched from does.
+        configDir: projectPath ?? undefined
+      });
+      // The whole thing is kept on the row, where the REST surface reads it
+      // from; what travels on the result is bounded, because the result becomes
+      // an event payload sent to every dashboard watching the project — the
+      // same rule the sandbox diff follows.
+      saveThreadVerificationReport(result.childThreadId, report);
+      result.verificationReport = compactVerificationReport(report);
+
+      console.log(
+        `[Delegation] Verified ${result.childThreadId} in ${targetDir}: ${summarizeVerificationReport(report)}`
+      );
+    } catch (err) {
+      console.warn(
+        `[Delegation] Could not verify ${result.childThreadId} in ${targetDir}: ${(err as Error).message}`
+      );
+    }
+  }
+
+  /**
+   * Reclaims sandboxes nothing is using any more (P8-02).
+   *
+   * Called once at startup, after `recoverDelegations` has settled the children
+   * the previous run stopped on top of. A Core that was killed mid-delegation
+   * can leave a registered worktree whose directory is gone, or a sandbox branch
+   * with no checkout on it, and neither is ever cleaned up by anything else —
+   * `git worktree list` grows for the life of the repository.
+   *
+   * What it must not do is throw away work an operator has not looked at yet, so
+   * it deletes nothing that exists on disk: `pruneOrphans` skips every sandbox
+   * whose directory is still there, and every thread that still records one is
+   * named in the keep list on top of that. A finished delegation whose diff is
+   * waiting to be reviewed survives any number of restarts.
+   *
+   * Never throws, and returns how many sandboxes were reclaimed.
+   */
+  public async pruneOrphanSandboxes(): Promise<number> {
+    let projects: Array<{ id: string; path: string | null }>;
+    let recorded: Array<{ id: string; project_id: string }>;
+    try {
+      projects = this.db().prepare('SELECT id, path FROM projects').all() as unknown as Array<{
+        id: string;
+        path: string | null;
+      }>;
+      recorded = this.db()
+        .prepare('SELECT id, project_id FROM threads WHERE worktree_path IS NOT NULL')
+        .all() as unknown as Array<{ id: string; project_id: string }>;
+    } catch (err) {
+      console.warn(`[Delegation] Could not scan for orphaned sandboxes: ${(err as Error).message}`);
+      return 0;
+    }
+
+    const keepByProject = new Map<string, string[]>();
+    for (const row of recorded) {
+      const keep = keepByProject.get(row.project_id) ?? [];
+      keep.push(row.id);
+      keepByProject.set(row.project_id, keep);
+    }
+
+    let pruned = 0;
+    for (const project of projects) {
+      const repoPath = project.path;
+      if (!repoPath) continue;
+      const keep = keepByProject.get(project.id) ?? [];
+      // Nothing to reclaim in a project that is not a repository, and nothing to
+      // look for in one that has never had a sandbox — which is most of them,
+      // and answering that from the filesystem keeps startup free of a `git`
+      // subprocess per project.
+      if (!fs.existsSync(path.join(repoPath, '.git'))) continue;
+      if (keep.length === 0 && !fs.existsSync(path.join(repoPath, '.asterim', 'worktrees'))) {
+        continue;
+      }
+
+      try {
+        pruned += await this.worktrees.pruneOrphans(repoPath, keep);
+      } catch (err) {
+        console.warn(
+          `[Delegation] Could not prune sandboxes in ${repoPath}: ${(err as Error).message}`
+        );
+      }
+    }
+
+    if (pruned > 0) console.log(`[Delegation] Reclaimed ${pruned} orphaned sandbox(es)`);
+    return pruned;
+  }
+
   /** Starts the child, hands it its brief, and watches until it settles. */
   private async runChild(
     parent: ThreadRow,
@@ -1703,13 +1868,88 @@ export function formatDelegationReport(result: DelegationResult): string {
     );
   }
 
+  // What the project's own commands said about those changes (P8-02). This is
+  // the line that stops a parent from taking "all tests pass" on trust: it is
+  // Asterim's own execution of the tests, and it disagrees with the child's
+  // summary whenever the child was wrong.
+  if (result.verificationReport) {
+    lines.push(`VERIFICATION: ${summarizeVerificationReport(result.verificationReport)}`);
+    lines.push(...formatVerificationFailures(result.verificationReport));
+  }
+
   lines.push(
     result.status === 'COMPLETED'
-      ? 'Continue from this result. Verify anything you depend on rather than assuming it.'
+      ? result.verificationReport && !result.verificationReport.passed
+        ? 'The delegated work did not verify. Read the failing step above before relying on any of it.'
+        : 'Continue from this result. Verify anything you depend on rather than assuming it.'
       : 'The delegated work did not complete. Decide whether to do it yourself, retry it, or report the failure.'
   );
 
   return lines.join('\n');
+}
+
+/**
+ * How much of a step's output travels on a `DelegationResult` (P8-02).
+ *
+ * A step captures up to `MAX_VERIFICATION_OUTPUT_CHARS`, and twenty of those
+ * would be megabytes going out over the socket to every dashboard watching the
+ * project. The whole capture stays on the thread row, which is what
+ * `GET /worktree/verify` answers from; this is the part a parent can read.
+ */
+export const MAX_STEP_OUTPUT_ON_RESULT = 2000;
+
+/**
+ * The same report, small enough to put in an event.
+ *
+ * The tail of each step rather than the head — the opposite end from the
+ * capture bound, on purpose. A step's output is truncated at capture from the
+ * front, because a compiler's first error is the one to fix; it is truncated
+ * here from the back, because by the time a step has printed more than two
+ * thousand characters the useful line is the verdict it ends with.
+ */
+export function compactVerificationReport(
+  report: VerificationPipelineReport
+): VerificationPipelineReport {
+  return {
+    ...report,
+    steps: report.steps.map(step => ({
+      ...step,
+      stdoutSummary: step.stdoutSummary
+        ? tail(step.stdoutSummary, MAX_STEP_OUTPUT_ON_RESULT)
+        : undefined,
+      stderrSummary: step.stderrSummary
+        ? tail(step.stderrSummary, MAX_STEP_OUTPUT_ON_RESULT)
+        : undefined
+    }))
+  };
+}
+
+/** How many failing steps the parent is shown the output of. */
+export const MAX_REPORTED_FAILURES = 2;
+
+/** How much of a failing step's output travels with the report. */
+export const MAX_FAILURE_OUTPUT_CHARS = 800;
+
+/**
+ * The evidence behind a failed verification, for the parent's brief.
+ *
+ * The tail rather than the head: a compiler prints its errors and then a summary
+ * line, and a test runner prints the passing tests first. Bounded hard, and to
+ * the first couple of failures — the parent is being told which step to go and
+ * look at, not being handed the whole log, which is in the sandbox it is also
+ * being pointed at.
+ */
+export function formatVerificationFailures(report: VerificationPipelineReport): string[] {
+  if (!report || report.passed || report.totalSteps === 0) return [];
+
+  return report.steps
+    .filter(step => !step.passed)
+    .slice(0, MAX_REPORTED_FAILURES)
+    .map(step => {
+      const output = tail(step.stderrSummary || step.stdoutSummary || '', MAX_FAILURE_OUTPUT_CHARS);
+      const reason = step.error ?? `exit ${step.exitCode}`;
+      return `  ${step.name} — ${step.command} (${reason})${output ? `\n  ${output.replace(/\n/g, '\n  ')}` : ''}`;
+    });
 }
 
 /** One line saying how a batch went, in the terms a caller can act on. */
@@ -1896,6 +2136,24 @@ function resolveTimeout(value: unknown): number {
     throw new DelegationError('INVALID_INPUT', 'timeoutMs must be a positive number.');
   }
   return Math.min(value, MAX_DELEGATION_TIMEOUT_MS);
+}
+
+/**
+ * The verification steps a caller named, as names.
+ *
+ * Names only, never commands: this reaches `runPipeline`, which matches them
+ * against what the project already declares. Anything that is not an ordinary
+ * step name is dropped rather than passed on, so the selection cannot be a way
+ * to smuggle something onto a command line.
+ */
+export function normalizeStepNames(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(entry => entry.trim())
+    .filter(entry => isSafeScriptName(entry))
+    .slice(0, MAX_VERIFICATION_STEPS);
+  return names.length > 0 ? names : undefined;
 }
 
 function normalizeCriteria(value: unknown): string[] {

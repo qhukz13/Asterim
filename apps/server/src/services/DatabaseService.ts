@@ -641,6 +641,18 @@ export class DatabaseService {
     } catch (e) {
       /* ignore if exists */
     }
+
+    // Automated verification pipelines (P8-02). The last thing the project's own
+    // typechecker, linter, tests and build said about the work in this thread's
+    // directory. A column and not a table because only the latest answer is
+    // evidence — a superseded verification says nothing about the code as it
+    // stands now — and the REST surface has to be able to answer for a thread
+    // whose delegation finished before the Core was last restarted.
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN verification_report_json TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
   }
 
   /**

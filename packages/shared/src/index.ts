@@ -13,4 +13,5 @@ export * from './types/skills';
 export * from './types/profiles';
 export * from './types/delegation';
 export * from './types/worktree';
+export * from './types/verification';
 

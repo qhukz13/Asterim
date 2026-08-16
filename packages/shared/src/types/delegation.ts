@@ -19,6 +19,8 @@
  *     the parent is owed the difference so it can decide whether to look.
  */
 
+import type { VerificationPipelineReport } from './verification';
+
 /**
  * How many levels of delegation are allowed below a root thread.
  *
@@ -125,6 +127,29 @@ export interface DelegationRequest {
    * simply does not happen.
    */
   isolateWorktree?: boolean;
+  /**
+   * Whether the child's work is verified before the result is handed back (P8-02).
+   *
+   * Unset means the default, which is on for a `TASK` that got a sandbox: the
+   * child edited files somewhere isolated, so the project's own typechecker,
+   * linter, tests and build can be run over exactly those edits without anyone
+   * else's checkout being touched. Off everywhere else — a reviewer changed
+   * nothing to verify, and a task with no sandbox would be verified in the
+   * operator's own working tree.
+   *
+   * Setting it explicitly overrides both ways, including running the pipeline in
+   * the project directory when there is no sandbox. Like isolation, asking for
+   * verification a project cannot provide is not an error: the report comes back
+   * saying no pipeline was discovered.
+   */
+  verifyPipeline?: boolean;
+  /**
+   * Which discovered steps to run, by name, instead of all of them.
+   *
+   * Names, not commands — `['typecheck', 'test']`. A caller cannot introduce a
+   * command this way, only choose among the ones the project already declares.
+   */
+  verificationSteps?: string[];
 }
 
 /** What the parent gets back, whether or not the child succeeded. */
@@ -159,6 +184,21 @@ export interface DelegationResult {
   worktreePath?: string;
   diff?: string;
   changedFiles?: string[];
+  /**
+   * What the project's own verification commands said about the child's work
+   * (P8-02).
+   *
+   * The other half of the evidence the diff is: a diff shows what was changed,
+   * this shows whether the result still typechecks, lints, tests and builds. It
+   * is Asterim's own execution, not the child's account of it, which is the
+   * point — an agent that reports "all tests pass" and a pipeline that exits
+   * non-zero disagree, and only one of them ran the tests.
+   *
+   * Absent when nothing was verified, rather than present and empty, so
+   * "verification was not run" and "verification found nothing to run" stay
+   * distinguishable — the second is a report with `totalSteps: 0`.
+   */
+  verificationReport?: VerificationPipelineReport;
 }
 
 // --- Parallel delegation (P7-04) ---------------------------------------------
@@ -184,6 +224,10 @@ export interface ParallelDelegationItem {
   reviewCriteria?: string[];
   /** Whether this piece runs in its own Git worktree (P8-01). */
   isolateWorktree?: boolean;
+  /** Whether this piece's work is verified before it is reported (P8-02). */
+  verifyPipeline?: boolean;
+  /** Which discovered verification steps to run for it, by name (P8-02). */
+  verificationSteps?: string[];
 }
 
 /** Several pieces of work handed out at once, from one parent. */

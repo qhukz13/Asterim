@@ -231,6 +231,13 @@ const start = async () => {
     const { agentDelegationService } = await import('./services/ai/AgentDelegationService');
     agentDelegationService.recoverDelegations();
 
+    // And the worktree sandboxes those children left behind (P8-02). After the
+    // recovery pass, because that is what decides which of them are over, and
+    // deliberately not awaited: reclaiming disk is not a thing a workstation
+    // should wait to finish booting for. It removes nothing that still exists on
+    // disk, so a delegation whose diff has not been reviewed yet survives.
+    void agentDelegationService.pruneOrphanSandboxes();
+
     // Start event log pruning (runs immediately then every hour)
     pruningService.start();
 

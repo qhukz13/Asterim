@@ -14,14 +14,20 @@
  * (`blueprint/GIT.md`: agents never commit without explicit approval).
  */
 
+import fs from 'fs';
 import { FastifyInstance, FastifyReply } from 'fastify';
-import { AuthErrorCode } from '@asterim/shared';
+import { AuthErrorCode, MAX_VERIFICATION_TIMEOUT_MS, isSafeScriptName } from '@asterim/shared';
 import { dbService } from '../services/DatabaseService';
 import {
   WorktreeError,
   WorktreeErrorCode,
   gitWorktreeService
 } from '../services/git/GitWorktreeService';
+import { verificationPipelineService } from '../services/verification/VerificationPipelineService';
+import {
+  loadThreadVerificationReport,
+  saveThreadVerificationReport
+} from '../services/verification/threadVerificationStore';
 
 /** How a worktree failure reads over HTTP. */
 const STATUS_BY_CODE: Record<WorktreeErrorCode, number> = {
@@ -201,5 +207,81 @@ export default async function worktreeRoutes(fastify: FastifyInstance) {
     } catch (err) {
       return sendWorktreeError(reply, err);
     }
+  });
+
+  // POST /api/v1/threads/:id/worktree/verify — run the project's own checks
+  //
+  // The on-demand half of P8-02. A delegation verifies itself as it finishes,
+  // but an operator who has since edited the sandbox by hand, or who is looking
+  // at a delegation that ran before the pipeline was configured, needs to be
+  // able to ask again. Same directory, same pipeline, same report.
+  fastify.post('/api/v1/threads/:id/worktree/verify', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const body = (request.body as { steps?: unknown; timeoutMs?: unknown } | null) || null;
+
+    // Names of steps the project already declares, never commands: this endpoint
+    // is authenticated, but "authenticated" is not "may run arbitrary shell on
+    // the workstation", and nothing else in the REST surface offers that either.
+    let steps: string[] | undefined;
+    if (body?.steps !== undefined && body?.steps !== null) {
+      if (!Array.isArray(body.steps) || body.steps.some(step => !isSafeScriptName(step))) {
+        return reply.status(400).send({
+          error: 'steps must be an array of verification step names, e.g. ["typecheck", "test"].',
+          code: 'INVALID_INPUT'
+        });
+      }
+      steps = body.steps as string[];
+    }
+
+    let timeoutMs: number | undefined;
+    if (body?.timeoutMs !== undefined && body?.timeoutMs !== null) {
+      const asked = body.timeoutMs;
+      if (typeof asked !== 'number' || !Number.isFinite(asked) || asked <= 0) {
+        return reply
+          .status(400)
+          .send({ error: 'timeoutMs must be a positive number.', code: 'INVALID_INPUT' });
+      }
+      timeoutMs = Math.min(asked, MAX_VERIFICATION_TIMEOUT_MS);
+    }
+
+    const resolved = resolveRepo(id, reply);
+    if (!resolved) return reply;
+
+    // The sandbox when there still is one on disk, the project when there is
+    // not. A thread whose sandbox was merged and discarded is a thread whose
+    // work is now in the project, and that is the directory to verify.
+    const sandbox = resolved.row.worktree_path;
+    const targetDir = sandbox && fs.existsSync(sandbox) ? sandbox : resolved.repoPath;
+
+    try {
+      const report = await verificationPipelineService.runPipeline(targetDir, {
+        steps,
+        timeoutMs,
+        configDir: resolved.repoPath
+      });
+      saveThreadVerificationReport(id, report);
+      return reply.send({ threadId: id, sandboxed: targetDir !== resolved.repoPath, report });
+    } catch (err) {
+      console.error('[Verification] Pipeline run failed', err);
+      return reply.status(500).send({ error: 'Verification pipeline failed to run' });
+    }
+  });
+
+  // GET /api/v1/threads/:id/worktree/verify — the last thing verification said
+  fastify.get('/api/v1/threads/:id/worktree/verify', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const row = getThreadWorktreeRow(id);
+    if (!row) {
+      return reply.status(404).send({ error: `No thread with id ${id}.`, code: 'THREAD_NOT_FOUND' });
+    }
+
+    // Null rather than 404 for a thread that has never been verified: it is a
+    // thread in exactly the same position as one that has no sandbox, and a
+    // dashboard asking "what do we know about this thread" is owed an answer.
+    return reply.send({ threadId: id, report: loadThreadVerificationReport(id) });
   });
 }
