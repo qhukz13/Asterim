@@ -73,6 +73,8 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
         kind?: string;
         criteria?: string[];
         diff?: string;
+        /** Whether the child gets its own worktree; unset means the default. */
+        isolateWorktree?: boolean;
       } | null) || null;
 
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
@@ -80,6 +82,12 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
         .status(400)
         .send({ error: 'A delegation body is required.', code: 'INVALID_INPUT' });
     }
+
+    // Only forwarded when the operator said something: unset has to stay unset
+    // all the way down, or the service's own default — a sandbox for work, none
+    // for a review — would be overwritten with `false` on every request.
+    const isolateWorktree =
+      typeof body.isolateWorktree === 'boolean' ? body.isolateWorktree : undefined;
 
     try {
       const result =
@@ -90,7 +98,8 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
               criteria: body.criteria,
               role: body.role,
               profileId: body.profileId,
-              timeoutMs: body.timeoutMs
+              timeoutMs: body.timeoutMs,
+              isolateWorktree
             })
           : await agentDelegationService.delegateTask({
               parentThreadId: id,
@@ -98,7 +107,8 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
               profileId: body.profileId,
               taskDescription: body.task ?? body.taskDescription ?? '',
               inputContext: body.context ?? body.inputContext,
-              timeoutMs: body.timeoutMs
+              timeoutMs: body.timeoutMs,
+              isolateWorktree
             });
       return reply.send({ result });
     } catch (err) {

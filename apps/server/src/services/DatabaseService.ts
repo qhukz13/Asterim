@@ -625,6 +625,22 @@ export class DatabaseService {
     } catch (e) {
       /* ignore if the column is somehow still absent */
     }
+
+    // Git worktree sandboxing (P8-01). Where a thread's session actually runs,
+    // when it runs somewhere other than the project directory, and the ephemeral
+    // branch that checkout sits on. Columns rather than a table for the same
+    // reason `profile_id` is one: a thread has at most one sandbox at a time,
+    // and the row is what has to be readable to route the session to it.
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN worktree_path TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN worktree_branch TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
   }
 
   /**

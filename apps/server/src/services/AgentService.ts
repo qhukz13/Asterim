@@ -209,7 +209,7 @@ export class AgentService {
   private async startAgent(
     projectId: string,
     threadId: string,
-    workspace: string,
+    projectPath: string,
     agentType: 'aider' | 'claude' | 'antigravity',
     profileId?: string
   ) {
@@ -217,6 +217,12 @@ export class AgentService {
       console.log(`[AgentService] Agent already running for thread ${threadId}`);
       return;
     }
+
+    // A delegated thread with a sandbox runs in the sandbox (P8-01). Resolved
+    // here rather than by the caller because every path into a session — start,
+    // restart, crash recovery, the auto-start behind a chat message — has to
+    // land in the same directory, and this is the one place they all meet.
+    const workspace = this.resolveThreadWorkspace(threadId, projectPath);
 
     // Resolved before anything can fail, so a crash-restart further down
     // reuses the same persona rather than quietly dropping it.
@@ -520,6 +526,40 @@ export class AgentService {
     } catch (err) {
       console.error('[AgentService] Could not resolve the agent profile:', err);
       return null;
+    }
+  }
+
+  /**
+   * The directory a thread's session actually runs in (P8-01).
+   *
+   * The project directory for an ordinary thread, and the Git worktree for a
+   * delegated one that was given a sandbox. The directory has to still be there:
+   * an operator who discarded a sandbox and then restarted the child would
+   * otherwise get a session that cannot start at all, where what they want is
+   * the child running in the project again.
+   */
+  private resolveThreadWorkspace(threadId: string, projectPath: string): string {
+    try {
+      const row = dbService
+        .getDb()
+        .prepare('SELECT worktree_path FROM threads WHERE id = ?')
+        .get(threadId) as { worktree_path?: string | null } | undefined;
+      const sandbox = row?.worktree_path;
+      if (!sandbox) return projectPath;
+
+      const fs = require('fs');
+      if (!fs.existsSync(sandbox)) {
+        console.warn(
+          `[AgentService] Sandbox ${sandbox} for thread ${threadId} is gone; running in ${projectPath}`
+        );
+        return projectPath;
+      }
+      return sandbox;
+    } catch (err) {
+      console.warn(
+        `[AgentService] Could not resolve the working directory for thread ${threadId}: ${(err as Error).message}`
+      );
+      return projectPath;
     }
   }
 

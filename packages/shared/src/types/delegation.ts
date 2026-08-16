@@ -114,6 +114,17 @@ export interface DelegationRequest {
   kind?: DelegationKind;
   /** What a review must check, when the caller named criteria. */
   reviewCriteria?: string[];
+  /**
+   * Whether the child runs in its own Git worktree (P8-01).
+   *
+   * Unset means the default, which is on for `TASK` in a Git repository and off
+   * everywhere else: a child that is going to edit files needs a sandbox, a
+   * reviewer that is going to read them does not, and a project that is not a
+   * repository has nothing to branch from. Set it explicitly to override either
+   * way; asking for isolation where it cannot be provided is not an error, it
+   * simply does not happen.
+   */
+  isolateWorktree?: boolean;
 }
 
 /** What the parent gets back, whether or not the child succeeded. */
@@ -136,6 +147,18 @@ export interface DelegationResult {
   verdict?: ReviewVerdict;
   startedAt?: number;
   finishedAt?: number;
+  /**
+   * The sandbox the child ran in, when it ran in one (P8-01).
+   *
+   * `diff` is what the child actually changed, taken against the commit its
+   * worktree was branched from — the thing a parent or an operator has to look
+   * at before deciding whether to keep the work. It is absent rather than empty
+   * when there was no sandbox, so "no isolation" and "isolated and changed
+   * nothing" stay distinguishable.
+   */
+  worktreePath?: string;
+  diff?: string;
+  changedFiles?: string[];
 }
 
 // --- Parallel delegation (P7-04) ---------------------------------------------
@@ -159,6 +182,8 @@ export interface ParallelDelegationItem {
   timeoutMs?: number;
   kind?: DelegationKind;
   reviewCriteria?: string[];
+  /** Whether this piece runs in its own Git worktree (P8-01). */
+  isolateWorktree?: boolean;
 }
 
 /** Several pieces of work handed out at once, from one parent. */
@@ -238,6 +263,10 @@ export interface DelegationContext {
   summary?: string;
   verdict?: ReviewVerdict;
   finishedAt?: number;
+  /** The sandbox this child was given, when it was given one (P8-01). */
+  worktreePath?: string;
+  worktreeBranch?: string;
+  worktreeBaseCommit?: string;
 }
 
 /** One child thread, as the REST surface and the dashboard describe it. */

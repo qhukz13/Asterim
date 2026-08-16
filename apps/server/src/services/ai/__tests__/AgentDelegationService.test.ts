@@ -21,6 +21,7 @@
  * Run:  pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
  */
 
+import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -107,6 +108,7 @@ const {
 } = require('@asterim/shared');
 const Fastify = require('fastify');
 const delegationRoutes = require('../../../routes/delegation').default;
+const worktreeRoutes = require('../../../routes/worktrees').default;
 
 const PROJECT_ID = 'delegation-project';
 
@@ -2196,6 +2198,285 @@ async function main(): Promise<void> {
       published[2].payload.projectId
     ], [PROJECT_ID, PROJECT_ID]);
     equal('and the brief goes as a chat message, not raw stdin', published[1].payload.content, 'go');
+  }
+
+  // --- Worktree sandboxing (P8-01) --------------------------------------------
+
+  describe('a delegated child runs in its own worktree');
+  {
+    // A second project, this one a real git repository: the sandbox is a real
+    // `git worktree`, so the only way to assert that a child edits its own copy
+    // is to give it a repository to have a copy of.
+    const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'asterim-delegation-repo-')));
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Delegation Test',
+      GIT_AUTHOR_EMAIL: 'delegation@test.local',
+      GIT_COMMITTER_NAME: 'Delegation Test',
+      GIT_COMMITTER_EMAIL: 'delegation@test.local'
+    };
+    const git = (command: string, cwd = repoDir) =>
+      execSync(command, { cwd, encoding: 'utf8', env: gitEnv, stdio: 'pipe' }).trim();
+
+    git('git init -q -b main');
+    git('git config user.email delegation@test.local');
+    git('git config user.name "Delegation Test"');
+    fs.writeFileSync(path.join(repoDir, 'app.ts'), 'export const version = 1;\n');
+    git('git add -A');
+    git('git commit -q -m base');
+
+    const REPO_PROJECT = 'delegation-repo-project';
+    dbService
+      .getDb()
+      .prepare('INSERT INTO projects (id, name, path) VALUES (?, ?, ?)')
+      .run(REPO_PROJECT, 'Delegation Repo', repoDir);
+    dbService
+      .getDb()
+      .prepare('INSERT INTO threads (id, project_id, name) VALUES (?, ?, ?)')
+      .run('wt-lead', REPO_PROJECT, 'Lead');
+
+    runner.reset();
+    // The fake child edits files where a real one would: in whatever directory
+    // it was given. Reading the row is what a session start does.
+    runner.reply = (threadId: string) => {
+      const row = threadRow(threadId);
+      const workingDirectory = row.worktree_path || repoDir;
+      fs.writeFileSync(path.join(workingDirectory, 'app.ts'), 'export const version = 2;\n');
+      fs.writeFileSync(path.join(workingDirectory, 'added.ts'), 'export const added = true;\n');
+      emitAgentMessage(threadId, 'Done.\nSUMMARY: Bumped the version.\n');
+      emitStatus(threadId, 'idle');
+    };
+
+    const result = await service.delegateTask({
+      parentThreadId: 'wt-lead',
+      targetRole: 'Senior Backend Engineer',
+      taskDescription: 'Bump the version.'
+    });
+
+    equal('the child completed', result.status, 'COMPLETED');
+    check('and it ran in a sandbox', typeof result.worktreePath === 'string' && result.worktreePath.length > 0);
+    equal(
+      'the sandbox is under .asterim/worktrees',
+      path.relative(repoDir, result.worktreePath).split(path.sep).slice(0, 2).join('/'),
+      '.asterim/worktrees'
+    );
+    equal(
+      'named after the child thread',
+      path.basename(result.worktreePath),
+      result.childThreadId
+    );
+
+    const childRow = threadRow(result.childThreadId);
+    equal('the row records where it ran', childRow.worktree_path, result.worktreePath);
+    equal('and the branch it ran on', childRow.worktree_branch, `asterim/sandbox/${result.childThreadId}`);
+
+    equal(
+      'the parent’s working copy is untouched',
+      fs.readFileSync(path.join(repoDir, 'app.ts'), 'utf8'),
+      'export const version = 1;\n'
+    );
+    check('and the file the child added is not in it', !fs.existsSync(path.join(repoDir, 'added.ts')));
+    equal('so the project has nothing uncommitted', git('git status --porcelain'), '');
+
+    equal('the diff came back with the result', result.changedFiles.sort(), ['added.ts', 'app.ts']);
+    check('showing what the child wrote', result.diff.includes('export const version = 2;'));
+    check('and what it created', result.diff.includes('export const added = true;'));
+
+    const brief = runner.sentTo(result.childThreadId)[0] ?? '';
+    check('the child was told where it is working', brief.includes(result.worktreePath));
+    check('and told not to merge its own work', /do not merge/i.test(brief));
+
+    const report = runner.sentTo('wt-lead').join('\n');
+    check('the parent is told what changed', report.includes('CHANGED FILES: added.ts, app.ts'));
+    check('and where to look at it', report.includes(`WORKTREE: ${result.worktreePath}`));
+
+    describe('a review is not sandboxed');
+    {
+      runner.reply = (threadId: string) => {
+        emitAgentMessage(threadId, 'SUMMARY: Looks fine.\nVERDICT: PASS\n');
+        emitStatus(threadId, 'idle');
+      };
+      const review = await service.requestReview({
+        parentThreadId: 'wt-lead',
+        diff: 'diff --git a/app.ts b/app.ts'
+      });
+      equal('the review completed', review.status, 'COMPLETED');
+      equal('with no worktree of its own', review.worktreePath, undefined);
+      equal('and no diff', review.diff, undefined);
+      equal('the row has no sandbox either', threadRow(review.childThreadId).worktree_path, null);
+    }
+
+    describe('isolation can be asked for and refused explicitly');
+    {
+      runner.reply = (threadId: string) => {
+        emitAgentMessage(threadId, 'SUMMARY: Nothing to do.\n');
+        emitStatus(threadId, 'idle');
+      };
+
+      const optedOut = await service.delegateTask({
+        parentThreadId: 'wt-lead',
+        targetRole: 'Senior Backend Engineer',
+        taskDescription: 'Read the code and report back.',
+        isolateWorktree: false
+      });
+      equal('a task that opted out has no sandbox', optedOut.worktreePath, undefined);
+
+      const reviewIsolated = await service.requestReview({
+        parentThreadId: 'wt-lead',
+        diff: 'diff --git a/app.ts b/app.ts',
+        isolateWorktree: true
+      } as any);
+      check(
+        'a review that asked for one gets it',
+        typeof reviewIsolated.worktreePath === 'string' && reviewIsolated.worktreePath.length > 0
+      );
+    }
+
+    describe('parallel children each get their own tree');
+    {
+      runner.reply = (threadId: string) => {
+        const row = threadRow(threadId);
+        const workingDirectory = row.worktree_path || repoDir;
+        // Every child writes the same path with different content: without
+        // isolation the last one to run would decide what all of them produced.
+        fs.writeFileSync(path.join(workingDirectory, 'app.ts'), `export const version = ${threadId.slice(0, 4)};\n`);
+        emitAgentMessage(threadId, `SUMMARY: ${threadId} wrote its own copy.\n`);
+        emitStatus(threadId, 'idle');
+      };
+
+      const batch = await service.delegateParallel({
+        parentThreadId: 'wt-lead',
+        delegations: [
+          { targetRole: 'Senior Backend Engineer', taskDescription: 'Backend half.' },
+          { targetRole: 'Senior Backend Engineer', taskDescription: 'Frontend half.' }
+        ]
+      });
+
+      equal('both completed', batch.overallStatus, 'COMPLETED');
+      const paths = batch.results.map((entry: any) => entry.worktreePath);
+      equal('each got a sandbox', paths.filter(Boolean).length, 2);
+      equal('and no two shared one', new Set(paths).size, 2);
+      equal(
+        'each diff is only that child’s work',
+        batch.results.map((entry: any) => entry.changedFiles),
+        [['app.ts'], ['app.ts']]
+      );
+      check(
+        'and the two wrote different content',
+        batch.results[0].diff !== batch.results[1].diff,
+        'two sandboxes must not observe each other'
+      );
+      equal(
+        'the project’s own copy is still the original',
+        fs.readFileSync(path.join(repoDir, 'app.ts'), 'utf8'),
+        'export const version = 1;\n'
+      );
+    }
+
+    describe('the worktree REST surface');
+    {
+      const app = Fastify();
+      app.addHook('onRequest', async (request: { headers: Record<string, string>; user?: unknown }) => {
+        if (request.headers['x-anonymous'] !== 'yes') request.user = { id: 'test-user' };
+      });
+      await app.register(worktreeRoutes);
+      await app.ready();
+
+      const childThreadId = result.childThreadId;
+
+      const anonymous = await app.inject({
+        method: 'GET',
+        url: `/api/v1/threads/${childThreadId}/worktree`,
+        headers: { 'x-anonymous': 'yes' }
+      });
+      equal('an anonymous read is 401', anonymous.statusCode, 401);
+
+      const ghost = await app.inject({ method: 'GET', url: '/api/v1/threads/nope/worktree' });
+      equal('a thread that does not exist is 404', ghost.statusCode, 404);
+
+      const inspected = await app.inject({
+        method: 'GET',
+        url: `/api/v1/threads/${childThreadId}/worktree`
+      });
+      equal('inspecting a sandbox is 200', inspected.statusCode, 200);
+      equal('it names the branch', inspected.json().worktree.branch, `asterim/sandbox/${childThreadId}`);
+      equal('and reports the live diff', inspected.json().diff.changedFiles.sort(), [
+        'added.ts',
+        'app.ts'
+      ]);
+
+      const none = await app.inject({ method: 'GET', url: '/api/v1/threads/wt-lead/worktree' });
+      equal('a thread with no sandbox is 200, not 404', none.statusCode, 200);
+      equal('with nothing in it', none.json().worktree, null);
+
+      const anonymousMerge = await app.inject({
+        method: 'POST',
+        url: `/api/v1/threads/${childThreadId}/worktree/merge`,
+        headers: { 'x-anonymous': 'yes' }
+      });
+      equal('an anonymous merge is 401', anonymousMerge.statusCode, 401);
+
+      const merged = await app.inject({
+        method: 'POST',
+        url: `/api/v1/threads/${childThreadId}/worktree/merge`,
+        payload: { message: 'Keep the delegated work' }
+      });
+      equal('merging is 200', merged.statusCode, 200);
+      equal('and it happened', merged.json().result.merged, true);
+      equal(
+        'the delegated change is now in the project',
+        fs.readFileSync(path.join(repoDir, 'app.ts'), 'utf8'),
+        'export const version = 2;\n'
+      );
+      equal('the merge commit carries the operator’s message', git('git log -1 --pretty=%s'), 'Keep the delegated work');
+
+      const discarded = await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/threads/${childThreadId}/worktree`
+      });
+      equal('discarding is 200', discarded.statusCode, 200);
+      equal('something was removed', discarded.json().removed, true);
+      check('the checkout is gone', !fs.existsSync(result.worktreePath));
+      equal('and the row no longer points at it', threadRow(childThreadId).worktree_path, null);
+
+      const afterDiscard = await app.inject({
+        method: 'GET',
+        url: `/api/v1/threads/${childThreadId}/worktree`
+      });
+      equal('inspecting it afterwards reports none', afterDiscard.json().worktree, null);
+
+      const discardAgain = await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/threads/${childThreadId}/worktree`
+      });
+      equal('discarding twice is not an error', discardAgain.statusCode, 200);
+
+      await app.close();
+    }
+
+    describe('a project that is not a repository still delegates');
+    {
+      runner.reply = (threadId: string) => {
+        emitAgentMessage(threadId, 'SUMMARY: Did the work.\n');
+        emitStatus(threadId, 'idle');
+      };
+      // PROJECT_ID's path is a plain temp directory, which is the fallback this
+      // has to keep: no sandbox, and a delegation that runs anyway.
+      const plain = await service.delegateTask({
+        parentThreadId: 'lead',
+        targetRole: 'Senior Backend Engineer',
+        taskDescription: 'Work without a repository.'
+      });
+      equal('it completed', plain.status, 'COMPLETED');
+      equal('with no sandbox', plain.worktreePath, undefined);
+      equal('and nothing recorded on the row', threadRow(plain.childThreadId).worktree_path, null);
+    }
+
+    try {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 }
 

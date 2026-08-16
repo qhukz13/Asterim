@@ -126,6 +126,7 @@ import mcpRoutes from './routes/mcp';
 import skillRoutes from './routes/skills';
 import profileRoutes from './routes/profiles';
 import delegationRoutes from './routes/delegation';
+import worktreeRoutes from './routes/worktrees';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
@@ -156,6 +157,8 @@ const start = async () => {
     await fastify.register(profileRoutes);
     console.log('[DEBUG] Registering delegationRoutes');
     await fastify.register(delegationRoutes);
+    console.log('[DEBUG] Registering worktreeRoutes');
+    await fastify.register(worktreeRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');

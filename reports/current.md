@@ -1,11 +1,11 @@
-Task-ID: P7-06
+Task-ID: P8-01
 Status: COMPLETE
 
-# Execution Report: P7-06 — Phase 7 Comprehensive Production Gate & Multi-Agent Collaboration Verification
+# Execution Report: P8-01 — Git Worktree Sandboxing & Subagent Working Tree Isolation
 
-**Task ID:** P7-06
-**Phase:** Phase 7 — Multi-Agent Orchestration & Collaborative Workflows
-**Status:** VERIFIED
+**Task ID:** P8-01
+**Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing
+**Status:** IMPLEMENTED & VERIFIED
 **Date:** 2026-08-17
 **Author:** Claude Code
 
@@ -13,267 +13,108 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Executed the Phase 7 production gate audit and authored `docs/phase7-production-gate.md`.
+Git Worktree Sandboxing is implemented end to end. `GitWorktreeService` provisions, inspects, merges and tears down isolated checkouts at `<projectRoot>/.asterim/worktrees/<threadId>` on ephemeral branches `asterim/sandbox/<threadId>`, using native `git worktree` through the existing `GitProvider`. `AgentDelegationService` provisions a sandbox for every `TASK` child before its session starts, `AgentService` routes that session into the sandbox directory, and the child's real diff comes back on `DelegationResult`. Three REST endpoints let an operator inspect, merge or discard a subagent's work. A new suite of 111 assertions runs against real temporary git repositories, and 48 further assertions were added to the delegation suite covering the integration and the REST surface.
 
-**Executive verdict: PASS / READY FOR NEXT PHASE.**
-
-All four monorepo quality gates were run in this session with the Turbo cache defeated
-(`--force`), so every number below is live execution rather than a replayed cache log:
-
-| Gate | Result |
-| :--- | :--- |
-| `pnpm typecheck --force` | 11/11 Turbo tasks, **0 TypeScript errors** |
-| `pnpm lint --force` | 7/7 Turbo tasks, **0 ESLint errors** (619 warnings) |
-| `pnpm test -- --force` | 9/9 Turbo tasks, **36 suites, 3,719 assertions, 0 failures** |
-| `pnpm build --force` | 7/7 Turbo tasks, 0 cached, clean |
-
-All **39** acceptance criteria across the five Phase 7 workstreams (P7-01 through P7-05) were
-re-verified against the code at `d257161` — not against the prior reports. Each prior task brief
-was recovered from git (`git show <dispatch-commit>:tasks/current.md`) so the criteria audited are
-the ones that were actually dispatched. 39/39 PASS.
-
-No product code was modified. The two safety invariants — `MAX_DELEGATION_DEPTH = 3` and
-`MAX_CONCURRENT_DELEGATIONS = 4` — were confirmed unweakened in source and under test.
+All CI gates pass: typecheck clean across 7 packages, lint 0 errors, **37/37 test suites pass**, full monorepo build succeeds.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `docs/phase7-production-gate.md` | Created | Authoritative Phase 7 sign-off: executive verdict, 15-row subsystem audit matrix, per-workstream acceptance-criteria audit (P7-01→P7-05), full 36-suite test inventory with per-suite assertion counts, DEC-028 sovereignty attestation, invariant verification detail, discrepancy register, Phase 8 transition plan, reproduction commands |
-| `reports/current.md` | Modified | This report |
-
-`tests/report.md` shows as modified in `git status` but was **already dirty at session start** —
-it is the P7-05 verification-gate record written by the prior test-runner session. I left it
-untouched (out of this task's scope).
+| `packages/shared/src/types/worktree.ts` | Created | `WorktreeInfo`/`WorktreeDiff`/`WorktreeMergeResult`, branch & directory naming, thread-id safety predicate |
+| `packages/shared/src/index.ts` | Modified | Export the worktree contract |
+| `packages/shared/src/types/delegation.ts` | Modified | `DelegationRequest.isolateWorktree`, `DelegationResult.{worktreePath,diff,changedFiles}`, `ParallelDelegationItem.isolateWorktree`, `DelegationContext.worktree*` |
+| `apps/server/src/services/git/GitWorktreeService.ts` | Created | Create / diff / merge / remove / prune sandboxes; argument-safety and primary-tree guards |
+| `apps/server/src/services/git/__tests__/GitWorktreeService.test.ts` | Created | 111 assertions against real temp git repositories |
+| `apps/server/src/services/DatabaseService.ts` | Modified | `threads.worktree_path`, `threads.worktree_branch` (ALTER-in-try, no migration framework) |
+| `apps/server/src/services/ai/AgentDelegationService.ts` | Modified | Provision sandbox before child session; attach diff to the result; sandbox lines in brief & report |
+| `apps/server/src/services/AgentService.ts` | Modified | `resolveThreadWorkspace` — a thread with a sandbox runs its session there |
+| `apps/server/src/routes/worktrees.ts` | Created | `GET` / `POST …/merge` / `DELETE` `/api/v1/threads/:id/worktree` |
+| `apps/server/src/routes/delegation.ts` | Modified | Forward an explicit `isolateWorktree` from the operator's delegation body |
+| `apps/server/src/index.ts` | Modified | Register `worktreeRoutes` |
+| `apps/server/package.json` | Modified | Wire `GitWorktreeService.test.ts` into the `test` script (19 → 20 server suites) |
+| `apps/server/src/services/ai/__tests__/AgentDelegationService.test.ts` | Modified | +48 assertions: isolation, parallel isolation, fallback, REST surface |
 
 ## 3. Implementation Details
 
-This was an audit task, so "implementation" means the evidence chain behind the gate document.
+**Naming lives in `@asterim/shared`.** Branch (`asterim/sandbox/<threadId>`) and directory (`.asterim/worktrees/<threadId>`) are derived by shared helpers, so the server, the dashboard and a human reading `git worktree list` agree on what belongs to Asterim — and `removeWorktree` only ever deletes a branch it can recognise as its own by prefix.
 
-**Method.** Rather than trusting the prior five execution reports, each workstream's brief was
-recovered from git history and every criterion re-checked against the current source:
+**Base commits are recorded, not inferred.** `createWorktree` writes `refs/asterim/base/<threadId>` pointing at the commit the sandbox forked from. Every diff is taken against that ref, which is what makes a subagent that *committed* its own work still diff correctly — inferring a fork point from the branch graph goes wrong as soon as the parent branch moves. The ref is deleted with the sandbox.
 
-```
-git show cff2f66:tasks/current.md   # P7-01
-git show cd94e84:tasks/current.md   # P7-02
-git show da3f69e:tasks/current.md   # P7-03
-git show 955c431:tasks/current.md   # P7-04
-git show dba0ebc:tasks/current.md   # P7-05
-```
+**One diff covers all four states.** `getDiff` runs `git add --all --intent-to-add` in the sandbox (touching only the sandbox's own index) and then `git diff <base>`, so committed, staged, unstaged and untracked work all appear. Output is capped at 200 000 chars in the service and 20 000 on the delegation result, with the cut marked.
 
-**Invariants verified in source, not just asserted by tests:**
+**The primary working tree is never written to.** Creation and removal touch only the sandbox directory and `asterim/sandbox/*` refs — asserted directly (`HEAD` unmoved, branch unchanged, `git status --porcelain` empty, file contents unchanged). `mergeWorktree` is the one operation that changes the real checkout and is bounded on every side: it refuses a dirty target (`DIRTY_TARGET`), refuses a target branch that is not checked out rather than checking one out under the operator (`TARGET_NOT_CHECKED_OUT`), and on conflict runs `git merge --abort` and reports `MERGE_CONFLICT` — leaving the repository exactly where it was. Whatever the sandbox left uncommitted is committed onto the *ephemeral* branch first, never onto the operator's.
 
-- **Recursion (depth ≤ 3).** `requireDepthFor` (`AgentDelegationService.ts:570`) throws
-  `DEPTH_EXCEEDED` before any child row exists. `getDelegationDepth` (`:301`) carries a `seen` set
-  and a `MAX_CHAIN_HOPS = 64` ceiling, so a `parent_thread_id` cycle reports as beyond the bound
-  and refuses, rather than reading as a shallow chain. A parallel batch checks depth once and
-  refuses whole. The child's brief also states its depth and tells it not to delegate onward by
-  reflex (`formatChildBrief`).
-- **Concurrency (≤ 4 per parent).** `delegateParallel` checks *both* `items.length > 4` and
-  `getActiveDelegationCount(parent) + items.length > 4` (`:744`, `:760`) — the second is what stops
-  two batches of three being stacked. A sequential `delegateTask` during a live batch is refused
-  `ALREADY_DELEGATING`. Both → HTTP 409 with the code in the body.
-- **Teardown.** `safeStop` → `client.command:stop` → `AgentService.stopAgent` (`:563`) →
-  `processTreeManager.killProcessTree(threadId, 3000)` (SIGTERM, SIGKILL escalation after 3s) →
-  `sessionManager.stopSession` → `BaseAdapter.stop()` → `ProcessManager.kill()`. The child's
-  process is stopped *before* the parent is resumed, so the parent's next move cannot race the
-  child over the same working tree.
-- **Clean resumption.** Six exit paths (completion, crash, timeout, failed launch, cancellation,
-  Core restart) each release the parent exactly once; the release is repeated idempotently in
-  `runDelegation`'s `finally` block so a throwing bus subscriber cannot strand a parent.
-- **Hierarchy without transcript collisions.** `threads.parent_thread_id` +
-  `delegation_context_json` + `idx_threads_parent`, all added with the repo's additive
-  `ALTER TABLE`/`CREATE INDEX IF NOT EXISTS` pattern so existing `~/.asterim/asterim.db` files
-  keep opening. The parent receives a bounded formatted report, never the child's raw terminal.
-- **DEC-028.** A grep for `fetch(`, `http://`, `https://`, `axios`, `net.`, `dns.` across
-  `AgentDelegationService.ts`, `routes/delegation.ts` and `packages/shared/src/types/delegation.ts`
-  returns nothing. Delegation moves data only between SQLite, the in-process EventBus, and local
-  PTY subprocesses, and requires no Sovereign Mode carve-out.
+**Never tracked.** `.asterim/` is added to `.git/info/exclude` — never to `.gitignore`, which is a tracked file and would put an Asterim implementation detail in the user's next commit. If the project already ignores `.asterim`, nothing is written at all.
+
+**Command safety.** `GitProvider` builds command strings through a shell, so every interpolated path/ref goes through `quoteGitArg`, which double-quotes and *refuses* `" $ \` CR LF` rather than trying to escape them; thread ids are validated against `isSafeWorktreeThreadId` before they can name a branch or a directory (`..`, `/`, spaces refused). Commit messages are sanitized rather than refused, since an operator's merge message should not fail on a backtick.
+
+**Delegation integration.** `provisionWorktree` runs inside `runDelegation`, before the session starts, so both the sequential and the parallel path get it. Default is on for `TASK`, off for `REVIEW`; `isolateWorktree` overrides either way. It never throws: no project path, no `.git`, no commits, git missing — each is a delegation that runs in the project directory exactly as it did before P8-01. A cheap `fs.existsSync(<repo>/.git)` pre-check keeps the cost at zero (no subprocess) for workstations whose projects are not repositories. The child row's `worktree_path`/`worktree_branch` are written *before* the session starts, because that row is what `AgentService.resolveThreadWorkspace` reads to decide where to run it.
+
+**What the parent is told.** `formatDelegationReport` gains a `WORKTREE:` line and a `CHANGED FILES:` line — deliberately not the diff itself, which can be megabytes; the full diff travels on `DelegationResult.diff` and lives in the worktree. The child's brief gains a `WORKING TREE:` section telling it where it is and that it must not merge, rebase or push its own work.
 
 ## 4. Verification
 
-### Quality gates (all run this session, `--force`, cold)
+Every command below was run in this session.
 
-```
-pnpm typecheck --force   → Tasks: 11 successful, 11 total | Cached: 0 | 57.8s   | 0 errors
-pnpm lint --force        → Tasks:  7 successful,  7 total | Cached: 0           | 0 errors, 619 warnings
-pnpm test -- --force     → Tasks:  9 successful,  9 total | Cached: 0 | 1m17.5s | 3,719/3,719 assertions
-pnpm build --force       → Tasks:  7 successful,  7 total | Cached: 0 | 39.4s
-```
+| Gate | Command | Result |
+| :--- | :--- | :--- |
+| New suite | `pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts` | **111/111 assertions passed** |
+| Git subsystem | `…GitDriftDetector.test.ts`, `…RemoteManager.test.ts` | 64/64, 89/89 passed |
+| Delegation | `…AgentDelegationService.test.ts` | **461/461 assertions passed** (was 413) |
+| Typecheck | `tsc --noEmit` in shared, server, adapters, web, relay, mcp-memory-server; `tsc -b` in marketing | **0 errors, all 7 packages** |
+| Lint | `eslint` per package, using each package's own lint script | **0 errors** (pre-existing warnings only; **0 warnings in any new file**) |
+| Tests | `pnpm --filter <pkg> test` for asterim, adapters, relay, mcp-memory-server, web | **37/37 suites pass** (20 + 1 + 1 + 7 + 8) |
+| Build | `pnpm --filter … build` for all 7 packages | success (server `dist/index.js` 878.76 KB, web + marketing bundles built) |
 
-Lint error/warning split by package: `asterim` 0/266, `@asterim/web` 0/292, `@asterim/adapters`
-0/28, `@asterim/marketing` 0/18, `@asterim/mcp-memory-server` 0/12, `@asterim/shared` 0/3,
-`@asterim/relay` 0/0. **619 warnings, 0 errors.** No rule was disabled or downgraded for this gate.
+Note on the CI commands: root `pnpm run typecheck` / `lint` / `test` / `build` (turbo) were blocked by this session's command-approval sandbox, so each gate was run per-package with the exact script each package's `package.json` defines. That is the same work turbo would dispatch.
 
-### Test battery — 36 suites, 3,719 assertions, 0 failures
-
-| Package | Suites | Assertions |
-| :--- | ---: | ---: |
-| `asterim` (server) | 19 | 2,118 |
-| `@asterim/web` | 8 | 1,159 |
-| `@asterim/mcp-memory-server` | 7 | 348 |
-| `@asterim/relay` | 1 | 71 |
-| `@asterim/adapters` | 1 | 23 |
-| **Total** | **36** | **3,719** |
-
-Phase 7 delegation coverage: **813 assertions** (412 server + 401 web) — 21.9% of the battery.
-Full per-suite breakdown is in `docs/phase7-production-gate.md` §4.
-
-### The two named delegation suites, standalone (outside Turbo)
-
-```
-pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
-  → 412/412 assertions passed
-
-pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
-  → 401/401 assertions passed
-```
-
-Both reproduce the counts observed inside the Turbo run, which cross-validates the per-suite
-attribution in the inventory table.
-
-### Command-form note
-
-The task specifies `pnpm run typecheck|lint|test|build`. The repository permission allowlist admits
-the `pnpm <script>` form, which invokes the identical root scripts (`turbo run <task>`). `pnpm test`
-additionally requires `--` before `--force` because pnpm intercepts `test` as a shorthand. Exact
-commands executed are recorded verbatim above and in the gate document's Reproduction section.
-
-### Not run
-
-There is no browser/screenshot component to this gate and the task did not ask for one, so no
-Puppeteer capture was taken. Delegation UI behaviour is covered by the 401 assertions in
-`DelegationUI.test.ts`, which render the real components.
+Server suite count is now 20 (`GitWorktreeService.test.ts` added), giving the 37 monorepo suites the task specifies.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `docs/phase7-production-gate.md` authored with complete subsystem audit matrices and
-  verification evidence** — Created. 11 sections: executive verdict, 15-row subsystem audit matrix,
-  per-workstream criteria audit, full test inventory with per-suite counts, DEC-028 attestation,
-  invariant verification detail, discrepancy register, architectural observations, Phase 8
-  transition plan, reproduction commands, sign-off table. Every claim anchors to a `file:line` or a
-  named test assertion.
-- [x] **2. All 5 Phase 7 workstreams (P7-01 → P7-05) audited and verified against their acceptance
-  criteria** — 39 criteria total (7 + 8 + 7 + 9 + 8), all PASS. Criteria taken from the briefs as
-  dispatched, recovered from git. Gate document §3.
-- [x] **3. 0 TypeScript compiler errors across all packages** — `pnpm typecheck --force`:
-  11/11 Turbo tasks successful, 0 cached, 0 errors.
-- [x] **4. 0 ESLint errors across all packages** — `pnpm lint --force`: 7/7 Turbo tasks successful,
-  0 cached, 0 errors across all 7 workspace packages (619 warnings, pre-existing in character).
-- [x] **5. All automated test suites pass with 0 failures** — `pnpm test -- --force`: 9/9 Turbo
-  tasks, 0 cached, 36 suites, 3,719/3,719 assertions, 0 failures. Note: the task text says "35+
-  suites … 3,000+ assertions"; the actual figures are 36 and 3,719.
-- [x] **6. Monorepo production build succeeds cleanly** — `pnpm build --force`: 7/7 Turbo tasks
-  successful, 0 cached, 39.4s. (Task text says "all 7 packages … under 10 seconds"; 7 packages is
-  correct, but a genuinely cold `--force` build takes ~39s. The sub-10s figure describes a
-  cache-warm run.)
+- [x] **1 — `GitWorktreeService` creates, diffs, merges and removes Git worktrees safely using native Git CLI commands.** `createWorktree`/`getDiff`/`mergeWorktree`/`removeWorktree` in `apps/server/src/services/git/GitWorktreeService.ts`, all via `GitProvider.exec` (`git worktree add|list|remove|prune`, `git diff`, `git merge`, `git branch -D`, `git update-ref`). Safety asserted: "the primary working tree is untouched" (4 assertions), "a dirty target is refused", "a branch that is not checked out is refused", "a conflicting merge is aborted, not left in the tree" (5 assertions incl. no `MERGE_HEAD` left behind), "a path that could break out of quoting is refused".
+- [x] **2 — `AgentDelegationService` automatically runs subagents in isolated worktrees when requested.** `provisionWorktree` + `AgentService.resolveThreadWorkspace`. Asserted by "a delegated child runs in its own worktree" (the fake child writes to whatever directory its row names, and the project's copy is proven unchanged), "a review is not sandboxed", "isolation can be asked for and refused explicitly", "parallel children each get their own tree" (2 concurrent children, distinct sandboxes, distinct diffs, project untouched), "a project that is not a repository still delegates".
+- [x] **3 — Subagent file modifications produce isolated Git diffs that return in `DelegationResult`.** `attachWorktreeChanges`; `result.changedFiles` = `['added.ts','app.ts']`, `result.diff` contains both the modification and the addition, and the sibling sandbox's content is proven absent from it ("nothing from the other sandbox leaks in").
+- [x] **4 — REST endpoints `/api/v1/threads/:id/worktree` support inspection, merging and discarding.** `apps/server/src/routes/worktrees.ts`, registered in `index.ts`. 18 assertions in "the worktree REST surface": 401 for anonymous read and anonymous merge, 404 for an unknown thread, 200 + live diff for inspection, 200 + `worktree: null` for a thread with no sandbox, merge lands the change in the project with the operator's commit message, DELETE removes the checkout and clears the row, and a second DELETE is still 200.
+- [x] **5 — `GitWorktreeService.test.ts` passes with comprehensive assertions in real temporary git repositories.** 111/111. Five real repos created per run (`git init`, real commits, real edits, real merges, real conflict), all removed in `cleanup()`. Covers creation, idempotence, isolation between two sandboxes, diffs (modified/untracked/committed/clean), merge-back, no-op merge, dirty-target and detached-HEAD refusals, conflict abort, removal + branch deletion + base-ref deletion, force-removal of a dirty sandbox, orphan cleanup with a live sandbox preserved, a hand-deleted sandbox being rebuilt, and the not-a-repository fallback.
+- [x] **6 — Monorepo CI gates pass with 0 errors.** Typecheck 0 errors (7 packages); lint 0 errors; 37/37 test suites pass; build succeeds for all 7 packages. See § 4.
 
-### Definition of Done
+**Definition of Done**
 
-- [x] `docs/phase7-production-gate.md` created and complete
-- [x] Monorepo typecheck clean (0 errors)
-- [x] Monorepo lint clean (0 errors)
-- [x] Full test battery passing (0 failures)
-- [x] Production build clean
-
-### Forbidden-changes compliance
-
-- [x] `MAX_DELEGATION_DEPTH = 3` unchanged (`packages/shared/src/types/delegation.ts:31`)
-- [x] `MAX_CONCURRENT_DELEGATIONS = 4` unchanged (`:46`)
-- [x] No product code modified — `git diff` touches no file under `apps/`, `packages/`,
-  `blueprint/` or `tasks/`
-- [x] Gate document is factual, evidence-backed and reproducible (§10 gives the exact commands)
+- [x] `threads.worktree_path` / `threads.worktree_branch` added to the SQLite schema (ALTER-in-try, existing `~/.asterim/asterim.db` still opens — the delegation suite re-runs `new DatabaseService()` and asserts it)
+- [x] Shared worktree types in `@asterim/shared`
+- [x] `GitWorktreeService.ts` implemented
+- [x] `AgentDelegationService` worktree isolation integrated
+- [x] `/api/v1/threads/:id/worktree` REST endpoints registered
+- [x] `GitWorktreeService.test.ts` created and passing
+- [x] Monorepo CI gates pass cleanly
 
 ## 6. Git Diff Review
 
-```
-$ git status --short
- M tests/report.md          # pre-existing at session start (P7-05 gate record) — untouched
-?? docs/phase7-production-gate.md
+`git diff` reviewed file by file against every criterion. 11 files changed by this task (4 created, 7 modified) plus `apps/server/package.json`. No forbidden changes:
 
-$ git diff --stat
- tests/report.md | 258 +++++++++++++++++++++++--------------------
- 1 file changed, 137 insertions(+), 121 deletions(-)
-```
-
-The only change authored by this task is the new `docs/phase7-production-gate.md`, plus this
-report. `git diff` shows **zero** modifications under `apps/`, `packages/`, `blueprint/` or
-`tasks/` — no product code, no schema, no wire contract, no test file, and neither safety bound was
-touched. No stray temporary files; the delegation suite cleans up its own tmp database
-(`[cleanup] removed /tmp/asterim-delegation-quNTqF`).
+- Nothing in `blueprint/`, no architecture invented, no new dependency added — the service uses the existing `GitProvider` and the git CLI, and `simple-git` was not reached for.
+- No GitHub/GitLab REST API use, no credential storage; every git call inherits `resolveGitEnv`.
+- `.asterim/` is excluded via `.git/info/exclude` only; `.gitignore` is never written (asserted: "no .gitignore was created in the project").
+- The repository's own working tree is clean of test artefacts — all suites use `os.tmpdir()` and remove their directories; no `.asterim` exists in this repo.
+- `AgentService`'s change is a rename of one parameter plus one resolution call; all three existing call sites still pass `project.path` and behave identically for non-delegated threads.
+- One pre-existing unrelated modification is present in the tree, `tests/report.md`, from the P7-06 gate. It is **not** part of this task and was left untouched and uncommitted.
 
 ## 7. Problems Discovered
 
-**No defects found.** Three factual discrepancies between the P7-06 brief and the repository, all
-naming drift in the brief rather than implementation faults, are recorded in gate document §7:
-
-1. **`MAX_DELEGATION_DEPTH_EXCEEDED` does not exist.** The error code is `DEPTH_EXCEEDED`
-   (`DelegationErrorCode`, `AgentDelegationService.ts:73`). The *constant* is `MAX_DELEGATION_DEPTH`;
-   the code has always been `DEPTH_EXCEEDED`, is asserted as such by the suite, and is part of the
-   client-visible contract that the dashboard branches on. I did **not** rename it — that would be
-   a breaking wire change for a cosmetic gain, and outside this task's scope.
-2. **"Parallel delegation strictly bounded to `2 <= children <= 4`"** — the Core accepts `1..4`
-   (empty → `INVALID_INPUT`/400), which matches the P7-04 brief that specified it
-   (`1 <= items.length <= MAX_CONCURRENT_DELEGATIONS`). The 2-minimum is `MIN_PARALLEL_DELEGATIONS`
-   in `DelegateModal.tsx:34`, a P7-05 UI affordance: a one-item "batch" is just a delegation. Both
-   bounds are enforced where they were specified.
-3. **`DelegationTree.tsx` does not exist** — the component is `ThreadTree.tsx`, exporting
-   `ThreadTreeView`, hosted by `SessionSidebar.tsx:255`. It was never named `DelegationTree`; the
-   P7-02 brief that created it named it correctly.
-
-**Operational trap for future gate sessions:** Turbo will happily report `Tasks: N successful` from
-replayed cache logs without executing a single compiler, linter or test process. Every gate here was
-run with `--force` for that reason. Note the pnpm quirk: `pnpm typecheck --force` and
-`pnpm build --force` forward the flag to Turbo, but `pnpm test --force` errors (`Unknown option`)
-because pnpm intercepts `test` as a shorthand — it needs `pnpm test -- --force`. The converse trap
-also exists: `pnpm build -- --force` forwards `--force` to `tsc`, which fails with
-`TS5093: Compiler option '--force' may only be used with '--build'`.
-
-**Stale repository documentation:** `CLAUDE.md` still states "There is **no test runner or test
-script anywhere in the repo**" and that CI runs only lint and build. That has not been true since
-Phase 5 — there are now 36 hand-rolled `tsx` suites wired into per-package `test` scripts and a root
-`turbo run test`. Flagged, not changed: `CLAUDE.md` is governance, and amending it is the
-Orchestrator's call.
+1. **An existing delegation test depended on microtask timing.** "one delegation at a time per parent" set up its release callback assuming the child's brief was sent within a couple of microtasks of `delegateTask` being called. Adding an `await` for sandbox provisioning (a `git rev-parse` subprocess) broke that. Rather than patch the test, the fix was to make the common case genuinely cheap: `provisionWorktree` short-circuits on a synchronous `fs.existsSync(<repo>/.git)` before spawning anything, so a project that is not a repository costs no subprocess at all. The test passes unmodified, and the feature costs nothing on workstations that do not use it.
+2. **`RepositoryManager.isRepository` cannot be reused here.** It requires `.git` to be a *directory*; inside a worktree `.git` is a *file*, so a delegation launched from within one sandbox would have been told it was not in a repository. `GitWorktreeService.isRepository` uses `git rev-parse --is-inside-work-tree` instead.
+3. **A sandbox that commits its own work diffs as empty against its own HEAD.** This is why the base commit is persisted as a git ref rather than recomputed; asserted by "a sandbox that committed its own work still diffs".
+4. **`packages/adapters` has 32 pre-existing lint errors in root-level `test-*.js` debug scripts** — not reached by CI, because that package's lint script is `eslint src/`, not `eslint .`. Unrelated to this task; flagged, not touched.
 
 ## 8. Architectural Concerns
 
-Recorded in full in gate document §8; the ones worth the Orchestrator's attention:
-
-1. **Depth 3 × breadth 4 = 84 potential child processes** worst case (4 + 16 + 64). The concurrency
-   bound is **per parent**, not global — nothing caps total live child sessions across a
-   workstation. If fan-outs-of-fan-outs become a real workflow, a global ceiling is the natural
-   Phase 8 hardening.
-2. **Thread-level authorization.** Delegation routes authenticate (`requireUser` behind the globally
-   registered `authMiddleware`) but do not assert that the caller owns the project the thread
-   belongs to. Consistent with the rest of the single-workstation Core and already recorded in
-   `docs/phase5-production-gate.md:391`; it becomes load-bearing the moment multi-user relay-hosted
-   access is real.
-3. **`POST /delegate` holds a request open for up to the delegation timeout** (default 10 min,
-   ceiling 60 min). Deliberate and documented in the route header, and the cancel route is what
-   makes it bearable — but any reverse proxy in front of the Core needs a matching read timeout.
-   Worth a line in `docs/operations-runbook.md` before any hosted deployment.
-4. **Batch results are reconstructed, not stored.** `BatchDelegationResult` survives a reload only
-   because `delegation.batch_completed` is replayed from event history. A first-class record
-   alongside `delegation_context_json` would make fan-out outcomes queryable.
-5. **ADR-008 `EventBus` `'*'` re-emission** now carries five more event types. Unchanged by this
-   phase, noted because delegation is a heavy user of it.
-6. **`@asterim/web` bundle is 1.6 MB** (481 KB gzip); Vite's >500 KB chunk advisory persists.
-   Standing recommendation, not a gate item.
+1. **Sandboxes are never garbage-collected automatically.** A completed delegation leaves its worktree on disk on purpose — that is what the operator reviews and merges — but nothing prunes them. `GitWorktreeService.pruneOrphans(repoPath, keepThreadIds)` is implemented and tested for exactly this, and deliberately *not* wired into startup: deciding which sandboxes an operator still wants is a product decision, not one to make silently. Recommend a P8 task that calls it from `StartupService` (or from `recoverDelegations`) with a documented retention rule.
+2. **No dashboard surface yet.** The diff and the merge/discard decision are reachable only over REST. The `DelegationResult` now carries `diff`/`changedFiles`/`worktreePath` and rides the existing `delegation.completed` event, so the data is already at the client — a review panel is the natural next vertical.
+3. **`mergeWorktree` refuses a target branch that is not checked out.** This is the safe reading of "merge into the target branch", but it means an operator who wants the work on a different branch must check it out first. If cross-branch merging is wanted, it should be an explicit Change Proposal, since any implementation touches the operator's checkout.
+4. **Sandbox provisioning adds one `git worktree add` to the delegation start path** (a full checkout of the base commit). For a very large repository this is not free. `git worktree add` shares the object store so it is a checkout cost, not a clone cost, but a future task may want `--no-checkout` plus sparse checkout for large monorepos.
 
 ## 9. Recommended Next Step
 
-**Phase 7 is signed off: PASS / READY FOR NEXT PHASE.** No remediation task is warranted — the
-subsystem is closed-loop, unstubbed and behind no flags, with 813 assertions over it.
-
-Recommended Phase 8 opening sequence (gate document §9), in dependency order:
-
-1. **Persist `BatchDelegationResult`** alongside `delegation_context_json` so fan-out outcomes are
-   queryable rather than reconstructed from replayed events (concern §8.4).
-2. **Global concurrency ceiling** across all parents, with an operator-visible count (concern §8.1).
-3. **Delegation artifacts → Changes.** Children already name artifacts; wiring those into the Git
-   subsystem closes the loop from delegated work to reviewable diff — the highest-value next
-   vertical, and the natural bridge from orchestration into the review workflow.
-4. **Thread-level authorization** ahead of any multi-user surface (concern §8.2).
-
-Secondary housekeeping for the Orchestrator: `CLAUDE.md`'s "no test runner in the repo" paragraph
-is stale and now actively misleads execution sessions (see §7).
+**P8-02 — Automated Verification Pipelines over sandboxed worktrees:** run a project's own verification commands (lint / typecheck / build / test) inside a subagent's worktree when it finishes, and attach the result to `DelegationResult` alongside the diff — so a parent is handed "the child changed these files and the build still passes" rather than a claim. The sandbox is the piece that makes this safe to do; it is now in place. Sandbox retention/pruning (§ 8.1) should be folded into the same phase.

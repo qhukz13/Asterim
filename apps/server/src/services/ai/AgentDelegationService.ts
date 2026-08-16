@@ -30,6 +30,8 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import {
   AgentProfile,
   BatchDelegationResult,
@@ -56,6 +58,7 @@ import {
   ParallelDelegationRequest,
   REQUEST_REVIEW_TOOL,
   ReviewVerdict,
+  WorktreeInfo,
   aggregateDelegationStatus,
   aggregateReviewVerdict,
   isDelegationToolName,
@@ -63,6 +66,7 @@ import {
 } from '@asterim/shared';
 import { dbService } from '../DatabaseService';
 import { EventBus, eventBus } from '../EventBus';
+import { GitWorktreeService, gitWorktreeService } from '../git/GitWorktreeService';
 import { ProfileService, profileService } from './ProfileService';
 
 /** How a delegation failure reads to a caller that has to answer over HTTP. */
@@ -91,6 +95,16 @@ export const MAX_TASK_CHARS = 20000;
 export const MAX_CONTEXT_CHARS = 60000;
 /** How much of a child's transcript is carried back as `output`. */
 export const MAX_OUTPUT_CHARS = 20000;
+/**
+ * How much of a sandbox's diff is carried back on the result (P8-01).
+ *
+ * The diff goes into an event payload and, from there, over the socket to every
+ * dashboard watching the project. The worktree is still on disk with the whole
+ * thing in it, so what travels is the part a parent can actually read.
+ */
+export const MAX_DIFF_CHARS = 20000;
+/** How many changed paths the parent is told about by name. */
+export const MAX_CHANGED_FILES = 100;
 /** How much of it is carried as the `summary`, when it never wrote one. */
 export const MAX_SUMMARY_CHARS = 2000;
 /** How many hops the parent chain is walked before it is called a cycle. */
@@ -264,7 +278,8 @@ export class AgentDelegationService {
   constructor(
     private readonly runner: DelegationSessionRunner = new EventBusSessionRunner(),
     private readonly profiles: ProfileService = profileService,
-    private readonly bus: EventBus = eventBus
+    private readonly bus: EventBus = eventBus,
+    private readonly worktrees: GitWorktreeService = gitWorktreeService
   ) {}
 
   private db() {
@@ -563,7 +578,10 @@ export class AgentDelegationService {
       requestedAt: Date.now()
     };
 
-    return this.runDelegation(parent, profile, context, timeoutMs, options);
+    return this.runDelegation(parent, profile, context, timeoutMs, {
+      ...options,
+      isolateWorktree: request?.isolateWorktree
+    });
   }
 
   /** The depth a new child of this thread would sit at, or a refusal. */
@@ -596,6 +614,8 @@ export class AgentDelegationService {
     options: DelegationOptions & {
       /** Whether settling this child is what puts the parent back to `ACTIVE`. */
       releaseParent?: boolean;
+      /** Whether the child gets its own working tree (P8-01). */
+      isolateWorktree?: boolean;
     }
   ): Promise<DelegationResult> {
     const parentThreadId = parent.id;
@@ -638,6 +658,17 @@ export class AgentDelegationService {
     this.registerActive(parentThreadId, active);
 
     try {
+      // Provisioned before the session is started, because the session is what
+      // has to be pointed at it. A sandbox that cannot be provisioned is not a
+      // failed delegation — the child runs in the project directory, the way
+      // every delegation did before P8-01.
+      const worktree = await this.provisionWorktree(
+        parent,
+        childThreadId,
+        context,
+        options.isolateWorktree
+      );
+
       let outcome: ChildOutcome;
       try {
         outcome = await this.runChild(parent, childThreadId, profile, context, timeoutMs, active);
@@ -652,6 +683,11 @@ export class AgentDelegationService {
       }
 
       const result = this.buildResult(childThreadId, profile, context, outcome, startedAt);
+
+      // Taken while the child's process is still up but after it has stopped
+      // producing output: the files are settled, and reading them is what turns
+      // "the agent says it did the work" into something reviewable.
+      await this.attachWorktreeChanges(result, worktree);
 
       this.recordOutcome(childThreadId, context, result);
       // Every delegation status is also a terminal child state, by construction.
@@ -775,7 +811,10 @@ export class AgentDelegationService {
         this.runDelegation(parent, entry.profile, entry.context, entry.timeoutMs, {
           // The parent is resumed once, by the batch, with everything at once.
           resumeParent: false,
-          releaseParent: false
+          releaseParent: false,
+          // Isolation matters most here: this is the path on which several
+          // agents edit the same repository at the same time.
+          isolateWorktree: entry.isolateWorktree
         })
       )
     );
@@ -828,7 +867,12 @@ export class AgentDelegationService {
     parentThreadId: string,
     depth: number,
     item: ParallelDelegationItem
-  ): { context: DelegationContext; profile: AgentProfile | null; timeoutMs: number } {
+  ): {
+    context: DelegationContext;
+    profile: AgentProfile | null;
+    timeoutMs: number;
+    isolateWorktree?: boolean;
+  } {
     const taskDescription = requireText(item?.taskDescription, 'taskDescription', MAX_TASK_CHARS);
     const inputContext = optionalText(item?.inputContext, 'inputContext', MAX_CONTEXT_CHARS);
     const kind: DelegationKind = item?.kind === 'REVIEW' ? 'REVIEW' : 'TASK';
@@ -854,7 +898,8 @@ export class AgentDelegationService {
         requestedAt: Date.now()
       },
       profile,
-      timeoutMs
+      timeoutMs,
+      isolateWorktree: item?.isolateWorktree
     };
   }
 
@@ -1014,6 +1059,8 @@ export class AgentDelegationService {
       role?: string;
       profileId?: string;
       timeoutMs?: number;
+      /** A reviewer gets no sandbox unless the caller asks for one (P8-01). */
+      isolateWorktree?: boolean;
     },
     options: DelegationOptions = {}
   ): Promise<DelegationResult> {
@@ -1024,6 +1071,7 @@ export class AgentDelegationService {
         targetRole: params?.role || DEFAULT_REVIEW_ROLE,
         profileId: params?.profileId,
         kind: 'REVIEW',
+        isolateWorktree: params?.isolateWorktree,
         taskDescription:
           'Review the changes below against the criteria given. Report findings; do not rewrite the feature.',
         inputContext: diff,
@@ -1186,6 +1234,110 @@ export class AgentDelegationService {
       );
 
     return childThreadId;
+  }
+
+  // --- Worktree sandboxing (P8-01) --------------------------------------------
+
+  /** Where a project lives on disk, or null when it is not a project we know. */
+  private getProjectPath(projectId: string): string | null {
+    try {
+      const row = this.db()
+        .prepare('SELECT path FROM projects WHERE id = ?')
+        .get(projectId) as { path?: string } | undefined;
+      return row?.path || null;
+    } catch (err) {
+      console.warn(
+        `[Delegation] Could not resolve the path of project ${projectId}: ${(err as Error).message}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Gives a child its own working tree, when it should have one.
+   *
+   * The default is on for `TASK` and off for `REVIEW`: a child that is going to
+   * edit files needs somewhere to do it that is not the parent's checkout, and a
+   * reviewer that is going to read them gains nothing from a second copy. An
+   * explicit `isolateWorktree` overrides both ways.
+   *
+   * Never throws. Every reason a sandbox cannot be provisioned — the project is
+   * not a repository, it has no commits yet, git is not installed — is a
+   * delegation that runs the way it always did, in the project directory. A
+   * subagent that does not run at all is a worse outcome than one that runs
+   * without isolation, and the operator can see which happened from the result.
+   */
+  private async provisionWorktree(
+    parent: ThreadRow,
+    childThreadId: string,
+    context: DelegationContext,
+    isolateWorktree?: boolean
+  ): Promise<WorktreeInfo | null> {
+    const wanted = isolateWorktree ?? context.kind === 'TASK';
+    if (!wanted) return null;
+
+    const repoPath = this.getProjectPath(parent.project_id);
+    if (!repoPath) return null;
+
+    // Cheap first: a project directory with no `.git` in it cannot be the root
+    // of a repository, and answering that without spawning a subprocess keeps
+    // the cost of this feature at zero for every workstation not using it.
+    // `.git` is a file rather than a directory inside a worktree, so existence
+    // is the question, not what it is.
+    if (!fs.existsSync(path.join(repoPath, '.git'))) return null;
+
+    try {
+      if (!(await this.worktrees.isRepository(repoPath))) return null;
+
+      const worktree = await this.worktrees.createWorktree(repoPath, childThreadId);
+
+      // Written onto the row before the session starts, because the row is what
+      // AgentService reads to decide where to run it.
+      this.db()
+        .prepare('UPDATE threads SET worktree_path = ?, worktree_branch = ? WHERE id = ?')
+        .run(worktree.path, worktree.branch, childThreadId);
+
+      context.worktreePath = worktree.path;
+      context.worktreeBranch = worktree.branch;
+      context.worktreeBaseCommit = worktree.baseCommit;
+
+      console.log(
+        `[Delegation] Child ${childThreadId} runs in sandbox ${worktree.path} on ${worktree.branch}`
+      );
+      return worktree;
+    } catch (err) {
+      console.warn(
+        `[Delegation] Could not sandbox child ${childThreadId}; it will run in ${repoPath}: ${(err as Error).message}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Puts what the child actually changed onto the result.
+   *
+   * The diff, not the transcript: an agent's account of its own work is a claim,
+   * and this is the evidence. Bounded on the way out, because it travels as an
+   * event payload — the worktree itself keeps the whole thing.
+   */
+  private async attachWorktreeChanges(
+    result: DelegationResult,
+    worktree: WorktreeInfo | null
+  ): Promise<void> {
+    if (!worktree) return;
+    result.worktreePath = worktree.path;
+
+    try {
+      const changes = await this.worktrees.getDiff(worktree.path, worktree.baseCommit);
+      result.diff = truncate(changes.diff, MAX_DIFF_CHARS);
+      result.changedFiles = changes.changedFiles.slice(0, MAX_CHANGED_FILES);
+    } catch (err) {
+      console.warn(
+        `[Delegation] Could not read the sandbox diff for ${worktree.threadId}: ${(err as Error).message}`
+      );
+      result.diff = '';
+      result.changedFiles = [];
+    }
   }
 
   /** Starts the child, hands it its brief, and watches until it settles. */
@@ -1486,6 +1638,19 @@ export function formatChildBrief(
     context.taskDescription
   ];
 
+  // The child's session already starts in the sandbox, so this is not an
+  // instruction so much as an explanation: an agent that knows its edits are
+  // isolated and will be reviewed as a diff does not go looking for the "real"
+  // checkout, and does not try to merge its own work (P8-01).
+  if (context.worktreePath) {
+    lines.push(
+      '',
+      'WORKING TREE:',
+      `You are in an isolated Git worktree at ${context.worktreePath}, on branch ${context.worktreeBranch ?? 'a sandbox branch'}.`,
+      'Make your changes here. They do not touch anyone else’s checkout, and the requester reviews them as a diff and decides whether to merge. Do not merge, rebase or push anything yourself.'
+    );
+  }
+
   if (context.inputContext) {
     lines.push('', context.kind === 'REVIEW' ? 'CHANGES UNDER REVIEW:' : 'CONTEXT:', context.inputContext);
   }
@@ -1524,6 +1689,18 @@ export function formatDelegationReport(result: DelegationResult): string {
   lines.push(`SUMMARY: ${result.summary}`);
   if (result.artifacts && result.artifacts.length > 0) {
     lines.push(`ARTIFACTS: ${result.artifacts.join(', ')}`);
+  }
+
+  // What it changed, and where those changes are — not the diff itself, which
+  // can be megabytes and belongs in the worktree the parent is being pointed at
+  // rather than in the middle of its transcript (P8-01).
+  if (result.worktreePath) {
+    lines.push(
+      `WORKTREE: ${result.worktreePath}`,
+      result.changedFiles && result.changedFiles.length > 0
+        ? `CHANGED FILES: ${result.changedFiles.join(', ')}`
+        : 'CHANGED FILES: none — the delegated agent did not modify the working tree.'
+    );
   }
 
   lines.push(
