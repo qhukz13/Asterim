@@ -156,7 +156,7 @@ jobs:
 
       # A draft, not a publish: a human decides when a release goes out.
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           generate_release_notes: true
