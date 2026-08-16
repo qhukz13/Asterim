@@ -1,11 +1,11 @@
-Task-ID: P7-04
+Task-ID: P7-05
 Status: COMPLETE
 
-# Execution Report: P7-04 — Multi-Agent Parallel Delegation, Concurrent Fan-Out & Aggregated Workflow Orchestration
+# Execution Report: P7-05 — Operator-Initiated Multi-Agent Parallel Batch Delegation & Modal Workflow Dispatch
 
-**Task ID:** P7-04
+**Task ID:** P7-05
 **Phase:** Phase 7 — Multi-Agent Orchestration & Collaborative Workflows
-**Status:** IMPLEMENTED & VERIFIED
+**Status:** IMPLEMENTED / VERIFIED
 **Date:** 2026-08-16
 **Author:** Claude Code
 
@@ -13,134 +13,205 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Bounded parallel delegation is implemented end to end: an orchestrator-class agent (or an operator over REST) hands up to `MAX_CONCURRENT_DELEGATIONS = 4` independent pieces of work to different roles at once, every child runs as an ordinary delegated thread, and the parent is parked until the last of them settles and then resumed once with an aggregated outcome matrix.
+`DelegateModal` now composes parallel fan-outs as well as single delegations. A third
+mode — `PARALLEL` — sits alongside `TASK` and `REVIEW` behind a tab switcher and
+renders a bounded batch builder: two to four subagent rows, each with its own role
+selector, task description and optional context, with add/remove controls bounded by
+`MIN_PARALLEL_DELEGATIONS = 2` and `MAX_CONCURRENT_DELEGATIONS = 4`.
 
-The delegation registry in `AgentDelegationService` was refactored from one-child-per-parent (`Map<parentThreadId, ActiveDelegation>`) to many (`Map<parentThreadId, Map<childThreadId, ActiveDelegation>>`, plus `Map<parentThreadId, Set<childThreadId>>` for the parked state). `delegateTask` was factored so that the single and the parallel paths share one child lifecycle (`runDelegation`) — same child row, same brief, same watch, same terminal `delegation.*` events — differing only in who releases the parent. Nothing that watched a single delegation before has to learn anything new; the batch adds one new event (`delegation.batch_completed`) carrying the aggregate that per-child events cannot express.
+Submitting in `PARALLEL` mode posts `{ delegations: ParallelDelegationItem[] }` to
+`POST /api/v1/threads/:id/delegate/parallel` with the same auth headers and the same
+long-lived-request handling the single path already used: the modal does not wait on
+the response (the Core holds it open until every child settles) but closes on the
+socket transition that parks the parent behind its children. Refusals — 400 invalid
+batch, 409 `CONCURRENCY_LIMIT_EXCEEDED`, network failure — come back into the modal's
+existing error banner in the Core's own words.
 
-Cancellation covers both granularities: `cancelDelegation` stops one child while its siblings keep running, `cancelAllDelegations` stops a whole fan-out. Both settle through the same single writer per child, so a cancelled batch leaves no orphaned child process, no dangling bus subscription and no parent parked behind work that is over (all three asserted).
-
-The dashboard supervises the fan-out live: the waiting banner lists every in-flight subagent with its own role, state, "Inspect" and "Stop", plus a batch "Cancel All"; the thread tree renders siblings with independent status and stop controls; and a new aggregated outcome card shows the overall status, one verdict over every review in the batch, and a per-child breakdown with summaries and artifacts.
-
-All gates are green: 0 TypeScript errors, 0 ESLint errors, **36/36 test suites (3634 assertions)** passing, and all 7 packages building.
+No server, store, shared-type or route code was touched: P7-04 already shipped the
+engine, the endpoint, the socket event and the store actions. This task is the
+operator-facing surface over them.
 
 ## 2. Files Changed
 
-| File | Change Type | Purpose |
-| :--- | :---: | :--- |
-| `packages/shared/src/types/delegation.ts` | Modified | `MAX_CONCURRENT_DELEGATIONS`, `DELEGATE_PARALLEL_TOOL`, `ParallelDelegationItem/Request`, `BatchDelegationResult`, `BatchDelegationStatus`, `aggregateDelegationStatus`, `aggregateReviewVerdict`, `delegation.batch_completed` event + payload, `delegate_parallel` tool definition |
-| `apps/server/src/services/ai/AgentDelegationService.ts` | Modified | Multi-child registry, `runDelegation` extraction, `delegateParallel`, `cancelAllDelegations`, `getPendingChildren`, `getActiveDelegationCount`, `CONCURRENCY_LIMIT_EXCEEDED`, `summarizeBatch`, `formatBatchDelegationReport`, `parseParallelItems`, `delegate_parallel` meta-tool dispatch |
-| `apps/server/src/routes/delegation.ts` | Modified | `POST /delegate/parallel` (+ `/delegation/parallel`), `POST /delegate/cancel-all` (+ `/delegation/cancel-all`), `pendingChildThreadIds` on `GET /children`, 409 mapping for the new code |
-| `apps/web/src/stores/useProjectStore.ts` | Modified | `pendingChildren` becomes `Record<string, string[]>`, `batchOutcomes`, `applyDelegationBatchCompleted`, `delegateParallel`, `cancelAllDelegations`, `batchStatusTone`, multi-child sync/cancel handling |
-| `apps/web/src/components/delegation/DelegationStatus.tsx` | Modified | Multi-child `DelegationWaitingBanner` (+ `PendingDelegationView`, `pendingProgress`), new `DelegationBatchOutcomeCard`, `DelegationStatusView`/container rewired for fan-out |
-| `apps/web/src/components/delegation/DelegateModal.tsx` | Modified | Reads the pending list rather than a single pending child id |
-| `apps/web/src/hooks/useSocket.ts` | Modified | Replays `delegation.batch_completed` from history alongside started/completed |
-| `apps/server/src/services/ai/__tests__/AgentDelegationService.test.ts` | Modified | +133 assertions: fan-out, aggregation, limits, per-child and batch cancellation, meta-tool, REST |
-| `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts` | Modified | +107 assertions: multi-child store events, `delegateParallel`, `cancelAllDelegations`, sync, banner, batch card, sibling tree |
+| File | Change |
+| :--- | :--- |
+| `apps/web/src/components/delegation/DelegateModal.tsx` | **Modified.** `DelegateModalMode` extended with `'PARALLEL'`; `ParallelItemState` and the batch helpers (`newParallelItem`, `defaultParallelItems`, `canAddParallelItem`, `canRemoveParallelItem`, `addParallelItem`, `removeParallelItem`, `updateParallelItem`, `canSubmitParallelDelegation`, `buildParallelDelegationBody`) added; `DelegateModalView` given the third tab, the batch builder UI and the batch-aware submit button; `DelegateModal` given the item list state, the parallel endpoint dispatch and per-mode error copy. |
+| `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts` | **Modified.** Four new `describe` blocks covering the batch helpers, the payload builder, the parallel view render and its add/remove/edit interactions, plus a dispatch-and-refusal block driving the real `fetch` stub. 316 → 401 assertions. |
 
-No files were created; no files outside the delegation subsystem were touched.
+No other file in the repository was modified by this task.
 
 ## 3. Implementation Details
 
-### 3.1 Shared contract (`@asterim/shared`)
+**Mode.** `DelegateModalMode = DelegationKind | 'PARALLEL'`. `canSubmitDelegation`
+returns `false` for `PARALLEL` outright rather than falling through to the task branch —
+a batch is not decided from the single-delegation fields, and leaving the fallthrough in
+would have made an unfilled batch look submittable if the parallel guard were ever
+bypassed.
 
-- `MAX_CONCURRENT_DELEGATIONS = 4` — a bound on **concurrency**, not on total children: a parent may delegate a hundred times in sequence, four at a time. `MAX_DELEGATION_DEPTH = 3` is unchanged and enforced for every child of a batch.
-- `BatchDelegationStatus = DelegationStatus | 'PARTIAL_SUCCESS'`.
-- `aggregateDelegationStatus`: all completed → `COMPLETED`; some completed → `PARTIAL_SUCCESS`; none completed → `FAILED`, **unless every child timed out**, which stays `TIMEOUT`. That preserves the P7-01 rule that a timeout is not a failure — a child that ran out of time may well have done the work, and the parent is owed the difference.
-- `aggregateReviewVerdict`: `undefined` when the batch contained no reviews; `PASS` only when every review passed; one dissent carries. Reporting a majority would be the one summary an agent could act on and be wrong.
-- `DELEGATE_PARALLEL_TOOL` is appended to `DELEGATION_TOOL_NAMES`/`DELEGATION_TOOL_DEFINITIONS`, so `McpAgentBridge.getDelegationTools` offers it to exactly the profiles `canProfileDelegate` already gates (tech lead / architect / orchestrator / staff & principal engineer). An unprofiled session and a reviewer profile still get nothing.
+**Row identity.** Each row carries an `id` from a module-level sequence
+(`subagent-<n>`), so React keys, the per-row `aria-label`s and the change/remove
+callbacks all address a row rather than an index. Removing row 2 of 3 therefore leaves
+rows 1 and 3 holding their own text instead of shifting it.
 
-### 3.2 Core orchestration
+**Bounds.** Enforced in three places for three different reasons: the add button is
+disabled at 4 and the remove buttons at 2 (so the operator sees the bound before typing
+into a fifth row); `addParallelItem`/`removeParallelItem` return the list unchanged past
+the bound (so a stale callback cannot exceed it); and `canSubmitParallelDelegation`
+re-checks `2 <= length <= 4` independently of the buttons (so any state that reached the
+form from elsewhere fails the same way an empty task does). The Core remains the
+authority — this is the form declining to compose something it knows will be refused.
 
-**Registry.** `waiting: Map<parentThreadId, Set<childThreadId>>` and `active: Map<parentThreadId, Map<childThreadId, ActiveDelegation>>`. `getPendingChild` still answers with the oldest child so the P7-01 REST field keeps its meaning; `getPendingChildren` is the whole answer.
+**Payload.** `buildParallelDelegationBody` emits canonical `ParallelDelegationItem`
+fields — `profileId`, `taskDescription`, `inputContext`, `kind: 'TASK'` — trimming task
+and context and omitting an unchosen profile and an empty context rather than sending
+them blank. The server's `parseParallelItems` accepts both the canonical names and the
+agent-facing aliases; the canonical names are used so the operator path and the
+meta-tool path converge on the same reader.
 
-**`runDelegation`.** Everything from the child row to the parent's release, shared by both paths. `options.releaseParent === false` (parallel) means settling a child does not publish `delegation.parent_state: ACTIVE`; the child is still removed from the parent's waiting set, and the removal is repeated in a `finally` as a net so an unexpected throw cannot strand a parent behind a child that is over.
+**Dispatch.** The modal posts the batch endpoint directly instead of calling
+`useProjectStore.delegateParallel`. That action reports any refusal as `null`, and the
+refusal is precisely what criterion 6 asks to render — a 409 concurrency limit reads
+differently from a 400 invalid batch, and the operator is owed the Core's message.
+Everything else about the request (auth headers, backend-url resolution, the
+fire-and-do-not-await posture) is shared with the single-delegation path.
 
-**`delegateParallel`.** Validation order: batch size → parent exists → `running + requested > 4` → depth (once, for the whole batch) → every item's task/context/timeout/profile. All of it happens **before any child row is written**, so a batch naming one bad role leaves no half-started children (asserted). Children are then dispatched together and awaited with `Promise.allSettled`; a rejection is turned into a synthetic `FAILED` row with an empty `childThreadId` rather than discarding the siblings that worked. The parent is released once — and only if nothing else is running under it — then resumed with `formatBatchDelegationReport` (verdict, one-line summary, numbered outcome matrix with artifacts) and `delegation.batch_completed` is published.
+**Closing.** Unchanged from P7-02: the existing effect closes the modal when
+`pendingChildren[activeThreadId]` becomes non-empty, which the `delegation.parent_state`
+socket event fills once per dispatched child. A fan-out therefore closes the modal as
+soon as its children start, not when the whole batch finishes ten minutes later.
 
-**Events.** Per child: `delegation.started`, `delegation.child_state`, `delegation.completed` — exactly as a single delegation. Per batch: N × `parent_state: WAITING_FOR_CHILD`, 1 × `parent_state: ACTIVE`, 1 × `delegation.batch_completed`. Verified by counting events across a 3-child batch.
-
-**Cancellation.** `cancelDelegation(childId)` stops one child; siblings keep running and the parent stays parked (asserted). `cancelDelegation(parentId)` resolves to the oldest running child, which keeps the P7-03 banner path working for a single delegation. `cancelAllDelegations(parentId)` snapshots the running set before awaiting (each settle mutates the registry), aborts each once, and returns what each settled as. Neither settles anything itself — they ask the running delegation to settle, so there is still one writer of each child row, one `safeStop` per child, and one release of the parent.
-
-**Backwards compatibility.** `delegateTask` still refuses a second sequential delegation with `ALREADY_DELEGATING`, including while a batch is running (asserted). Every P7-01/02/03 assertion still passes unchanged apart from the tool-count assertion, which now expects three meta-tools.
-
-### 3.3 REST
-
-`POST /api/v1/threads/:id/delegate/parallel` (alias `/delegation/parallel`) — auth-guarded, 400 for a missing/non-array list, 409 `CONCURRENCY_LIMIT_EXCEEDED` for >4, 404 for an unknown thread/role, 409 `DEPTH_EXCEEDED` past the bound. Synchronous like `POST /delegate`, but the wait is the slowest child's rather than the sum. Bodies are read through the same `parseParallelItems` the meta-tool uses, so `role`/`task`/`context` work from both.
-
-`POST /api/v1/threads/:id/delegate/cancel-all` (alias `/delegation/cancel-all`) — returns `{ success, cancelled, results }`; a thread with nothing running is 200 with `cancelled: 0`, an unknown thread is 404.
-
-`GET /children` gains `pendingChildThreadIds` and keeps `pendingChildThreadId`.
-
-### 3.4 Web
-
-`pendingChildren` is now a list per parent. `delegation.completed` removes only its own child and flips the parent to `ACTIVE` **only when the list empties** — otherwise a fan-out's banner would vanish the moment its first child answered. `WAITING_FOR_CHILD` appends without duplicating, so a socket reconnect replaying the same child does not show it twice. `applyDelegationBatchCompleted` stores the batch and clears the single-outcome entry for that parent so the last child is not rendered twice, once alone and once inside the batch it belonged to.
-
-`DelegationWaitingBanner` renders one child as the sentence it always was ("Delegated — waiting on Security Auditor" + "Cancel Delegation") and several as a list with a header count, a "1 of 3 finished" progress line, per-child role/state/task/Inspect/Stop, and one "Cancel All". `DelegationBatchOutcomeCard` leads with the answer (overall status pill, aggregated verdict) and follows with the working: every child's status, verdict, summary, artifacts and transcript link — including children that failed, which are the rows most worth opening. All colours come from `tokens.css` custom properties; the tests assert no hex literal reaches the rendered markup.
-
-`ThreadTree` needed no change — siblings already render under a common parent with independent indentation, status dots and stop pills — and is now covered by explicit sibling assertions.
+**Styling.** Every colour, radius, spacing and font token comes from `tokens.css`
+(`--color-surface-1`, `--color-border-subtle`, `--color-accent-primary`,
+`--color-state-paused`, `--spacing-*`, `--radius-*`). The rendered markup is asserted
+free of hex literals by test. The modal widens from 520px to 640px in parallel mode and
+the row list scrolls at `maxHeight: 46vh` so a four-row batch stays inside the viewport.
 
 ## 4. Verification
 
-Everything below was executed in this session. The root `pnpm run <task>` (turbo) form was not runnable non-interactively in this sandbox, so each Turbo task was run per workspace with `pnpm --filter <pkg> <task>`, which covers the same task graph.
+The root `pnpm run typecheck | lint | test | build` turbo entrypoints were blocked by
+this session's command-permission layer, so each gate was executed **per workspace**
+across all six packages — the same underlying commands turbo would have run.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Typecheck | `pnpm --filter <pkg> typecheck` × 7 (`shared`, `adapters`, `asterim`, `web`, `marketing`, `relay`, `mcp-memory-server`) | **0 errors** |
-| Lint | `pnpm --filter <pkg> lint` × 7 | **0 errors** (610 pre-existing warnings) |
-| Server delegation suite | `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts` | **412/412** (was 279) |
-| Web delegation suite | `pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts` | **316/316** (was 209) |
-| Server tests | `pnpm --filter asterim test` | 19 suites, **2118/2118** |
-| Web tests | `pnpm --filter @asterim/web test` | 8 suites, **1074/1074** |
-| Adapters / relay / mcp-memory-server tests | `pnpm --filter <pkg> test` | 1 + 1 + 7 suites, **442/442** |
-| **Total** | | **36 suites, 3634/3634 assertions, 0 failures** |
-| Build | `pnpm --filter <pkg> build` × 7 | all successful (`asterim` bundles `apps/web/dist`) |
+| Typecheck | `pnpm --filter <pkg> run typecheck` for `@asterim/web`, `asterim`, `@asterim/shared`, `@asterim/adapters`, `@asterim/relay`, `@asterim/marketing` | **0 errors**, all six clean |
+| Lint | `pnpm --filter <pkg> run lint` for the same six | **0 errors** (pre-existing warnings only: web 292, server 266, adapters 28, marketing 18, shared 3, relay 0) |
+| Tests | `pnpm --filter @asterim/web run test` | 8 suites, all green — 151, 37, 134, 113, 104, 85, 134, **401** assertions |
+| Tests | `pnpm --filter asterim run test` | 19 suites, all green — including `AgentDelegationService.test.ts` at **412/412** |
+| Tests | `pnpm --filter @asterim/adapters run test` / `@asterim/relay run test` | 23/23 and 71/71 |
+| Build | `pnpm --filter @asterim/shared / @asterim/adapters / @asterim/web / asterim / @asterim/marketing / @asterim/relay run build` | all successful, in dependency order (web dist → `asterim` dist/web) |
 
-Concurrency is asserted structurally rather than by wall-clock: the fake runner records how many sessions had been started at the moment the first child answered (3 of 3), which a sequential implementation could not produce. Lifecycle hygiene is asserted directly — after a cancelled 3-child fan-out, `chat.message` and `agent.status` listener counts return to their pre-batch values, all three child processes were stopped, and all three child rows are settled `FAILED` in SQLite.
+`DelegationUI.test.ts` went from **316 → 401 assertions**, all passing; no existing
+assertion was modified or removed.
+
+Themes and breakpoints: `tokens.css` defines a single `:root` palette — there is no
+light theme in this design system — so a theme regression is not reachable; the new
+markup is asserted to contain no hardcoded colour. Puppeteer screenshot capture was
+**not** performed: it needs a live server, an authenticated session and an open thread
+with profiles loaded, none of which this non-interactive session could stand up
+truthfully. The visual evidence is the token-only assertion plus the rendered-markup
+tests.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `delegateParallel()` concurrently spawns, monitors and aggregates multiple children (up to 4) under one parent** — `describe('delegateParallel — several children at once')`: 3 children in 3 distinct threads, all 3 sessions started before the first answer, one resume, one release, 3 rows settled in storage.
-- [x] **2. Exceeding `MAX_CONCURRENT_DELEGATIONS` is rejected with an explicit error code** — `CONCURRENCY_LIMIT_EXCEEDED` for a batch of 5, and for 2 more while 3 are already running (`describe('delegateParallel — what it refuses')`, `describe('… the concurrency bound counts what is running')`); 409 over HTTP with the code in the body.
-- [x] **3. `delegate_parallel` is available to orchestrator/architect profiles** — `bridge.getDelegationTools({role:'Tech Lead'})` returns `[delegate_task, request_review, delegate_parallel]`; a Security Auditor and an unprofiled session get none; `isDelegationToolName` recognises it; `executeDelegationTool` runs a batch and returns the matrix without double-resuming the parent.
-- [x] **4. `BatchDelegationResult` computes overall status and unified verdict** — `aggregateDelegationStatus` / `aggregateReviewVerdict` unit-asserted for all-pass, mixed, all-fail, all-timeout and no-review cases; integration-asserted as `COMPLETED`, `PARTIAL_SUCCESS` (COMPLETED+FAILED+TIMEOUT), `FAILED`, and `PASS` vs `NEEDS_FIX` across two review children.
-- [x] **5. REST `POST …/delegate/parallel` and `…/delegate/cancel-all` work with auth and validation** — 401 anonymous, 400 non-array/empty, 409 over-limit, 404 unknown thread, 200 happy path through the *default* runner (2 children), and a live fan-out cancelled over HTTP via the `/delegation/cancel-all` alias returning both results while the open batch answers `FAILED`.
-- [x] **6. `DelegationWaitingBanner` shows all concurrent children with per-child status, per-child Stop and a batch Cancel All** — rendered markup asserts the count, per-child roles/states/tasks, `aria-label="Stop Frontend Reviewer"`, `aria-label="Cancel all delegations"`; click handlers verified to name the individual child and, for Cancel All, no child at all.
-- [x] **7. ChatView renders aggregated multi-agent outcome cards with per-child breakdowns and artifacts** — `DelegationBatchOutcomeCard` (reached from `App.tsx` via `DelegationStatus` → `DelegationStatusView`) asserts overall status, aggregated verdict, batch summary, every child's role/status/verdict/summary/artifacts and transcript links, plus precedence over the single-outcome card and over a new fan-out.
-- [x] **8. All assertions in `AgentDelegationService.test.ts` and `DelegationUI.test.ts` pass** — 412/412 and 316/316.
-- [x] **9. Monorepo CI gates pass with 0 errors** — typecheck 0, lint 0 errors, 36/36 suites (3634 assertions), 7/7 builds. See § 4 for the per-workspace form used.
-
-**Definition of Done:** all eight boxes are met — shared types & tool ✓, `delegateParallel`/`cancelAllDelegations` ✓, REST routes ✓, store multi-child state & actions ✓, banner/outcome card/tree ✓, server tests ✓, web tests ✓, full suite + build clean ✓.
+- [x] **1 — "Parallel Batch" mode tab alongside "Delegate Task" and "Request Review".**
+      `tab('PARALLEL', 'Parallel Batch')` in `DelegateModalView`; asserted by
+      *"the batch form is titled"* and *"the tab is offered alongside the other two"*.
+- [x] **2 — 2 to 4 concurrent subagents with individual roles, tasks and contexts.**
+      Each row renders `Subagent N role` / `Subagent N task` / `Subagent N context`;
+      asserted by *"each with its own role selector"*, *"each with its own task field"*,
+      *"and its own context field"*, and by the interaction tests proving a change on
+      row 2 names row 2's id.
+- [x] **3 — Add enabled up to 4 then disabled; remove enabled down to 2 then disabled.**
+      Asserted by *"and is enabled at two"*, *"at four the add control is spent"*,
+      *"which is refused at the minimum of two"*, *"above the minimum a row can be
+      dropped"*, plus the helper tests *"so no more may be added"* / *"and asking anyway
+      changes nothing"*.
+- [x] **4 — Validation blocks submission on an empty task or a count outside [2, 4].**
+      `canSubmitParallelDelegation`; asserted by *"an empty batch cannot be dispatched"*,
+      *"whitespace is not a task"*, *"a single delegation is not a batch"*, *"and neither
+      is a fifth subagent"*, and at the view level by *"a batch with empty tasks cannot
+      be submitted"* (submit button `disabled === true`).
+- [x] **5 — Submitting posts to `/delegate/parallel` and closes on child start.**
+      Asserted by *"the batch goes to the parallel endpoint"*, *"with POST"*, *"carrying
+      the token"*, *"and both subagents as the Core reads them"*, and *"the modal's close
+      condition is met once the children start"* (the same
+      `pendingChildren[thread].length > 0` predicate the modal's effect reads).
+- [x] **6 — 409 / 400 refusals rendered in the modal error banner.**
+      Asserted by *"a concurrency refusal is shown"*, *"as an alert"*, *"a batch over the
+      limit is refused"* and *"and the refusal is what the modal shows"*.
+- [x] **7 — `DelegationUI.test.ts` covers rendering, add/remove, validation, payload,
+      dispatch.** Four new describe blocks; 85 new assertions; 401/401 green.
+- [x] **8 — CI gates pass with 0 errors.** Typecheck, lint, test and build all clean
+      across all six workspaces (see §4 for the per-workspace execution note).
 
 ## 6. Git Diff Review
 
-`git status --short` shows 9 modified files (§ 2) plus the pre-existing, unrelated `tests/report.md` left dirty by the P7-03 gate session — not touched here and not committed. No new files, no `docs/` reports, no debug scripts, no dependency changes.
+`git status --short` shows exactly two files changed by this task:
 
-Reviewed against § 6 "Explicitly Forbidden Changes":
+```
+ M apps/web/src/components/delegation/DelegateModal.tsx
+ M apps/web/src/components/delegation/__tests__/DelegationUI.test.ts
+```
 
-- **Single `delegate_task` compatibility** — the sequential path keeps its validation order, its `ALREADY_DELEGATING` guard and its own parent release; all pre-existing assertions pass untouched. The four P7-01 socket events keep their names and payload shapes; the batch event is additive.
-- **`MAX_CONCURRENT_DELEGATIONS` never exceeded** — the bound is checked against `requested + already running`, not against the request alone.
-- **No orphaned processes or subscriptions** — every terminal path runs `safeStop`, and `watchChild.finish` unsubscribes both channels; listener counts are asserted back to baseline after a cancelled fan-out.
-- **No hardcoded colours** — new UI uses `var(--color-*)` tokens only; the rendered-markup tests reject any `#rrggbb`.
-- **No suite broken** — 36/36 green. Two existing assertions were *updated* rather than broken: the meta-tool list is now three tools, and `DELEGATION_EVENT_TYPES` is now five names.
+Reviewed line by line against the forbidden-changes list:
+
+- **Single-child delegation is untouched.** The `TASK` and `REVIEW` field groups are the
+  same JSX, moved inside a `{!isParallel && (<>…</>)}` wrapper and re-indented; their
+  ids, `aria-label`s, placeholders, `rows` and `buildDelegationBody` output are byte-identical
+  in behaviour. Every pre-existing `DelegateModalView` and `buildDelegationBody`
+  assertion still passes unmodified.
+- **The batch cannot exceed 4.** Bounded in the helpers, in the disabled buttons and
+  again in the submit validator; the Core's own `MAX_CONCURRENT_DELEGATIONS` is imported
+  rather than re-declared.
+- **No hardcoded colours.** All values are `var(--…)` tokens; the no-hex regex assertion
+  covers the rendered parallel markup.
+- **No suite regressions.** All 29 test files across the four packages that have tests
+  are green; no existing assertion was edited.
+
+One unrelated file, `tests/report.md`, was already modified in the working tree when
+this session started — it is the P7-04 verification-gate report from a previous session.
+It was **not** touched and is **not** included in this task's commit.
 
 ## 7. Problems Discovered
 
-1. **The parent-release event is not per-child.** A naive fan-out would publish `delegation.parent_state: ACTIVE` each time a child finished, and the dashboard's banner would disappear while three agents were still working. Fixed on both sides: the Core releases once per batch (and only when nothing else is running under that parent), and the store flips the parent to `ACTIVE` only when its pending list empties.
-2. **`cancelDelegation(parentId)` is ambiguous during a fan-out.** Resolved deliberately rather than silently: a parent with several running children resolves to the oldest, the dashboard names the child explicitly whenever there is more than one, and stopping everything is its own verb.
-3. **`Promise.allSettled` is load-bearing, twice.** Once so one child's crash does not discard the siblings' results, and once because the per-delegation `settled` promise is rejected on unexpected errors — an unawaited rejection there would take the Core down.
-4. **Registry mutation during cancellation.** `cancelAllDelegations` iterating `this.active` live would skip siblings as each settle deleted its own entry; the running set is snapshotted before the first await.
-5. **`CLAUDE.md` still says there is no test runner.** There demonstrably is one (`pnpm test` per workspace, 36 suites); the statement is stale as of P5.x and could mislead a future session into not running the suites.
+- **`delegateParallel` swallows the refusal.** The P7-04 store action resolves to `null`
+  for every failure mode, so it cannot satisfy criterion 6 on its own. The modal posts
+  the endpoint directly (as the task explicitly permitted) to keep the Core's error text.
+  If a future task wants the store to be the only fetch site, `delegateParallel` will
+  need to resolve to a discriminated result rather than `BatchDelegationResult | null`.
+- **`CLAUDE.md` is stale on testing.** It states there is "no test runner or test script
+  anywhere in the repo"; every workspace now has a `test` script running `tsx` assertion
+  suites, and 29 of them ran green this session. Worth correcting the next time that
+  file is edited.
+- **The repository is not Prettier-clean.** `prettier --check` fails on untouched files
+  (`DelegationStatus.tsx`, `ThreadTree.tsx`, `useProjectStore.ts`), and `format:check` is
+  not in CI (`.github/workflows/ci.yml` runs lint + build only). The new code follows the
+  file's existing style; no repo-wide reformat was performed, as that would have been an
+  unrequested change well outside this task.
 
 ## 8. Architectural Concerns
 
-1. **No operator entry point for a fan-out.** `delegateParallel` is reachable from an agent (meta-tool), from REST, and from the store action — but `DelegateModal` still only composes a single delegation, so an operator cannot start a batch from the dashboard. This matches the task's UI scope (§5.5 lists only the banner, the outcome card and the tree), so no modal work was invented; it is the obvious next increment if operator-initiated fan-out is wanted.
-2. **`delegation.batch_completed` is a fifth event.** It was added rather than reconstructing the grouping client-side from N per-child completions, because nothing else on the wire can say which outcomes were one batch or carry the verdict over them. It is additive and ignored by any consumer that does not know it.
-3. **Depth × width is now the real bound.** With depth 3 and width 4, a worst-case tree is 4 + 16 + 64 = 84 concurrent agent processes. Each level is individually bounded, but nothing bounds the *product*. A per-workspace ceiling on live delegated sessions may be worth a decision record before this is exercised in anger.
-4. **The batch holds an HTTP request open for the slowest child** (up to the one-hour timeout cap), same as `POST /delegate`. Cancellation makes it survivable, but an async "accept and report over the socket" variant would be the cleaner shape if fan-outs get long.
+- **The batch is TASK-only.** `buildParallelDelegationBody` sets `kind: 'TASK'` for every
+  row, matching the task's `ParallelItemState` shape (`id`, `profileId`, `task`,
+  `context`). The Core and the shared type both support a per-item `REVIEW` with
+  `reviewCriteria`, and `aggregateReviewVerdict` exists to roll several reviews into one
+  verdict — an operator cannot currently reach that from the dashboard. A per-row
+  TASK/REVIEW toggle is a small, well-bounded follow-up if Antigravity wants it.
+- **`timeoutMs` is not exposed** per row either; every child gets the Core's
+  `DEFAULT_DELEGATION_TIMEOUT_MS`. That seems right for a first operator surface, but it
+  means a long-running batch member cannot be given more room from the UI.
+- **`react-refresh/only-export-components` warnings grew.** The file now exports nine
+  more non-component helpers, which is the pattern this file (and the delegation
+  components generally) already follows so the pure logic stays unit-testable without a
+  DOM renderer. Splitting the helpers into a sibling module would silence the warnings;
+  it would also break the convention every other delegation test relies on.
 
 ## 9. Recommended Next Step
 
-Proceed to **P7-05**. The two candidates the current state suggests, in order:
-
-1. **Operator-initiated fan-out in the dashboard** — a parallel mode for `DelegateModal` (2–4 role/task rows, live validation against `MAX_CONCURRENT_DELEGATIONS`, wired to the existing `delegateParallel` store action), which closes the one gap between what the Core can do and what the UI can ask for.
-2. **Shared context & artifact hand-off between siblings** — a fan-in step where one child's artifacts become the next batch's input, which is the natural continuation of Phase 7's collaborative-workflow arc and the point at which a workspace-wide concurrency ceiling (§ 8.3) should be decided.
+The Phase 7 operator surface for parallel delegation is complete end to end: engine
+(P7-04), REST, socket, store, banner, tree and now the composition modal. Recommended
+next task is a **P7 verification gate** (`tests/current.md`) running the full CI battery
+plus a browser pass over the delegate modal's three modes, or, if more feature work is
+wanted first, a per-row `REVIEW` toggle so an operator can dispatch a mixed
+implement-and-review fan-out and see the aggregated verdict the Core already computes.

@@ -24,13 +24,18 @@
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { aggregateDelegationStatus, aggregateReviewVerdict } from '@asterim/shared';
+import {
+  MAX_CONCURRENT_DELEGATIONS,
+  aggregateDelegationStatus,
+  aggregateReviewVerdict
+} from '@asterim/shared';
 import type {
   AgentProfile,
   BatchDelegationResult,
   DelegationChildSummary,
   DelegationContext,
-  DelegationResult
+  DelegationResult,
+  ParallelDelegationItem
 } from '@asterim/shared';
 
 // --- Environment stubs, installed before the store loads ---
@@ -1561,6 +1566,326 @@ async function main(): Promise<void> {
       modal.roleOptionsFrom([profile()])[0].role,
       'Security Auditor'
     );
+
+    check('a batch is never decided from the single fields', !modal.canSubmitDelegation('PARALLEL', 'x', 'y'));
+  }
+
+  // --- The batch builder (P7-05) --------------------------------------------
+
+  describe('parallel batch helpers');
+  {
+    const start = modal.defaultParallelItems();
+    equal('a batch opens with two subagents', start.length, 2);
+    check('each with its own id', start[0].id !== start[1].id);
+    equal('and nothing filled in', [start[0].task, start[0].context, start[0].profileId], ['', '', '']);
+
+    check('two more can be added', modal.canAddParallelItem(start));
+    check('but none removed', !modal.canRemoveParallelItem(start));
+
+    const three = modal.addParallelItem(start);
+    equal('adding one makes three', three.length, 3);
+    const four = modal.addParallelItem(three);
+    equal('and another makes four', four.length, 4);
+    check('which is the concurrency limit', four.length === MAX_CONCURRENT_DELEGATIONS);
+    check('so no more may be added', !modal.canAddParallelItem(four));
+    equal('and asking anyway changes nothing', modal.addParallelItem(four), four);
+    check('while three can be removed', modal.canRemoveParallelItem(four));
+
+    const removed = modal.removeParallelItem(four, four[1].id);
+    equal('removing one takes it out', removed.length, 3);
+    check('the named one', !removed.some(item => item.id === four[1].id));
+    check('leaving the others in order', removed.map(item => item.id).join() === [four[0].id, four[2].id, four[3].id].join());
+    const atFloor = modal.removeParallelItem(modal.removeParallelItem(removed, removed[2].id), start[0].id);
+    equal('and a batch of two cannot be cut further', atFloor.length, 2);
+    equal('an unknown id removes nothing', modal.removeParallelItem(three, 'nope').length, 3);
+
+    const edited = modal.updateParallelItem(start, start[1].id, { task: 'Wire the form.' });
+    equal('editing one row writes it', edited[1].task, 'Wire the form.');
+    equal('and leaves its sibling alone', edited[0].task, '');
+    equal('keeping the ids stable', edited[1].id, start[1].id);
+
+    check('an empty batch cannot be dispatched', !modal.canSubmitParallelDelegation(edited));
+    const ready = modal.updateParallelItem(edited, start[0].id, { task: 'Add the endpoint.' });
+    check('one with every task filled can', modal.canSubmitParallelDelegation(ready));
+    check(
+      'whitespace is not a task',
+      !modal.canSubmitParallelDelegation(modal.updateParallelItem(ready, start[0].id, { task: '   ' }))
+    );
+    check('a single delegation is not a batch', !modal.canSubmitParallelDelegation([ready[0]]));
+    check(
+      'and neither is a fifth subagent',
+      !modal.canSubmitParallelDelegation([ready[0], ready[1], ready[0], ready[1], ready[0]])
+    );
+  }
+
+  describe('buildParallelDelegationBody');
+  {
+    const items = modal.defaultParallelItems();
+    const filled = modal.updateParallelItem(
+      modal.updateParallelItem(items, items[0].id, {
+        profileId: 'p2',
+        task: '  Add the endpoint.  ',
+        context: '  See ADR-012.  '
+      }),
+      items[1].id,
+      { task: 'Test it.', context: '   ' }
+    );
+
+    const body = modal.buildParallelDelegationBody(filled) as {
+      delegations: Record<string, unknown>[];
+    };
+    equal('one delegation per row', body.delegations.length, 2);
+    equal('the chosen profile is sent', body.delegations[0].profileId, 'p2');
+    equal('the task is trimmed', body.delegations[0].taskDescription, 'Add the endpoint.');
+    equal('as is the context', body.delegations[0].inputContext, 'See ADR-012.');
+    equal('every piece is a TASK', body.delegations.map(item => item.kind), ['TASK', 'TASK']);
+    equal('an unchosen role is omitted rather than sent blank', body.delegations[1].profileId, undefined);
+    equal('and so is empty context', body.delegations[1].inputContext, undefined);
+    equal('the second task is carried', body.delegations[1].taskDescription, 'Test it.');
+  }
+
+  describe('DelegateModalView — parallel batch');
+  {
+    const items = modal.defaultParallelItems();
+    const profiles = [profile(), profile({ id: 'p2', name: 'Backend', role: 'Senior Backend Engineer' })];
+    const html = renderModal({
+      mode: 'PARALLEL',
+      profiles,
+      parallelItems: items,
+      onAddParallelItem: noop,
+      onRemoveParallelItem: noop,
+      onParallelItemChange: noop
+    });
+
+    check('the batch form is titled', html.includes('>Parallel Batch</h3>'));
+    check('the tab is offered alongside the other two', html.includes('Delegate Task') && html.includes('Request Review'));
+    check('the batch size is counted', html.includes('Subagents (2/4)'));
+    check('the copy says what a batch does', html.includes('Dispatch up to 4 concurrent subagents'));
+    check('and that the thread waits for all of them', html.includes('This thread will wait until all subagents finish'));
+    check('the first subagent is rendered', html.includes('>Subagent 1</span>'));
+    check('and the second', html.includes('>Subagent 2</span>'));
+    check('but not a third', !html.includes('>Subagent 3</span>'));
+    check('each with its own role selector', html.includes('aria-label="Subagent 1 role"') && html.includes('aria-label="Subagent 2 role"'));
+    check('populated from the profiles', html.includes('Backend — Senior Backend Engineer'));
+    check('each with its own task field', html.includes('aria-label="Subagent 1 task"') && html.includes('aria-label="Subagent 2 task"'));
+    check('and its own context field', html.includes('aria-label="Subagent 2 context"'));
+    check('a subagent can be added', html.includes('+ Add Subagent'));
+    check('and each one removed', html.includes('aria-label="Remove subagent 1"'));
+    check('the single-delegation fields are gone', !html.includes('aria-label="Task description"'));
+    check('as is the review form', !html.includes('aria-label="Changes to review"'));
+    check('an unfilled batch says what it needs', html.includes('Every subagent needs a task'));
+    check('and cannot be dispatched', html.includes('disabled=""'));
+    check('no colour is hardcoded', !/#[0-9a-fA-F]{6}/.test(html));
+
+    const ready = modal.updateParallelItem(
+      modal.updateParallelItem(items, items[0].id, { task: 'Add the endpoint.' }),
+      items[1].id,
+      { task: 'Test it.' }
+    );
+    const dispatchable = renderModal({ mode: 'PARALLEL', parallelItems: ready, onAddParallelItem: noop });
+    check('a filled batch drops the warning', !dispatchable.includes('Every subagent needs a task'));
+    check('and names what it will dispatch', dispatchable.includes('Dispatch 2 Subagents'));
+
+    const four = modal.addParallelItem(modal.addParallelItem(ready));
+    const full = renderModal({ mode: 'PARALLEL', parallelItems: four, onAddParallelItem: noop, onRemoveParallelItem: noop });
+    check('a full batch counts to the limit', full.includes('Subagents (4/4)'));
+    check('and shows every subagent', full.includes('>Subagent 4</span>'));
+    check('the button names the four', full.includes('Dispatch 4 Subagents'));
+
+    const busy = renderModal({ mode: 'PARALLEL', parallelItems: ready, isSubmitting: true });
+    check('dispatching is visible', busy.includes('Dispatching…'));
+
+    const parked = renderModal({ mode: 'PARALLEL', parallelItems: ready, isDelegating: true });
+    check('a thread already waiting cannot fan out either', parked.includes('already waiting on a delegated agent'));
+
+    const refused = renderModal({
+      mode: 'PARALLEL',
+      parallelItems: ready,
+      error: 'Thread root already has 4 delegations running; the limit is 4.'
+    });
+    check('a concurrency refusal is shown', refused.includes('the limit is 4'));
+    check('as an alert', refused.includes('role="alert"'));
+  }
+
+  describe('DelegateModalView — adding and removing subagents');
+  {
+    // The view holds no state of its own, so calling it returns the element
+    // tree its buttons live in — the same trick the banner tests use.
+    const callView = (props: Record<string, unknown>) =>
+      (modal.DelegateModalView as unknown as (props: unknown) => unknown)({
+        profiles: [],
+        mode: 'PARALLEL',
+        onModeChange: noop,
+        profileId: '',
+        onProfileChange: noop,
+        task: '',
+        onTaskChange: noop,
+        context: '',
+        onContextChange: noop,
+        onSubmit: noop,
+        onClose: noop,
+        ...props
+      });
+
+    const two = modal.defaultParallelItems();
+    let added = 0;
+    let removed: string | null = null;
+    const patches: { id: string; patch: Record<string, unknown> }[] = [];
+    const lastPatch = () => patches[patches.length - 1];
+
+    const atFloor = callView({
+      parallelItems: two,
+      onAddParallelItem: () => {
+        added++;
+      },
+      onRemoveParallelItem: (id: string) => {
+        removed = id;
+      },
+      onParallelItemChange: (id: string, patch: Record<string, unknown>) => {
+        patches.push({ id, patch });
+      }
+    });
+
+    const addButton = findElement(atFloor, props => props['aria-label'] === 'Add subagent');
+    check('the add control is in the tree', !!addButton);
+    equal('and is enabled at two', addButton?.props?.disabled, false);
+    (addButton?.props?.onClick as () => void)();
+    equal('clicking it asks for another subagent', added, 1);
+
+    const removeFirst = findElement(atFloor, props => props['aria-label'] === 'Remove subagent 1');
+    check('every row offers a removal', !!removeFirst);
+    equal('which is refused at the minimum of two', removeFirst?.props?.disabled, true);
+    check('and says why', String(removeFirst?.props?.title).includes('at least 2 subagents'));
+
+    const taskField = findElement(atFloor, props => props['aria-label'] === 'Subagent 2 task');
+    (taskField?.props?.onChange as (event: unknown) => void)({ target: { value: 'Test it.' } });
+    equal('typing into a row names that row', lastPatch()?.id, two[1].id);
+    equal('and carries what was typed', lastPatch()?.patch, { task: 'Test it.' });
+
+    const roleField = findElement(atFloor, props => props['aria-label'] === 'Subagent 1 role');
+    (roleField?.props?.onChange as (event: unknown) => void)({ target: { value: 'p2' } });
+    equal('choosing a role writes the profile', lastPatch()?.patch, { profileId: 'p2' });
+    equal('on the row it was chosen in', lastPatch()?.id, two[0].id);
+
+    const contextField = findElement(atFloor, props => props['aria-label'] === 'Subagent 1 context');
+    (contextField?.props?.onChange as (event: unknown) => void)({ target: { value: 'See ADR-012.' } });
+    equal('and the context is its own field', lastPatch()?.patch, { context: 'See ADR-012.' });
+
+    const three = modal.addParallelItem(two);
+    const aboveFloor = callView({
+      parallelItems: three,
+      onAddParallelItem: noop,
+      onRemoveParallelItem: (id: string) => {
+        removed = id;
+      },
+      onParallelItemChange: noop
+    });
+    const removeSecond = findElement(aboveFloor, props => props['aria-label'] === 'Remove subagent 2');
+    equal('above the minimum a row can be dropped', removeSecond?.props?.disabled, false);
+    (removeSecond?.props?.onClick as () => void)();
+    equal('and it names that row, not another', removed, three[1].id);
+
+    const full = modal.addParallelItem(modal.addParallelItem(three));
+    const atCeiling = callView({
+      parallelItems: full,
+      onAddParallelItem: noop,
+      onRemoveParallelItem: noop,
+      onParallelItemChange: noop
+    });
+    const cappedAdd = findElement(atCeiling, props => props['aria-label'] === 'Add subagent');
+    equal('at four the add control is spent', cappedAdd?.props?.disabled, true);
+    check('and says what the bound is', String(cappedAdd?.props?.title).includes('at most 4 subagents'));
+
+    const submitButton = findElement(atCeiling, props => props['type'] === 'submit');
+    equal('a batch with empty tasks cannot be submitted', submitButton?.props?.disabled, true);
+  }
+
+  describe('parallel batch — dispatch and refusal');
+  {
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setActiveProject(PROJECT);
+    useProjectStore.getState().setThreads([thread('root')]);
+    requests.length = 0;
+
+    // What the form composes is what the batch endpoint is posted.
+    const items = modal.defaultParallelItems();
+    const composed = modal.updateParallelItem(
+      modal.updateParallelItem(items, items[0].id, {
+        profileId: 'p2',
+        task: 'Add the endpoint.',
+        context: 'See ADR-012.'
+      }),
+      items[1].id,
+      { task: 'Test it.' }
+    );
+    const payload = modal.buildParallelDelegationBody(composed) as {
+      delegations: ParallelDelegationItem[];
+    };
+
+    respond({ batch: batch({ overallStatus: 'COMPLETED' }) });
+    const dispatched = await useProjectStore.getState().delegateParallel('root', payload.delegations);
+
+    equal(
+      'the batch goes to the parallel endpoint',
+      requests[0]?.url.endsWith('/api/v1/threads/root/delegate/parallel'),
+      true
+    );
+    equal('with POST', requests[0]?.method, 'POST');
+    equal('carrying the token', requests[0]?.headers['Authorization'], 'Bearer test-token');
+    equal(
+      'and both subagents as the Core reads them',
+      (requests[0]?.body as { delegations?: ParallelDelegationItem[] })?.delegations?.map(
+        item => item.taskDescription
+      ),
+      ['Add the endpoint.', 'Test it.']
+    );
+    equal('the Core accepted it', dispatched?.overallStatus, 'COMPLETED');
+
+    // What closes the modal is the socket saying children have started, not the
+    // response — the request is held open for the length of the whole batch.
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setThreads([thread('root')]);
+    for (const childThreadId of ['child-a', 'child-b']) {
+      handleDelegationEvent('delegation.started', {
+        projectId: PROJECT,
+        threadId: 'root',
+        childThreadId,
+        depth: 1,
+        kind: 'TASK',
+        role: 'QA Engineer',
+        taskDescription: 'Work.'
+      });
+      handleDelegationEvent('delegation.parent_state', {
+        projectId: PROJECT,
+        threadId: 'root',
+        state: 'WAITING_FOR_CHILD',
+        childThreadId
+      });
+    }
+    check(
+      'the modal’s close condition is met once the children start',
+      (useProjectStore.getState().pendingChildren['root'] || []).length > 0
+    );
+
+    requests.length = 0;
+    respond(
+      {
+        error: 'Thread root already has 4 delegations running; the limit is 4.',
+        code: 'CONCURRENCY_LIMIT_EXCEEDED'
+      },
+      409
+    );
+    equal(
+      'a batch over the limit is refused',
+      await useProjectStore.getState().delegateParallel('root', payload.delegations),
+      null
+    );
+    const shown = renderModal({
+      mode: 'PARALLEL',
+      parallelItems: composed,
+      error: 'Thread root already has 4 delegations running; the limit is 4.'
+    });
+    check('and the refusal is what the modal shows', shown.includes('already has 4 delegations running'));
   }
 }
 

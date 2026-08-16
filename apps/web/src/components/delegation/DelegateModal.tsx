@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AgentProfile, DelegationKind } from '@asterim/shared';
+import { MAX_CONCURRENT_DELEGATIONS } from '@asterim/shared';
+import type { AgentProfile, DelegationKind, ParallelDelegationItem } from '@asterim/shared';
 import { useProfileStore } from '../../stores/useProfileStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useThreadStore } from '../../stores/useThreadStore';
@@ -19,10 +20,96 @@ import { getAuthHeaders, resolveBackendUrl } from '../../utils/auth';
  * child finishes — so the modal does not wait on it. It closes when the socket
  * says a child has started, and what happens after that is the waiting banner
  * and the outcome card, not this form.
+ *
+ * The third mode is a fan-out (P7-05): the same form repeated, two to four
+ * times, posted to `POST /delegate/parallel`. It is bounded here as well as in
+ * the Core — the Core is what enforces it, and the form refusing to compose a
+ * fifth row is what stops the operator from finding that out after typing it.
  */
 
-/** Which of the two things the operator is asking for. */
-export type DelegateModalMode = DelegationKind;
+/** Which of the three things the operator is asking for. */
+export type DelegateModalMode = DelegationKind | 'PARALLEL';
+
+/** The fewest subagents a batch can be. One of them is an ordinary delegation. */
+export const MIN_PARALLEL_DELEGATIONS = 2;
+
+/** One row of the batch builder, as the form holds it. */
+export interface ParallelItemState {
+  /** Stable across re-renders and row removals, so React keys and labels hold. */
+  id: string;
+  profileId: string;
+  task: string;
+  context: string;
+}
+
+let parallelItemSequence = 0;
+
+/** A blank row with an id nothing else in this session will reuse. */
+export function newParallelItem(): ParallelItemState {
+  parallelItemSequence += 1;
+  return { id: `subagent-${parallelItemSequence}`, profileId: '', task: '', context: '' };
+}
+
+/** The rows a freshly opened batch starts with: the smallest fan-out there is. */
+export function defaultParallelItems(): ParallelItemState[] {
+  return Array.from({ length: MIN_PARALLEL_DELEGATIONS }, () => newParallelItem());
+}
+
+/** Whether another subagent may be composed. */
+export function canAddParallelItem(items: ParallelItemState[]): boolean {
+  return items.length < MAX_CONCURRENT_DELEGATIONS;
+}
+
+/** Whether a subagent may be dropped without taking the batch below a batch. */
+export function canRemoveParallelItem(items: ParallelItemState[]): boolean {
+  return items.length > MIN_PARALLEL_DELEGATIONS;
+}
+
+/** The list with one more blank row, or unchanged when it is already full. */
+export function addParallelItem(items: ParallelItemState[]): ParallelItemState[] {
+  if (!canAddParallelItem(items)) return items;
+  return [...items, newParallelItem()];
+}
+
+/** The list without one row, or unchanged when removing would undo the batch. */
+export function removeParallelItem(items: ParallelItemState[], id: string): ParallelItemState[] {
+  if (!canRemoveParallelItem(items)) return items;
+  const next = items.filter(item => item.id !== id);
+  return next.length === items.length ? items : next;
+}
+
+/** The list with one row's field replaced. */
+export function updateParallelItem(
+  items: ParallelItemState[],
+  id: string,
+  patch: Partial<Omit<ParallelItemState, 'id'>>
+): ParallelItemState[] {
+  return items.map(item => (item.id === id ? { ...item, ...patch } : item));
+}
+
+/**
+ * Whether a batch can be dispatched.
+ *
+ * The count bound is checked here rather than trusted from the buttons: a row
+ * removed while the form was mid-edit, or a state restored from anywhere else,
+ * has to fail the same way an empty task does rather than reach the Core.
+ */
+export function canSubmitParallelDelegation(items: ParallelItemState[]): boolean {
+  if (items.length < MIN_PARALLEL_DELEGATIONS) return false;
+  if (items.length > MAX_CONCURRENT_DELEGATIONS) return false;
+  return items.every(item => item.task.trim().length > 0);
+}
+
+/** The body `POST /api/v1/threads/:id/delegate/parallel` expects. */
+export function buildParallelDelegationBody(items: ParallelItemState[]): Record<string, unknown> {
+  const delegations: ParallelDelegationItem[] = items.map(item => ({
+    profileId: item.profileId || undefined,
+    taskDescription: item.task.trim(),
+    inputContext: item.context.trim() || undefined,
+    kind: 'TASK'
+  }));
+  return { delegations };
+}
 
 /** The roles offered, newest-looking first: the profile's role, then its name. */
 export function roleOptionsFrom(profiles: AgentProfile[]): { id: string; label: string; role: string }[] {
@@ -39,8 +126,12 @@ export function roleOptionsFrom(profiles: AgentProfile[]): { id: string; label: 
  * A review needs the changes; a task needs the task. Neither needs a role — the
  * Core defaults a review to its reviewer role, and refuses a task without one
  * with a message worth showing.
+ *
+ * A batch is not decided from these fields at all — it has its own rows, and
+ * `canSubmitParallelDelegation` is what reads them.
  */
 export function canSubmitDelegation(mode: DelegateModalMode, task: string, context: string): boolean {
+  if (mode === 'PARALLEL') return false;
   if (mode === 'REVIEW') return context.trim().length > 0;
   return task.trim().length > 0;
 }
@@ -108,6 +199,11 @@ export interface DelegateModalViewProps {
   error?: string | null;
   /** Refuses the form outright when the thread is already parked behind a child. */
   isDelegating?: boolean;
+  /** The batch being composed. Only read in `PARALLEL` mode (P7-05). */
+  parallelItems?: ParallelItemState[];
+  onParallelItemChange?: (id: string, patch: Partial<Omit<ParallelItemState, 'id'>>) => void;
+  onAddParallelItem?: () => void;
+  onRemoveParallelItem?: (id: string) => void;
 }
 
 /** The modal's presentation, driven entirely by props. */
@@ -125,10 +221,18 @@ export function DelegateModalView({
   onClose,
   isSubmitting = false,
   error = null,
-  isDelegating = false
+  isDelegating = false,
+  parallelItems = [],
+  onParallelItemChange,
+  onAddParallelItem,
+  onRemoveParallelItem
 }: DelegateModalViewProps) {
   const isReview = mode === 'REVIEW';
-  const canSubmit = !isSubmitting && !isDelegating && canSubmitDelegation(mode, task, context);
+  const isParallel = mode === 'PARALLEL';
+  const canSubmit =
+    !isSubmitting &&
+    !isDelegating &&
+    (isParallel ? canSubmitParallelDelegation(parallelItems) : canSubmitDelegation(mode, task, context));
 
   const tab = (value: DelegateModalMode, label: string) => (
     <button
@@ -156,7 +260,7 @@ export function DelegateModalView({
     <div className="dialog-overlay" onClick={onClose}>
       <div
         className="dialog-box glass-panel"
-        style={{ maxWidth: '520px', width: '100%' }}
+        style={{ maxWidth: isParallel ? '640px' : '520px', width: '100%' }}
         onClick={event => event.stopPropagation()}
       >
         <div
@@ -168,7 +272,7 @@ export function DelegateModalView({
           }}
         >
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--color-text-primary)' }}>
-            {isReview ? 'Request Review' : 'Delegate Work'}
+            {isParallel ? 'Parallel Batch' : isReview ? 'Request Review' : 'Delegate Work'}
           </h3>
           <button
             onClick={onClose}
@@ -198,6 +302,7 @@ export function DelegateModalView({
         >
           {tab('TASK', 'Delegate Task')}
           {tab('REVIEW', 'Request Review')}
+          {tab('PARALLEL', 'Parallel Batch')}
         </div>
 
         <p
@@ -207,9 +312,11 @@ export function DelegateModalView({
             color: 'var(--color-text-secondary)'
           }}
         >
-          {isReview
-            ? 'A reviewer role reads the changes and returns a PASS or NEEDS_FIX verdict. This thread waits until it answers.'
-            : 'A new agent session runs under the role you pick and hands its result back here. This thread waits until it finishes.'}
+          {isParallel
+            ? `Dispatch up to ${MAX_CONCURRENT_DELEGATIONS} concurrent subagents under specialized roles. This thread will wait until all subagents finish and aggregate their outcomes.`
+            : isReview
+              ? 'A reviewer role reads the changes and returns a PASS or NEEDS_FIX verdict. This thread waits until it answers.'
+              : 'A new agent session runs under the role you pick and hands its result back here. This thread waits until it finishes.'}
         </p>
 
         <form
@@ -219,65 +326,230 @@ export function DelegateModalView({
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
-            <label htmlFor="delegation-role" style={labelStyle}>
-              Role
-            </label>
-            <select
-              id="delegation-role"
-              aria-label="Delegation role"
-              value={profileId}
-              onChange={event => onProfileChange(event.target.value)}
-              style={{ ...fieldStyle, cursor: 'pointer' }}
-            >
-              <option value="">
-                {isReview ? 'Default reviewer role' : 'Let the Core match a role'}
-              </option>
-              {roleOptionsFrom(profiles).map(option => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {isParallel && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 'var(--spacing-2)'
+                }}
+              >
+                <span style={labelStyle}>
+                  Subagents ({parallelItems.length}/{MAX_CONCURRENT_DELEGATIONS})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onAddParallelItem?.()}
+                  aria-label="Add subagent"
+                  title={
+                    canAddParallelItem(parallelItems)
+                      ? 'Add another subagent to this batch'
+                      : `A batch runs at most ${MAX_CONCURRENT_DELEGATIONS} subagents at once`
+                  }
+                  disabled={!canAddParallelItem(parallelItems)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 'var(--font-weight-semibold)',
+                    background: 'transparent',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--color-accent-primary)',
+                    cursor: canAddParallelItem(parallelItems) ? 'pointer' : 'not-allowed',
+                    opacity: canAddParallelItem(parallelItems) ? 1 : 0.5
+                  }}
+                >
+                  + Add Subagent
+                </button>
+              </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
-            <label htmlFor="delegation-task" style={labelStyle}>
-              {isReview ? 'Review criteria (one per line)' : 'Task'}
-            </label>
-            <textarea
-              id="delegation-task"
-              aria-label={isReview ? 'Review criteria' : 'Task description'}
-              value={task}
-              onChange={event => onTaskChange(event.target.value)}
-              rows={isReview ? 3 : 4}
-              placeholder={
-                isReview
-                  ? 'e.g. No secrets in the diff\nInput validation on every new route'
-                  : 'What the delegated role should do, stated as an outcome it can verify.'
-              }
-              style={{ ...fieldStyle, resize: 'vertical' }}
-            />
-          </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-3)',
+                  maxHeight: '46vh',
+                  overflowY: 'auto'
+                }}
+              >
+                {parallelItems.map((item, index) => (
+                  <div
+                    key={item.id}
+                    aria-label={`Subagent ${index + 1}`}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--spacing-2)',
+                      padding: 'var(--spacing-3)',
+                      background: 'var(--color-surface-1)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-md)'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-2)'
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 'var(--font-weight-semibold)',
+                          color: 'var(--color-text-primary)'
+                        }}
+                      >
+                        Subagent {index + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveParallelItem?.(item.id)}
+                        aria-label={`Remove subagent ${index + 1}`}
+                        title={
+                          canRemoveParallelItem(parallelItems)
+                            ? 'Drop this subagent from the batch'
+                            : `A batch is at least ${MIN_PARALLEL_DELEGATIONS} subagents`
+                        }
+                        disabled={!canRemoveParallelItem(parallelItems)}
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: 'var(--font-size-xs)',
+                          background: 'transparent',
+                          border: '1px solid var(--color-border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: 'var(--color-text-secondary)',
+                          cursor: canRemoveParallelItem(parallelItems) ? 'pointer' : 'not-allowed',
+                          opacity: canRemoveParallelItem(parallelItems) ? 1 : 0.4
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
-            <label htmlFor="delegation-context" style={labelStyle}>
-              {isReview ? 'Changes to review' : 'Context (optional)'}
-            </label>
-            <textarea
-              id="delegation-context"
-              aria-label={isReview ? 'Changes to review' : 'Supporting context'}
-              value={context}
-              onChange={event => onContextChange(event.target.value)}
-              rows={isReview ? 6 : 3}
-              placeholder={
-                isReview
-                  ? 'Paste the diff or the relevant excerpts.'
-                  : 'Constraints, decisions already made, files to start from.'
-              }
-              style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'var(--font-family-mono)' }}
-            />
-          </div>
+                    <select
+                      aria-label={`Subagent ${index + 1} role`}
+                      value={item.profileId}
+                      onChange={event =>
+                        onParallelItemChange?.(item.id, { profileId: event.target.value })
+                      }
+                      style={{ ...fieldStyle, cursor: 'pointer' }}
+                    >
+                      <option value="">Let the Core match a role</option>
+                      {roleOptionsFrom(profiles).map(option => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <textarea
+                      aria-label={`Subagent ${index + 1} task`}
+                      value={item.task}
+                      onChange={event => onParallelItemChange?.(item.id, { task: event.target.value })}
+                      rows={3}
+                      placeholder="What this subagent should do, stated as an outcome it can verify."
+                      style={{ ...fieldStyle, resize: 'vertical' }}
+                    />
+
+                    <textarea
+                      aria-label={`Subagent ${index + 1} context`}
+                      value={item.context}
+                      onChange={event =>
+                        onParallelItemChange?.(item.id, { context: event.target.value })
+                      }
+                      rows={2}
+                      placeholder="Context for this subagent (optional)."
+                      style={{
+                        ...fieldStyle,
+                        resize: 'vertical',
+                        fontFamily: 'var(--font-family-mono)'
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {!canSubmitParallelDelegation(parallelItems) && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-state-paused)'
+                  }}
+                >
+                  Every subagent needs a task before this batch can be dispatched.
+                </p>
+              )}
+            </div>
+          )}
+
+          {!isParallel && (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+                <label htmlFor="delegation-role" style={labelStyle}>
+                  Role
+                </label>
+                <select
+                  id="delegation-role"
+                  aria-label="Delegation role"
+                  value={profileId}
+                  onChange={event => onProfileChange(event.target.value)}
+                  style={{ ...fieldStyle, cursor: 'pointer' }}
+                >
+                  <option value="">
+                    {isReview ? 'Default reviewer role' : 'Let the Core match a role'}
+                  </option>
+                  {roleOptionsFrom(profiles).map(option => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+                <label htmlFor="delegation-task" style={labelStyle}>
+                  {isReview ? 'Review criteria (one per line)' : 'Task'}
+                </label>
+                <textarea
+                  id="delegation-task"
+                  aria-label={isReview ? 'Review criteria' : 'Task description'}
+                  value={task}
+                  onChange={event => onTaskChange(event.target.value)}
+                  rows={isReview ? 3 : 4}
+                  placeholder={
+                    isReview
+                      ? 'e.g. No secrets in the diff\nInput validation on every new route'
+                      : 'What the delegated role should do, stated as an outcome it can verify.'
+                  }
+                  style={{ ...fieldStyle, resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+                <label htmlFor="delegation-context" style={labelStyle}>
+                  {isReview ? 'Changes to review' : 'Context (optional)'}
+                </label>
+                <textarea
+                  id="delegation-context"
+                  aria-label={isReview ? 'Changes to review' : 'Supporting context'}
+                  value={context}
+                  onChange={event => onContextChange(event.target.value)}
+                  rows={isReview ? 6 : 3}
+                  placeholder={
+                    isReview
+                      ? 'Paste the diff or the relevant excerpts.'
+                      : 'Constraints, decisions already made, files to start from.'
+                  }
+                  style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'var(--font-family-mono)' }}
+                />
+              </div>
+            </>
+          )}
 
           {isDelegating && (
             <p
@@ -318,7 +590,13 @@ export function DelegateModalView({
               disabled={!canSubmit}
               style={{ padding: '8px 14px', opacity: canSubmit ? 1 : 0.5 }}
             >
-              {isSubmitting ? 'Dispatching…' : isReview ? 'Request Review' : 'Delegate'}
+              {isSubmitting
+                ? 'Dispatching…'
+                : isParallel
+                  ? `Dispatch ${parallelItems.length} Subagents`
+                  : isReview
+                    ? 'Request Review'
+                    : 'Delegate'}
             </button>
           </div>
         </form>
@@ -349,6 +627,7 @@ export function DelegateModal({
   const [profileId, setProfileId] = useState('');
   const [task, setTask] = useState('');
   const [context, setContext] = useState('');
+  const [parallelItems, setParallelItems] = useState<ParallelItemState[]>(defaultParallelItems);
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -379,11 +658,19 @@ export function DelegateModal({
     setError(null);
 
     const base = resolveBackendUrl(activeBackendUrl) || '';
-    const body = buildDelegationBody(mode, { profileId, task, context });
+    const isParallel = mode === 'PARALLEL';
+    const body = isParallel
+      ? buildParallelDelegationBody(parallelItems)
+      : buildDelegationBody(mode, { profileId, task, context });
+    // The batch endpoint, not the store action: `delegateParallel` reports a
+    // refusal as `null`, and the refusal is the whole point of the banner —
+    // 409 CONCURRENCY_LIMIT_EXCEEDED reads differently from 400, and the
+    // operator is owed the Core's own words for it.
+    const path = isParallel ? 'delegate/parallel' : 'delegate';
 
     try {
       const res = await fetch(
-        `${base}/api/v1/threads/${encodeURIComponent(activeThreadId)}/delegate`,
+        `${base}/api/v1/threads/${encodeURIComponent(activeThreadId)}/${path}`,
         {
           method: 'POST',
           headers: getAuthHeaders({ backendUrl: activeBackendUrl, json: true }),
@@ -393,7 +680,10 @@ export function DelegateModal({
 
       if (!res.ok) {
         const failure = (await res.json().catch(() => null)) as { error?: string } | null;
-        setError(failure?.error || `The delegation was refused (${res.status}).`);
+        setError(
+          failure?.error ||
+            `The ${isParallel ? 'parallel batch' : 'delegation'} was refused (${res.status}).`
+        );
         setSubmitting(false);
         return;
       }
@@ -412,7 +702,12 @@ export function DelegateModal({
     <DelegateModalView
       profiles={profiles}
       mode={mode}
-      onModeChange={setMode}
+      onModeChange={next => {
+        setMode(next);
+        // A refusal belongs to the form that caused it; switching tabs is the
+        // operator moving on from it.
+        setError(null);
+      }}
       profileId={profileId}
       onProfileChange={setProfileId}
       task={task}
@@ -424,6 +719,12 @@ export function DelegateModal({
       isSubmitting={isSubmitting}
       error={error}
       isDelegating={isDelegating}
+      parallelItems={parallelItems}
+      onParallelItemChange={(id, patch) =>
+        setParallelItems(items => updateParallelItem(items, id, patch))
+      }
+      onAddParallelItem={() => setParallelItems(items => addParallelItem(items))}
+      onRemoveParallelItem={id => setParallelItems(items => removeParallelItem(items, id))}
     />,
     document.body
   );
