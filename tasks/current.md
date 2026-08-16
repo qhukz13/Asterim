@@ -1,10 +1,10 @@
-Task-ID: P7-06
-Phase: 7
+Task-ID: P8-01
+Phase: 8
 
-# [P7-06] — Phase 7 Comprehensive Production Gate & Multi-Agent Collaboration Verification
+# [P8-01] — Git Worktree Sandboxing & Subagent Working Tree Isolation
 
-**Task ID:** P7-06  
-**Phase:** Phase 7 — Multi-Agent Orchestration & Collaborative Workflows  
+**Task ID:** P8-01  
+**Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -14,96 +14,129 @@ Phase: 7
 
 ## 1. Objective
 
-Conduct a comprehensive, end-to-end production gate audit for Phase 7 (Multi-Agent Orchestration & Collaborative Workflows), verifying the complete delegation lifecycle (single handoff, parallel fan-out, operator intervention/cancellation, thread hierarchy UI, recursion/concurrency guards, and EventBus synchronization), and author the authoritative sign-off document `docs/phase7-production-gate.md`.
+Implement Git Worktree Sandboxing in `apps/server`: author `GitWorktreeService.ts` to provision, inspect, diff, and prune isolated subagent working trees (`.asterim/worktrees/<threadId>`), extend SQLite `threads` schema with worktree metadata, integrate worktree isolation into `AgentDelegationService` so subagents execute in dedicated file-system sandboxes without dirtying the parent's working copy, and author comprehensive unit tests in real temporary Git repositories.
 
 ---
 
 ## 2. Why This Task Exists
 
-Phase 7 delivered the complete multi-agent orchestration subsystem across Tasks P7-01 through P7-05:
-- **P7-01**: Multi-agent handoff & role delegation protocol (`AgentDelegationService`, parent-child thread hierarchy, meta-tools `delegate_task` / `request_review`).
-- **P7-02**: Multi-agent delegation UI, thread hierarchy tree in `SessionSidebar`, `DelegationTree`, `DelegateModal`, and real-time Socket.IO synchronization.
-- **P7-03**: Operator intervention & delegation cancellation (`cancelDelegation`, cascading process teardown).
-- **P7-04**: Parallel delegation & concurrent fan-out (`delegateParallel`, meta-tool `delegate_parallel`, concurrency bounding).
-- **P7-05**: Operator-initiated multi-agent parallel batch delegation in `DelegateModal`.
+In Phase 7, Asterim established the Multi-Agent Delegation Protocol (`delegateTask`, `delegateParallel`). However, child subagents currently share the parent thread's primary repository working directory. 
 
-Before declaring Phase 7 complete and transitioning to Phase 8, we must execute a rigorous production gate audit across all monorepo test suites, verify all failure recovery and security boundaries, and publish `docs/phase7-production-gate.md`.
+When multiple subagents execute concurrently or when an experimental subagent modifies files, changes collide directly in the parent's working tree. Git Worktree Sandboxing provides physical file-system and Git branch isolation:
+1. Each subagent operates on its own ephemeral worktree (`.asterim/worktrees/<threadId>`) branched from the parent's commit.
+2. Concurrent subagents (e.g. from `delegate_parallel`) edit files simultaneously with zero Git index locking or file collision.
+3. Subagent changes produce clean, isolated Git diffs that the parent or operator can review and merge with one click.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Subsystem Under Audit**:
-  - `apps/server/src/services/ai/AgentDelegationService.ts`
-  - `apps/server/src/routes/delegation.ts`
-  - `apps/web/src/components/delegation/DelegateModal.tsx`
-  - `apps/web/src/components/delegation/DelegationTree.tsx`
-  - `apps/web/src/components/SessionSidebar.tsx`
-  - `packages/shared/src/types/delegation.ts`
-- **Invariants to Verify**:
-  - **Thread Hierarchy**: `parent_thread_id` accurately links child subagents to parent sessions without transcript collisions.
-  - **Recursion Safety**: Delegation depth strictly limited to `depth <= 3` (`MAX_DELEGATION_DEPTH_EXCEEDED`).
-  - **Concurrency Bounding**: Parallel delegation strictly bounded to `2 <= children <= 4` (`CONCURRENCY_LIMIT_EXCEEDED`).
-  - **Clean Resumption**: Parent thread resumes cleanly with formatted output upon child completion, timeout, or failure.
-  - **Teardown Safety**: Cancelling a parent delegation cascades SIGTERM teardown to all active child processes.
+- **Git Worktree Primitives**:
+  - `git worktree add <path> -b <branchName> <baseCommit>`: Creates an isolated directory sharing the primary repository's `.git/objects` and refs.
+  - Ephemeral Branch Naming: `asterim/sandbox/<threadId>`.
+  - Directory Path: `<projectRoot>/.asterim/worktrees/<threadId>`.
+  - `git worktree remove --force <path>` & `git worktree prune`: Clean teardown.
+- **Delegation Integration**:
+  - `DelegationRequest` supports `isolateWorktree?: boolean` (defaults to `true` for `TASK` subagents when in a Git repository).
+  - Child session `workingDirectory` is set to the provisioned worktree path.
+  - On subagent completion, `GitWorktreeService.getDiff` captures the exact changes made and attaches them to `DelegationResult.diff`.
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Production Gate Audit (`docs/phase7-production-gate.md`)**:
-   - Authoritative audit document covering:
-     - Executive Verdict (**PASS / READY FOR NEXT PHASE**).
-     - Subsystem Audit Matrix (Protocol, UI, Lifecycle, Parallel Fan-Out, Cancellation, Security).
-     - Full Test Suite Inventory (assertions count, 0 failures).
-     - Data Sovereignty & Sovereign Mode Attestation (`DEC-028`).
-     - Architectural Evolution & Phase 8 Transition Plan.
+1. **Database Schema (`DatabaseService.ts`)**:
+   - Add columns to `threads` table:
+     ```sql
+     ALTER TABLE threads ADD COLUMN worktree_path TEXT;
+     ALTER TABLE threads ADD COLUMN worktree_branch TEXT;
+     ```
 
-2. **Quality Gate Validation**:
-   - Run full monorepo typecheck: `pnpm run typecheck` (0 errors across all packages).
-   - Run full monorepo lint: `pnpm run lint` (0 errors).
-   - Run full monorepo test battery: `pnpm run test` (all 35+ suites passing).
-   - Run production build: `pnpm run build` (all 7 packages building cleanly).
+2. **Shared Types (`packages/shared/src/types/worktree.ts` & `delegation.ts`)**:
+   - `WorktreeInfo`: `threadId`, `path`, `branch`, `baseCommit`, `createdAt`, `status` (`ACTIVE` | `MERGED` | `PRUNED`).
+   - Extend `DelegationRequest` with `isolateWorktree?: boolean`.
+   - Extend `DelegationResult` with `diff?: string`, `changedFiles?: string[]`, `worktreePath?: string`.
+   - Export from `packages/shared/src/index.ts`.
+
+3. **`GitWorktreeService.ts` (`apps/server/src/services/git/GitWorktreeService.ts`)**:
+   - `createWorktree(repoPath: string, threadId: string, baseCommit?: string)`:
+     - Validates `repoPath` is a valid Git repository.
+     - Provisions `<repoPath>/.asterim/worktrees/<threadId>` on branch `asterim/sandbox/<threadId>`.
+     - Ensures `.asterim` is ignored in `.git/info/exclude` if not already present in `.gitignore`.
+     - Returns `WorktreeInfo`.
+   - `getDiff(worktreePath: string, baseCommit?: string)`:
+     - Returns unified git diff of all staged and unstaged changes in the worktree against base commit.
+     - Returns list of changed file paths.
+   - `mergeWorktree(repoPath: string, threadId: string, targetBranch?: string)`:
+     - Merges sandbox branch into the target branch.
+   - `removeWorktree(repoPath: string, threadId: string)`:
+     - Deletes worktree directory and deletes ephemeral branch `asterim/sandbox/<threadId>`.
+     - Executes `git worktree prune`.
+
+4. **Integration with `AgentDelegationService.ts`**:
+   - Before launching child session: if `isolateWorktree` is true and project is a Git repository, call `gitWorktreeService.createWorktree`.
+   - Set child `session.workingDirectory = worktree.path`.
+   - On child session completion: capture diff via `gitWorktreeService.getDiff` and include in child summary.
+   - Store `worktree_path` and `worktree_branch` on the child thread row.
+
+5. **REST API Endpoints (`apps/server/src/routes/worktrees.ts`)**:
+   - `GET /api/v1/threads/:id/worktree` — Get worktree metadata and live git diff for a thread.
+   - `POST /api/v1/threads/:id/worktree/merge` — Merge subagent worktree changes into parent branch.
+   - `DELETE /api/v1/threads/:id/worktree` — Discard and prune subagent worktree.
+   - Register in `apps/server/src/index.ts`.
+
+6. **Automated Unit Test Suite (`apps/server/src/services/git/__tests__/GitWorktreeService.test.ts`)**:
+   - Test worktree creation in real temporary git repositories.
+   - Test file modifications within worktree producing isolated diffs.
+   - Test merge-back to main branch.
+   - Test clean removal, branch deletion, and orphan cleanup.
+   - Test fallback behavior if project is not a git repository.
+   - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 5. Constraints & Forbidden Changes
 
-- Do NOT weaken any recursion depth checks (`MAX_DELEGATION_DEPTH = 3`) or concurrency bounds (`MAX_CONCURRENT_DELEGATIONS = 4`).
-- Do NOT modify product code unless required to fix a discovered regression.
-- Keep `docs/phase7-production-gate.md` factual, evidence-backed, and reproducible.
+- Do NOT corrupt or overwrite the primary repository's working tree during worktree creation or removal.
+- Ensure `.asterim/worktrees/` is never committed to upstream Git tracking.
+- Do NOT break any of the existing 36 test suites.
 
 ---
 
 ## 6. Acceptance Criteria
 
-1. `docs/phase7-production-gate.md` is authored with complete subsystem audit matrices and verification evidence.
-2. All 5 Phase 7 workstreams (P7-01 through P7-05) are audited and verified against their acceptance criteria.
-3. 0 TypeScript compiler errors across all packages (`pnpm run typecheck`).
-4. 0 ESLint errors across all packages (`pnpm run lint`).
-5. All automated test suites pass with 0 failures (`pnpm run test`).
-6. Monorepo production build succeeds cleanly (`pnpm run build`).
+1. `GitWorktreeService` creates, diffs, merges, and removes Git worktrees safely using native Git CLI commands.
+2. `AgentDelegationService` automatically runs subagents in isolated worktrees when requested.
+3. Subagent file modifications produce isolated Git diffs that return in `DelegationResult`.
+4. REST endpoints `/api/v1/threads/:id/worktree` support inspection, merging, and discarding worktrees.
+5. `GitWorktreeService.test.ts` passes with comprehensive assertions in real temporary git repositories.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (37 test suites), `pnpm run build`.
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] `docs/phase7-production-gate.md` created and complete
-- [ ] Monorepo typecheck clean (0 errors)
-- [ ] Monorepo lint clean (0 errors)
-- [ ] Full test battery passing (0 failures)
-- [ ] Production build clean
+- [ ] `threads.worktree_path` columns added to SQLite schema
+- [ ] Shared worktree types in `@asterim/shared`
+- [ ] `GitWorktreeService.ts` implemented
+- [ ] `AgentDelegationService` worktree isolation integrated
+- [ ] `/api/v1/threads/:id/worktree` REST endpoints registered
+- [ ] `GitWorktreeService.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
 
 ---
 
 ## 8. Verification Commands
 
 ```bash
-# Verify all delegation test suites
-pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
-pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
+# Run new Git Worktree Service test suite
+pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts
 
-# Run full monorepo CI validation pipeline
+# Run all git subsystem test suites
+pnpm --filter asterim exec tsx src/services/git/__tests__/RemoteManager.test.ts
+pnpm --filter asterim exec tsx src/services/git/__tests__/GitDriftDetector.test.ts
+
+# Run full monorepo CI pipeline
 pnpm run typecheck
 pnpm run lint
 pnpm run test
