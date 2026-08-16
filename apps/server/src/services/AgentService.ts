@@ -271,8 +271,14 @@ export class AgentService {
       const allowedTools = filterToolsForProfile(mcpTools, profile);
       const allowedSkills = filterSkillsForProfile(skills, profile);
 
+      // The delegation meta-tools (P7-01) are appended rather than filtered:
+      // they belong to Asterim, not to a server or a skills directory, and who
+      // gets them is decided by what the persona is for. Appended last so the
+      // catalogue still opens with the work the session was started to do.
+      const delegationTools = mcpAgentBridge.getDelegationTools(profile);
+
       const { toToolDescriptors, formatSessionInstructions } = await import('./mcp/McpToolPrompt');
-      const toolDescriptors = toToolDescriptors(allowedTools);
+      const toolDescriptors = toToolDescriptors([...allowedTools, ...delegationTools]);
       const mcpToolInstructions = composeSessionInstructions(
         profile,
         formatSessionInstructions(toolDescriptors, allowedSkills)
@@ -280,7 +286,8 @@ export class AgentService {
 
       if (profile) {
         console.log(
-          `[AgentService] Thread ${threadId} starts as '${profile.name}' with ${toolDescriptors.length}/${mcpTools.length} tools.`
+          `[AgentService] Thread ${threadId} starts as '${profile.name}' with ${allowedTools.length}/${mcpTools.length} tools` +
+            `${delegationTools.length > 0 ? ' plus delegation' : ''}.`
         );
       }
 

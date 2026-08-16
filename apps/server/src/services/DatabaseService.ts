@@ -602,6 +602,29 @@ export class DatabaseService {
     } catch (e) {
       /* ignore if exists */
     }
+
+    // Thread hierarchy (P7-01). A delegated thread hangs from the one that
+    // asked for it and carries its own brief, so a child found later explains
+    // itself without a join back through the event log.
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN parent_thread_id TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN delegation_context_json TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+    // Created after the columns: listing a thread's children and walking the
+    // chain to a root are both parent_thread_id lookups.
+    try {
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_threads_parent ON threads(parent_thread_id);'
+      );
+    } catch (e) {
+      /* ignore if the column is somehow still absent */
+    }
   }
 
   /**

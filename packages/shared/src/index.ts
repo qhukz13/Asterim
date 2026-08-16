@@ -11,4 +11,5 @@ export * from './types/memory';
 export * from './types/mcp';
 export * from './types/skills';
 export * from './types/profiles';
+export * from './types/delegation';
 

@@ -1,8 +1,12 @@
 import {
+  AgentProfile,
+  DELEGATION_TOOL_DEFINITIONS,
   McpToolCallResult,
   McpToolDefinition,
   SkillDefinition,
   SKILL_TOOL_PREFIX,
+  canProfileDelegate,
+  isDelegationToolName,
   isSkillToolName,
   skillToolName
 } from '@asterim/shared';
@@ -31,7 +35,7 @@ const SEPARATOR = '__';
 const PREFIX = `mcp${SEPARATOR}`;
 
 /** Where an offered tool comes from. Absent means MCP, which came first. */
-export type AgentToolKind = 'mcp' | 'skill';
+export type AgentToolKind = 'mcp' | 'skill' | 'delegation';
 
 /** A tool as an agent sees it: one flat name, one description, one schema. */
 export interface AgentTool {
@@ -123,6 +127,34 @@ export class McpAgentBridge {
     return tools;
   }
 
+  /**
+   * The delegation meta-tools, when the session's persona is one that delegates
+   * (P7-01).
+   *
+   * Kept out of `getAvailableTools` deliberately. Everything in that list is
+   * something a workstation is running or a user has written, and both are
+   * filtered by the profile's capability lists; these two are neither. They are
+   * part of Asterim itself, and whether a session gets them is decided by what
+   * the persona is for — `canProfileDelegate` — not by whether a server name
+   * appears in a list. A session with no persona gets neither of them, so a
+   * catalogue that was correct before P7-01 is unchanged by it.
+   */
+  public getDelegationTools(
+    profile: Pick<AgentProfile, 'role' | 'name'> | null | undefined
+  ): AgentTool[] {
+    if (!canProfileDelegate(profile)) return [];
+    return DELEGATION_TOOL_DEFINITIONS.map(definition => ({
+      name: definition.name,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      // No process and no server behind it: this is the Core answering itself.
+      serverId: 'asterim',
+      serverName: 'asterim',
+      toolName: definition.name,
+      kind: 'delegation' as const
+    }));
+  }
+
   /** The skills offered to a session. Never fatal: no skills is a session. */
   public discoverSkills(workspacePath?: string): SkillDefinition[] {
     try {
@@ -165,8 +197,17 @@ export class McpAgentBridge {
     namespacedName: string,
     args: Record<string, unknown> = {},
     workspaceId?: string,
-    workspacePath?: string
+    workspacePath?: string,
+    context?: { projectId?: string; threadId?: string }
   ): Promise<AgentToolResult> {
+    // A delegation is not a tool on a server either, and it is the one call
+    // whose answer depends on *which* session made it — a thread can only
+    // delegate from itself. The context comes from the gateway, never from the
+    // agent's own arguments.
+    if (isDelegationToolName(namespacedName)) {
+      return this.executeDelegation(namespacedName, args, context);
+    }
+
     // A skill never reaches a server, so it is answered before the catalogue is
     // consulted for one: the payload is the skill's own instructions.
     if (isSkillToolName(namespacedName)) {
@@ -196,6 +237,42 @@ export class McpAgentBridge {
         name: namespacedName,
         isError: true,
         text: formatFailure(namespacedName, err)
+      };
+    }
+  }
+
+  /**
+   * Hands one delegation to the service that owns it.
+   *
+   * Imported on the call rather than at the top of the file: the delegation
+   * service reaches back into sessions and profiles, and a session that never
+   * delegates has no reason to load any of it. Never throws, like every other
+   * branch here.
+   */
+  private async executeDelegation(
+    toolName: string,
+    args: Record<string, unknown>,
+    context?: { projectId?: string; threadId?: string }
+  ): Promise<AgentToolResult> {
+    if (!context?.threadId) {
+      return {
+        name: toolName,
+        isError: true,
+        text: `'${toolName}' can only be called from inside a thread.`
+      };
+    }
+
+    try {
+      const { agentDelegationService } = await import('../ai/AgentDelegationService');
+      const result = await agentDelegationService.executeDelegationTool(toolName, args, {
+        threadId: context.threadId
+      });
+      return { name: result.name, isError: result.isError, text: result.text };
+    } catch (err) {
+      return {
+        name: toolName,
+        isError: true,
+        text: `Delegating through '${toolName}' failed: ${(err as Error).message}`
       };
     }
   }

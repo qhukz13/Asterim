@@ -108,7 +108,11 @@ export class McpToolGateway {
         toolName,
         args,
         context.workspaceId,
-        context.workspacePath
+        context.workspacePath,
+        // Which thread is calling. Only the delegation meta-tools read it, and
+        // they must read it from here rather than from the agent's arguments:
+        // a thread may only delegate from itself.
+        { projectId: context.projectId, threadId: context.threadId }
       );
     } catch (err) {
       // `executeTool` is documented not to throw. If that ever stops being
