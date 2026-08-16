@@ -398,19 +398,6 @@ export class DatabaseService {
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
 
-      CREATE TABLE IF NOT EXISTS agent_profiles (
-        id TEXT PRIMARY KEY,
-        environment_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        default_model TEXT NOT NULL,
-        temperature REAL NOT NULL DEFAULT 0.2,
-        mcp_visibility TEXT NOT NULL DEFAULT '[]',
-        skills TEXT NOT NULL DEFAULT '[]',
-        prompt_template TEXT,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
-      );
-
       CREATE TABLE IF NOT EXISTS environment_knowledge_items (
         id TEXT PRIMARY KEY,
         environment_id TEXT NOT NULL,
@@ -495,7 +482,6 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_workspace_invitations_token ON workspace_invitations(token);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);
       CREATE INDEX IF NOT EXISTS idx_environments_account ON environments(account_id);
-      CREATE INDEX IF NOT EXISTS idx_agent_profiles_env ON agent_profiles(environment_id);
       CREATE INDEX IF NOT EXISTS idx_env_knowledge_env ON environment_knowledge_items(environment_id);
       CREATE INDEX IF NOT EXISTS idx_env_attachments_env ON environment_project_attachments(environment_id);
 
@@ -582,6 +568,86 @@ export class DatabaseService {
 
       CREATE INDEX IF NOT EXISTS idx_mcp_servers_workspace ON mcp_servers(workspace_id);
     `);
+
+    // Agent Profiles (P6-07). The personas a session can run under: the system
+    // prompt it opens with, and which MCP servers and skills it may reach.
+    this.reconcileLegacyAgentProfiles();
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        description TEXT NOT NULL,
+        system_prompt TEXT NOT NULL,
+        model TEXT,
+        temperature REAL,
+        enabled_mcp_servers TEXT,
+        enabled_skills TEXT,
+        auto_approval_rules TEXT,
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        workspace_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_profiles_workspace ON agent_profiles(workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_profiles_builtin ON agent_profiles(is_builtin);
+    `);
+
+    // Which profile a thread's sessions start under. A column rather than a
+    // table: a thread has exactly one, and nothing here needs history.
+    try {
+      this.db.exec('ALTER TABLE threads ADD COLUMN profile_id TEXT;');
+    } catch (e) {
+      /* ignore if exists */
+    }
+  }
+
+  /**
+   * Clears the way for the P6-07 `agent_profiles` table.
+   *
+   * An earlier draft of the environment manifest declared a table of the same
+   * name with a different shape — `environment_id`, `default_model`,
+   * `prompt_template` — and no code ever wrote to it. `CREATE TABLE IF NOT
+   * EXISTS` would find that table, do nothing, and leave every insert failing
+   * on columns that are not there, so the old shape has to go first.
+   *
+   * Empty is the only case that occurs in practice, and it is dropped. A table
+   * with rows in it is renamed instead of destroyed: nothing in Asterim can
+   * have put them there, so whatever did is something this migration does not
+   * understand and has no business deleting.
+   */
+  private reconcileLegacyAgentProfiles(): void {
+    try {
+      const columns = this.db.prepare('PRAGMA table_info(agent_profiles)').all() as Array<{
+        name?: string;
+      }>;
+      if (columns.length === 0) return; // No table yet: the CREATE below owns it.
+
+      const names = new Set(columns.map(column => column.name));
+      if (names.has('system_prompt')) return; // Already the P6-07 shape.
+      if (!names.has('environment_id')) return; // Not the shape this knows how to retire.
+
+      const count = this.db.prepare('SELECT COUNT(*) AS count FROM agent_profiles').get() as {
+        count: number;
+      };
+
+      if (count.count === 0) {
+        this.db.exec('DROP TABLE agent_profiles;');
+        console.log('[Database] Replaced the unused legacy agent_profiles table.');
+        return;
+      }
+
+      this.db.exec('ALTER TABLE agent_profiles RENAME TO agent_profiles_legacy_env;');
+      console.warn(
+        `[Database] Kept ${count.count} row(s) from the legacy agent_profiles table as agent_profiles_legacy_env.`
+      );
+    } catch (err) {
+      console.error(
+        `[Database] Could not reconcile the legacy agent_profiles table: ${(err as Error).message}`
+      );
+    }
   }
 
   public getDb(): DatabaseSync {

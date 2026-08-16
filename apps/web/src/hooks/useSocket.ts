@@ -19,6 +19,7 @@ import {
 import { useTerminalStore } from '../stores/useTerminalStore';
 import { useMemoryStore, isMemoryEvent } from '../stores/useMemoryStore';
 import { MCP_EVENT_TYPES, useMcpStore } from '../stores/useMcpStore';
+import { activeProfileIdForThread } from '../stores/useProfileStore';
 
 export interface ChatMessage {
   id: string;
@@ -447,7 +448,12 @@ export function useSocket(
   };
 
   const sendCommand = (cmd: string, agentType: string) => {
-    sendInternalEvent('client.command', { command: cmd, projectId, agentType });
+    // Read imperatively rather than subscribed: this is not a component, and a
+    // subscription here would rebuild the socket's callbacks on every profile
+    // change. Undefined when nothing is selected, in which case the Core falls
+    // back to whatever the thread was last started under.
+    const profileId = activeProfileIdForThread(threadIdRef.current);
+    sendInternalEvent('client.command', { command: cmd, projectId, agentType, profileId });
   };
 
   const sendApproval = (actionId: string, approved: boolean) => {

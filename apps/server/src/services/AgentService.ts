@@ -13,6 +13,13 @@ import { dbService } from './DatabaseService';
 import { processTreeManager } from './ProcessTreeManager';
 import { mcpAgentBridge } from './mcp/McpAgentBridge';
 import { mcpToolGateway } from './mcp/McpToolGateway';
+import {
+  composeSessionInstructions,
+  filterSkillsForProfile,
+  filterToolsForProfile,
+  profileService
+} from './ai/ProfileService';
+import type { AgentProfile } from '@asterim/shared';
 
 export class AgentService {
   private sessionManager = new SessionManager();
@@ -21,7 +28,12 @@ export class AgentService {
   private crashCounts = new Map<string, { count: number; lastCrash: number }>(); // threadId
   private adapterConfigs = new Map<
     string,
-    { projectId: string; workspace: string; agentType: 'aider' | 'claude' | 'antigravity' }
+    {
+      projectId: string;
+      workspace: string;
+      agentType: 'aider' | 'claude' | 'antigravity';
+      profileId?: string;
+    }
   >();
   private userStopped = new Set<string>(); // threadId
   private pendingStarts = new Map<string, Promise<void>>(); // threadId -> start promise
@@ -40,6 +52,9 @@ export class AgentService {
         const projectId = (event.payload as any).projectId;
         const threadId = (event.payload as any).threadId;
         const agentType = (event.payload as any).agentType || 'aider'; // 'aider', 'claude' or 'antigravity'
+        // The profile the dashboard has selected for this thread, when it has
+        // one. Absent means "whatever the thread was last started under".
+        const profileId = (event.payload as any).profileId as string | undefined;
 
         if (!projectId || !threadId) {
           console.error('[AgentService] client.command requires projectId and threadId');
@@ -54,7 +69,7 @@ export class AgentService {
             return;
           }
           this.crashCounts.delete(threadId);
-          const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+          const startPromise = this.startAgent(projectId, threadId, project.path, agentType, profileId);
           this.pendingStarts.set(threadId, startPromise);
           try {
             await startPromise;
@@ -69,7 +84,7 @@ export class AgentService {
           const { projectManager } = await import('./ProjectManager');
           const project = projectManager.getProject(projectId);
           if (project) {
-            const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+            const startPromise = this.startAgent(projectId, threadId, project.path, agentType, profileId);
             this.pendingStarts.set(threadId, startPromise);
             try {
               await startPromise;
@@ -134,7 +149,13 @@ export class AgentService {
           if (project) {
             const config = this.adapterConfigs.get(threadId);
             const agentType = config?.agentType || 'antigravity';
-            const startPromise = this.startAgent(projectId, threadId, project.path, agentType);
+            const startPromise = this.startAgent(
+              projectId,
+              threadId,
+              project.path,
+              agentType,
+              config?.profileId
+            );
             this.pendingStarts.set(threadId, startPromise);
             try {
               await startPromise;
@@ -189,15 +210,25 @@ export class AgentService {
     projectId: string,
     threadId: string,
     workspace: string,
-    agentType: 'aider' | 'claude' | 'antigravity'
+    agentType: 'aider' | 'claude' | 'antigravity',
+    profileId?: string
   ) {
     if (this.sessionManager.getSessionAdapter(threadId)) {
       console.log(`[AgentService] Agent already running for thread ${threadId}`);
       return;
     }
 
+    // Resolved before anything can fail, so a crash-restart further down
+    // reuses the same persona rather than quietly dropping it.
+    const profile = this.resolveProfile(threadId, profileId);
+
     this.userStopped.delete(threadId);
-    this.adapterConfigs.set(threadId, { projectId, workspace, agentType });
+    this.adapterConfigs.set(threadId, {
+      projectId,
+      workspace,
+      agentType,
+      profileId: profile?.id ?? profileId
+    });
 
     const fs = require('fs');
     if (!fs.existsSync(workspace)) {
@@ -232,9 +263,26 @@ export class AgentService {
       const workspaceId = this.resolveWorkspaceId(projectId);
       const mcpTools = this.discoverMcpTools(workspaceId, workspace);
       const skills = mcpAgentBridge.discoverSkills(workspace);
+
+      // The profile narrows both lists before either is described or made
+      // callable. Filtering the catalogue rather than only the instructions
+      // matters: the executor is built from these same descriptors, so a tool a
+      // profile excludes is not merely unmentioned, it cannot be invoked.
+      const allowedTools = filterToolsForProfile(mcpTools, profile);
+      const allowedSkills = filterSkillsForProfile(skills, profile);
+
       const { toToolDescriptors, formatSessionInstructions } = await import('./mcp/McpToolPrompt');
-      const toolDescriptors = toToolDescriptors(mcpTools);
-      const mcpToolInstructions = formatSessionInstructions(toolDescriptors, skills);
+      const toolDescriptors = toToolDescriptors(allowedTools);
+      const mcpToolInstructions = composeSessionInstructions(
+        profile,
+        formatSessionInstructions(toolDescriptors, allowedSkills)
+      );
+
+      if (profile) {
+        console.log(
+          `[AgentService] Thread ${threadId} starts as '${profile.name}' with ${toolDescriptors.length}/${mcpTools.length} tools.`
+        );
+      }
 
       await this.sessionManager.startSession(
         agentType,
@@ -304,7 +352,13 @@ export class AgentService {
               });
 
               setTimeout(() => {
-                this.startAgent(config.projectId, threadId, config.workspace, config.agentType);
+                this.startAgent(
+                  config.projectId,
+                  threadId,
+                  config.workspace,
+                  config.agentType,
+                  config.profileId
+                );
               }, delay);
               return;
             } else {
@@ -428,6 +482,37 @@ export class AgentService {
           threadId
         }
       });
+    }
+  }
+
+  /**
+   * The persona this session runs under, if any.
+   *
+   * An explicit id wins and is written back to the thread, so the choice the
+   * user just made in the picker survives the next auto-start — a chat message
+   * to a stopped agent starts it without going anywhere near the dashboard's
+   * state. With no explicit id, the thread's recorded profile applies.
+   *
+   * Never fatal. An id naming a profile that has since been deleted, or an
+   * unreadable table, yields no profile and the session starts exactly as it
+   * did before profiles existed.
+   */
+  private resolveProfile(threadId: string, profileId?: string): AgentProfile | null {
+    try {
+      if (profileId) {
+        const explicit = profileService.getProfile(profileId);
+        profileService.setThreadProfile(threadId, explicit ? explicit.id : null);
+        if (!explicit) {
+          console.warn(
+            `[AgentService] Thread ${threadId} asked for profile ${profileId}, which no longer exists.`
+          );
+        }
+        return explicit;
+      }
+      return profileService.getThreadProfile(threadId);
+    } catch (err) {
+      console.error('[AgentService] Could not resolve the agent profile:', err);
+      return null;
     }
   }
 

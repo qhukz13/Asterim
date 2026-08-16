@@ -124,6 +124,7 @@ import webhookRoutes from './routes/webhooks';
 import billingRoutes from './routes/billing';
 import mcpRoutes from './routes/mcp';
 import skillRoutes from './routes/skills';
+import profileRoutes from './routes/profiles';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
 import contextRoutes from './routes/context';
@@ -150,6 +151,8 @@ const start = async () => {
     await fastify.register(mcpRoutes);
     console.log('[DEBUG] Registering skillRoutes');
     await fastify.register(skillRoutes);
+    console.log('[DEBUG] Registering profileRoutes');
+    await fastify.register(profileRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
     await fastify.register(workspaceRoutes);
     console.log('[DEBUG] Registering projectRoutes');
@@ -177,6 +180,11 @@ const start = async () => {
     // Project Memory Core: register EventBus subscriptions once, before the
     // server starts accepting requests that could publish memory events.
     projectMemoryService.initEventBusListeners();
+
+    // The six shipped agent profiles. Seeded before the first request so the
+    // catalogue is never briefly empty on a fresh workstation.
+    const { profileService } = await import('./services/ai/ProfileService');
+    profileService.initBuiltinProfiles();
 
     const port = parseInt(process.env.PORT || '3000', 10);
     // `::` accepts both IPv6 and IPv4 on every interface, which is what a LAN

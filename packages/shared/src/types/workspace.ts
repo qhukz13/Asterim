@@ -42,7 +42,15 @@ export interface Workspace {
 
 export type Environment = Workspace;
 
-export interface AgentProfile {
+/**
+ * An environment manifest's agent entry.
+ *
+ * Named for the environment rather than owning the bare `AgentProfile` name,
+ * which belongs to the Agent Profiles subsystem in `./profiles` (P6-07). The
+ * two are different things: this describes a model configuration inside an
+ * exported environment manifest, that one is a persona a session runs under.
+ */
+export interface EnvironmentAgentProfile {
   id: string;
   environmentId: string;
   name: string;
@@ -90,7 +98,7 @@ export interface EnvironmentManifest {
     path: string;
     defaultBranch?: string;
   }>;
-  agentProfiles: AgentProfile[];
+  agentProfiles: EnvironmentAgentProfile[];
   mcpServers: Array<{
     id: string;
     name: string;

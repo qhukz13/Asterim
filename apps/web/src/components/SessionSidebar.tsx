@@ -7,6 +7,7 @@ import { useDebugLifecycle } from '../utils/debug';
 import { useViewStore } from '../stores/useViewStore';
 import { useLocation } from 'wouter';
 import { IconBot, IconPlus, IconArrowLeft } from './icons/Icons';
+import { ProfileSelector } from './profiles/ProfileSelector';
 
 export interface Thread {
   id: string;
@@ -199,6 +200,18 @@ export function SessionSidebar({
           <IconPlus size={12} color="#ffffff" />
           <span>New Agent</span>
         </button>
+      </div>
+
+      {/* Which persona the selected thread's next session starts under. Sits
+          above the list rather than inside it: it configures the thread that is
+          open, not the act of choosing one. */}
+      <div
+        style={{
+          padding: 'var(--spacing-3)',
+          borderBottom: '1px solid var(--color-border-subtle)'
+        }}
+      >
+        <ProfileSelector />
       </div>
 
       {/* Thread List Body */}
