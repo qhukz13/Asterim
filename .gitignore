@@ -47,3 +47,5 @@ coverage/
 
 # Temp directories
 temp_test_nogit/
+
+scratch/

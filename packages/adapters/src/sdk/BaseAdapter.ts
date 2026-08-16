@@ -43,6 +43,17 @@ const MAX_SCAN_BUFFER_CHARS = 65536;
 /** What is kept when the scan buffer is trimmed — enough to hold one call line. */
 const SCAN_BUFFER_KEEP_CHARS = 8192;
 
+/**
+ * How long a finished call keeps suppressing an identical one.
+ *
+ * A PTY can echo a call back in a later chunk than the one it arrived in, and
+ * a short tool may well have finished by then — so in-flight tracking alone
+ * lets the echo through. The window is wide enough to cover that gap and
+ * narrow enough that an agent asking for the same thing again, having read the
+ * first answer, is not silently ignored.
+ */
+const TOOL_CALL_ECHO_WINDOW_MS = 1500;
+
 // eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = /\x1b\[[0-9;?]*[\x20-\x2f]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
 
@@ -70,6 +81,8 @@ export abstract class BaseAdapter implements IAgentProvider {
   private toolScanBuffer = '';
   /** Calls currently running, keyed by tool+arguments, to survive PTY echo. */
   private inFlightToolCalls = new Set<string>();
+  /** When each recently finished call ended, keyed the same way, for the echo window. */
+  private recentToolCalls = new Map<string, number>();
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -220,6 +233,23 @@ export abstract class BaseAdapter implements IAgentProvider {
   }
 
   /**
+   * Drops echo-window entries that have expired.
+   *
+   * Run before every check rather than on a timer, so a session that has
+   * stopped making calls holds nothing and needs no clock of its own. What is
+   * left is only ever the calls of the last {@link TOOL_CALL_ECHO_WINDOW_MS}.
+   */
+  private pruneRecentToolCalls(): void {
+    if (this.recentToolCalls.size === 0) return;
+    const cutoff = Date.now() - TOOL_CALL_ECHO_WINDOW_MS;
+    for (const [key, finishedAt] of this.recentToolCalls) {
+      if (finishedAt <= cutoff) {
+        this.recentToolCalls.delete(key);
+      }
+    }
+  }
+
+  /**
    * Runs one intercepted call and writes the answer back to the agent.
    *
    * Every failure path ends in a result line: an executor that rejects, a tool
@@ -228,9 +258,11 @@ export abstract class BaseAdapter implements IAgentProvider {
    */
   private async runToolCall(call: AgentToolCallRequest): Promise<void> {
     const key = `${call.tool}:${JSON.stringify(call.arguments)}`;
-    if (this.inFlightToolCalls.has(key)) {
-      // A PTY echoes what it is given; the same call seen twice while the first
-      // is still running is that echo, not a second request.
+    this.pruneRecentToolCalls();
+    if (this.inFlightToolCalls.has(key) || this.recentToolCalls.has(key)) {
+      // A PTY echoes what it is given; the same call seen again while the first
+      // is still running — or in the moments after it finished — is that echo,
+      // not a second request.
       return;
     }
     this.inFlightToolCalls.add(key);
@@ -253,6 +285,9 @@ export abstract class BaseAdapter implements IAgentProvider {
       };
     } finally {
       this.inFlightToolCalls.delete(key);
+      // Timed from the end, not the start: a call held at an approval prompt
+      // for a minute still gets the full window once it is let through.
+      this.recentToolCalls.set(key, Date.now());
     }
 
     const text = truncateResult(result?.text ?? '');
