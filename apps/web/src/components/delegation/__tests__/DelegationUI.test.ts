@@ -24,8 +24,10 @@
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { aggregateDelegationStatus, aggregateReviewVerdict } from '@asterim/shared';
 import type {
   AgentProfile,
+  BatchDelegationResult,
   DelegationChildSummary,
   DelegationContext,
   DelegationResult
@@ -161,6 +163,23 @@ function result(overrides: Partial<DelegationResult> = {}): DelegationResult {
     role: 'Security Auditor',
     depth: 1,
     finishedAt: 500,
+    ...overrides
+  };
+}
+
+function batch(overrides: Partial<BatchDelegationResult> = {}): BatchDelegationResult {
+  const results = overrides.results ?? [
+    result({ childThreadId: 'child-a', role: 'Senior Backend Engineer' }),
+    result({ childThreadId: 'child-b', role: 'QA Engineer', status: 'FAILED', summary: 'It crashed.' })
+  ];
+  return {
+    parentThreadId: 'root',
+    overallStatus: aggregateDelegationStatus(results),
+    results,
+    aggregatedVerdict: aggregateReviewVerdict(results),
+    summary: `1 of ${results.length} delegated agents completed (1 failed).`,
+    startedAt: 100,
+    finishedAt: 900,
     ...overrides
   };
 }
@@ -449,11 +468,12 @@ async function main(): Promise<void> {
 
   describe('isDelegationEvent');
   {
-    equal('all four event names are known', DELEGATION_EVENT_TYPES.length, 4);
+    equal('all five event names are known', DELEGATION_EVENT_TYPES.length, 5);
     check('started is one of ours', isDelegationEvent({ type: 'delegation.started' }));
     check('parent_state is one of ours', isDelegationEvent({ type: 'delegation.parent_state' }));
     check('child_state is one of ours', isDelegationEvent({ type: 'delegation.child_state' }));
     check('completed is one of ours', isDelegationEvent({ type: 'delegation.completed' }));
+    check('and so is a finished batch', isDelegationEvent({ type: 'delegation.batch_completed' }));
     check('a chat message is not', !isDelegationEvent({ type: 'chat.message' }));
     check('nor is nothing at all', !isDelegationEvent(null));
   }
@@ -499,7 +519,7 @@ async function main(): Promise<void> {
     });
     state = useProjectStore.getState();
     equal('the parent is parked', state.parentStates['root'], 'WAITING_FOR_CHILD');
-    equal('behind the named child', state.pendingChildren['root'], 'child-1');
+    equal('behind the named child', state.pendingChildren['root'], ['child-1']);
 
     handleDelegationEvent('delegation.child_state', {
       projectId: PROJECT,
@@ -589,7 +609,7 @@ async function main(): Promise<void> {
 
     const synced = useProjectStore.getState();
     equal('the parent state comes from the Core', synced.parentStates['root'], 'WAITING_FOR_CHILD');
-    equal('as does the pending child', synced.pendingChildren['root'], 'child-9');
+    equal('as does the pending child', synced.pendingChildren['root'], ['child-9']);
     equal('a RUNNING child is shown as ACTIVE', synced.childStates['child-9'], 'ACTIVE');
     equal('its brief is picked up', synced.childTasks['child-9'], 'Review the diff.');
     equal('and its role', synced.childRoles['child-9'], 'Security Auditor');
@@ -697,6 +717,278 @@ async function main(): Promise<void> {
     requests.length = 0;
     equal('no thread means no request', await useProjectStore.getState().cancelDelegation(''), false);
     equal('and nothing is sent', requests.length, 0);
+  }
+
+  // --- Store: a fan-out (P7-04) ---------------------------------------------
+
+  describe('useProjectStore — several children at once');
+  {
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setThreads([thread('root')]);
+
+    for (const [childThreadId, role] of [
+      ['child-a', 'Senior Backend Engineer'],
+      ['child-b', 'Frontend Reviewer'],
+      ['child-c', 'QA Engineer']
+    ]) {
+      handleDelegationEvent('delegation.started', {
+        projectId: PROJECT,
+        threadId: 'root',
+        childThreadId,
+        depth: 1,
+        kind: 'TASK',
+        role,
+        taskDescription: `Work for ${role}.`
+      });
+      handleDelegationEvent('delegation.parent_state', {
+        projectId: PROJECT,
+        threadId: 'root',
+        state: 'WAITING_FOR_CHILD',
+        childThreadId
+      });
+    }
+
+    let state = useProjectStore.getState();
+    equal('the parent is parked behind all three', state.pendingChildren['root'], [
+      'child-a',
+      'child-b',
+      'child-c'
+    ]);
+    equal('each of them is on the thread list', state.threads.length, 4);
+    equal('as siblings under the same parent', buildThreadTree(state.threads)[0].children.length, 3);
+    equal('every role is remembered', state.childRoles['child-b'], 'Frontend Reviewer');
+
+    // The same child announced twice — a socket reconnect replaying — must not
+    // make the banner show it twice.
+    handleDelegationEvent('delegation.parent_state', {
+      projectId: PROJECT,
+      threadId: 'root',
+      state: 'WAITING_FOR_CHILD',
+      childThreadId: 'child-a'
+    });
+    equal(
+      'a repeated announcement does not duplicate a child',
+      useProjectStore.getState().pendingChildren['root']?.length,
+      3
+    );
+
+    handleDelegationEvent('delegation.completed', {
+      projectId: PROJECT,
+      threadId: 'root',
+      result: result({ childThreadId: 'child-a', summary: 'Backend done.' })
+    });
+    state = useProjectStore.getState();
+    equal('one child finishing leaves the others pending', state.pendingChildren['root'], [
+      'child-b',
+      'child-c'
+    ]);
+    equal('and the parent stays parked', state.parentStates['root'], 'WAITING_FOR_CHILD');
+    equal('while that child goes terminal', state.childStates['child-a'], 'COMPLETED');
+
+    handleDelegationEvent('delegation.completed', {
+      projectId: PROJECT,
+      threadId: 'root',
+      result: result({ childThreadId: 'child-b', status: 'FAILED', summary: 'Frontend crashed.' })
+    });
+    handleDelegationEvent('delegation.completed', {
+      projectId: PROJECT,
+      threadId: 'root',
+      result: result({ childThreadId: 'child-c', summary: 'QA done.' })
+    });
+    state = useProjectStore.getState();
+    equal('the last one releases the parent', state.parentStates['root'], 'ACTIVE');
+    equal('with nothing pending', state.pendingChildren['root'], undefined);
+
+    const batchResult = batch({
+      results: [
+        result({ childThreadId: 'child-a', summary: 'Backend done.' }),
+        result({ childThreadId: 'child-b', status: 'FAILED', summary: 'Frontend crashed.' }),
+        result({ childThreadId: 'child-c', summary: 'QA done.' })
+      ]
+    });
+    check(
+      'a finished batch is routed',
+      handleDelegationEvent('delegation.batch_completed', {
+        projectId: PROJECT,
+        threadId: 'root',
+        batch: batchResult
+      })
+    );
+    state = useProjectStore.getState();
+    equal('and kept for the parent', state.batchOutcomes['root']?.results.length, 3);
+    equal('with its overall status', state.batchOutcomes['root']?.overallStatus, 'PARTIAL_SUCCESS');
+    equal(
+      'the single-outcome card is cleared so the last child is not shown twice',
+      state.delegationOutcomes['root'],
+      undefined
+    );
+    equal('and the parent is active', state.parentStates['root'], 'ACTIVE');
+
+    useProjectStore.getState().resetDelegation();
+    equal(
+      'resetDelegation clears the batch too',
+      Object.keys(useProjectStore.getState().batchOutcomes).length,
+      0
+    );
+  }
+
+  describe('useProjectStore — delegateParallel');
+  {
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setActiveProject(PROJECT);
+    requests.length = 0;
+
+    const dispatched = batch({ overallStatus: 'COMPLETED' });
+    respond({ batch: dispatched });
+    const returned = await useProjectStore.getState().delegateParallel('root', [
+      { targetRole: 'Senior Backend Engineer', taskDescription: 'Add the endpoint.' },
+      { targetRole: 'QA Engineer', taskDescription: 'Test it.' }
+    ]);
+
+    equal(
+      'it posts to the parallel endpoint',
+      requests[0]?.url.endsWith('/api/v1/threads/root/delegate/parallel'),
+      true
+    );
+    equal('with POST', requests[0]?.method, 'POST');
+    equal('carrying the token', requests[0]?.headers['Authorization'], 'Bearer test-token');
+    equal(
+      'and both pieces of work',
+      (requests[0]?.body as { delegations?: unknown[] })?.delegations?.length,
+      2
+    );
+    equal('the batch comes back to the caller', returned?.overallStatus, 'COMPLETED');
+    equal(
+      'and is applied without waiting for the socket',
+      useProjectStore.getState().batchOutcomes['root']?.overallStatus,
+      'COMPLETED'
+    );
+
+    requests.length = 0;
+    respond({ error: 'Too many', code: 'CONCURRENCY_LIMIT_EXCEEDED' }, 409);
+    equal(
+      'a refusal comes back as nothing',
+      await useProjectStore.getState().delegateParallel('root', [
+        { targetRole: 'QA Engineer', taskDescription: 'x' }
+      ]),
+      null
+    );
+
+    requests.length = 0;
+    equal('an empty batch is not sent at all', await useProjectStore.getState().delegateParallel('root', []), null);
+    equal('nor is one with no thread', await useProjectStore.getState().delegateParallel('', [
+      { targetRole: 'QA Engineer', taskDescription: 'x' }
+    ]), null);
+    equal('and nothing was requested', requests.length, 0);
+  }
+
+  describe('useProjectStore — cancelAllDelegations');
+  {
+    useProjectStore.getState().resetDelegation();
+    useProjectStore.getState().setActiveProject(PROJECT);
+    useProjectStore.getState().setThreads([thread('root')]);
+
+    for (const childThreadId of ['child-a', 'child-b']) {
+      handleDelegationEvent('delegation.started', {
+        projectId: PROJECT,
+        threadId: 'root',
+        childThreadId,
+        depth: 1,
+        kind: 'TASK',
+        role: 'QA Engineer',
+        taskDescription: 'Work.'
+      });
+      handleDelegationEvent('delegation.parent_state', {
+        projectId: PROJECT,
+        threadId: 'root',
+        state: 'WAITING_FOR_CHILD',
+        childThreadId
+      });
+    }
+
+    requests.length = 0;
+    respond({
+      success: true,
+      cancelled: 2,
+      results: [
+        result({ childThreadId: 'child-a', status: 'FAILED', summary: 'Stopped.' }),
+        result({ childThreadId: 'child-b', status: 'FAILED', summary: 'Stopped.' })
+      ]
+    });
+    const accepted = await useProjectStore
+      .getState()
+      .cancelAllDelegations('root', 'Stopped the fan-out.');
+
+    equal(
+      'it posts to the cancel-all endpoint',
+      requests[0]?.url.endsWith('/api/v1/threads/root/delegate/cancel-all'),
+      true
+    );
+    equal('with POST', requests[0]?.method, 'POST');
+    equal('carrying the reason', (requests[0]?.body as { reason?: string })?.reason, 'Stopped the fan-out.');
+    equal('the Core accepted it', accepted, true);
+
+    const after = useProjectStore.getState();
+    equal('every child ends failed', [after.childStates['child-a'], after.childStates['child-b']], [
+      'FAILED',
+      'FAILED'
+    ]);
+    equal('the parent is released', after.parentStates['root'], 'ACTIVE');
+    equal('with nothing left pending', after.pendingChildren['root'], undefined);
+    equal('and nothing marked as cancelling', Object.keys(after.cancellingChildren).length, 0);
+
+    requests.length = 0;
+    respond({ error: 'nope' }, 500);
+    equal('a refusal is reported back', await useProjectStore.getState().cancelAllDelegations('root'), false);
+    equal(
+      'and the spinners are cleared anyway',
+      Object.keys(useProjectStore.getState().cancellingChildren).length,
+      0
+    );
+    equal('no thread means no request', await useProjectStore.getState().cancelAllDelegations(''), false);
+  }
+
+  describe('useProjectStore — syncDelegations reads the whole pending list');
+  {
+    useProjectStore.getState().resetDelegation();
+    requests.length = 0;
+    respond({
+      threadId: 'root',
+      depth: 0,
+      parentState: 'WAITING_FOR_CHILD',
+      pendingChildThreadId: 'child-a',
+      pendingChildThreadIds: ['child-a', 'child-b'],
+      children: []
+    });
+    await useProjectStore.getState().syncDelegations('root');
+    equal(
+      'a fan-out is picked up whole after a reload',
+      useProjectStore.getState().pendingChildren['root'],
+      ['child-a', 'child-b']
+    );
+
+    respond({
+      threadId: 'root',
+      depth: 0,
+      parentState: 'WAITING_FOR_CHILD',
+      pendingChildThreadId: 'child-a',
+      children: []
+    });
+    await useProjectStore.getState().syncDelegations('root');
+    equal(
+      'and a Core that only sends the single id is still understood',
+      useProjectStore.getState().pendingChildren['root'],
+      ['child-a']
+    );
+  }
+
+  describe('batchStatusTone');
+  {
+    equal('a batch that all worked reads as completed', store.batchStatusTone('COMPLETED').tone, 'completed');
+    equal('a partial one is something to look at', store.batchStatusTone('PARTIAL_SUCCESS').tone, 'waiting');
+    equal('and is labelled as such', store.batchStatusTone('PARTIAL_SUCCESS').label, 'Partial success');
+    equal('a failed one is a failure', store.batchStatusTone('FAILED').tone, 'failed');
+    equal('and a timed-out one too', store.batchStatusTone('TIMEOUT').tone, 'failed');
   }
 
   // --- Views ----------------------------------------------------------------
@@ -825,10 +1117,14 @@ async function main(): Promise<void> {
   {
     const html = renderStatus({
       parentState: 'WAITING_FOR_CHILD',
-      pendingChildThreadId: 'child-1',
-      pendingChildRole: 'Security Auditor',
-      pendingChildState: 'ACTIVE',
-      pendingChildTask: 'Review the upload route for path traversal.'
+      pendingChildren: [
+        {
+          childThreadId: 'child-1',
+          role: 'Security Auditor',
+          state: 'ACTIVE',
+          taskDescription: 'Review the upload route for path traversal.'
+        }
+      ]
     });
 
     check('the banner names the role', html.includes('Security Auditor'));
@@ -853,10 +1149,14 @@ async function main(): Promise<void> {
   {
     const waiting = {
       parentState: 'WAITING_FOR_CHILD' as const,
-      pendingChildThreadId: 'child-1',
-      pendingChildRole: 'Security Auditor',
-      pendingChildState: 'ACTIVE' as const,
-      pendingChildTask: 'Review the upload route.'
+      pendingChildren: [
+        {
+          childThreadId: 'child-1',
+          role: 'Security Auditor',
+          state: 'ACTIVE' as const,
+          taskDescription: 'Review the upload route.'
+        }
+      ]
     };
 
     const withCancel = renderStatus({ ...waiting, onCancel: noop });
@@ -870,7 +1170,11 @@ async function main(): Promise<void> {
     check('a banner given nothing to cancel with does not offer it', !noCancel.includes('Cancel Delegation'));
     check('but still shows the child', noCancel.includes('Inspect Child Thread'));
 
-    const cancelling = renderStatus({ ...waiting, onCancel: noop, isCancelling: true });
+    const cancelling = renderStatus({
+      ...waiting,
+      onCancel: noop,
+      cancellingChildren: { 'child-1': true }
+    });
     check('a cancellation in flight is visible', cancelling.includes('Cancelling…'));
     check('and the button is spent', cancelling.includes('disabled=""'));
     check('the way into the child stays open', cancelling.includes('Inspect Child Thread'));
@@ -888,8 +1192,7 @@ async function main(): Promise<void> {
     // returns the element tree its button lives in.
     let cancelled: string | null = null;
     const tree = (status.DelegationWaitingBanner as unknown as (props: unknown) => unknown)({
-      childThreadId: 'child-1',
-      role: 'Security Auditor',
+      children: [{ childThreadId: 'child-1', role: 'Security Auditor' }],
       onInspectChild: noop,
       onCancel: (childThreadId: string) => {
         cancelled = childThreadId;
@@ -934,11 +1237,258 @@ async function main(): Promise<void> {
 
     const both = renderStatus({
       parentState: 'WAITING_FOR_CHILD',
-      pendingChildThreadId: 'child-2',
+      pendingChildren: [{ childThreadId: 'child-2' }],
       outcome: result()
     });
     check('a new delegation takes precedence over the last outcome', both.includes('Inspect Child Thread'));
     check('and the old card is not also shown', !both.includes('Open Transcript'));
+  }
+
+  // --- Views: a fan-out (P7-04) ---------------------------------------------
+
+  describe('DelegationWaitingBanner — several children at once');
+  {
+    const waitingOnThree = {
+      parentState: 'WAITING_FOR_CHILD' as const,
+      pendingChildren: [
+        {
+          childThreadId: 'child-a',
+          role: 'Senior Backend Engineer',
+          state: 'ACTIVE' as const,
+          taskDescription: 'Add the endpoint.'
+        },
+        {
+          childThreadId: 'child-b',
+          role: 'Frontend Reviewer',
+          state: 'STARTING' as const,
+          taskDescription: 'Wire the form.'
+        },
+        {
+          childThreadId: 'child-c',
+          role: 'QA Engineer',
+          state: 'COMPLETED' as const,
+          taskDescription: 'Test it.'
+        }
+      ]
+    };
+
+    const html = renderStatus({ ...waitingOnThree, onCancel: noop, onCancelAll: noop });
+    check('the banner counts the subagents', html.includes('waiting on 3 subagents'));
+    check('and says how far along they are', html.includes('1 of 3 finished'));
+    check('every role is named', html.includes('Senior Backend Engineer'));
+    check('including the one still booting', html.includes('Frontend Reviewer'));
+    check('and the one already done', html.includes('QA Engineer'));
+    check('each with its own state', html.includes('Starting up') && html.includes('Working') && html.includes('Finished'));
+    check('each with a way into its transcript', html.includes('aria-label="Inspect Senior Backend Engineer"'));
+    check('and its own stop control', html.includes('aria-label="Stop Frontend Reviewer"'));
+    check('the whole fan-out can be stopped at once', html.includes('aria-label="Cancel all delegations"'));
+    check('labelled for what it does', html.includes('>Cancel All</button>'));
+    check('announced as a status', html.includes('role="status"'));
+    check('with no hardcoded colour', !/#[0-9a-fA-F]{6}/.test(html));
+
+    const noBatchControls = renderStatus(waitingOnThree);
+    check('a banner with no cancel handler offers no stop', !noBatchControls.includes('aria-label="Stop QA Engineer"'));
+    check('nor a cancel-all', !noBatchControls.includes('Cancel All'));
+    check('but still shows every child', noBatchControls.includes('Frontend Reviewer'));
+
+    const oneChild = renderStatus({
+      parentState: 'WAITING_FOR_CHILD',
+      pendingChildren: [{ childThreadId: 'child-a', role: 'QA Engineer', state: 'ACTIVE' }],
+      onCancel: noop,
+      onCancelAll: noop
+    });
+    check('a single delegation reads as a sentence, as it always has', oneChild.includes('Delegated — waiting on QA Engineer'));
+    check('with the one button it had', oneChild.includes('Cancel Delegation'));
+    check('and no batch control it would not need', !oneChild.includes('Cancel All'));
+
+    const stopping = renderStatus({
+      ...waitingOnThree,
+      onCancel: noop,
+      onCancelAll: noop,
+      cancellingChildren: { 'child-b': true }
+    });
+    check('a stop in flight on one child is visible', stopping.includes('disabled=""'));
+    check('while its siblings can still be stopped', stopping.includes('aria-label="Stop QA Engineer"'));
+
+    const stoppingAll = renderStatus({
+      ...waitingOnThree,
+      onCancel: noop,
+      onCancelAll: noop,
+      cancellingChildren: { 'child-a': true, 'child-b': true, 'child-c': true }
+    });
+    check('stopping all of them spends the batch button', stoppingAll.includes('Cancelling…'));
+
+    const refused = renderStatus({
+      ...waitingOnThree,
+      onCancel: noop,
+      onCancelAll: noop,
+      cancelError: 'The workstation would not stop these delegations.'
+    });
+    check('a refusal is shown on the banner', refused.includes('would not stop these delegations'));
+    check('as an alert', refused.includes('role="alert"'));
+
+    // The clicks themselves, through the props-only component.
+    let stopped: string | null = null;
+    let inspected: string | null = null;
+    let cancelledAll = 0;
+    const rendered = (status.DelegationWaitingBanner as unknown as (props: unknown) => unknown)({
+      children: waitingOnThree.pendingChildren,
+      onInspectChild: (childThreadId: string) => {
+        inspected = childThreadId;
+      },
+      onCancel: (childThreadId: string) => {
+        stopped = childThreadId;
+      },
+      onCancelAll: () => {
+        cancelledAll++;
+      }
+    });
+
+    const stopButton = findElement(rendered, props => props['aria-label'] === 'Stop Frontend Reviewer');
+    check('the per-child stop is in the tree', !!stopButton);
+    (stopButton?.props?.onClick as () => void)();
+    equal('and it names that child, not the parent', stopped, 'child-b');
+
+    const inspectButton = findElement(rendered, props => props['aria-label'] === 'Inspect QA Engineer');
+    (inspectButton?.props?.onClick as () => void)();
+    equal('inspecting opens that child’s thread', inspected, 'child-c');
+
+    const cancelAllButton = findElement(rendered, props => props['aria-label'] === 'Cancel all delegations');
+    (cancelAllButton?.props?.onClick as () => void)();
+    equal('and Cancel All takes no child at all', cancelledAll, 1);
+
+    equal('an empty pending list renders nothing', renderStatus({ parentState: 'WAITING_FOR_CHILD', pendingChildren: [] }), '');
+    equal('a child with no role is still counted', status.pendingProgress([
+      { childThreadId: 'x', state: 'ACTIVE' },
+      { childThreadId: 'y', state: 'TIMEOUT' }
+    ]), '1 of 2 finished');
+  }
+
+  describe('DelegationBatchOutcomeCard');
+  {
+    const mixed = renderStatus({
+      batchOutcome: batch({
+        results: [
+          result({
+            childThreadId: 'child-a',
+            role: 'Senior Backend Engineer',
+            summary: 'Added the endpoint.',
+            artifacts: ['apps/server/src/routes/upload.ts']
+          }),
+          result({
+            childThreadId: 'child-b',
+            role: 'Security Auditor',
+            status: 'COMPLETED',
+            verdict: 'NEEDS_FIX',
+            summary: 'Traversal is still reachable.'
+          }),
+          result({
+            childThreadId: 'child-c',
+            role: 'QA Engineer',
+            status: 'TIMEOUT',
+            summary: 'The delegated session did not finish within 600s.'
+          })
+        ]
+      })
+    });
+
+    check('the card is labelled', mixed.includes('aria-label="Parallel delegation outcome"'));
+    check('it says how many agents ran', mixed.includes('3 agents — parallel delegation'));
+    check('with the overall status', mixed.includes('>PARTIAL_SUCCESS<'));
+    check('and the verdict over every review in it', mixed.includes('>NEEDS_FIX<'));
+    check('the batch summary is readable', mixed.includes('delegated agents completed'));
+    check('every child is broken out', mixed.includes('Senior Backend Engineer') && mixed.includes('Security Auditor') && mixed.includes('QA Engineer'));
+    check('with its own status', mixed.includes('>TIMEOUT<'));
+    check('its own answer', mixed.includes('Added the endpoint.'));
+    check('the finding of the one that failed its review', mixed.includes('Traversal is still reachable.'));
+    check('its artifacts', mixed.includes('apps/server/src/routes/upload.ts'));
+    check('and a way into each transcript', mixed.includes('aria-label="Open transcript for QA Engineer"'));
+    check('no colour is hardcoded', !/#[0-9a-fA-F]{6}/.test(mixed));
+
+    const clean = renderStatus({
+      batchOutcome: batch({
+        results: [result({ childThreadId: 'child-a' }), result({ childThreadId: 'child-b' })],
+        overallStatus: 'COMPLETED',
+        aggregatedVerdict: 'PASS',
+        summary: 'All 2 delegated agents completed.'
+      })
+    });
+    check('a batch that all worked says so', clean.includes('>COMPLETED<'));
+    check('with the passing verdict', clean.includes('>PASS<'));
+
+    const unstarted = renderStatus({
+      batchOutcome: batch({
+        results: [
+          result({ childThreadId: '', role: 'QA Engineer', status: 'FAILED', summary: 'Could not be created.' })
+        ]
+      })
+    });
+    check('a child that never got a thread is still reported', unstarted.includes('Could not be created.'));
+    check('but offers no transcript to open', !unstarted.includes('Open Transcript'));
+
+    const overSingle = renderStatus({ batchOutcome: batch(), outcome: result() });
+    check('a batch takes precedence over a single outcome', overSingle.includes('Parallel delegation outcome'));
+    check('and the single card is not also shown', !overSingle.includes('aria-label="Delegation outcome"'));
+
+    const waitingWins = renderStatus({
+      parentState: 'WAITING_FOR_CHILD',
+      pendingChildren: [{ childThreadId: 'child-x', role: 'QA Engineer' }],
+      batchOutcome: batch()
+    });
+    check('a new fan-out takes precedence over the last one', waitingWins.includes('Inspect Child Thread'));
+    check('and the old card is not also shown', !waitingWins.includes('Parallel delegation outcome'));
+  }
+
+  describe('ThreadTreeView — siblings under one parent (P7-04)');
+  {
+    const nodes = buildThreadTree([
+      thread('root', { name: 'Payments refactor' }),
+      thread('sib-a', {
+        name: 'Backend work',
+        parent_thread_id: 'root',
+        delegation_context_json: context({ role: 'Senior Backend Engineer' })
+      }),
+      thread('sib-b', {
+        name: 'Frontend work',
+        parent_thread_id: 'root',
+        delegation_context_json: context({ role: 'Frontend Reviewer' })
+      }),
+      thread('sib-c', {
+        name: 'Audit',
+        parent_thread_id: 'root',
+        delegation_context_json: context({ role: 'Security Auditor', status: 'COMPLETED' })
+      })
+    ]);
+
+    equal('all three hang from the same parent', nodes[0].children.length, 3);
+    equal('at the same level', nodes[0].children.map(child => child.depth), [1, 1, 1]);
+
+    const html = renderTree({
+      nodes,
+      activeThreadId: 'sib-b',
+      parentStates: { root: 'WAITING_FOR_CHILD' },
+      childStates: { 'sib-a': 'ACTIVE', 'sib-b': 'STARTING', 'sib-c': 'COMPLETED' },
+      onCancelChild: noop
+    });
+
+    check('every sibling is rendered', html.includes('Backend work') && html.includes('Frontend work') && html.includes('Audit'));
+    check('each with its own role badge', html.includes('Senior Backend Engineer') && html.includes('Frontend Reviewer'));
+    check('all indented one level', (html.match(/margin-left:14px/g) || []).length === 3);
+    check('the parent says it is waiting', html.includes('Waiting on child'));
+    check('the working sibling says so', html.includes('Working'));
+    check('the starting one too', html.includes('Starting'));
+    check('and the finished one is done', html.includes('Completed'));
+    check('the two still running can be stopped', html.includes('aria-label="Stop Backend work"') && html.includes('aria-label="Stop Frontend work"'));
+    check('the finished one cannot', !html.includes('aria-label="Stop Audit"'));
+
+    const stopping = renderTree({
+      nodes,
+      onCancelChild: noop,
+      childStates: { 'sib-a': 'ACTIVE', 'sib-b': 'ACTIVE' },
+      cancellingThreads: { 'sib-a': true }
+    });
+    check('stopping one sibling leaves the other stoppable', stopping.includes('aria-label="Stop Frontend work"'));
+    check('while the one being stopped is spent', stopping.includes('disabled=""'));
   }
 
   describe('DelegateModalView');

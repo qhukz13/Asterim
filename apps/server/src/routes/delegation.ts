@@ -23,7 +23,8 @@ import { AuthErrorCode } from '@asterim/shared';
 import {
   DelegationError,
   DelegationErrorCode,
-  agentDelegationService
+  agentDelegationService,
+  parseParallelItems
 } from '../services/ai/AgentDelegationService';
 
 /** How a delegation failure reads over HTTP. */
@@ -35,6 +36,7 @@ const STATUS_BY_CODE: Record<DelegationErrorCode, number> = {
   // state that can accept it.
   DEPTH_EXCEEDED: 409,
   ALREADY_DELEGATING: 409,
+  CONCURRENCY_LIMIT_EXCEEDED: 409,
   NOT_DELEGATING: 409
 };
 
@@ -105,6 +107,92 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * Hands several pieces of work out at once (P7-04).
+   *
+   * Synchronous like `POST /delegate`, and for the same reason — the thing
+   * worth returning is the outcome — but the wait is the slowest child's rather
+   * than the sum of all of them, which is the entire point of asking this way.
+   *
+   * The body is a list under `delegations`; `tasks` and `items` are accepted as
+   * the two other names an operator or a script is likely to reach for.
+   */
+  const parallel = async (
+    request: { user?: unknown; params: unknown; body?: unknown },
+    reply: FastifyReply
+  ) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const body =
+      (request.body as {
+        delegations?: unknown;
+        tasks?: unknown;
+        items?: unknown;
+      } | null) || null;
+
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return reply
+        .status(400)
+        .send({ error: 'A parallel delegation body is required.', code: 'INVALID_INPUT' });
+    }
+
+    const raw = body.delegations ?? body.tasks ?? body.items;
+    if (!Array.isArray(raw)) {
+      return reply
+        .status(400)
+        .send({ error: 'delegations must be an array.', code: 'INVALID_INPUT' });
+    }
+
+    try {
+      const batch = await agentDelegationService.delegateParallel({
+        parentThreadId: id,
+        // Parsed by the service's own reader, so an operator posting `role` and
+        // `task` is understood exactly as an agent calling the meta-tool is.
+        delegations: parseParallelItems(raw)
+      });
+      return reply.send({ batch });
+    } catch (err) {
+      return sendDelegationError(reply, err);
+    }
+  };
+
+  // POST /api/v1/threads/:id/delegate/parallel — fan several pieces of work out
+  fastify.post('/api/v1/threads/:id/delegate/parallel', parallel);
+  fastify.post('/api/v1/threads/:id/delegation/parallel', parallel);
+
+  /**
+   * Stops every delegation running under this thread (P7-04).
+   *
+   * Addressed to the parent only: "stop all of them" is a statement about a
+   * fan-out, and a fan-out is a thing a parent has. A thread with nothing
+   * running answers 200 with an empty list, because that is what was asked for.
+   */
+  const cancelAll = async (
+    request: { user?: unknown; params: unknown; body?: unknown },
+    reply: FastifyReply
+  ) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const body = (request.body as { reason?: string } | null) || null;
+    const reason =
+      body && typeof body === 'object' && !Array.isArray(body) && typeof body.reason === 'string'
+        ? body.reason
+        : undefined;
+
+    try {
+      const results = await agentDelegationService.cancelAllDelegations(id, reason);
+      return reply.send({ success: true, cancelled: results.length, results });
+    } catch (err) {
+      return sendDelegationError(reply, err);
+    }
+  };
+
+  // POST /api/v1/threads/:id/delegate/cancel-all — stop the whole fan-out
+  fastify.post('/api/v1/threads/:id/delegate/cancel-all', cancelAll);
+  fastify.post('/api/v1/threads/:id/delegation/cancel-all', cancelAll);
+
+  /**
    * Stops the delegation this thread is part of, from either end (P7-03).
    *
    * `:id` may be the parent that is parked or the child that is running; the
@@ -152,7 +240,10 @@ export default async function delegationRoutes(fastify: FastifyInstance) {
         threadId: id,
         depth: agentDelegationService.getDelegationDepth(id),
         parentState: agentDelegationService.getParentState(id),
+        // The single id is what P7-01 promised and is still the whole answer
+        // for a sequential delegation; the list is what a fan-out needs.
         pendingChildThreadId: agentDelegationService.getPendingChild(id),
+        pendingChildThreadIds: agentDelegationService.getPendingChildren(id),
         children: agentDelegationService.listChildren(id)
       });
     } catch (err) {

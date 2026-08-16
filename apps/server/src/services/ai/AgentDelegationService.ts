@@ -32,8 +32,11 @@
 import crypto from 'crypto';
 import {
   AgentProfile,
+  BatchDelegationResult,
   DEFAULT_DELEGATION_TIMEOUT_MS,
   DEFAULT_REVIEW_ROLE,
+  DELEGATE_PARALLEL_TOOL,
+  DELEGATION_BATCH_COMPLETED_EVENT,
   DELEGATION_CHILD_STATE_EVENT,
   DELEGATION_COMPLETED_EVENT,
   DELEGATION_PARENT_STATE_EVENT,
@@ -46,10 +49,15 @@ import {
   DelegationRequest,
   DelegationResult,
   DelegationStatus,
+  MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATION_DEPTH,
   MAX_DELEGATION_TIMEOUT_MS,
+  ParallelDelegationItem,
+  ParallelDelegationRequest,
   REQUEST_REVIEW_TOOL,
   ReviewVerdict,
+  aggregateDelegationStatus,
+  aggregateReviewVerdict,
   isDelegationToolName,
   parseReviewVerdict
 } from '@asterim/shared';
@@ -64,6 +72,7 @@ export type DelegationErrorCode =
   | 'PROFILE_NOT_FOUND'
   | 'DEPTH_EXCEEDED'
   | 'ALREADY_DELEGATING'
+  | 'CONCURRENCY_LIMIT_EXCEEDED'
   | 'NOT_DELEGATING';
 
 export class DelegationError extends Error {
@@ -239,11 +248,18 @@ interface ActiveDelegation {
 }
 
 export class AgentDelegationService {
-  /** Parent thread id → the child it is currently parked behind. */
-  private waiting = new Map<string, string>();
+  /**
+   * Parent thread id → every child it is currently parked behind (P7-04).
+   *
+   * A set rather than a single id because a fan-out parks one parent behind up
+   * to `MAX_CONCURRENT_DELEGATIONS` children at once, and the parent is only
+   * released when the last of them is gone. A sequential delegation is the
+   * one-element case of the same thing.
+   */
+  private waiting = new Map<string, Set<string>>();
 
-  /** Parent thread id → the delegation running under it, while it runs. */
-  private active = new Map<string, ActiveDelegation>();
+  /** Parent thread id → child thread id → the delegation running under it. */
+  private active = new Map<string, Map<string, ActiveDelegation>>();
 
   constructor(
     private readonly runner: DelegationSessionRunner = new EventBusSessionRunner(),
@@ -343,12 +359,61 @@ export class AgentDelegationService {
 
   /** Whether this thread is parked behind a child right now. */
   public getParentState(threadId: string): DelegationParentState {
-    return this.waiting.has(threadId) ? 'WAITING_FOR_CHILD' : 'ACTIVE';
+    return this.isWaiting(threadId) ? 'WAITING_FOR_CHILD' : 'ACTIVE';
   }
 
-  /** The child a thread is waiting on, if it is waiting on one. */
+  /**
+   * The child a thread is waiting on, if it is waiting on one.
+   *
+   * The oldest, when it is waiting on several: the REST surface has carried one
+   * id since P7-01 and a dashboard that has not learned about fan-out is better
+   * served a child that exists than an arbitrary one. `getPendingChildren` is
+   * the whole answer.
+   */
   public getPendingChild(threadId: string): string | undefined {
-    return this.waiting.get(threadId);
+    return this.getPendingChildren(threadId)[0];
+  }
+
+  /** Every child a thread is parked behind, oldest first (P7-04). */
+  public getPendingChildren(threadId: string): string[] {
+    return [...(this.waiting.get(threadId) ?? [])];
+  }
+
+  /** Whether this thread has at least one child running under it. */
+  private isWaiting(threadId: string): boolean {
+    return (this.waiting.get(threadId)?.size ?? 0) > 0;
+  }
+
+  /** How many children are running under one parent right now. */
+  public getActiveDelegationCount(threadId: string): number {
+    return this.active.get(threadId)?.size ?? 0;
+  }
+
+  private registerActive(parentThreadId: string, active: ActiveDelegation): void {
+    const forParent = this.active.get(parentThreadId) ?? new Map<string, ActiveDelegation>();
+    forParent.set(active.childThreadId, active);
+    this.active.set(parentThreadId, forParent);
+  }
+
+  /** Drops one child, and the parent's entry with it once nothing is left. */
+  private unregisterActive(parentThreadId: string, childThreadId: string): void {
+    const forParent = this.active.get(parentThreadId);
+    if (!forParent) return;
+    forParent.delete(childThreadId);
+    if (forParent.size === 0) this.active.delete(parentThreadId);
+  }
+
+  private addWaiting(parentThreadId: string, childThreadId: string): void {
+    const children = this.waiting.get(parentThreadId) ?? new Set<string>();
+    children.add(childThreadId);
+    this.waiting.set(parentThreadId, children);
+  }
+
+  private removeWaiting(parentThreadId: string, childThreadId: string): void {
+    const children = this.waiting.get(parentThreadId);
+    if (!children) return;
+    children.delete(childThreadId);
+    if (children.size === 0) this.waiting.delete(parentThreadId);
   }
 
   // --- Startup recovery -----------------------------------------------------
@@ -473,21 +538,14 @@ export class AgentDelegationService {
       throw new DelegationError('THREAD_NOT_FOUND', `No thread with id ${parentThreadId}.`);
     }
 
-    if (this.waiting.has(parentThreadId)) {
+    if (this.isWaiting(parentThreadId)) {
       throw new DelegationError(
         'ALREADY_DELEGATING',
-        `Thread ${parentThreadId} is already waiting on child ${this.waiting.get(parentThreadId)}. Wait for that result before delegating again.`
+        `Thread ${parentThreadId} is already waiting on child ${this.getPendingChild(parentThreadId)}. Wait for that result before delegating again.`
       );
     }
 
-    const depth = this.getDelegationDepth(parentThreadId) + 1;
-    if (depth > MAX_DELEGATION_DEPTH) {
-      throw new DelegationError(
-        'DEPTH_EXCEEDED',
-        `Delegation depth ${depth} exceeds the limit of ${MAX_DELEGATION_DEPTH}. Do this work yourself rather than handing it on.`
-      );
-    }
-
+    const depth = this.requireDepthFor(parentThreadId);
     const profile = this.resolveTargetProfile(request);
     const reviewCriteria = normalizeCriteria(request?.reviewCriteria);
 
@@ -505,6 +563,43 @@ export class AgentDelegationService {
       requestedAt: Date.now()
     };
 
+    return this.runDelegation(parent, profile, context, timeoutMs, options);
+  }
+
+  /** The depth a new child of this thread would sit at, or a refusal. */
+  private requireDepthFor(parentThreadId: string): number {
+    const depth = this.getDelegationDepth(parentThreadId) + 1;
+    if (depth > MAX_DELEGATION_DEPTH) {
+      throw new DelegationError(
+        'DEPTH_EXCEEDED',
+        `Delegation depth ${depth} exceeds the limit of ${MAX_DELEGATION_DEPTH}. Do this work yourself rather than handing it on.`
+      );
+    }
+    return depth;
+  }
+
+  /**
+   * One delegation, from the child row to the parent's release.
+   *
+   * Everything above this has already been validated and refused; from here a
+   * child thread exists and the parent is owed a release. Shared by the
+   * sequential and the parallel paths, which differ only in who does the
+   * releasing: a `delegateTask` releases its own parent as it settles, while a
+   * batch keeps the parent parked until the last of its children is done and
+   * releases it once, with the outcome matrix rather than one child's answer.
+   */
+  private async runDelegation(
+    parent: ThreadRow,
+    profile: AgentProfile | null,
+    context: DelegationContext,
+    timeoutMs: number,
+    options: DelegationOptions & {
+      /** Whether settling this child is what puts the parent back to `ACTIVE`. */
+      releaseParent?: boolean;
+    }
+  ): Promise<DelegationResult> {
+    const parentThreadId = parent.id;
+    const { kind, depth, taskDescription } = context;
     const childThreadId = this.createChildThread(parent, profile, context);
     const startedAt = Date.now();
 
@@ -540,7 +635,7 @@ export class AgentDelegationService {
     settled.catch(() => undefined);
 
     const active: ActiveDelegation = { childThreadId, settled };
-    this.active.set(parentThreadId, active);
+    this.registerActive(parentThreadId, active);
 
     try {
       let outcome: ChildOutcome;
@@ -575,8 +670,12 @@ export class AgentDelegationService {
       // time the operator's request answers.
       await this.safeStop(parent.project_id, childThreadId);
 
-      this.waiting.delete(parentThreadId);
-      this.setParentState(parent.project_id, parentThreadId, 'ACTIVE', childThreadId);
+      // The parent sheds this child either way; whether that is what puts it
+      // back to work depends on whether anything else is still running under it.
+      this.removeWaiting(parentThreadId, childThreadId);
+      if (options.releaseParent !== false && !this.isWaiting(parentThreadId)) {
+        this.setParentState(parent.project_id, parentThreadId, 'ACTIVE', childThreadId);
+      }
 
       // The report goes into the parent's session — unless the parent asked for
       // this through a meta-tool, in which case it is already being written to
@@ -600,8 +699,163 @@ export class AgentDelegationService {
       reject(err);
       throw err;
     } finally {
-      this.active.delete(parentThreadId);
+      // Idempotent, and the net under the path above: a delegation that threw
+      // somewhere unexpected — a bus subscriber of its own terminal event, say
+      // — must not leave the parent parked behind a child that is over.
+      this.removeWaiting(parentThreadId, childThreadId);
+      this.unregisterActive(parentThreadId, childThreadId);
     }
+  }
+
+  // --- Parallel delegation (P7-04) --------------------------------------------
+
+  /**
+   * Hands several independent pieces of work out at once and waits for all.
+   *
+   * The fan-in is the point. Each child runs as an ordinary delegation — its own
+   * thread, its own brief, its own `delegation.started` and terminal
+   * `delegation.completed` — so nothing that watches a single delegation has to
+   * learn anything new. What the batch adds is that the parent stays parked
+   * until the last child settles and is then resumed once, with every outcome
+   * together, rather than four times with four answers it would have to
+   * reassemble itself.
+   *
+   * `Promise.allSettled` rather than `Promise.all`: one child crashing must not
+   * discard the three that worked, and a rejection nothing awaited would be an
+   * unhandled rejection in a process that must not go down.
+   *
+   * Everything that can be refused is refused before any child thread exists,
+   * so a batch that names one bad role does not leave three half-started
+   * sessions behind.
+   */
+  public async delegateParallel(
+    request: ParallelDelegationRequest,
+    options: DelegationOptions = {}
+  ): Promise<BatchDelegationResult> {
+    const parentThreadId = requireText(request?.parentThreadId, 'parentThreadId', 200);
+    const items = Array.isArray(request?.delegations) ? request.delegations : [];
+
+    if (items.length === 0) {
+      throw new DelegationError(
+        'INVALID_INPUT',
+        'delegations must contain at least one piece of work to hand out.'
+      );
+    }
+    if (items.length > MAX_CONCURRENT_DELEGATIONS) {
+      throw new DelegationError(
+        'CONCURRENCY_LIMIT_EXCEEDED',
+        `A batch may contain at most ${MAX_CONCURRENT_DELEGATIONS} delegations; ${items.length} were requested. Split the work into smaller batches.`
+      );
+    }
+
+    const parent = this.getThread(parentThreadId);
+    if (!parent) {
+      throw new DelegationError('THREAD_NOT_FOUND', `No thread with id ${parentThreadId}.`);
+    }
+
+    // Children already running under this parent count against the same bound:
+    // the limit is on how many agent processes one thread has going at once,
+    // not on how many one call asks for.
+    const running = this.getActiveDelegationCount(parentThreadId);
+    if (running + items.length > MAX_CONCURRENT_DELEGATIONS) {
+      throw new DelegationError(
+        'CONCURRENCY_LIMIT_EXCEEDED',
+        `Thread ${parentThreadId} already has ${running} delegation(s) running; ${items.length} more would exceed the limit of ${MAX_CONCURRENT_DELEGATIONS}.`
+      );
+    }
+
+    // One depth for the whole batch: every child of a parent sits at the same
+    // level, so the bound is checked once and refuses the batch as a whole.
+    const depth = this.requireDepthFor(parentThreadId);
+    const prepared = items.map(item => this.prepareItem(parentThreadId, depth, item));
+
+    const startedAt = Date.now();
+    const settled = await Promise.allSettled(
+      prepared.map(entry =>
+        this.runDelegation(parent, entry.profile, entry.context, entry.timeoutMs, {
+          // The parent is resumed once, by the batch, with everything at once.
+          resumeParent: false,
+          releaseParent: false
+        })
+      )
+    );
+
+    const results = settled.map((entry, index) =>
+      entry.status === 'fulfilled'
+        ? entry.value
+        : // Only reachable if the child row itself could not be written — the
+          // delegation never got as far as having a thread to report on, and
+          // the batch still owes the parent a row for what it asked for.
+          unstartedResult(prepared[index], startedAt, entry.reason)
+    );
+
+    const batch: BatchDelegationResult = {
+      parentThreadId,
+      overallStatus: aggregateDelegationStatus(results),
+      results,
+      aggregatedVerdict: aggregateReviewVerdict(results),
+      summary: summarizeBatch(results),
+      startedAt,
+      finishedAt: Date.now()
+    };
+
+    // Every child of *this* batch has settled. Released here rather than in
+    // `runDelegation` so exactly one release is published for the batch,
+    // whatever order the children finished in — and not at all while something
+    // else is still running under the same parent, which an operator starting a
+    // second batch over the REST surface can arrange.
+    if (!this.isWaiting(parentThreadId)) {
+      this.setParentState(parent.project_id, parentThreadId, 'ACTIVE');
+    }
+
+    if (options.resumeParent !== false) {
+      await this.safeSend(parent.project_id, parentThreadId, formatBatchDelegationReport(batch));
+    }
+
+    this.bus.publish({
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      source: 'server:delegation',
+      type: DELEGATION_BATCH_COMPLETED_EVENT,
+      payload: { projectId: parent.project_id, threadId: parentThreadId, batch }
+    });
+
+    return batch;
+  }
+
+  /** One item of a batch, validated and turned into a brief. */
+  private prepareItem(
+    parentThreadId: string,
+    depth: number,
+    item: ParallelDelegationItem
+  ): { context: DelegationContext; profile: AgentProfile | null; timeoutMs: number } {
+    const taskDescription = requireText(item?.taskDescription, 'taskDescription', MAX_TASK_CHARS);
+    const inputContext = optionalText(item?.inputContext, 'inputContext', MAX_CONTEXT_CHARS);
+    const kind: DelegationKind = item?.kind === 'REVIEW' ? 'REVIEW' : 'TASK';
+    const timeoutMs = resolveTimeout(item?.timeoutMs);
+    const profile = this.resolveTargetProfile({
+      parentThreadId,
+      targetRole: item?.targetRole,
+      profileId: item?.profileId,
+      taskDescription
+    });
+    const reviewCriteria = normalizeCriteria(item?.reviewCriteria);
+
+    return {
+      context: {
+        parentThreadId,
+        depth,
+        kind,
+        taskDescription,
+        inputContext,
+        reviewCriteria: reviewCriteria.length > 0 ? reviewCriteria : undefined,
+        role: profile?.role,
+        profileId: profile?.id,
+        requestedAt: Date.now()
+      },
+      profile,
+      timeoutMs
+    };
   }
 
   // --- Cancellation (P7-03) ---------------------------------------------------
@@ -633,7 +887,12 @@ export class AgentDelegationService {
       throw new DelegationError('THREAD_NOT_FOUND', `No thread with id ${id}.`);
     }
 
-    const active = this.active.get(id) ?? this.findActiveByChild(id);
+    // A thread named as a parent cancels what is running under it; named as a
+    // child, the one delegation it is. A parent running a fan-out resolves to
+    // its oldest child, because a single cancellation is a single result —
+    // stopping the whole batch is `cancelAllDelegations`, and the dashboard
+    // names the child it means when there is more than one.
+    const active = this.oldestActiveFor(id) ?? this.findActiveByChild(id);
     if (active) {
       // The first cancellation owns the reason; a second one would otherwise
       // overwrite it after the outcome had already been built from it.
@@ -658,10 +917,64 @@ export class AgentDelegationService {
     );
   }
 
+  /**
+   * Stops every delegation running under one parent (P7-04).
+   *
+   * The batch counterpart of `cancelDelegation`, and the same shape: it asks
+   * each child's own wait to end and then reports what each settled as, so a
+   * fan-out cancelled halfway through still has one writer per child row, one
+   * stopped process per child, and — if the batch was dispatched through
+   * `delegateParallel` — one release of the parent, from the batch itself.
+   *
+   * A parent with nothing running answers with an empty list rather than an
+   * error: "stop everything" on a thread where everything is already stopped
+   * has got what it asked for.
+   */
+  public async cancelAllDelegations(
+    parentThreadId: string,
+    reason?: string
+  ): Promise<DelegationResult[]> {
+    const id = requireText(parentThreadId, 'parentThreadId', 200);
+    const why = optionalText(reason, 'reason', MAX_SUMMARY_CHARS) || DEFAULT_CANCELLATION_REASON;
+
+    const thread = this.getThread(id);
+    if (!thread) {
+      throw new DelegationError('THREAD_NOT_FOUND', `No thread with id ${id}.`);
+    }
+
+    // Snapshotted before anything is awaited: each child settling removes
+    // itself from the registry, and iterating it while that happens would skip
+    // whichever sibling the deletion moved.
+    const running = [...(this.active.get(id)?.values() ?? [])];
+    if (running.length === 0) return [];
+
+    for (const entry of running) {
+      if (entry.cancelReason) continue;
+      entry.cancelReason = why;
+      entry.abort?.(why);
+    }
+
+    const settled = await Promise.allSettled(running.map(entry => entry.settled));
+    return settled
+      .filter(
+        (entry): entry is PromiseFulfilledResult<DelegationResult> => entry.status === 'fulfilled'
+      )
+      .map(entry => entry.value);
+  }
+
+  /** The oldest delegation running under one parent, if any is. */
+  private oldestActiveFor(parentThreadId: string): ActiveDelegation | undefined {
+    const forParent = this.active.get(parentThreadId);
+    if (!forParent) return undefined;
+    for (const entry of forParent.values()) return entry;
+    return undefined;
+  }
+
   /** The running delegation whose child is this thread, if there is one. */
   private findActiveByChild(childThreadId: string): ActiveDelegation | undefined {
-    for (const entry of this.active.values()) {
-      if (entry.childThreadId === childThreadId) return entry;
+    for (const forParent of this.active.values()) {
+      const entry = forParent.get(childThreadId);
+      if (entry) return entry;
     }
     return undefined;
   }
@@ -724,7 +1037,8 @@ export class AgentDelegationService {
   // --- Meta-tools -----------------------------------------------------------
 
   /**
-   * Runs `delegate_task` or `request_review` on behalf of an agent.
+   * Runs `delegate_task`, `request_review` or `delegate_parallel` on behalf of
+   * an agent.
    *
    * Never throws, for the reason every agent-facing path in Asterim does not: a
    * delegating agent is mid-turn waiting on a line, and an exception here would
@@ -750,6 +1064,17 @@ export class AgentDelegationService {
       // into its session as the tool's result. That is the resume, so the
       // service must not also write the report in as a message.
       const viaTool: DelegationOptions = { resumeParent: false };
+
+      if (toolName === DELEGATE_PARALLEL_TOOL) {
+        const batch = await this.delegateParallel(
+          {
+            parentThreadId: context.threadId,
+            delegations: parseParallelItems(args?.delegations ?? args?.tasks ?? args?.items)
+          },
+          viaTool
+        );
+        return { name: toolName, isError: false, text: formatBatchDelegationReport(batch) };
+      }
 
       const result =
         toolName === REQUEST_REVIEW_TOOL
@@ -1090,7 +1415,7 @@ export class AgentDelegationService {
     childThreadId?: string
   ): void {
     if (state === 'WAITING_FOR_CHILD' && childThreadId) {
-      this.waiting.set(threadId, childThreadId);
+      this.addWaiting(threadId, childThreadId);
     }
     this.bus.publish({
       id: crypto.randomUUID(),
@@ -1208,6 +1533,110 @@ export function formatDelegationReport(result: DelegationResult): string {
   );
 
   return lines.join('\n');
+}
+
+/** One line saying how a batch went, in the terms a caller can act on. */
+export function summarizeBatch(results: readonly DelegationResult[]): string {
+  const total = results.length;
+  const completed = results.filter(result => result.status === 'COMPLETED').length;
+  const timedOut = results.filter(result => result.status === 'TIMEOUT').length;
+  const failed = total - completed - timedOut;
+
+  const trailing: string[] = [];
+  if (failed > 0) trailing.push(`${failed} failed`);
+  if (timedOut > 0) trailing.push(`${timedOut} timed out`);
+
+  const agents = total === 1 ? 'agent' : 'agents';
+  return trailing.length > 0
+    ? `${completed} of ${total} delegated ${agents} completed (${trailing.join(', ')}).`
+    : `All ${total} delegated ${agents} completed.`;
+}
+
+/**
+ * A batch, as the block written into the parent's session.
+ *
+ * The matrix comes before the detail on purpose: the first thing the parent has
+ * to decide is whether to continue or to fix something, and that is answered by
+ * the status column alone.
+ */
+export function formatBatchDelegationReport(batch: BatchDelegationResult): string {
+  const lines = [
+    `[Asterim parallel delegation] ${batch.results.length} agent(s) finished with overall status ${batch.overallStatus}.`
+  ];
+
+  if (batch.aggregatedVerdict) lines.push(`VERDICT: ${batch.aggregatedVerdict}`);
+  lines.push(`SUMMARY: ${batch.summary}`, '', 'OUTCOMES:');
+
+  batch.results.forEach((result, index) => {
+    const who = result.role ? result.role : 'Delegated agent';
+    const verdict = result.verdict ? ` [${result.verdict}]` : '';
+    lines.push(
+      `${index + 1}. ${who} — ${result.status}${verdict} (thread ${result.childThreadId || 'not started'})`,
+      `   ${result.summary}`
+    );
+    if (result.artifacts && result.artifacts.length > 0) {
+      lines.push(`   ARTIFACTS: ${result.artifacts.join(', ')}`);
+    }
+  });
+
+  lines.push(
+    '',
+    batch.overallStatus === 'COMPLETED'
+      ? 'Continue from these results. Verify anything you depend on rather than assuming it.'
+      : 'Some of the delegated work did not complete. Decide for each one whether to do it yourself, retry it, or report the failure.'
+  );
+
+  return lines.join('\n');
+}
+
+/**
+ * The row a batch reports for a child that never got a thread.
+ *
+ * `childThreadId` is empty because there is nothing to open — the alternative
+ * would be inventing an id for a transcript that does not exist.
+ */
+function unstartedResult(
+  prepared: { context: DelegationContext; profile: AgentProfile | null },
+  startedAt: number,
+  reason: unknown
+): DelegationResult {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return {
+    childThreadId: '',
+    status: 'FAILED',
+    summary: `The delegated session could not be created: ${truncate(message, MAX_SUMMARY_CHARS)}`,
+    output: '',
+    role: prepared.profile?.role,
+    profileId: prepared.profile?.id,
+    depth: prepared.context.depth,
+    verdict: prepared.context.kind === 'REVIEW' ? 'NEEDS_FIX' : undefined,
+    startedAt,
+    finishedAt: Date.now()
+  };
+}
+
+/**
+ * The `delegations` argument of `delegate_parallel`, as an agent wrote it.
+ *
+ * Tolerant about the key names for the same reason the single-delegation tool
+ * is: a model that says `task` where the schema says `taskDescription` has
+ * asked for something perfectly clear, and refusing it would cost a session.
+ * Anything that is not an object at all is dropped, and the emptiness that
+ * leaves is refused by `delegateParallel` with a message the agent can act on.
+ */
+export function parseParallelItems(value: unknown): ParallelDelegationItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+    .map(entry => ({
+      targetRole: asOptionalString(entry.role ?? entry.targetRole),
+      profileId: asOptionalString(entry.profileId),
+      taskDescription: asString(entry.task ?? entry.taskDescription),
+      inputContext: asOptionalString(entry.context ?? entry.inputContext ?? entry.diff),
+      timeoutMs: asOptionalNumber(entry.timeoutMs),
+      kind: String(entry.kind).toUpperCase() === 'REVIEW' ? ('REVIEW' as const) : ('TASK' as const),
+      reviewCriteria: normalizeCriteria(entry.criteria ?? entry.reviewCriteria)
+    }));
 }
 
 /** The value of a `TAG: value` line, taking the last one the child wrote. */

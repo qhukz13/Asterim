@@ -81,19 +81,25 @@ const {
   formatChildBrief,
   formatDelegationReport,
   parseArtifacts,
+  parseParallelItems,
   parseTaggedLine,
   readVerdict
 } = require('../AgentDelegationService');
 const { McpAgentBridge } = require('../../mcp/McpAgentBridge');
 const { McpToolGateway } = require('../../mcp/McpToolGateway');
 const {
+  DELEGATE_PARALLEL_TOOL,
   DELEGATE_TASK_TOOL,
+  DELEGATION_BATCH_COMPLETED_EVENT,
   DELEGATION_CHILD_STATE_EVENT,
   DELEGATION_COMPLETED_EVENT,
   DELEGATION_PARENT_STATE_EVENT,
   DELEGATION_STARTED_EVENT,
+  MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATION_DEPTH,
   REQUEST_REVIEW_TOOL,
+  aggregateDelegationStatus,
+  aggregateReviewVerdict,
   canProfileDelegate,
   isDelegationCapableRole,
   isDelegationToolName,
@@ -195,6 +201,19 @@ function insertThread(id: string, name: string, parentThreadId: string | null = 
 
 function threadRow(id: string): any {
   return dbService.getDb().prepare('SELECT * FROM threads WHERE id = ?').get(id);
+}
+
+/**
+ * How many handlers one channel of the bus has right now.
+ *
+ * Reaching past `EventBus`'s public surface on purpose: a delegation that
+ * settles must take its two subscriptions with it, and a leak there is
+ * invisible from the outside until a long-running Core has thousands of them.
+ */
+function listenerCount(type: string): number {
+  return (eventBus as unknown as { emitter: { listenerCount(t: string): number } }).emitter.listenerCount(
+    type
+  );
 }
 
 /** Lets the event loop turn, so a delegation gets as far as parking its parent. */
@@ -968,9 +987,10 @@ async function main(): Promise<void> {
 
     const bridge = new McpAgentBridge();
     const forLead = bridge.getDelegationTools({ role: 'Tech Lead', name: 'Tech Lead' });
-    equal('the lead is given both tools', forLead.map((tool: { name: string }) => tool.name), [
+    equal('the lead is given all three tools', forLead.map((tool: { name: string }) => tool.name), [
       DELEGATE_TASK_TOOL,
-      REQUEST_REVIEW_TOOL
+      REQUEST_REVIEW_TOOL,
+      DELEGATE_PARALLEL_TOOL
     ]);
     equal('marked as delegation rather than MCP', forLead[0].kind, 'delegation');
     check('with a schema an agent can fill in', JSON.stringify(forLead[0].inputSchema).includes('role'));
@@ -1121,6 +1141,569 @@ async function main(): Promise<void> {
   }
 
   // --- REST ---------------------------------------------------------------------
+  // --- Parallel delegation (P7-04) --------------------------------------------
+
+  describe('aggregateDelegationStatus / aggregateReviewVerdict');
+  {
+    const of = (...statuses: string[]) => statuses.map(status => ({ status }));
+    equal('everything finishing is COMPLETED', aggregateDelegationStatus(of('COMPLETED', 'COMPLETED')), 'COMPLETED');
+    equal('one of two is partial', aggregateDelegationStatus(of('COMPLETED', 'FAILED')), 'PARTIAL_SUCCESS');
+    equal('so is one that ran out of time', aggregateDelegationStatus(of('COMPLETED', 'TIMEOUT')), 'PARTIAL_SUCCESS');
+    equal('nothing finishing is FAILED', aggregateDelegationStatus(of('FAILED', 'FAILED')), 'FAILED');
+    // A batch that only ever timed out keeps the distinction a single
+    // delegation keeps: the work may be done, nobody said so in time.
+    equal('unless they all timed out', aggregateDelegationStatus(of('TIMEOUT', 'TIMEOUT')), 'TIMEOUT');
+    equal('a mix of ways to fail is still FAILED', aggregateDelegationStatus(of('FAILED', 'TIMEOUT')), 'FAILED');
+    equal('and an empty batch is not a success', aggregateDelegationStatus([]), 'FAILED');
+
+    equal('no reviews, no verdict', aggregateReviewVerdict([{ status: 'COMPLETED' }]), undefined);
+    equal(
+      'every review passing is a pass',
+      aggregateReviewVerdict([{ verdict: 'PASS' }, { verdict: 'PASS' }]),
+      'PASS'
+    );
+    equal(
+      'one dissent carries',
+      aggregateReviewVerdict([{ verdict: 'PASS' }, { verdict: 'NEEDS_FIX' }]),
+      'NEEDS_FIX'
+    );
+  }
+
+  describe('delegateParallel — several children at once');
+  {
+    runner.reset();
+    insertThread('fan-lead', 'Lead fanning out');
+
+    // Recorded at the moment the first child answers: every session must have
+    // been started by then, which is what "concurrently" means here. A
+    // sequential implementation would have started exactly one.
+    let startedAtFirstReply = 0;
+    runner.reply = threadId => {
+      if (startedAtFirstReply === 0) startedAtFirstReply = runner.started.length;
+      emitAgentMessage(threadId, `SUMMARY: ${threadRow(threadId).name} finished.\nARTIFACTS: apps/server/src/x.ts`);
+      emitStatus(threadId, 'idle');
+    };
+
+    const recorder = recordEvents([
+      DELEGATION_STARTED_EVENT,
+      DELEGATION_PARENT_STATE_EVENT,
+      DELEGATION_COMPLETED_EVENT,
+      DELEGATION_BATCH_COMPLETED_EVENT
+    ]);
+
+    const batch = await service.delegateParallel({
+      parentThreadId: 'fan-lead',
+      delegations: [
+        { targetRole: 'Senior Backend Engineer', taskDescription: 'Add the endpoint.' },
+        { targetRole: 'QA Engineer', taskDescription: 'Test the endpoint.' },
+        { targetRole: 'Security Auditor', taskDescription: 'Audit the endpoint.' }
+      ]
+    });
+    recorder.stop();
+
+    equal('three children ran', batch.results.length, 3);
+    equal('all of them finishing', batch.overallStatus, 'COMPLETED');
+    equal('three sessions were started', runner.started.length, 3);
+    equal('all of them before the first answer came back', startedAtFirstReply, 3);
+    equal(
+      'each in a thread of its own',
+      new Set(batch.results.map((result: { childThreadId: string }) => result.childThreadId)).size,
+      3
+    );
+    equal(
+      'and under the roles that were asked for',
+      batch.results.map((result: { role?: string }) => result.role),
+      ['Senior Backend Engineer', 'QA Engineer', 'Security Auditor']
+    );
+    equal('every child sits one level down', batch.results.every((result: { depth?: number }) => result.depth === 1), true);
+    check('the summary counts them', batch.summary.includes('All 3 delegated agents completed.'));
+    check('the batch is timed', batch.finishedAt >= batch.startedAt);
+    equal('no reviews, so no verdict over them', batch.aggregatedVerdict, undefined);
+    equal('the batch names the parent it ran for', batch.parentThreadId, 'fan-lead');
+
+    equal(
+      'each child was announced as it started',
+      recorder.events.filter(event => event.type === DELEGATION_STARTED_EVENT).length,
+      3
+    );
+    equal(
+      'the parent was parked once per child',
+      recorder.events.filter(
+        event =>
+          event.type === DELEGATION_PARENT_STATE_EVENT && event.payload.state === 'WAITING_FOR_CHILD'
+      ).length,
+      3
+    );
+    equal(
+      'and released exactly once, when the last of them was done',
+      recorder.events.filter(
+        event => event.type === DELEGATION_PARENT_STATE_EVENT && event.payload.state === 'ACTIVE'
+      ).length,
+      1
+    );
+    equal(
+      'every child reports its own outcome, as a single delegation does',
+      recorder.events.filter(event => event.type === DELEGATION_COMPLETED_EVENT).length,
+      3
+    );
+    equal(
+      'and the batch reports itself once',
+      recorder.events.filter(event => event.type === DELEGATION_BATCH_COMPLETED_EVENT).length,
+      1
+    );
+    equal(
+      'the batch event carries the aggregate',
+      recorder.events.find(event => event.type === DELEGATION_BATCH_COMPLETED_EVENT)?.payload.batch
+        .overallStatus,
+      'COMPLETED'
+    );
+
+    equal('the parent is free again', service.getParentState('fan-lead'), 'ACTIVE');
+    equal('waiting on nothing', service.getPendingChildren('fan-lead'), []);
+    equal('with nothing left running', service.getActiveDelegationCount('fan-lead'), 0);
+    equal('every child process was stopped', runner.stopped.length, 3);
+
+    const resumes = runner.sentTo('fan-lead');
+    equal('the parent is resumed once, not once per child', resumes.length, 1);
+    check('with the outcome matrix', resumes[0].includes('OUTCOMES:'));
+    check('naming every role', resumes[0].includes('Senior Backend Engineer') && resumes[0].includes('QA Engineer'));
+    check('and what each of them produced', resumes[0].includes('ARTIFACTS: apps/server/src/x.ts'));
+
+    equal(
+      'all three children hang from the parent in storage',
+      service.listChildren('fan-lead').length,
+      3
+    );
+    equal(
+      'each with its outcome recorded',
+      service
+        .listChildren('fan-lead')
+        .map((child: { status: string }) => child.status),
+      ['COMPLETED', 'COMPLETED', 'COMPLETED']
+    );
+  }
+
+  describe('delegateParallel — a batch where only some of them finish');
+  {
+    runner.reset();
+    insertThread('fan-mixed', 'Lead with a bad batch');
+    runner.reply = threadId => {
+      const name = String(threadRow(threadId).name);
+      if (name.includes('Works')) {
+        emitAgentMessage(threadId, 'SUMMARY: the working one.');
+        emitStatus(threadId, 'idle');
+        return;
+      }
+      if (name.includes('Crashes')) {
+        emitStatus(threadId, 'error', 'the agent died');
+        return;
+      }
+      // The third says nothing at all, and is left to its timeout.
+    };
+
+    const batch = await service.delegateParallel({
+      parentThreadId: 'fan-mixed',
+      delegations: [
+        { targetRole: 'QA Engineer', taskDescription: 'Works.', timeoutMs: 3000 },
+        { targetRole: 'Senior Backend Engineer', taskDescription: 'Crashes.', timeoutMs: 3000 },
+        { targetRole: 'DevOps Engineer', taskDescription: 'Says nothing.', timeoutMs: 150 }
+      ]
+    });
+
+    equal('one working child makes it a partial success', batch.overallStatus, 'PARTIAL_SUCCESS');
+    equal(
+      'and each outcome is reported as its own',
+      batch.results.map((result: { status: string }) => result.status),
+      ['COMPLETED', 'FAILED', 'TIMEOUT']
+    );
+    check('the summary says how many', batch.summary.includes('1 of 3 delegated agents completed'));
+    check('and how they went wrong', batch.summary.includes('1 failed') && batch.summary.includes('1 timed out'));
+    check('the working child’s answer survives', batch.results[0].summary.includes('the working one.'));
+    check('the crash is explained', batch.results[1].summary.includes('the agent died'));
+    check('and so is the silence', /did not finish within/.test(batch.results[2].summary));
+    equal('the parent is released even so', service.getParentState('fan-mixed'), 'ACTIVE');
+    check('and told about all three', runner.sentTo('fan-mixed')[0].includes('PARTIAL_SUCCESS'));
+
+    // Nothing succeeding is a failed batch, not a partial one.
+    runner.reset();
+    insertThread('fan-doomed', 'Lead whose batch all crashed');
+    runner.reply = threadId => emitStatus(threadId, 'error', 'nope');
+    const doomed = await service.delegateParallel({
+      parentThreadId: 'fan-doomed',
+      delegations: [
+        { targetRole: 'QA Engineer', taskDescription: 'One.' },
+        { targetRole: 'DevOps Engineer', taskDescription: 'Two.' }
+      ]
+    });
+    equal('a batch where nothing finished is FAILED', doomed.overallStatus, 'FAILED');
+    check('and says so to the parent', runner.sentTo('fan-doomed')[0].includes('did not complete'));
+  }
+
+  describe('delegateParallel — reviews and the verdict over them');
+  {
+    runner.reset();
+    insertThread('fan-review', 'Lead asking for two reviews');
+    runner.reply = threadId => {
+      const name = String(threadRow(threadId).name);
+      emitAgentMessage(
+        threadId,
+        name.includes('traversal')
+          ? 'SUMMARY: nothing found.\nVERDICT: PASS'
+          : 'SUMMARY: the query is concatenated.\nVERDICT: NEEDS_FIX'
+      );
+      emitStatus(threadId, 'idle');
+    };
+
+    const mixed = await service.delegateParallel({
+      parentThreadId: 'fan-review',
+      delegations: [
+        {
+          targetRole: 'Security Auditor',
+          kind: 'REVIEW',
+          taskDescription: 'Review for traversal.',
+          inputContext: 'diff --git a b',
+          reviewCriteria: ['No path traversal']
+        },
+        {
+          targetRole: 'QA Engineer',
+          kind: 'REVIEW',
+          taskDescription: 'Review for injection.',
+          inputContext: 'diff --git a b'
+        }
+      ]
+    });
+
+    equal('every review returns its own verdict', mixed.results.map((r: { verdict?: string }) => r.verdict), [
+      'PASS',
+      'NEEDS_FIX'
+    ]);
+    equal('and one dissent decides the batch', mixed.aggregatedVerdict, 'NEEDS_FIX');
+    equal('the reviews themselves ran fine', mixed.overallStatus, 'COMPLETED');
+    check('the parent is told the verdict first', runner.sentTo('fan-review')[0].includes('VERDICT: NEEDS_FIX'));
+    check('the criteria reached the child', runner.sent.some(entry => entry.content.includes('No path traversal')));
+
+    runner.reset();
+    insertThread('fan-clean', 'Lead whose reviews all pass');
+    runner.reply = threadId => {
+      emitAgentMessage(threadId, 'SUMMARY: looks right.\nVERDICT: PASS');
+      emitStatus(threadId, 'idle');
+    };
+    const clean = await service.delegateParallel({
+      parentThreadId: 'fan-clean',
+      delegations: [
+        { targetRole: 'Security Auditor', kind: 'REVIEW', taskDescription: 'A.', inputContext: 'd' },
+        { targetRole: 'QA Engineer', kind: 'REVIEW', taskDescription: 'B.', inputContext: 'd' }
+      ]
+    });
+    equal('all passing is a pass', clean.aggregatedVerdict, 'PASS');
+  }
+
+  describe('delegateParallel — what it refuses');
+  {
+    runner.reset();
+    insertThread('fan-limits', 'Lead at the limits');
+
+    equal(
+      'a batch of five is refused',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'fan-limits',
+          delegations: Array.from({ length: 5 }, (_, index) => ({
+            targetRole: 'QA Engineer',
+            taskDescription: `Task ${index}.`
+          }))
+        })
+      ),
+      'CONCURRENCY_LIMIT_EXCEEDED'
+    );
+    equal(
+      'an empty batch is not a delegation',
+      await codeOf(() => service.delegateParallel({ parentThreadId: 'fan-limits', delegations: [] })),
+      'INVALID_INPUT'
+    );
+    equal(
+      'nor is a batch that is not a list',
+      await codeOf(() =>
+        service.delegateParallel({ parentThreadId: 'fan-limits', delegations: 'nope' as never })
+      ),
+      'INVALID_INPUT'
+    );
+    equal(
+      'a batch from a thread that does not exist is refused',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'ghost-parent',
+          delegations: [{ targetRole: 'QA Engineer', taskDescription: 'x' }]
+        })
+      ),
+      'THREAD_NOT_FOUND'
+    );
+    equal(
+      'a batch past the depth bound is refused as a whole',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'd3',
+          delegations: [{ targetRole: 'QA Engineer', taskDescription: 'x' }]
+        })
+      ),
+      'DEPTH_EXCEEDED'
+    );
+
+    // One bad item refuses the batch, and — the part worth asserting — before
+    // any of the good ones has a thread.
+    const before = service.listChildren('fan-limits').length;
+    equal(
+      'an unknown role in one item refuses the batch',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'fan-limits',
+          delegations: [
+            { targetRole: 'QA Engineer', taskDescription: 'Fine.' },
+            { targetRole: 'Chief Vibes Officer', taskDescription: 'Not a role.' }
+          ]
+        })
+      ),
+      'PROFILE_NOT_FOUND'
+    );
+    equal('and leaves no half-started children behind', service.listChildren('fan-limits').length, before);
+    equal('nor a parked parent', service.getParentState('fan-limits'), 'ACTIVE');
+    equal(
+      'an item with no task is refused too',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'fan-limits',
+          delegations: [{ targetRole: 'QA Engineer', taskDescription: '   ' }]
+        })
+      ),
+      'INVALID_INPUT'
+    );
+  }
+
+  describe('delegateParallel — the concurrency bound counts what is running');
+  {
+    runner.reset();
+    insertThread('fan-busy', 'Lead already busy');
+    // Children that answer only after everything under test has been asked.
+    runner.reply = threadId =>
+      setTimeout(() => {
+        emitAgentMessage(threadId, 'SUMMARY: eventually.');
+        emitStatus(threadId, 'idle');
+      }, 120);
+
+    const first = service.delegateParallel({
+      parentThreadId: 'fan-busy',
+      delegations: [
+        { targetRole: 'QA Engineer', taskDescription: 'One.', timeoutMs: 4000 },
+        { targetRole: 'DevOps Engineer', taskDescription: 'Two.', timeoutMs: 4000 },
+        { targetRole: 'Senior Backend Engineer', taskDescription: 'Three.', timeoutMs: 4000 }
+      ]
+    });
+    await pause(20);
+
+    equal('three children are running', service.getActiveDelegationCount('fan-busy'), 3);
+    equal('and the parent is parked behind all of them', service.getPendingChildren('fan-busy').length, 3);
+    equal(
+      'two more would be one too many',
+      await codeOf(() =>
+        service.delegateParallel({
+          parentThreadId: 'fan-busy',
+          delegations: [
+            { targetRole: 'QA Engineer', taskDescription: 'Four.' },
+            { targetRole: 'QA Engineer', taskDescription: 'Five.' }
+          ]
+        })
+      ),
+      'CONCURRENCY_LIMIT_EXCEEDED'
+    );
+    equal(
+      'and a sequential delegation is still refused while a batch runs',
+      await codeOf(() =>
+        service.delegateTask({
+          parentThreadId: 'fan-busy',
+          targetRole: 'QA Engineer',
+          taskDescription: 'Sequential.'
+        })
+      ),
+      'ALREADY_DELEGATING'
+    );
+
+    const batch = await first;
+    equal('the batch that was running is unaffected', batch.overallStatus, 'COMPLETED');
+    equal('and a fourth fits once it is done', service.getActiveDelegationCount('fan-busy'), 0);
+  }
+
+  describe('cancelDelegation — stopping one child of a batch');
+  {
+    runner.reset();
+    insertThread('fan-cancel-one', 'Lead with one runaway child');
+    runner.reply = threadId =>
+      setTimeout(() => {
+        emitAgentMessage(threadId, 'SUMMARY: eventually.');
+        emitStatus(threadId, 'idle');
+      }, 150);
+
+    const inFlight = service.delegateParallel({
+      parentThreadId: 'fan-cancel-one',
+      delegations: [
+        { targetRole: 'QA Engineer', taskDescription: 'Keeps going.', timeoutMs: 4000 },
+        { targetRole: 'DevOps Engineer', taskDescription: 'Runs away.', timeoutMs: 4000 },
+        { targetRole: 'Senior Backend Engineer', taskDescription: 'Also fine.', timeoutMs: 4000 }
+      ]
+    });
+    await pause(20);
+
+    const runaway = service.getPendingChildren('fan-cancel-one')[1];
+    const cancelled = await service.cancelDelegation(runaway, 'That one was going nowhere.');
+
+    equal('the child it named is the one that stopped', cancelled.childThreadId, runaway);
+    equal('as a failure', cancelled.status, 'FAILED');
+    equal('with the operator’s reason', cancelled.summary, 'That one was going nowhere.');
+    equal('its siblings keep running', service.getPendingChildren('fan-cancel-one').length, 2);
+    check('and only it was stopped', runner.stopped.length === 1 && runner.stopped[0].threadId === runaway);
+    equal('the parent stays parked behind the rest', service.getParentState('fan-cancel-one'), 'WAITING_FOR_CHILD');
+
+    const batch = await inFlight;
+    equal('the batch reports the two that finished and the one that did not', batch.overallStatus, 'PARTIAL_SUCCESS');
+    equal(
+      'in the order they were asked for',
+      batch.results.map((result: { status: string }) => result.status),
+      ['COMPLETED', 'FAILED', 'COMPLETED']
+    );
+    equal('and the parent is released once they are all done', service.getParentState('fan-cancel-one'), 'ACTIVE');
+  }
+
+  describe('cancelAllDelegations — stopping a whole fan-out');
+  {
+    runner.reset();
+    insertThread('fan-cancel-all', 'Lead stopping everything');
+    const chatListeners = listenerCount('chat.message');
+    const statusListeners = listenerCount('agent.status');
+
+    runner.reply = threadId =>
+      setTimeout(() => {
+        emitAgentMessage(threadId, 'SUMMARY: eventually.');
+        emitStatus(threadId, 'idle');
+      }, 400);
+
+    const inFlight = service.delegateParallel({
+      parentThreadId: 'fan-cancel-all',
+      delegations: [
+        { targetRole: 'QA Engineer', taskDescription: 'One.', timeoutMs: 5000 },
+        { targetRole: 'DevOps Engineer', taskDescription: 'Two.', timeoutMs: 5000 },
+        { targetRole: 'Senior Backend Engineer', taskDescription: 'Three.', timeoutMs: 5000 }
+      ]
+    });
+    await pause(20);
+    equal('three children are watching the bus', listenerCount('chat.message'), chatListeners + 3);
+
+    const results = await service.cancelAllDelegations('fan-cancel-all', 'The operator stopped it.');
+
+    equal('every child comes back', results.length, 3);
+    equal(
+      'each of them failed',
+      results.map((result: { status: string }) => result.status),
+      ['FAILED', 'FAILED', 'FAILED']
+    );
+    equal(
+      'with the reason that was given',
+      new Set(results.map((result: { summary: string }) => result.summary)).size,
+      1
+    );
+    equal('and it is the operator’s', results[0].summary, 'The operator stopped it.');
+    equal('every child process was stopped', runner.stopped.length, 3);
+
+    const batch = await inFlight;
+    equal('the batch itself reports the cancellation', batch.overallStatus, 'FAILED');
+    equal('the parent is unparked', service.getParentState('fan-cancel-all'), 'ACTIVE');
+    equal('with nothing pending', service.getPendingChildren('fan-cancel-all'), []);
+    equal('and nothing running', service.getActiveDelegationCount('fan-cancel-all'), 0);
+    equal('no watcher is left on the bus', listenerCount('chat.message'), chatListeners);
+    equal('nor on the status channel', listenerCount('agent.status'), statusListeners);
+    equal(
+      'every child row is settled in storage',
+      service
+        .listChildren('fan-cancel-all')
+        .map((child: { status: string }) => child.status),
+      ['FAILED', 'FAILED', 'FAILED']
+    );
+
+    equal(
+      'cancelling a thread with nothing running is not an error',
+      (await service.cancelAllDelegations('fan-cancel-all')).length,
+      0
+    );
+    equal(
+      'and an unknown thread still is',
+      await codeOf(() => service.cancelAllDelegations('ghost-parent')),
+      'THREAD_NOT_FOUND'
+    );
+  }
+
+  describe('delegate_parallel as a meta-tool');
+  {
+    runner.reset();
+    insertThread('fan-tool', 'Lead using the tool');
+    runner.reply = threadId => {
+      emitAgentMessage(threadId, 'SUMMARY: did the thing.\nARTIFACTS: none');
+      emitStatus(threadId, 'idle');
+    };
+
+    const bridge = new McpAgentBridge();
+    const forLead = bridge.getDelegationTools({ role: 'Tech Lead', name: 'Tech Lead' });
+    equal(
+      'the parallel tool is offered alongside the other two',
+      forLead.map((tool: { name: string }) => tool.name).includes(DELEGATE_PARALLEL_TOOL),
+      true
+    );
+    check(
+      'and its schema asks for a list',
+      JSON.stringify(forLead.find((tool: { name: string }) => tool.name === DELEGATE_PARALLEL_TOOL)?.inputSchema).includes('delegations')
+    );
+    equal('an auditor still gets none of them', bridge.getDelegationTools({ role: 'Security Auditor' }).length, 0);
+    equal('the name is recognised', isDelegationToolName(DELEGATE_PARALLEL_TOOL), true);
+
+    const answered = await service.executeDelegationTool(
+      DELEGATE_PARALLEL_TOOL,
+      {
+        delegations: [
+          { role: 'Senior Backend Engineer', task: 'Add the endpoint.', context: 'Use the service.' },
+          { role: 'QA Engineer', task: 'Test it.' }
+        ]
+      },
+      { threadId: 'fan-tool' }
+    );
+
+    equal('a batch through the tool is not an error', answered.isError, false);
+    check('and the answer is the matrix', answered.text.includes('OUTCOMES:'));
+    check('naming both roles', answered.text.includes('Senior Backend Engineer') && answered.text.includes('QA Engineer'));
+    equal(
+      'the tool result is the resume, so nothing is written into the parent twice',
+      runner.sentTo('fan-tool').length,
+      0
+    );
+    equal('both children ran', service.listChildren('fan-tool').length, 2);
+
+    const empty = await service.executeDelegationTool(
+      DELEGATE_PARALLEL_TOOL,
+      { delegations: [] },
+      { threadId: 'fan-tool' }
+    );
+    equal('an empty batch comes back as an error the agent can read', empty.isError, true);
+    check('saying what was wrong with it', empty.text.includes('at least one'));
+
+    equal(
+      'an agent writing taskDescription instead of task is understood',
+      parseParallelItems([{ role: 'QA Engineer', taskDescription: 'x' }])[0].taskDescription,
+      'x'
+    );
+    equal(
+      'a review item keeps its kind',
+      parseParallelItems([{ role: 'Security Auditor', task: 'x', kind: 'review' }])[0].kind,
+      'REVIEW'
+    );
+    equal('and anything that is not a list is nothing', parseParallelItems('nope'), []);
+  }
+
   describe('the REST surface');
   {
     const app = Fastify();
@@ -1294,6 +1877,173 @@ async function main(): Promise<void> {
       url: `/api/v1/threads/${settledChildId}/delegate/cancel`
     });
     equal('a cancellation with no body is accepted', noReason.statusCode, 200);
+
+    // --- Parallel delegation over HTTP (P7-04) ---
+    const anonymousParallel = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/parallel',
+      payload: { delegations: [{ role: 'QA Engineer', task: 'x' }] },
+      headers: { 'x-anonymous': 'yes' }
+    });
+    equal('an anonymous batch is 401', anonymousParallel.statusCode, 401);
+
+    const noList = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/parallel',
+      payload: { delegations: 'nope' }
+    });
+    equal('a batch that is not a list is 400', noList.statusCode, 400);
+
+    const emptyBatch = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/parallel',
+      payload: { delegations: [] }
+    });
+    equal('an empty batch is 400', emptyBatch.statusCode, 400);
+    equal('with a code a client can branch on', emptyBatch.json().code, 'INVALID_INPUT');
+
+    const overLimit = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/parallel',
+      payload: {
+        delegations: Array.from({ length: MAX_CONCURRENT_DELEGATIONS + 1 }, () => ({
+          role: 'QA Engineer',
+          task: 'x'
+        }))
+      }
+    });
+    equal('too many at once is 409', overLimit.statusCode, 409);
+    equal('and says which rule it broke', overLimit.json().code, 'CONCURRENCY_LIMIT_EXCEEDED');
+
+    const ghostBatch = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/ghost/delegate/parallel',
+      payload: { delegations: [{ role: 'QA Engineer', task: 'x' }] }
+    });
+    equal('a batch for an unknown thread is 404', ghostBatch.statusCode, 404);
+
+    // The happy path over HTTP, against the default runner again.
+    const fanned: string[] = [];
+    const onFanCommand = (event: AnyEvent) => {
+      if (event.payload?.command === 'start') fanned.push(event.payload.threadId);
+    };
+    const onFanChat = (event: AnyEvent) => {
+      const threadId = event.payload?.threadId;
+      if (!fanned.includes(threadId)) return;
+      setTimeout(() => {
+        emitAgentMessage(threadId, 'SUMMARY: done over HTTP.\nARTIFACTS: none');
+        emitStatus(threadId, 'idle');
+      }, 5);
+    };
+    eventBus.subscribe('client.command', onFanCommand);
+    eventBus.subscribe('client.chat_message', onFanChat);
+
+    insertThread('rest-fan', 'REST fan-out parent');
+    const batched = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/rest-fan/delegate/parallel',
+      payload: {
+        delegations: [
+          { role: 'QA Engineer', task: 'Run the suite.', timeoutMs: 4000 },
+          { role: 'DevOps Engineer', task: 'Check the pipeline.', timeoutMs: 4000 }
+        ]
+      }
+    });
+
+    eventBus.unsubscribe('client.command', onFanCommand);
+    eventBus.unsubscribe('client.chat_message', onFanChat);
+
+    equal('a batch over HTTP is 200', batched.statusCode, 200);
+    equal('and every child ran', batched.json().batch.results.length, 2);
+    equal('to completion', batched.json().batch.overallStatus, 'COMPLETED');
+    equal('through the default runner', fanned.length, 2);
+    equal(
+      'and both children hang from the parent',
+      agentDelegationService.listChildren('rest-fan').length,
+      2
+    );
+    equal(
+      'which the children endpoint now reports as a list',
+      (
+        await app.inject({ method: 'GET', url: '/api/v1/threads/rest-fan/children' })
+      ).json().pendingChildThreadIds,
+      []
+    );
+
+    // --- Cancelling a whole fan-out over HTTP ---
+    const anonymousCancelAll = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/cancel-all',
+      headers: { 'x-anonymous': 'yes' }
+    });
+    equal('an anonymous cancel-all is 401', anonymousCancelAll.statusCode, 401);
+
+    const ghostCancelAll = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/ghost/delegate/cancel-all'
+    });
+    equal('cancelling everything on an unknown thread is 404', ghostCancelAll.statusCode, 404);
+
+    const nothingRunning = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/lead/delegate/cancel-all'
+    });
+    equal('cancelling a thread with nothing running is 200', nothingRunning.statusCode, 200);
+    equal('and says nothing was stopped', nothingRunning.json().cancelled, 0);
+
+    const stalled: string[] = [];
+    const onStalledStart = (event: AnyEvent) => {
+      if (event.payload?.command === 'start') stalled.push(event.payload.threadId);
+    };
+    eventBus.subscribe('client.command', onStalledStart);
+
+    insertThread('rest-fan-cancel', 'REST fan-out to cancel');
+    const inFlightBatch = app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/rest-fan-cancel/delegate/parallel',
+      payload: {
+        delegations: [
+          { role: 'QA Engineer', task: 'Never finishes.', timeoutMs: 600000 },
+          { role: 'DevOps Engineer', task: 'Never finishes either.', timeoutMs: 600000 }
+        ]
+      }
+    });
+    await pause(40);
+
+    equal(
+      'the batch parked its parent',
+      agentDelegationService.getParentState('rest-fan-cancel'),
+      'WAITING_FOR_CHILD'
+    );
+    equal(
+      'behind both children',
+      agentDelegationService.getPendingChildren('rest-fan-cancel').length,
+      2
+    );
+
+    const cancelledAll = await app.inject({
+      method: 'POST',
+      url: '/api/v1/threads/rest-fan-cancel/delegation/cancel-all',
+      payload: { reason: 'Stopped the fan-out from the dashboard.' }
+    });
+    const batchResponse = await inFlightBatch;
+    eventBus.unsubscribe('client.command', onStalledStart);
+
+    equal('cancelling everything over HTTP is 200', cancelledAll.statusCode, 200);
+    equal('the alias under the noun answers too', cancelledAll.json().success, true);
+    equal('both children were stopped', cancelledAll.json().cancelled, 2);
+    equal(
+      'each with the reason given',
+      cancelledAll.json().results.map((result: { summary: string }) => result.summary),
+      ['Stopped the fan-out from the dashboard.', 'Stopped the fan-out from the dashboard.']
+    );
+    equal('the open batch answers with the same failure', batchResponse.json().batch.overallStatus, 'FAILED');
+    equal(
+      'the parent is released',
+      agentDelegationService.getParentState('rest-fan-cancel'),
+      'ACTIVE'
+    );
+    equal('and both children that ran are the ones that were started', stalled.length, 2);
 
     await app.close();
   }

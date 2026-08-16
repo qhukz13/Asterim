@@ -78,7 +78,13 @@ export function useSocket(
     // the page was last open is not running now. Those come from
     // `GET /threads/:id/children`, which reads the Core's own memory.
     for (const event of historyEvents) {
-      if (event.type === 'delegation.started' || event.type === 'delegation.completed') {
+      if (
+        event.type === 'delegation.started' ||
+        event.type === 'delegation.completed' ||
+        // A fan-out's aggregate is a fact about work that is over, like the two
+        // above it, so a reload still shows the card the operator was reading.
+        event.type === 'delegation.batch_completed'
+      ) {
         handleDelegationEvent(event.type, event.payload);
       }
     }

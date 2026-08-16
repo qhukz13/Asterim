@@ -1,11 +1,15 @@
 import { create } from 'zustand';
 import {
+  DELEGATION_BATCH_COMPLETED_EVENT,
   DELEGATION_CHILD_STATE_EVENT,
   DELEGATION_COMPLETED_EVENT,
   DELEGATION_PARENT_STATE_EVENT,
   DELEGATION_STARTED_EVENT
 } from '@asterim/shared';
 import type {
+  BatchDelegationResult,
+  BatchDelegationStatus,
+  DelegationBatchCompletedPayload,
   DelegationChildState,
   DelegationChildStatePayload,
   DelegationChildSummary,
@@ -15,7 +19,8 @@ import type {
   DelegationParentStatePayload,
   DelegationResult,
   DelegationStartedPayload,
-  DelegationStatus
+  DelegationStatus,
+  ParallelDelegationItem
 } from '@asterim/shared';
 import { getAuthHeaders, resolveBackendUrl } from '../utils/auth';
 
@@ -200,6 +205,20 @@ export function delegationStatusTone(
 }
 
 /**
+ * How a fan-out's overall status reads (P7-04).
+ *
+ * `PARTIAL_SUCCESS` takes the waiting tone rather than the failed one: some of
+ * the work is done and some of it is not, which is a thing to look at, not a
+ * thing that went wrong.
+ */
+export function batchStatusTone(
+  status: BatchDelegationStatus | undefined
+): ThreadStatusDescriptor {
+  if (status === 'PARTIAL_SUCCESS') return tone('waiting', 'Partial success');
+  return delegationStatusTone(status);
+}
+
+/**
  * The state one thread is in, from everything known about it.
  *
  * The live child state wins over the stored one: the row is what the Core last
@@ -272,8 +291,15 @@ interface ProjectState {
   // --- Delegation (P7-02) ---
   /** Thread id → whether it is parked behind a child right now. */
   parentStates: Record<string, DelegationParentState>;
-  /** Parent thread id → the child it is waiting on. */
-  pendingChildren: Record<string, string>;
+  /**
+   * Parent thread id → every child it is waiting on, oldest first (P7-04).
+   *
+   * A list rather than one id because a parent can fan out to several children
+   * at once, and the banner has to show all of them. A parent waiting on
+   * nothing holds no key at all rather than an empty list, so "is this thread
+   * delegating" stays one lookup.
+   */
+  pendingChildren: Record<string, string[]>;
   /** Child thread id → where that child is in its life. */
   childStates: Record<string, DelegationChildState>;
   /** Child thread id → what it was asked to do. */
@@ -282,6 +308,8 @@ interface ProjectState {
   childRoles: Record<string, string>;
   /** Parent thread id → the outcome of the delegation that just finished. */
   delegationOutcomes: Record<string, DelegationResult>;
+  /** Parent thread id → the fan-out that just finished under it (P7-04). */
+  batchOutcomes: Record<string, BatchDelegationResult>;
   /** Parent thread id → its children, as the Core last described them. */
   delegationChildren: Record<string, DelegationChildSummary[]>;
   /**
@@ -303,8 +331,27 @@ interface ProjectState {
   applyDelegationParentState: (payload: DelegationParentStatePayload) => void;
   applyDelegationChildState: (payload: DelegationChildStatePayload) => void;
   applyDelegationCompleted: (payload: DelegationCompletedPayload) => void;
+  applyDelegationBatchCompleted: (payload: DelegationBatchCompletedPayload) => void;
   /** Reads the authoritative delegation state for one thread off the Core. */
   syncDelegations: (threadId: string, backendUrl?: string | null) => Promise<void>;
+  /**
+   * Hands several pieces of work out at once (P7-04). Resolves to the batch the
+   * Core came back with, or null when it refused; the caller shows the refusal.
+   */
+  delegateParallel: (
+    threadId: string,
+    delegations: ParallelDelegationItem[],
+    backendUrl?: string | null
+  ) => Promise<BatchDelegationResult | null>;
+  /**
+   * Stops every delegation running under one parent. Resolves to whether the
+   * Core accepted it.
+   */
+  cancelAllDelegations: (
+    threadId: string,
+    reason?: string,
+    backendUrl?: string | null
+  ) => Promise<boolean>;
   /**
    * Stops the delegation a thread is part of. `threadId` may be the parent that
    * is waiting or the child that is running. Resolves to whether the Core
@@ -320,14 +367,49 @@ interface ProjectState {
 
 const emptyDelegation = () => ({
   parentStates: {} as Record<string, DelegationParentState>,
-  pendingChildren: {} as Record<string, string>,
+  pendingChildren: {} as Record<string, string[]>,
   childStates: {} as Record<string, DelegationChildState>,
   childTasks: {} as Record<string, string>,
   childRoles: {} as Record<string, string>,
   delegationOutcomes: {} as Record<string, DelegationResult>,
+  batchOutcomes: {} as Record<string, BatchDelegationResult>,
   delegationChildren: {} as Record<string, DelegationChildSummary[]>,
   cancellingChildren: {} as Record<string, boolean>
 });
+
+/** The same record without one key, or the record itself when it had none. */
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const copy = { ...record };
+  delete copy[key];
+  return copy;
+}
+
+/** The pending list for one parent, with a child added and no duplicates. */
+function withPendingChild(
+  pending: Record<string, string[]>,
+  parentThreadId: string,
+  childThreadId: string
+): Record<string, string[]> {
+  const current = pending[parentThreadId] || [];
+  if (current.includes(childThreadId)) return pending;
+  return { ...pending, [parentThreadId]: [...current, childThreadId] };
+}
+
+/** The same list with a child removed, dropping the key once it is empty. */
+function withoutPendingChild(
+  pending: Record<string, string[]>,
+  parentThreadId: string,
+  childThreadId: string
+): Record<string, string[]> {
+  const current = pending[parentThreadId];
+  if (!current) return pending;
+  const next = current.filter(id => id !== childThreadId);
+  const copy = { ...pending };
+  if (next.length === 0) delete copy[parentThreadId];
+  else copy[parentThreadId] = next;
+  return copy;
+}
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   activeProjectId: null,
@@ -388,18 +470,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         childRoles: payload.role
           ? { ...state.childRoles, [payload.childThreadId]: payload.role }
           : state.childRoles,
-        pendingChildren: { ...state.pendingChildren, [payload.threadId]: payload.childThreadId }
+        pendingChildren: withPendingChild(
+          state.pendingChildren,
+          payload.threadId,
+          payload.childThreadId
+        )
       };
     }),
 
   applyDelegationParentState: payload =>
     set(state => {
-      const pendingChildren = { ...state.pendingChildren };
-      if (payload.state === 'WAITING_FOR_CHILD' && payload.childThreadId) {
-        pendingChildren[payload.threadId] = payload.childThreadId;
-      } else {
-        delete pendingChildren[payload.threadId];
-      }
+      // A parent is parked once per child, so `WAITING_FOR_CHILD` adds to the
+      // list rather than replacing it; the single release at the end of a
+      // delegation — or of a whole batch — is what clears it.
+      const pendingChildren =
+        payload.state === 'WAITING_FOR_CHILD' && payload.childThreadId
+          ? withPendingChild(state.pendingChildren, payload.threadId, payload.childThreadId)
+          : omitKey(state.pendingChildren, payload.threadId);
+
       return {
         parentStates: { ...state.parentStates, [payload.threadId]: payload.state },
         pendingChildren
@@ -413,8 +501,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   applyDelegationCompleted: payload =>
     set(state => {
-      const pendingChildren = { ...state.pendingChildren };
-      delete pendingChildren[payload.threadId];
+      // Only this child stops being pending. A parent that fanned out is still
+      // waiting on its siblings, and clearing the whole list here would make
+      // the banner vanish while three agents were still working.
+      const pendingChildren = withoutPendingChild(
+        state.pendingChildren,
+        payload.threadId,
+        payload.result.childThreadId
+      );
+      const stillWaiting = (pendingChildren[payload.threadId] || []).length > 0;
 
       // The stored brief is updated in place so the tree reads the same after a
       // reload as it does now, without waiting for the list to be refetched.
@@ -437,7 +532,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return {
         threads,
         pendingChildren,
-        parentStates: { ...state.parentStates, [payload.threadId]: 'ACTIVE' },
+        parentStates: stillWaiting
+          ? state.parentStates
+          : { ...state.parentStates, [payload.threadId]: 'ACTIVE' },
         childStates: {
           ...state.childStates,
           [payload.result.childThreadId]: payload.result.status
@@ -445,6 +542,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         delegationOutcomes: { ...state.delegationOutcomes, [payload.threadId]: payload.result }
       };
     }),
+
+  /**
+   * The fan-out that just finished, kept whole (P7-04).
+   *
+   * It arrives after one `delegation.completed` per child, so every per-child
+   * fact is already in the maps; what this adds is the grouping — which
+   * outcomes were one batch, and the one verdict over them — which nothing else
+   * on the socket can say. The single-outcome card is cleared for this parent so
+   * the last child of a batch does not render twice, once alone and once inside
+   * the batch it belonged to.
+   */
+  applyDelegationBatchCompleted: payload =>
+    set(state => ({
+      batchOutcomes: { ...state.batchOutcomes, [payload.threadId]: payload.batch },
+      delegationOutcomes: omitKey(state.delegationOutcomes, payload.threadId),
+      parentStates: { ...state.parentStates, [payload.threadId]: 'ACTIVE' },
+      pendingChildren: omitKey(state.pendingChildren, payload.threadId)
+    })),
 
   syncDelegations: async (threadId, backendUrl) => {
     if (!threadId) return;
@@ -458,6 +573,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const body = (await res.json()) as {
         parentState?: DelegationParentState;
         pendingChildThreadId?: string;
+        pendingChildThreadIds?: string[];
         children?: DelegationChildSummary[];
       };
 
@@ -477,12 +593,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           if (child.role) childRoles[child.threadId] = child.role;
         }
 
-        const pendingChildren = { ...state.pendingChildren };
-        if (body.pendingChildThreadId) {
-          pendingChildren[threadId] = body.pendingChildThreadId;
-        } else {
-          delete pendingChildren[threadId];
-        }
+        // A Core that predates P7-04 sends the single id and no list; one that
+        // does not sends both, and the list is the whole answer.
+        const pending =
+          body.pendingChildThreadIds && body.pendingChildThreadIds.length > 0
+            ? body.pendingChildThreadIds
+            : body.pendingChildThreadId
+              ? [body.pendingChildThreadId]
+              : [];
+        const pendingChildren =
+          pending.length > 0
+            ? { ...state.pendingChildren, [threadId]: pending }
+            : omitKey(state.pendingChildren, threadId);
 
         return {
           parentStates: { ...state.parentStates, [threadId]: body.parentState || 'ACTIVE' },
@@ -513,8 +635,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!threadId) return false;
 
     // Cancelling from the waiting banner names the parent; cancelling from the
-    // tree names the child. The spinner belongs on the child either way.
-    const pendingChild = get().pendingChildren[threadId];
+    // tree, or from one row of a fan-out, names the child. The spinner belongs
+    // on the child either way — and a parent with several children running is
+    // addressed by whichever the Core will stop, which is the oldest.
+    const pendingChild = (get().pendingChildren[threadId] || [])[0];
     const childThreadId = pendingChild || threadId;
     set(state => ({
       cancellingChildren: { ...state.cancellingChildren, [childThreadId]: true }
@@ -562,15 +686,105 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
+  /**
+   * Hands several pieces of work out at once (P7-04).
+   *
+   * Like `POST /delegate`, this request is held open by the Core until every
+   * child is done, so the caller is expected to leave it running while the
+   * banner — driven by the socket, not by this promise — shows what is
+   * happening. The batch is applied here as well as on the socket for the same
+   * reason a cancellation is: whichever arrives first is the one that renders.
+   */
+  delegateParallel: async (threadId, delegations, backendUrl) => {
+    if (!threadId || !Array.isArray(delegations) || delegations.length === 0) return null;
+
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/delegate/parallel`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders({ backendUrl, json: true }),
+          body: JSON.stringify({ delegations })
+        }
+      );
+      if (!res.ok) return null;
+
+      const body = (await res.json().catch(() => null)) as {
+        batch?: BatchDelegationResult;
+      } | null;
+      const batch = body?.batch;
+      if (!batch) return null;
+
+      get().applyDelegationBatchCompleted({
+        projectId: get().activeProjectId || '',
+        threadId,
+        batch
+      });
+      return batch;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Stops every delegation running under one parent (P7-04).
+   *
+   * Each child is marked as cancelling for as long as the request is in flight,
+   * so every row of the banner and every row of the tree dims at once rather
+   * than one of them standing in for the batch.
+   */
+  cancelAllDelegations: async (threadId, reason, backendUrl) => {
+    if (!threadId) return false;
+
+    const pending = get().pendingChildren[threadId] || [];
+    set(state => {
+      const cancellingChildren = { ...state.cancellingChildren };
+      for (const childThreadId of pending) cancellingChildren[childThreadId] = true;
+      return { cancellingChildren };
+    });
+
+    const base = resolveBackendUrl(backendUrl) || '';
+    try {
+      const res = await fetch(
+        `${base}/api/v1/threads/${encodeURIComponent(threadId)}/delegate/cancel-all`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders({ backendUrl, json: true }),
+          body: JSON.stringify(reason ? { reason } : {})
+        }
+      );
+      if (!res.ok) return false;
+
+      const body = (await res.json().catch(() => null)) as {
+        results?: DelegationResult[];
+      } | null;
+      const projectId = get().activeProjectId || '';
+      for (const result of body?.results || []) {
+        get().applyDelegationCompleted({ projectId, threadId, result });
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      set(state => {
+        const cancellingChildren = { ...state.cancellingChildren };
+        for (const childThreadId of pending) delete cancellingChildren[childThreadId];
+        return { cancellingChildren };
+      });
+    }
+  },
+
   resetDelegation: () => set(emptyDelegation())
 }));
 
-/** The four events the delegation subsystem publishes, as the socket sees them. */
+/** The events the delegation subsystem publishes, as the socket sees them. */
 export const DELEGATION_EVENT_TYPES: readonly string[] = [
   DELEGATION_STARTED_EVENT,
   DELEGATION_PARENT_STATE_EVENT,
   DELEGATION_CHILD_STATE_EVENT,
-  DELEGATION_COMPLETED_EVENT
+  DELEGATION_COMPLETED_EVENT,
+  DELEGATION_BATCH_COMPLETED_EVENT
 ];
 
 /** Whether an event belongs to the delegation subsystem. */
@@ -599,6 +813,9 @@ export function handleDelegationEvent(type: string, payload: unknown): boolean {
       return true;
     case DELEGATION_COMPLETED_EVENT:
       store.applyDelegationCompleted(payload as DelegationCompletedPayload);
+      return true;
+    case DELEGATION_BATCH_COMPLETED_EVENT:
+      store.applyDelegationBatchCompleted(payload as DelegationBatchCompletedPayload);
       return true;
     default:
       return false;

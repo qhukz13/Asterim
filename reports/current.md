@@ -1,11 +1,11 @@
-Task-ID: P7-03
+Task-ID: P7-04
 Status: COMPLETE
 
-# Execution Report: P7-03 — Multi-Agent Delegation Cancellation, Operator Intervention & Lifecycle Control
+# Execution Report: P7-04 — Multi-Agent Parallel Delegation, Concurrent Fan-Out & Aggregated Workflow Orchestration
 
-**Task ID:** P7-03
+**Task ID:** P7-04
 **Phase:** Phase 7 — Multi-Agent Orchestration & Collaborative Workflows
-**Status:** VERIFIED
+**Status:** IMPLEMENTED & VERIFIED
 **Date:** 2026-08-16
 **Author:** Claude Code
 
@@ -13,155 +13,134 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Delegation cancellation now exists end to end. `AgentDelegationService.cancelDelegation()` stops a running child from either end of the delegation (the parked parent's id or the running child's id), authenticated REST routes expose it, the web store carries it, and both the `ChatView` waiting banner and the `SessionSidebar` thread tree offer an operator control for it.
+Bounded parallel delegation is implemented end to end: an orchestrator-class agent (or an operator over REST) hands up to `MAX_CONCURRENT_DELEGATIONS = 4` independent pieces of work to different roles at once, every child runs as an ordinary delegated thread, and the parent is parked until the last of them settles and then resumed once with an aggregated outcome matrix.
 
-The central design decision: **a cancellation does not settle the delegation, it asks the delegation to settle and then reports what it settled as.** `delegateTask` registers an `ActiveDelegation` record — the child's id, an `abort` callback into the watcher, and the promise its own result will arrive on — before it begins waiting. `cancelDelegation` looks that record up, ends the wait with a cancellation outcome, and returns the record's `settled` promise. Everything terminal therefore still happens exactly once, on the one existing path: one write to `threads.delegation_context_json`, one `safeStop` of the child session, one release of the parent, one `delegation.child_state` / `delegation.parent_state` / `delegation.completed` triple. A cancellation that had its own settle path would have been a second competing writer of all five.
+The delegation registry in `AgentDelegationService` was refactored from one-child-per-parent (`Map<parentThreadId, ActiveDelegation>`) to many (`Map<parentThreadId, Map<childThreadId, ActiveDelegation>>`, plus `Map<parentThreadId, Set<childThreadId>>` for the parked state). `delegateTask` was factored so that the single and the parallel paths share one child lifecycle (`runDelegation`) — same child row, same brief, same watch, same terminal `delegation.*` events — differing only in who releases the parent. Nothing that watched a single delegation before has to learn anything new; the batch adds one new event (`delegation.batch_completed`) carrying the aggregate that per-child events cannot express.
 
-Status: VERIFIED. `pnpm typecheck`, `pnpm lint`, `pnpm test` (36 suites) and `pnpm build` are all clean, and every acceptance criterion below is backed by a named assertion that was run.
+Cancellation covers both granularities: `cancelDelegation` stops one child while its siblings keep running, `cancelAllDelegations` stops a whole fan-out. Both settle through the same single writer per child, so a cancelled batch leaves no orphaned child process, no dangling bus subscription and no parent parked behind work that is over (all three asserted).
+
+The dashboard supervises the fan-out live: the waiting banner lists every in-flight subagent with its own role, state, "Inspect" and "Stop", plus a batch "Cancel All"; the thread tree renders siblings with independent status and stop controls; and a new aggregated outcome card shows the overall status, one verdict over every review in the batch, and a per-child breakdown with summaries and artifacts.
+
+All gates are green: 0 TypeScript errors, 0 ESLint errors, **36/36 test suites (3634 assertions)** passing, and all 7 packages building.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/ai/AgentDelegationService.ts` | Modified | `cancelDelegation()`, the `ActiveDelegation` registry, the abort into `watchChild`, cancellation-aware `buildResult`, `NOT_DELEGATING` error code |
-| `apps/server/src/routes/delegation.ts` | Modified | `POST /api/v1/threads/:id/delegate/cancel` + `/delegation/cancel` alias; `NOT_DELEGATING → 409` |
-| `apps/web/src/stores/useProjectStore.ts` | Modified | `cancelDelegation` action, `cancellingChildren` map, optimistic application of the returned outcome |
-| `apps/web/src/components/delegation/DelegationStatus.tsx` | Modified | "Cancel Delegation" button, in-flight and refusal states, container wiring |
-| `apps/web/src/components/delegation/ThreadTree.tsx` | Modified | Inline "Stop" control on running child rows, `isCancellableChild` helper |
-| `apps/web/src/components/SessionSidebar.tsx` | Modified | Wires the tree's stop control to the store action |
-| `apps/server/src/services/ai/__tests__/AgentDelegationService.test.ts` | Modified | +70 assertions across six cancellation sections (209 → 279) |
-| `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts` | Modified | +50 assertions across three cancellation sections (159 → 209) |
+| `packages/shared/src/types/delegation.ts` | Modified | `MAX_CONCURRENT_DELEGATIONS`, `DELEGATE_PARALLEL_TOOL`, `ParallelDelegationItem/Request`, `BatchDelegationResult`, `BatchDelegationStatus`, `aggregateDelegationStatus`, `aggregateReviewVerdict`, `delegation.batch_completed` event + payload, `delegate_parallel` tool definition |
+| `apps/server/src/services/ai/AgentDelegationService.ts` | Modified | Multi-child registry, `runDelegation` extraction, `delegateParallel`, `cancelAllDelegations`, `getPendingChildren`, `getActiveDelegationCount`, `CONCURRENCY_LIMIT_EXCEEDED`, `summarizeBatch`, `formatBatchDelegationReport`, `parseParallelItems`, `delegate_parallel` meta-tool dispatch |
+| `apps/server/src/routes/delegation.ts` | Modified | `POST /delegate/parallel` (+ `/delegation/parallel`), `POST /delegate/cancel-all` (+ `/delegation/cancel-all`), `pendingChildThreadIds` on `GET /children`, 409 mapping for the new code |
+| `apps/web/src/stores/useProjectStore.ts` | Modified | `pendingChildren` becomes `Record<string, string[]>`, `batchOutcomes`, `applyDelegationBatchCompleted`, `delegateParallel`, `cancelAllDelegations`, `batchStatusTone`, multi-child sync/cancel handling |
+| `apps/web/src/components/delegation/DelegationStatus.tsx` | Modified | Multi-child `DelegationWaitingBanner` (+ `PendingDelegationView`, `pendingProgress`), new `DelegationBatchOutcomeCard`, `DelegationStatusView`/container rewired for fan-out |
+| `apps/web/src/components/delegation/DelegateModal.tsx` | Modified | Reads the pending list rather than a single pending child id |
+| `apps/web/src/hooks/useSocket.ts` | Modified | Replays `delegation.batch_completed` from history alongside started/completed |
+| `apps/server/src/services/ai/__tests__/AgentDelegationService.test.ts` | Modified | +133 assertions: fan-out, aggregation, limits, per-child and batch cancellation, meta-tool, REST |
+| `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts` | Modified | +107 assertions: multi-child store events, `delegateParallel`, `cancelAllDelegations`, sync, banner, batch card, sibling tree |
 
-No files created, no files deleted, no shared wire-protocol changes.
+No files were created; no files outside the delegation subsystem were touched.
 
 ## 3. Implementation Details
 
-### Server — `AgentDelegationService`
+### 3.1 Shared contract (`@asterim/shared`)
 
-- **`ActiveDelegation` registry** (`private active = new Map<parentThreadId, ActiveDelegation>()`). Registered synchronously before `delegateTask`'s first `await`, removed in a `finally`. Holds `childThreadId`, `settled` (the deferred result), `abort`, `cancelReason`.
-- **`cancelDelegation(threadId, reason?)`**:
-  - Resolves the thread as a parent (`active.get(id)`) or as a child (`findActiveByChild(id)`).
-  - First caller owns the reason; later callers ride the same `settled` promise, so a double-click cannot overwrite a reason the outcome was already built from.
-  - Unknown thread → `THREAD_NOT_FOUND` (404). Empty id / non-string reason → `INVALID_INPUT` (400). A thread that is neither parked nor a settled child → the new `NOT_DELEGATING` (409).
-  - A child that already settled answers 200 with what it settled as, reconstructed from its row by `settledResultFor` — so an operator clicking Cancel on a delegation that finished a moment earlier is not shown an error for losing a race.
-- **The abort.** `watchChild` now arms `active.abort = reason => finish('FAILED', reason, true)` after subscribing, and immediately honours a `cancelReason` that was recorded before it existed. That pre-arm window is real, not theoretical: the EventBus delivers synchronously, so a subscriber to the child's `STARTING` event can call `cancelDelegation` before the watch is built. It is covered by a test.
-- **No orphaned subprocess.** `runChild` returns before `runner.start()` when the delegation was already cancelled, so a session that was never wanted is never spawned. Otherwise the existing `await this.safeStop(...)` on the settle path kills the child *before* the parent is resumed, which is what makes the cancellation mean something by the time the HTTP request answers.
-- **`ChildOutcome.cancelled`.** Only affects how the summary reads: a cancelled delegation's summary is the reason alone, not the reason trailed by `Last output: <whatever the child was mid-sentence on>`. `verdict` needs no special casing — `buildResult` already gives any non-`COMPLETED` review `NEEDS_FIX`.
-- **`recoverDelegations`** clears `active` alongside `waiting`.
+- `MAX_CONCURRENT_DELEGATIONS = 4` — a bound on **concurrency**, not on total children: a parent may delegate a hundred times in sequence, four at a time. `MAX_DELEGATION_DEPTH = 3` is unchanged and enforced for every child of a batch.
+- `BatchDelegationStatus = DelegationStatus | 'PARTIAL_SUCCESS'`.
+- `aggregateDelegationStatus`: all completed → `COMPLETED`; some completed → `PARTIAL_SUCCESS`; none completed → `FAILED`, **unless every child timed out**, which stays `TIMEOUT`. That preserves the P7-01 rule that a timeout is not a failure — a child that ran out of time may well have done the work, and the parent is owed the difference.
+- `aggregateReviewVerdict`: `undefined` when the batch contained no reviews; `PASS` only when every review passed; one dissent carries. Reporting a majority would be the one summary an agent could act on and be wrong.
+- `DELEGATE_PARALLEL_TOOL` is appended to `DELEGATION_TOOL_NAMES`/`DELEGATION_TOOL_DEFINITIONS`, so `McpAgentBridge.getDelegationTools` offers it to exactly the profiles `canProfileDelegate` already gates (tech lead / architect / orchestrator / staff & principal engineer). An unprofiled session and a reviewer profile still get nothing.
 
-### Server — REST
+### 3.2 Core orchestration
 
-One handler bound to two paths, both requiring an authenticated user like the existing delegation routes. Returns `{ success: true, result }` on 200. A missing/garbage body is accepted (the reason is optional), matching how a bare "Stop" click behaves.
+**Registry.** `waiting: Map<parentThreadId, Set<childThreadId>>` and `active: Map<parentThreadId, Map<childThreadId, ActiveDelegation>>`. `getPendingChild` still answers with the oldest child so the P7-01 REST field keeps its meaning; `getPendingChildren` is the whole answer.
 
-### Web
+**`runDelegation`.** Everything from the child row to the parent's release, shared by both paths. `options.releaseParent === false` (parallel) means settling a child does not publish `delegation.parent_state: ACTIVE`; the child is still removed from the parent's waiting set, and the removal is repeated in a `finally` as a net so an unexpected throw cannot strand a parent behind a child that is over.
 
-- `useProjectStore.cancelDelegation(threadId, reason?, backendUrl?)` POSTs to `/delegate/cancel`, then applies the returned outcome locally rather than only waiting for the socket. Cancelling by parent id runs `applyDelegationCompleted` (parent released, banner cleared, outcome card populated); cancelling by child id runs `applyDelegationChildState` only, because the result carries no parent id and the parent's release arrives on `delegation.parent_state`. Both are idempotent with the socket events that follow.
-- `cancellingChildren` is keyed by **child** thread id so the banner and the tree row — which never talk to each other — show the same intervention.
-- `DelegationWaitingBanner` gained `onCancel` / `isCancelling` / `cancelError`. All three are optional; a banner rendered without `onCancel` is byte-for-byte the P7-02 banner. Colours are `--color-state-error`; the shared button styling was hoisted into one `bannerButton` object rather than duplicated.
-- `ThreadTree` shows a "Stop" pill only on rows `isCancellableChild` accepts: depth > 0, carrying a delegation brief, and either live-`STARTING`/`ACTIVE` or with no recorded status yet. It disappears the moment the row goes terminal.
+**`delegateParallel`.** Validation order: batch size → parent exists → `running + requested > 4` → depth (once, for the whole batch) → every item's task/context/timeout/profile. All of it happens **before any child row is written**, so a batch naming one bad role leaves no half-started children (asserted). Children are then dispatched together and awaited with `Promise.allSettled`; a rejection is turned into a synthetic `FAILED` row with an empty `childThreadId` rather than discarding the siblings that worked. The parent is released once — and only if nothing else is running under it — then resumed with `formatBatchDelegationReport` (verdict, one-line summary, numbered outcome matrix with artifacts) and `delegation.batch_completed` is published.
+
+**Events.** Per child: `delegation.started`, `delegation.child_state`, `delegation.completed` — exactly as a single delegation. Per batch: N × `parent_state: WAITING_FOR_CHILD`, 1 × `parent_state: ACTIVE`, 1 × `delegation.batch_completed`. Verified by counting events across a 3-child batch.
+
+**Cancellation.** `cancelDelegation(childId)` stops one child; siblings keep running and the parent stays parked (asserted). `cancelDelegation(parentId)` resolves to the oldest running child, which keeps the P7-03 banner path working for a single delegation. `cancelAllDelegations(parentId)` snapshots the running set before awaiting (each settle mutates the registry), aborts each once, and returns what each settled as. Neither settles anything itself — they ask the running delegation to settle, so there is still one writer of each child row, one `safeStop` per child, and one release of the parent.
+
+**Backwards compatibility.** `delegateTask` still refuses a second sequential delegation with `ALREADY_DELEGATING`, including while a batch is running (asserted). Every P7-01/02/03 assertion still passes unchanged apart from the tool-count assertion, which now expects three meta-tools.
+
+### 3.3 REST
+
+`POST /api/v1/threads/:id/delegate/parallel` (alias `/delegation/parallel`) — auth-guarded, 400 for a missing/non-array list, 409 `CONCURRENCY_LIMIT_EXCEEDED` for >4, 404 for an unknown thread/role, 409 `DEPTH_EXCEEDED` past the bound. Synchronous like `POST /delegate`, but the wait is the slowest child's rather than the sum. Bodies are read through the same `parseParallelItems` the meta-tool uses, so `role`/`task`/`context` work from both.
+
+`POST /api/v1/threads/:id/delegate/cancel-all` (alias `/delegation/cancel-all`) — returns `{ success, cancelled, results }`; a thread with nothing running is 200 with `cancelled: 0`, an unknown thread is 404.
+
+`GET /children` gains `pendingChildThreadIds` and keeps `pendingChildThreadId`.
+
+### 3.4 Web
+
+`pendingChildren` is now a list per parent. `delegation.completed` removes only its own child and flips the parent to `ACTIVE` **only when the list empties** — otherwise a fan-out's banner would vanish the moment its first child answered. `WAITING_FOR_CHILD` appends without duplicating, so a socket reconnect replaying the same child does not show it twice. `applyDelegationBatchCompleted` stores the batch and clears the single-outcome entry for that parent so the last child is not rendered twice, once alone and once inside the batch it belonged to.
+
+`DelegationWaitingBanner` renders one child as the sentence it always was ("Delegated — waiting on Security Auditor" + "Cancel Delegation") and several as a list with a header count, a "1 of 3 finished" progress line, per-child role/state/task/Inspect/Stop, and one "Cancel All". `DelegationBatchOutcomeCard` leads with the answer (overall status pill, aggregated verdict) and follows with the working: every child's status, verdict, summary, artifacts and transcript link — including children that failed, which are the rows most worth opening. All colours come from `tokens.css` custom properties; the tests assert no hex literal reaches the rendered markup.
+
+`ThreadTree` needed no change — siblings already render under a common parent with independent indentation, status dots and stop pills — and is now covered by explicit sibling assertions.
 
 ## 4. Verification
 
-Every command below was run from the repository root and completed as shown.
+Everything below was executed in this session. The root `pnpm run <task>` (turbo) form was not runnable non-interactively in this sandbox, so each Turbo task was run per workspace with `pnpm --filter <pkg> <task>`, which covers the same task graph.
 
-```
-pnpm typecheck   → Tasks: 11 successful, 11 total    (0 errors)
-pnpm lint        → Tasks:  7 successful,  7 total    (0 errors; warnings only, all pre-existing categories)
-pnpm test        → Tasks:  9 successful,  9 total    (36 suites, 0 failed assertions)
-pnpm build       → Tasks:  7 successful,  7 total
-```
+| Gate | Command | Result |
+| :--- | :--- | :--- |
+| Typecheck | `pnpm --filter <pkg> typecheck` × 7 (`shared`, `adapters`, `asterim`, `web`, `marketing`, `relay`, `mcp-memory-server`) | **0 errors** |
+| Lint | `pnpm --filter <pkg> lint` × 7 | **0 errors** (610 pre-existing warnings) |
+| Server delegation suite | `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts` | **412/412** (was 279) |
+| Web delegation suite | `pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts` | **316/316** (was 209) |
+| Server tests | `pnpm --filter asterim test` | 19 suites, **2118/2118** |
+| Web tests | `pnpm --filter @asterim/web test` | 8 suites, **1074/1074** |
+| Adapters / relay / mcp-memory-server tests | `pnpm --filter <pkg> test` | 1 + 1 + 7 suites, **442/442** |
+| **Total** | | **36 suites, 3634/3634 assertions, 0 failures** |
+| Build | `pnpm --filter <pkg> build` × 7 | all successful (`asterim` bundles `apps/web/dist`) |
 
-Targeted suites:
-
-```
-pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
-  → 279/279 assertions passed   (was 209 before this task)
-
-pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
-  → 209/209 assertions passed   (was 159 before this task)
-```
-
-New server sections, all green:
-
-- `cancelDelegation — stopping a child from the parent` (25 assertions)
-- `cancelDelegation — stopping a child from the child` (5)
-- `cancelDelegation — a cancelled review has not passed` (4)
-- `cancelDelegation — two operators clicking at once` (10)
-- `cancelDelegation — a cancellation that beats the watch` (6)
-- `cancelDelegation — what it refuses` (3)
-- Cancellation over HTTP inside `the REST surface` (17)
-
-New web sections, all green:
-
-- `useProjectStore — cancelDelegation` (21)
-- `DelegationWaitingBanner — cancelling (P7-03)` (15)
-- `ThreadTreeView — stopping a child from the list (P7-03)` (14)
-
-Not run: there is no browser/screenshot verification for this task, because the repository's Visual QA path needs a live workstation with a real delegated agent session parked behind a child, which this environment has no agent CLI for. The rendering assertions go through `react-dom/server` against the real components instead.
+Concurrency is asserted structurally rather than by wall-clock: the fake runner records how many sessions had been started at the moment the first child answered (3 of 3), which a sequential implementation could not produce. Lifecycle hygiene is asserted directly — after a cancelled 3-child fan-out, `chat.message` and `agent.status` listener counts return to their pre-batch values, all three child processes were stopped, and all three child rows are settled `FAILED` in SQLite.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1 — `cancelDelegation()` aborts an active child delegation, stops the child process, settles the DB record as `FAILED` with the cancellation reason, and releases the parent to `ACTIVE`.**
-  `cancelDelegation — stopping a child from the parent`: `a cancelled delegation is FAILED`; `the summary is the reason it was given`; `the child session is stopped` / `and it is the child that stopped` (asserts `runner.stopped[0].threadId === childThreadId`); `the child row records the failure` + `with the cancellation reason as its summary` + `and a finish time` (read back out of SQLite); `the parent is released` (`getParentState === 'ACTIVE'`) + `with nothing pending`; `it answers immediately rather than at the timeout` (against a 600 000 ms timeout).
+- [x] **1. `delegateParallel()` concurrently spawns, monitors and aggregates multiple children (up to 4) under one parent** — `describe('delegateParallel — several children at once')`: 3 children in 3 distinct threads, all 3 sessions started before the first answer, one resume, one release, 3 rows settled in storage.
+- [x] **2. Exceeding `MAX_CONCURRENT_DELEGATIONS` is rejected with an explicit error code** — `CONCURRENCY_LIMIT_EXCEEDED` for a batch of 5, and for 2 more while 3 are already running (`describe('delegateParallel — what it refuses')`, `describe('… the concurrency bound counts what is running')`); 409 over HTTP with the code in the body.
+- [x] **3. `delegate_parallel` is available to orchestrator/architect profiles** — `bridge.getDelegationTools({role:'Tech Lead'})` returns `[delegate_task, request_review, delegate_parallel]`; a Security Auditor and an unprofiled session get none; `isDelegationToolName` recognises it; `executeDelegationTool` runs a batch and returns the matrix without double-resuming the parent.
+- [x] **4. `BatchDelegationResult` computes overall status and unified verdict** — `aggregateDelegationStatus` / `aggregateReviewVerdict` unit-asserted for all-pass, mixed, all-fail, all-timeout and no-review cases; integration-asserted as `COMPLETED`, `PARTIAL_SUCCESS` (COMPLETED+FAILED+TIMEOUT), `FAILED`, and `PASS` vs `NEEDS_FIX` across two review children.
+- [x] **5. REST `POST …/delegate/parallel` and `…/delegate/cancel-all` work with auth and validation** — 401 anonymous, 400 non-array/empty, 409 over-limit, 404 unknown thread, 200 happy path through the *default* runner (2 children), and a live fan-out cancelled over HTTP via the `/delegation/cancel-all` alias returning both results while the open batch answers `FAILED`.
+- [x] **6. `DelegationWaitingBanner` shows all concurrent children with per-child status, per-child Stop and a batch Cancel All** — rendered markup asserts the count, per-child roles/states/tasks, `aria-label="Stop Frontend Reviewer"`, `aria-label="Cancel all delegations"`; click handlers verified to name the individual child and, for Cancel All, no child at all.
+- [x] **7. ChatView renders aggregated multi-agent outcome cards with per-child breakdowns and artifacts** — `DelegationBatchOutcomeCard` (reached from `App.tsx` via `DelegationStatus` → `DelegationStatusView`) asserts overall status, aggregated verdict, batch summary, every child's role/status/verdict/summary/artifacts and transcript links, plus precedence over the single-outcome card and over a new fan-out.
+- [x] **8. All assertions in `AgentDelegationService.test.ts` and `DelegationUI.test.ts` pass** — 412/412 and 316/316.
+- [x] **9. Monorepo CI gates pass with 0 errors** — typecheck 0, lint 0 errors, 36/36 suites (3634 assertions), 7/7 builds. See § 4 for the per-workspace form used.
 
-- [x] **2 — `POST /api/v1/threads/:id/delegate/cancel` validates permissions and cancels running delegations cleanly.**
-  REST section: `an anonymous cancellation is 401`; `cancelling an unknown thread is 404`; `cancelling a thread that is not delegating is 409` + `with a code a client can branch on` (`NOT_DELEGATING`); `cancelling over HTTP is 200` + `and says it worked` (`success: true`) + `the outcome is a failure` + `naming the reason given`; `the open delegation returns the same outcome` + `for the same child` (the still-open `POST /delegate` and the cancel agree); `the parent is released`. The `/delegation/cancel` alias is covered by `the /delegation/cancel alias answers too`.
-
-- [x] **3 — Cancelling a `REVIEW` delegation records verdict `NEEDS_FIX`.**
-  `cancelDelegation — a cancelled review has not passed`: `and the verdict is NEEDS_FIX`; `which is what is stored` (re-read from `delegation_context_json`); `the parent is told the verdict` (the resume text contains `VERDICT: NEEDS_FIX`).
-
-- [x] **4 — Connected web clients receive real-time socket events updating tree status, clearing the waiting banner, and displaying the cancellation outcome card.**
-  Server: `the parent waits and is then released` (`delegation.parent_state` = `['WAITING_FOR_CHILD','ACTIVE']`); `the child ends in a terminal state` (`delegation.child_state` = `['STARTING','ACTIVE','FAILED']`); `the outcome is published exactly once` + `carrying the cancellation` + `and routed to the parent's room` (`delegation.completed`).
-  Web: `the parent is released without waiting for the socket`; `the banner has nothing left to show` (`pendingChildren` cleared → `DelegationStatusView` falls through to the outcome card); `the child ends FAILED` (tree status); `and the outcome card gets the cancellation`; `and it is written back onto the stored brief`.
-
-- [x] **5 — `DelegationWaitingBanner` includes an accessible "Cancel Delegation" action button that triggers cancellation.**
-  `the banner offers a way out`; `labelled for a screen reader` (`aria-label="Cancel delegation"`); `and it says what it will do` (`title`); `alongside the way in` (Inspect is still there); `a cancellation in flight is visible` (`Cancelling…`) + `and the button is spent` (`disabled`); `a refusal is shown on the banner` + `as an alert` (`role="alert"`); `clicking it names the child to stop` — the handler is invoked for real, not just rendered.
-
-- [x] **6 — All automated unit tests in `AgentDelegationService.test.ts` and `DelegationUI.test.ts` pass cleanly.**
-  279/279 and 209/209 respectively, run individually and again under `pnpm test`.
-
-- [x] **7 — Monorepo CI gates pass with 0 errors: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`.**
-  Outputs in § 4. Lint reports 0 errors across all 7 packages.
-
-**Definition of Done:** all seven boxes met — `cancelDelegation` implemented, cancel route added (plus alias), store action added, UI button added, server tests green, web tests green, all 36 suites and the full build clean.
+**Definition of Done:** all eight boxes are met — shared types & tool ✓, `delegateParallel`/`cancelAllDelegations` ✓, REST routes ✓, store multi-child state & actions ✓, banner/outcome card/tree ✓, server tests ✓, web tests ✓, full suite + build clean ✓.
 
 ## 6. Git Diff Review
 
-`git diff --stat` over the eight files I touched: 8 modified, 0 created, 0 deleted, ~870 insertions in source + tests. Reviewed line by line against the forbidden-changes list:
+`git status --short` shows 9 modified files (§ 2) plus the pre-existing, unrelated `tests/report.md` left dirty by the P7-03 gate session — not touched here and not committed. No new files, no `docs/` reports, no debug scripts, no dependency changes.
 
-- **No wire-protocol break.** `packages/shared` is untouched. A cancelled delegation is an ordinary `FAILED` `DelegationResult` on the existing `delegation.*` events, so a P7-02 client that never learns about cancellation still renders it correctly.
-- **No orphaned subprocesses.** The single `safeStop` on the settle path is unchanged and still runs before the parent resumes; a cancellation that lands before `runner.start()` skips the start entirely (`no agent session was ever started for it`). The watcher's timer is cleared and both bus subscriptions are removed by `finish` on every path including the cancellation one.
-- **No store-boundary change.** New state lives in `useProjectStore`'s existing delegation section, which is where `parentStates` / `pendingChildren` / `childStates` already live. `InspectorStore` and the scoped stores are untouched.
-- **No hardcoded colours.** Every new style value is a `var(--...)` token. Two assertions (`with no hardcoded colour`, `and no colour is hardcoded`) regex the rendered markup for hex literals.
-- **No broken suites.** All 36 pass; the only pre-existing assertions whose *inputs* changed are `recoverDelegations`' `recovered >= 3` lower bound, and the extra children my tests create are all settled before it runs.
-- Cleanup pass: no temporary files, no `scratch/` additions, no new `docs/` reports. The `M tests/report.md` in `git status` predates this session and was deliberately left out of the commit.
+Reviewed against § 6 "Explicitly Forbidden Changes":
+
+- **Single `delegate_task` compatibility** — the sequential path keeps its validation order, its `ALREADY_DELEGATING` guard and its own parent release; all pre-existing assertions pass untouched. The four P7-01 socket events keep their names and payload shapes; the batch event is additive.
+- **`MAX_CONCURRENT_DELEGATIONS` never exceeded** — the bound is checked against `requested + already running`, not against the request alone.
+- **No orphaned processes or subscriptions** — every terminal path runs `safeStop`, and `watchChild.finish` unsubscribes both channels; listener counts are asserted back to baseline after a cancelled fan-out.
+- **No hardcoded colours** — new UI uses `var(--color-*)` tokens only; the rendered-markup tests reject any `#rrggbb`.
+- **No suite broken** — 36/36 green. Two existing assertions were *updated* rather than broken: the meta-tool list is now three tools, and `DELEGATION_EVENT_TYPES` is now five names.
 
 ## 7. Problems Discovered
 
-1. **Two settle paths would have been two writers.** The obvious implementation — have `cancelDelegation` stop the child, write the row and release the parent itself — races the `delegateTask` that is still awaiting `watchChild`. Both would have written `delegation_context_json`, both would have published a terminal `delegation.child_state`, and the parent would have been resumed twice with two different reports. Routing the cancellation *through* the existing settle and returning its promise removes the race by construction rather than by locking.
-
-2. **A genuinely reachable pre-arm race.** `runChild` publishes the child's `STARTING` state before `watchChild` builds the watch, and `EventBus` delivers synchronously — so a subscriber can call `cancelDelegation` in the one window where no abort exists yet. Losing it would park the parent for the full ten-minute timeout. `cancelReason` is recorded on the record and honoured the moment the watch arms; the test drives exactly that subscriber.
-
-3. **`buildResult` would have editorialised the cancellation.** Its non-`COMPLETED` branch appends `Last output: …`, which turned "Delegation cancelled by operator" into a sentence that read like a diagnosis of a crash. Hence the `cancelled` flag on `ChildOutcome`.
-
-4. **Unhandled rejection risk.** The deferred `settled` promise is rejected if `delegateTask` throws unexpectedly (a throwing EventBus subscriber can do it). With no cancellation in flight nothing would be listening, and Node would take the Core down. A no-op `settled.catch()` is attached at creation.
-
-5. **Click handlers with no DOM.** The repository has no test renderer, and the existing suite header says click handlers are out of reach. They are reachable for these views specifically because they are props-only and hold no hooks: calling the component function directly returns an element tree that a small `findElement` walker can search for the button, whose `onClick` is then invoked. This is noted in the suite header so the limitation is not silently overstated.
+1. **The parent-release event is not per-child.** A naive fan-out would publish `delegation.parent_state: ACTIVE` each time a child finished, and the dashboard's banner would disappear while three agents were still working. Fixed on both sides: the Core releases once per batch (and only when nothing else is running under that parent), and the store flips the parent to `ACTIVE` only when its pending list empties.
+2. **`cancelDelegation(parentId)` is ambiguous during a fan-out.** Resolved deliberately rather than silently: a parent with several running children resolves to the oldest, the dashboard names the child explicitly whenever there is more than one, and stopping everything is its own verb.
+3. **`Promise.allSettled` is load-bearing, twice.** Once so one child's crash does not discard the siblings' results, and once because the per-delegation `settled` promise is rejected on unexpected errors — an unawaited rejection there would take the Core down.
+4. **Registry mutation during cancellation.** `cancelAllDelegations` iterating `this.active` live would skip siblings as each settle deleted its own entry; the running set is snapshotted before the first await.
+5. **`CLAUDE.md` still says there is no test runner.** There demonstrably is one (`pnpm test` per workspace, 36 suites); the statement is stale as of P5.x and could mislead a future session into not running the suites.
 
 ## 8. Architectural Concerns
 
-1. **Store action signature deviates from § 3 of the task.** The task sketched `cancelDelegation(projectId, threadId, reason?)`. I implemented `cancelDelegation(threadId, reason?, backendUrl?)`. `projectId` is not part of the URL or the body and would have been an unused parameter; `backendUrl` is genuinely required to address a remote workstation and is what the sibling `syncDelegations(threadId, backendUrl)` already takes. Flagging it as a deliberate deviation for review.
-
-2. **No per-project authorization on any delegation route.** `/delegate`, `/children` and now `/cancel` all check only "is there an authenticated user". Criterion 2 asked for "validates permissions"; what exists repo-wide is authentication, and adding an ownership check to cancel alone would make it inconsistent with the two routes beside it. Worth a dedicated task across the whole delegation surface (and probably wider) rather than a one-route exception here.
-
-3. **`this.waiting` and `this.active` are now parallel maps** keyed identically and mutated in the same two places. `waiting` is derivable from `active` (`waiting.get(p) === active.get(p)?.childThreadId`). I left `waiting` alone to keep the diff honest, but collapsing them would remove a class of future drift.
-
-4. **A cancelled delegation is `FAILED`, per the task.** It is indistinguishable from a crash except by reading the summary text. If operators end up wanting to filter or count cancellations, that wants a fourth `DelegationStatus` — which is a shared wire-protocol change and therefore a Change Proposal, not something to slip in.
-
-5. **ADR-008 note.** Nothing new was added to the `'*'` channel; the cancellation reuses the three existing delegation event types.
+1. **No operator entry point for a fan-out.** `delegateParallel` is reachable from an agent (meta-tool), from REST, and from the store action — but `DelegateModal` still only composes a single delegation, so an operator cannot start a batch from the dashboard. This matches the task's UI scope (§5.5 lists only the banner, the outcome card and the tree), so no modal work was invented; it is the obvious next increment if operator-initiated fan-out is wanted.
+2. **`delegation.batch_completed` is a fifth event.** It was added rather than reconstructing the grouping client-side from N per-child completions, because nothing else on the wire can say which outcomes were one batch or carry the verdict over them. It is additive and ignored by any consumer that does not know it.
+3. **Depth × width is now the real bound.** With depth 3 and width 4, a worst-case tree is 4 + 16 + 64 = 84 concurrent agent processes. Each level is individually bounded, but nothing bounds the *product*. A per-workspace ceiling on live delegated sessions may be worth a decision record before this is exercised in anger.
+4. **The batch holds an HTTP request open for the slowest child** (up to the one-hour timeout cap), same as `POST /delegate`. Cancellation makes it survivable, but an async "accept and report over the socket" variant would be the cleaner shape if fan-outs get long.
 
 ## 9. Recommended Next Step
 
-The delegation lifecycle is now complete for a single parent/child pair: dispatch (P7-01), supervision (P7-02), intervention (P7-03). The natural next vertical is **parallel/concurrent delegation** — the `ALREADY_DELEGATING` guard currently allows a parent exactly one child at a time, which caps a Tech Lead at serial hand-offs. A P7-04 covering a bounded fan-out (N concurrent children per parent, aggregated outcomes in one card, per-child cancellation reusing the registry this task added) would build directly on the `ActiveDelegation` map, which already keys by parent and would need to become a set per parent.
+Proceed to **P7-05**. The two candidates the current state suggests, in order:
 
-Failing that, the delegation audit trail (who cancelled what, when, and why, persisted rather than only living in the child's summary string) is the smaller and more defensible follow-up.
+1. **Operator-initiated fan-out in the dashboard** — a parallel mode for `DelegateModal` (2–4 role/task rows, live validation against `MAX_CONCURRENT_DELEGATIONS`, wired to the existing `delegateParallel` store action), which closes the one gap between what the Core can do and what the UI can ask for.
+2. **Shared context & artifact hand-off between siblings** — a fan-in step where one child's artifacts become the next batch's input, which is the natural continuation of Phase 7's collaborative-workflow arc and the point at which a workspace-wide concurrency ceiling (§ 8.3) should be decided.

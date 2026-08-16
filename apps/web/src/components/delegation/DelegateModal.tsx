@@ -340,9 +340,10 @@ export function DelegateModal({
   const activeThreadId = useThreadStore(state => state.activeThreadId);
   const profiles = useProfileStore(state => state.profiles);
   const loadProfiles = useProfileStore(state => state.loadProfiles);
-  const pendingChild = useProjectStore(state =>
+  const pendingChildren = useProjectStore(state =>
     activeThreadId ? state.pendingChildren[activeThreadId] : undefined
   );
+  const pendingChild = (pendingChildren || []).length > 0;
 
   const [mode, setMode] = useState<DelegateModalMode>('TASK');
   const [profileId, setProfileId] = useState('');

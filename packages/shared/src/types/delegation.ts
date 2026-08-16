@@ -30,16 +30,35 @@
  */
 export const MAX_DELEGATION_DEPTH = 3;
 
+/**
+ * How many children one parent may have running at the same time (P7-04).
+ *
+ * Depth bounds how far delegation goes down; this bounds how wide it goes at
+ * any one level, which is the other way a fan-out turns into a machine running
+ * more agent processes than it has cores. Four is the width the workflow this
+ * exists to serve actually uses — a lead splitting a feature into backend,
+ * frontend, and asking for a review of each — and it is small enough that the
+ * outcome matrix the parent is handed still fits in one prompt.
+ *
+ * It is a bound on *concurrency*, not on total children: a parent may delegate
+ * a hundred times in sequence, four at a time.
+ */
+export const MAX_CONCURRENT_DELEGATIONS = 4;
+
 /** The meta-tool an agent calls to hand work to another role. */
 export const DELEGATE_TASK_TOOL = 'delegate_task';
 
 /** The meta-tool an agent calls to have its changes critiqued. */
 export const REQUEST_REVIEW_TOOL = 'request_review';
 
+/** The meta-tool an agent calls to hand out several pieces of work at once. */
+export const DELEGATE_PARALLEL_TOOL = 'delegate_parallel';
+
 /** Every name the delegation subsystem answers to. */
 export const DELEGATION_TOOL_NAMES: readonly string[] = [
   DELEGATE_TASK_TOOL,
-  REQUEST_REVIEW_TOOL
+  REQUEST_REVIEW_TOOL,
+  DELEGATE_PARALLEL_TOOL
 ];
 
 /** Whether a tool name belongs to the delegation subsystem. */
@@ -119,6 +138,84 @@ export interface DelegationResult {
   finishedAt?: number;
 }
 
+// --- Parallel delegation (P7-04) ---------------------------------------------
+
+/**
+ * How a batch of delegations ended.
+ *
+ * `PARTIAL_SUCCESS` is the case a single delegation cannot have and the one a
+ * fan-out produces most often: the backend child answered, the frontend child
+ * timed out, and the parent has real work to continue from plus one thing to
+ * decide about. Folding it into `FAILED` would throw away the half that worked.
+ */
+export type BatchDelegationStatus = DelegationStatus | 'PARTIAL_SUCCESS';
+
+/** One piece of work in a parallel batch. A `DelegationRequest` without a parent. */
+export interface ParallelDelegationItem {
+  targetRole?: string;
+  profileId?: string;
+  taskDescription: string;
+  inputContext?: string;
+  timeoutMs?: number;
+  kind?: DelegationKind;
+  reviewCriteria?: string[];
+}
+
+/** Several pieces of work handed out at once, from one parent. */
+export interface ParallelDelegationRequest {
+  parentThreadId: string;
+  delegations: ParallelDelegationItem[];
+}
+
+/** What the parent gets back once every child in a batch has settled. */
+export interface BatchDelegationResult {
+  parentThreadId: string;
+  overallStatus: BatchDelegationStatus;
+  /** One per requested child, in the order they were requested. */
+  results: DelegationResult[];
+  /** Set when at least one child was a `REVIEW`. */
+  aggregatedVerdict?: ReviewVerdict;
+  /** One line the parent can act on: how many finished, and how many did not. */
+  summary: string;
+  startedAt: number;
+  finishedAt: number;
+}
+
+/**
+ * The status a batch reads as, from what its children did.
+ *
+ * All completed is `COMPLETED`; some completed is `PARTIAL_SUCCESS`; none
+ * completed is `FAILED`, unless every one of them ran out of time, which stays
+ * `TIMEOUT` for the same reason a single delegation does — a child that timed
+ * out may well have done the work, and the parent is owed the difference.
+ */
+export function aggregateDelegationStatus(
+  results: readonly Pick<DelegationResult, 'status'>[]
+): BatchDelegationStatus {
+  if (results.length === 0) return 'FAILED';
+  const completed = results.filter(result => result.status === 'COMPLETED').length;
+  if (completed === results.length) return 'COMPLETED';
+  if (completed > 0) return 'PARTIAL_SUCCESS';
+  return results.every(result => result.status === 'TIMEOUT') ? 'TIMEOUT' : 'FAILED';
+}
+
+/**
+ * One verdict over every review in a batch, or none when there were no reviews.
+ *
+ * A single dissent carries: a change three reviewers cleared and a fourth did
+ * not has not been cleared, and reporting the majority would be the one summary
+ * an agent could act on and be wrong.
+ */
+export function aggregateReviewVerdict(
+  results: readonly Pick<DelegationResult, 'verdict'>[]
+): ReviewVerdict | undefined {
+  const verdicts = results
+    .map(result => result.verdict)
+    .filter((verdict): verdict is ReviewVerdict => !!verdict);
+  if (verdicts.length === 0) return undefined;
+  return verdicts.every(verdict => verdict === 'PASS') ? 'PASS' : 'NEEDS_FIX';
+}
+
 /**
  * What a child thread records about why it exists.
  *
@@ -175,6 +272,16 @@ export const DELEGATION_PARENT_STATE_EVENT = 'delegation.parent_state';
 /** Published once the outcome has been handed back to the parent. */
 export const DELEGATION_COMPLETED_EVENT = 'delegation.completed';
 
+/**
+ * Published once every child of a parallel batch has settled (P7-04).
+ *
+ * In addition to, not instead of, one `delegation.completed` per child: a
+ * dashboard that only knows the four P7-01 events still sees each child finish
+ * and each parent released, and this is what tells it the several outcomes it
+ * just saw were one fan-out with one verdict over it.
+ */
+export const DELEGATION_BATCH_COMPLETED_EVENT = 'delegation.batch_completed';
+
 export interface DelegationStartedPayload {
   projectId: string;
   /** The parent, so the event routes to the room the user is watching. */
@@ -207,6 +314,13 @@ export interface DelegationCompletedPayload {
   projectId: string;
   threadId: string;
   result: DelegationResult;
+}
+
+export interface DelegationBatchCompletedPayload {
+  projectId: string;
+  /** The parent the batch was dispatched from. */
+  threadId: string;
+  batch: BatchDelegationResult;
 }
 
 // --- Who may delegate --------------------------------------------------------
@@ -271,12 +385,14 @@ export interface DelegationToolDefinition {
 }
 
 /**
- * The two meta-tools, defined once.
+ * The three meta-tools, defined once.
  *
  * The descriptions are written for the model that has to choose between them,
  * so each says what it costs: a delegation blocks the caller until the child is
  * done, which is the fact most likely to stop an agent from reaching for it out
- * of habit.
+ * of habit. `delegate_parallel` says the other half of that — it costs no more
+ * wall-clock than its slowest child, which is what makes splitting a feature up
+ * worth doing rather than a way to spend four sessions on one answer.
  */
 export const DELEGATION_TOOL_DEFINITIONS: readonly DelegationToolDefinition[] = [
   {
@@ -334,6 +450,56 @@ export const DELEGATION_TOOL_DEFINITIONS: readonly DelegationToolDefinition[] = 
         }
       },
       required: ['diff']
+    }
+  },
+  {
+    name: DELEGATE_PARALLEL_TOOL,
+    description:
+      `Hand several independent pieces of work to different roles at once. Every one of them runs at the same time in its own session, and you are paused until all of them are done — so this costs about as long as the slowest of them, not the sum. Use it when the pieces do not depend on each other; use ${DELEGATE_TASK_TOOL} when one of them needs the answer from another. At most ${MAX_CONCURRENT_DELEGATIONS} at a time. You are given every outcome together, including any that failed.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        delegations: {
+          type: 'array',
+          maxItems: MAX_CONCURRENT_DELEGATIONS,
+          description: `The pieces of work to hand out, at most ${MAX_CONCURRENT_DELEGATIONS}. Each one goes to its own agent session.`,
+          items: {
+            type: 'object',
+            properties: {
+              role: {
+                type: 'string',
+                description:
+                  'The engineering role this piece goes to, e.g. "Senior Backend Engineer", "Frontend Reviewer", "QA Engineer".'
+              },
+              task: {
+                type: 'string',
+                description: 'What that role should do, stated as an outcome it can verify.'
+              },
+              context: {
+                type: 'string',
+                description: 'Anything it needs that it cannot see from the repository.'
+              },
+              kind: {
+                type: 'string',
+                enum: ['TASK', 'REVIEW'],
+                description:
+                  'REVIEW when this piece is a critique of existing changes, which returns a PASS or NEEDS_FIX verdict. Defaults to TASK.'
+              },
+              criteria: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'What a REVIEW piece must check.'
+              },
+              timeoutMs: {
+                type: 'number',
+                description: 'How long to wait before giving up on this piece.'
+              }
+            },
+            required: ['role', 'task']
+          }
+        }
+      },
+      required: ['delegations']
     }
   }
 ];
