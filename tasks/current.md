@@ -1,9 +1,9 @@
-Task-ID: P8-02
+Task-ID: P8-03
 Phase: 8
 
-# [P8-02] — Automated Verification Pipelines over Sandboxed Worktrees
+# [P8-03] — Worktree Sandboxing & Verification Pipeline Dashboard UI
 
-**Task ID:** P8-02  
+**Task ID:** P8-03  
 **Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -14,129 +14,149 @@ Phase: 8
 
 ## 1. Objective
 
-Implement the Automated Verification Pipeline engine in `apps/server`: author `VerificationPipelineService.ts` to automatically discover, configure, and execute verification commands (typecheck, lint, test, build, or custom project pipeline steps) within a subagent's sandboxed worktree or project working directory. Integrate automated verification into `AgentDelegationService` so subagent completions produce factual `VerificationPipelineReport` execution evidence alongside Git diffs, expose REST verification triggers at `/api/v1/threads/:id/worktree/verify`, integrate sandbox orphan retention pruning, and author comprehensive unit tests.
+Implement the complete frontend UI for Worktree Sandboxing and Automated Verification Pipelines in `apps/web`: update `DelegationStatus.tsx` (`DelegationOutcomeCard` and `DelegationBatchOutcomeCard`) to render structured `VerificationPipelineReport` evidence (per-step pass/fail badges, durations, and bounded error output) and sandboxed Git diffs; add sandbox merge, discard, and re-verify actions; add sandbox status indicators to `ThreadTree.tsx` and thread headers; update `useProjectStore.ts` to manage worktree state and communicate with the P8-01/P8-02 REST endpoints; expose sandbox and verification options in `DelegateModal.tsx`; and author comprehensive unit tests verifying all rendering states and user interactions.
 
 ---
 
 ## 2. Why This Task Exists
 
-With P8-01, delegated subagents execute in isolated Git worktrees (`.asterim/worktrees/<threadId>`), preventing concurrent file collisions and dirtying of the parent workspace.
+P8-01 built isolated Git worktree sandboxes (`.asterim/worktrees/<threadId>`) and REST endpoints (`GET /api/v1/threads/:id/worktree`, `POST .../merge`, `DELETE .../worktree`).
+P8-02 built the Automated Verification Pipeline engine (`VerificationPipelineService`) and REST endpoints (`POST /api/v1/threads/:id/worktree/verify`, `GET .../verify`).
 
-However, parents and operators currently only receive file diffs and subagent text summaries. Subagents may claim that "all tests pass and types are clean" when syntax errors, broken imports, or test regressions exist.
+However, the operator dashboard in `apps/web` does not yet surface this evidence or provide controls:
+1. **Verification Evidence**: Operators cannot see whether a delegated subagent's work passed `typecheck`, `lint`, `test`, or `build`, or inspect the stdout/stderr of failing steps.
+2. **Diff Inspection & Merge Control**: Operators cannot preview the subagent's isolated worktree diff or trigger a 1-click merge / discard directly from the outcome card or thread view.
+3. **On-Demand Verification**: Operators cannot manually re-trigger a verification run on an active or completed sandbox from the UI.
+4. **Sandbox Visibility**: Thread tree and session list do not visually distinguish sandboxed subagents from standard threads.
 
-Automated Verification Pipelines close the trust gap:
-1. **Factual Verification**: Asterim autonomously runs the project's actual typechecker, linter, tests, and build inside the subagent's isolated worktree before the task is concluded.
-2. **Zero Pollution**: Verification commands execute entirely inside the isolated sandbox directory, producing no temporary build artifacts in the operator's primary tree.
-3. **Structured Evidence**: `DelegationResult` receives a structured `VerificationPipelineReport` (`passed`, `steps`, `exitCode`, `stdoutSummary`, `durationMs`) which is formatted into the parent agent's brief and exposed via REST/UI.
-4. **Lifecycle Hygiene**: Safe orphan pruning prevents disk accumulation of abandoned worktree sandboxes.
+P8-03 completes the user-facing loop of Phase 8, making sandboxing and verification observable and actionable in the dashboard.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Verification Pipeline Discovery**:
-  - Auto-discovery inspects the target directory for project descriptors:
-    - Node / JavaScript / TypeScript: inspects `package.json` `scripts` for standard lifecycle commands (`typecheck`, `lint`, `test`, `build`), detecting the package manager (`pnpm`, `npm`, `yarn`, `bun`).
-    - Explicit Configuration: inspects `.asterim/verification.json` (or `.asterim/pipeline.json`) if present for custom multi-language commands (e.g. `cargo test`, `pytest`, `go test`).
-  - Safe Execution:
-    - Executes steps sequentially via `child_process.spawn` / `exec` with per-step timeouts (default 60s, configurable), environment variable inheritance, and non-blocking stream capture.
-    - Output bounds: captures and truncates stdout/stderr per step (capped at 50,000 characters) to prevent memory inflation.
-    - Resilience: unhandled exceptions, non-zero exits, or killed processes fail the step cleanly and report `passed: false` without crashing Asterim Core.
-- **Delegation Integration**:
-  - `DelegationRequest` supports `verifyPipeline?: boolean` (defaults to `true` for `TASK` delegations with an active worktree).
-  - On subagent session completion, `AgentDelegationService` triggers `verificationPipelineService.runPipeline(worktreePath)` before returning the result.
-  - `DelegationResult` carries `verificationReport?: VerificationPipelineReport`.
-  - `formatDelegationReport` includes a `VERIFICATION:` summary section.
-- **REST Surface**:
-  - `POST /api/v1/threads/:id/worktree/verify` — manually execute verification in the thread's worktree.
-  - `GET /api/v1/threads/:id/worktree/verify` — get latest verification report for thread.
-- **Worktree Orphan Retention**:
-  - Wire `GitWorktreeService.pruneOrphans(repoPath, activeThreadIds)` into `StartupService` / `recoverDelegations` to clean up unreferenced sandboxes safely without touching active delegations.
+- **Design System Tokens (`blueprint/DESIGN_SYSTEM.md` & `tokens.css`)**:
+  - Surface palette: `var(--color-surface-1)`, `var(--color-surface-2)`, `var(--color-border-subtle)`.
+  - State tones:
+    - Pass / Verified: `var(--color-state-completed)` (#10b981 / emerald), `var(--color-state-completed-bg)`.
+    - Failed / Error: `var(--color-state-error)` (#ef4444 / rose), `var(--color-state-error-bg)`.
+    - Unverified / No Pipeline: `var(--color-text-muted)` / subtle slate pill.
+    - Sandboxed indicator: subtle cyan / violet / amber badge adhering to design tokens.
+  - Fonts & Spacing: `var(--font-family-mono)` for code snippets, steps, and diffs; standard tokenized padding and transitions (<= 200ms).
+- **Store Architecture (`apps/web/src/stores/useProjectStore.ts`)**:
+  - `useProjectStore` is the state container for project-level data, socket events, and delegation tracking.
+  - Extend store state with worktree metadata, diff cache, and verification report cache per thread:
+    - `threadWorktrees: Record<string, WorktreeInfo | null>`
+    - `threadDiffs: Record<string, { diff: string; changedFiles: string[] } | null>`
+    - `threadVerificationReports: Record<string, VerificationPipelineReport | null>`
+  - Action methods:
+    - `fetchThreadWorktree(threadId: string): Promise<WorktreeInfo | null>`
+    - `mergeThreadWorktree(threadId: string, targetBranch?: string): Promise<{ success: boolean; error?: string }>`
+    - `discardThreadWorktree(threadId: string): Promise<{ success: boolean; error?: string }>`
+    - `verifyThreadWorktree(threadId: string, steps?: string[]): Promise<VerificationPipelineReport | null>`
+- **Rendering & Props-Only Component Architecture**:
+  - Follow the existing convention: `DelegationStatus.tsx`, `ThreadTree.tsx`, and `DelegateModal.tsx` must maintain clean props-only rendering components to support `react-dom/server` static markup unit tests without headless browser dependencies.
+  - Store bindings are cleanly separated at container or hook boundaries.
 
 ---
 
-## 4. Implementation Scope
+## 4. Repository Evidence
 
-1. **Shared Types (`packages/shared/src/types/verification.ts` & `delegation.ts`)**:
-   - Define `VerificationStep`: `name`, `command`, `timeoutMs?`.
-   - Define `VerificationStepResult`: `name`, `command`, `passed`, `exitCode`, `durationMs`, `stdoutSummary?`, `stderrSummary?`, `error?`.
-   - Define `VerificationPipelineReport`: `passed: boolean`, `totalSteps: number`, `passedSteps: number`, `failedSteps: number`, `durationMs: number`, `steps: VerificationStepResult[]`, `executedAt: number`, `cwd: string`.
-   - Extend `DelegationRequest` with `verifyPipeline?: boolean`, `verificationSteps?: string[]`.
-   - Extend `DelegationResult` with `verificationReport?: VerificationPipelineReport`.
-   - Export from `packages/shared/src/index.ts`.
-
-2. **`VerificationPipelineService.ts` (`apps/server/src/services/verification/VerificationPipelineService.ts`)**:
-   - `discoverPipeline(targetDir: string)`: inspects directory for `.asterim/verification.json` or `package.json` scripts, returning ordered `VerificationStep[]`.
-   - `runStep(step: VerificationStep, targetDir: string, timeoutMs?: number)`: executes command in `targetDir` with timeout and output capture.
-   - `runPipeline(targetDir: string, options?: { steps?: string[]; timeoutMs?: number })`: executes all discovered or specified steps, returning `VerificationPipelineReport`.
-   - Safe execution guards against command injection, missing binaries, and hung processes (escalating SIGTERM -> SIGKILL).
-
-3. **Integration with `AgentDelegationService.ts`**:
-   - In `runDelegation`: after child session finishes and if `verifyPipeline` is enabled (and worktree/target exists), execute `verificationPipelineService.runPipeline`.
-   - Attach `verificationReport` to `DelegationResult`.
-   - Update `formatDelegationReport` to format verification results into the brief returned to the parent agent.
-
-4. **REST Endpoints (`apps/server/src/routes/worktrees.ts` or `routes/verification.ts`)**:
-   - `POST /api/v1/threads/:id/worktree/verify` — runs verification pipeline in thread's worktree sandbox and returns report.
-   - `GET /api/v1/threads/:id/worktree/verify` — returns cached or latest verification report.
-
-5. **Sandbox Retention Pruning Integration**:
-   - Wire `gitWorktreeService.pruneOrphans` during `recoverDelegations` on server startup so abandoned worktrees from killed processes are reclaimed.
-
-6. **Unit & Integration Tests (`apps/server/src/services/verification/__tests__/VerificationPipelineService.test.ts`)**:
-   - Test auto-discovery from `package.json` (pnpm/npm/yarn/bun).
-   - Test custom config via `.asterim/verification.json`.
-   - Test passing steps, failing steps (non-zero exit code), and timed-out steps.
-   - Test execution inside real temporary directories and Git worktree sandboxes.
-   - Test delegation integration asserting `DelegationResult.verificationReport` populated.
-   - Wire into `apps/server/package.json` `"test"` script (20 → 21 server test suites).
+- `packages/shared/src/types/verification.ts` & `delegation.ts` & `worktree.ts`: Shared domain contracts.
+- `apps/server/src/routes/worktrees.ts`: REST endpoints for worktree inspection, merge, deletion, and verification.
+- `apps/web/src/components/delegation/DelegationStatus.tsx`: `DelegationOutcomeCard`, `DelegationBatchOutcomeCard`, `DelegationWaitingBanner`.
+- `apps/web/src/components/delegation/ThreadTree.tsx`: Thread hierarchy and tree status rendering.
+- `apps/web/src/components/delegation/DelegateModal.tsx`: Delegation dispatch modal.
+- `apps/web/src/stores/useProjectStore.ts`: Project store managing delegation events and thread state.
+- `apps/web/src/components/delegation/__tests__/DelegationUI.test.ts`: Existing 401-assertion UI test battery.
 
 ---
 
-## 5. Explicitly Forbidden Changes
+## 5. Implementation Scope
 
-- Do NOT invent external SaaS dependencies or network services.
-- Do NOT modify the primary repository files during sandbox verification.
-- Do NOT delete active worktrees during orphan pruning.
-- Do NOT break any of the existing 37 test suites.
+1. **Store Enhancements (`apps/web/src/stores/useProjectStore.ts`)**:
+   - Add state mappings for thread worktree info, diffs, and verification reports.
+   - Implement `fetchThreadWorktree`, `mergeThreadWorktree`, `discardThreadWorktree`, and `verifyThreadWorktree` calling `/api/v1/threads/:id/worktree*` with auth headers.
+   - Handle incoming `delegation.completed` payload which carries `diff`, `changedFiles`, and `verificationReport`.
+
+2. **Verification Evidence in `DelegationStatus.tsx`**:
+   - **Verification Summary Row**: In `DelegationOutcomeCard` and `DelegationBatchOutcomeCard`, render verification status:
+     - All Passed: Emerald badge with checkmark and step count (e.g. `✓ 4/4 verification steps passed (1.2s)`).
+     - Failed: Rose badge with failed step name and exit code (e.g. `✗ typecheck failed (exit 1)`).
+     - No Pipeline Discovered: Neutral badge (`No verification pipeline configured`).
+   - **Step Breakdown Accordion / Detail**: Clickable toggle to view individual steps (`typecheck`, `lint`, `test`, `build`), their pass/fail icon, command, duration, and exit code.
+   - **Failure Diagnostic Box**: For failing steps, display captured bounded `stdoutSummary` / `stderrSummary` in a scrollable monospace snippet box with copy button.
+   - **Re-Verify Action Button**: "Re-run Verification" button triggering on-demand verification with loading state.
+
+3. **Sandbox Diff & Lifecycle Controls in `DelegationStatus.tsx`**:
+   - Render sandbox badge (`Sandbox: asterim/sandbox/<id>`) when `worktreePath` or `worktree_branch` is present.
+   - Render Changed Files pill list with file count.
+   - Expandable "View Diff" preview showing git patch syntax with tokenized additions/deletions highlighting.
+   - "Merge Changes" button triggering `mergeThreadWorktree` with confirmation state.
+   - "Discard Sandbox" button triggering `discardThreadWorktree` with confirmation state.
+
+4. **ThreadTree & Hierarchy Badging (`apps/web/src/components/delegation/ThreadTree.tsx`)**:
+   - Display a compact `[sandbox]` badge on threads running in isolated worktrees.
+   - Display verification status dot / badge (emerald check / rose exclamation) on completed child rows.
+
+5. **Delegate Modal Options (`apps/web/src/components/delegation/DelegateModal.tsx`)**:
+   - Add "Isolate in Git Worktree" toggle checkbox (enabled by default for `TASK` delegations).
+   - Add "Run Verification Pipeline" toggle checkbox (enabled by default when worktree isolation is selected).
+
+6. **Unit Tests (`apps/web/src/components/delegation/__tests__/DelegationUI.test.ts`)**:
+   - Test rendering `VerificationPipelineReport` in `DelegationOutcomeCard` (all pass, failed step, unverified).
+   - Test rendering `stdoutSummary` snippet for failing steps.
+   - Test rendering sandbox diffs and action buttons (merge, discard, re-verify).
+   - Test `useProjectStore` methods for worktree fetching, merging, discarding, and verification.
+   - Test `ThreadTree` sandbox badges and `DelegateModal` toggles.
+   - Assert all tests pass cleanly under `react-dom/server` harness.
 
 ---
 
-## 6. Acceptance Criteria
+## 6. Explicitly Forbidden Changes
 
-1. `VerificationPipelineService` automatically discovers verification commands from `package.json` or custom `.asterim/verification.json` configuration.
-2. `VerificationPipelineService` executes verification steps sequentially with per-step timeouts, process management, and structured output capture.
-3. `AgentDelegationService` automatically runs verification in a subagent's sandboxed worktree upon task completion and attaches `VerificationPipelineReport` to `DelegationResult`.
-4. REST endpoint `POST /api/v1/threads/:id/worktree/verify` supports on-demand execution of verification pipelines with authenticated access control.
-5. Orphan worktree pruning is safely wired into server startup/recovery.
-6. `VerificationPipelineService.test.ts` passes with comprehensive assertions in real temporary directories.
-7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (38 test suites), `pnpm run build`.
+- Do NOT install heavy external syntax highlighters or charting libraries. Use lightweight tokenized CSS and DOM elements.
+- Do NOT break existing delegation event handlers, store subscriptions, or P7/P8 backend routes.
+- Do NOT introduce unstyled or raw HTML buttons; adhere strictly to `blueprint/DESIGN_SYSTEM.md` and CSS custom properties in `tokens.css`.
+- Do NOT break any existing test suites (38 monorepo test suites must continue passing).
 
 ---
 
-## 7. Definition of Done
+## 7. Acceptance Criteria
 
-- [ ] Shared verification types in `@asterim/shared`
-- [ ] `VerificationPipelineService.ts` implemented with auto-discovery and bounded step execution
-- [ ] `AgentDelegationService` integrated with automated sandbox verification
-- [ ] REST verification endpoints implemented and registered
-- [ ] Orphan worktree pruning wired into startup lifecycle
-- [ ] `VerificationPipelineService.test.ts` created and passing
+1. `DelegationOutcomeCard` and `DelegationBatchOutcomeCard` render clear verification summary badges and collapsible step-by-step breakdowns for `VerificationPipelineReport`.
+2. Failing verification steps render bounded monospace error logs (`stdoutSummary`/`stderrSummary`) in the outcome card.
+3. Sandboxed subagent results display changed file counts, diff preview toggle, and working 1-click "Merge Changes" and "Discard Sandbox" action buttons.
+4. "Re-run Verification" button triggers on-demand verification via `POST /api/v1/threads/:id/worktree/verify` and updates the UI state.
+5. `ThreadTree` displays sandboxed worktree indicators and verification outcome badges on thread rows.
+6. `DelegateModal` provides intuitive toggles for worktree isolation and verification pipeline execution.
+7. `DelegationUI.test.ts` is expanded with comprehensive assertions covering verification and sandbox UI states and passes with exit code 0.
+8. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (38 test suites), `pnpm run build`.
+
+---
+
+## 8. Definition of Done
+
+- [ ] `useProjectStore.ts` extended with worktree and verification state/actions
+- [ ] `DelegationStatus.tsx` updated with verification evidence, step details, diff preview, and sandbox controls
+- [ ] `ThreadTree.tsx` updated with sandbox and verification badges
+- [ ] `DelegateModal.tsx` updated with worktree and verification configuration toggles
+- [ ] `DelegationUI.test.ts` expanded with comprehensive tests for new components and store actions
 - [ ] Monorepo CI gates pass cleanly (38/38 test suites, 0 lint errors, 0 typecheck errors, build succeeds)
 
 ---
 
-## 8. Verification Commands
+## 9. Verification Commands
 
 ```bash
-# Run new Verification Pipeline test suite
+# Run expanded Delegation UI test suite
+pnpm --filter @asterim/web exec tsx src/components/delegation/__tests__/DelegationUI.test.ts
+
+# Run server verification & worktree test suites
 pnpm --filter asterim exec tsx src/services/verification/__tests__/VerificationPipelineService.test.ts
-
-# Run Git Worktree and Delegation test suites
 pnpm --filter asterim exec tsx src/services/git/__tests__/GitWorktreeService.test.ts
-pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
 
-# Run full monorepo CI pipeline
+# Run full monorepo CI validation pipeline
 pnpm run typecheck
 pnpm run lint
 pnpm run test
@@ -145,7 +165,7 @@ pnpm run build
 
 ---
 
-## 9. Self-Review Requirements
+## 10. Self-Review Requirements
 
 Execute the mandatory Claude Code self-review cycle:
 1. Inspect git diff (`git diff`) before declaring complete.
@@ -154,6 +174,6 @@ Execute the mandatory Claude Code self-review cycle:
 
 ---
 
-## 10. Required Report
+## 11. Required Report
 
 Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
