@@ -1,4 +1,4 @@
-Task-ID: P7-02
+Task-ID: P7-03
 
 ## Verification Commands
 1. Run Typecheck:
@@ -15,7 +15,7 @@ Task-ID: P7-02
 
 4. Run Server Delegation Test Suite:
    `pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts`
-   PASS: All delegation assertions pass with exit code 0.
+   PASS: All delegation assertions (including cancellation) pass with exit code 0.
 
 5. Run Full Monorepo Test Battery:
    `pnpm run test`
