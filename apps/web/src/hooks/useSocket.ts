@@ -20,6 +20,11 @@ import { useTerminalStore } from '../stores/useTerminalStore';
 import { useMemoryStore, isMemoryEvent } from '../stores/useMemoryStore';
 import { MCP_EVENT_TYPES, useMcpStore } from '../stores/useMcpStore';
 import { activeProfileIdForThread } from '../stores/useProfileStore';
+import {
+  DELEGATION_EVENT_TYPES,
+  handleDelegationEvent,
+  isDelegationEvent
+} from '../stores/useProjectStore';
 
 export interface ChatMessage {
   id: string;
@@ -66,6 +71,18 @@ export function useSocket(
   }, [threadId]);
 
   const applyHistory = (historyEvents: AsterimEvent<any>[], currentThreadId: string | null) => {
+    // Delegation briefs and outcomes are replayed so a reload still knows what
+    // each child was asked to do and what came back. The two *live* states —
+    // which child is running, and whether a parent is parked — are deliberately
+    // not replayed: they describe sessions, and a session that was running when
+    // the page was last open is not running now. Those come from
+    // `GET /threads/:id/children`, which reads the Core's own memory.
+    for (const event of historyEvents) {
+      if (event.type === 'delegation.started' || event.type === 'delegation.completed') {
+        handleDelegationEvent(event.type, event.payload);
+      }
+    }
+
     // file changes are global to project
     const fileEvents = historyEvents.filter(e => e.type === 'file.changed');
     const latestFiles = new Map<string, FileChangedPayload>();
@@ -292,6 +309,17 @@ export function useSocket(
         return;
       }
 
+      // Delegation events describe a relationship *between* two threads, so
+      // they are routed before the thread filter below — an event about a child
+      // is exactly what the parent's view needs, and filtering it out because
+      // its threadId is not the open one is how the waiting banner would never
+      // appear.
+      if (isDelegationEvent(event)) {
+        rawHistoryRef.current.push(event);
+        handleDelegationEvent(event.type, event.payload);
+        return;
+      }
+
       // Thread-specific filtering
       if (
         threadIdRef.current &&
@@ -392,6 +420,12 @@ export function useSocket(
       newSocket.on(mcpType, (event: AsterimEvent<McpServerEventPayload>) => {
         useMcpStore.getState().handleMcpEvent(event);
       });
+    }
+
+    // The four delegation lifecycle events (P7-02). They carry a projectId, so
+    // they arrive through the project room like everything else.
+    for (const delegationType of DELEGATION_EVENT_TYPES) {
+      newSocket.on(delegationType, handleInternalEvent);
     }
 
     newSocket.on('memory.decision_created', handleInternalEvent);

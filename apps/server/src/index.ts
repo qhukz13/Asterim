@@ -222,6 +222,12 @@ const start = async () => {
     agentService.recoverSessions();
     approvalManager.recoverPendingApprovals();
 
+    // Delegated children the previous run stopped on top of (P7-02). No session
+    // survived the restart, so a child still marked running is over; settling it
+    // here is what stops the dashboard showing it live forever.
+    const { agentDelegationService } = await import('./services/ai/AgentDelegationService');
+    agentDelegationService.recoverDelegations();
+
     // Start event log pruning (runs immediately then every hour)
     pruningService.start();
 

@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NewAgentModal } from './overlays/NewAgentModal';
-import { useProjectStore } from '../stores/useProjectStore';
+import { buildThreadTree, useProjectStore } from '../stores/useProjectStore';
 import { useThreadStore } from '../stores/useThreadStore';
 import { usePanelStore } from '../stores/usePanelStore';
 import { useDebugLifecycle } from '../utils/debug';
 import { useViewStore } from '../stores/useViewStore';
 import { useLocation } from 'wouter';
-import { IconBot, IconPlus, IconArrowLeft } from './icons/Icons';
+import { IconPlus, IconArrowLeft } from './icons/Icons';
 import { ProfileSelector } from './profiles/ProfileSelector';
+import { ThreadTreeView } from './delegation/ThreadTree';
 
 export interface Thread {
   id: string;
@@ -29,9 +30,17 @@ export function SessionSidebar({
 
   const threads = useProjectStore(s => s.threads);
   const setThreads = useProjectStore(s => s.setThreads);
+  const parentStates = useProjectStore(s => s.parentStates);
+  const childStates = useProjectStore(s => s.childStates);
   const activeThreadId = useThreadStore(s => s.activeThreadId);
   const perThreadViewState = useViewStore(s => s.perThreadViewState);
   const [, setLocation] = useLocation();
+
+  // Delegated children are nested under the thread that asked for them. The
+  // tree is derived rather than stored: the thread list is the fact, and a
+  // second copy of it would be one more thing to keep in step with the socket.
+  const tree = useMemo(() => buildThreadTree(threads), [threads]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const handleSelectThread = (threadId: string) => {
     const lastView = perThreadViewState[threadId] || 'chat';
@@ -241,46 +250,17 @@ export function SessionSidebar({
             No active threads.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-            {threads.map(thread => {
-              const isActive = activeThreadId === thread.id;
-              return (
-                <div
-                  key={thread.id}
-                  onClick={() => handleSelectThread(thread.id)}
-                  style={{
-                    padding: 'var(--spacing-2) var(--spacing-3)',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    lineHeight: '1.4',
-                    display: 'flex',
-                    alignItems: 'center',
-                    background: isActive ? 'var(--color-surface-2)' : 'transparent',
-                    color: isActive ? 'var(--color-accent-hover)' : 'var(--color-text-primary)',
-                    border: `1px solid ${isActive ? 'var(--color-border-default)' : 'transparent'}`,
-                    borderLeft: isActive ? '2px solid var(--color-accent-primary)' : '1px solid transparent',
-                    transition: 'background 0.15s, color 0.15s'
-                  }}
-                  onMouseOver={e => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'var(--color-surface-1)';
-                    }
-                  }}
-                  onMouseOut={e => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
-                  }}
-                >
-                  <IconBot size={14} style={{ marginRight: 'var(--spacing-2)', opacity: isActive ? 1 : 0.6, flexShrink: 0, color: isActive ? 'var(--color-accent-primary)' : 'currentColor' }} />
-                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                    {thread.name}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <ThreadTreeView
+            nodes={tree}
+            activeThreadId={activeThreadId}
+            parentStates={parentStates}
+            childStates={childStates}
+            collapsed={collapsed}
+            onSelect={handleSelectThread}
+            onToggleCollapse={threadId =>
+              setCollapsed(current => ({ ...current, [threadId]: !current[threadId] }))
+            }
+          />
         )}
       </div>
 

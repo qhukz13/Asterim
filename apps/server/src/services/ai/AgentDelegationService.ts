@@ -310,6 +310,101 @@ export class AgentDelegationService {
     return this.waiting.get(threadId);
   }
 
+  // --- Startup recovery -----------------------------------------------------
+
+  /**
+   * Settles children the Core stopped on top of (P7-02).
+   *
+   * A delegation's outcome is written when the child settles, and the waiting
+   * is held in memory. So a Core that stops mid-delegation leaves a child row
+   * with a brief and no `status` — which `listChildren` reports as `RUNNING`,
+   * correctly, because nothing else in storage can tell a child that is running
+   * now from one that was running when the process died. After a restart the
+   * difference is knowable: no session survived, so every such child is over.
+   *
+   * They are recorded as `FAILED` rather than `TIMEOUT`. A timeout says the
+   * child was given its full time and did not answer; this says it was cut off,
+   * and the reason line is what tells the operator which happened. Nothing is
+   * restarted — a child that was interrupted mid-edit is not a thing to silently
+   * resume, and its transcript is still there for whoever wants to read it.
+   *
+   * Returns how many rows were settled. Never throws: a recovery pass that
+   * fails must not be what stops a workstation from starting.
+   */
+  public recoverDelegations(reason = 'Server restarted while child was running'): number {
+    // A parent parked in memory cannot outlive the process, but clearing is
+    // free and makes the pass safe to call more than once.
+    this.waiting.clear();
+
+    let rows: ThreadRow[];
+    try {
+      rows = this.db()
+        .prepare(
+          `SELECT id, project_id, name, parent_thread_id, delegation_context_json, profile_id
+             FROM threads WHERE parent_thread_id IS NOT NULL`
+        )
+        .all() as unknown as ThreadRow[];
+    } catch (err) {
+      console.warn(`[Delegation] Could not scan for dangling children: ${(err as Error).message}`);
+      return 0;
+    }
+
+    const finishedAt = Date.now();
+    let recovered = 0;
+
+    for (const row of rows) {
+      const context = parseDelegationContext(row.delegation_context_json);
+      if (context?.status) continue;
+
+      // A child with no readable context still has to stop reading as RUNNING,
+      // so one is written from what the row itself knows. The brief is left
+      // empty rather than invented: an outcome may be reconstructed after the
+      // fact, a task description may not.
+      const settled: DelegationContext = {
+        parentThreadId: context?.parentThreadId ?? row.parent_thread_id ?? '',
+        depth: context?.depth ?? 1,
+        kind: context?.kind ?? 'TASK',
+        taskDescription: context?.taskDescription ?? '',
+        inputContext: context?.inputContext,
+        reviewCriteria: context?.reviewCriteria,
+        role: context?.role,
+        profileId: context?.profileId ?? row.profile_id ?? undefined,
+        requestedAt: context?.requestedAt ?? 0,
+        status: 'FAILED',
+        summary: truncate(reason, MAX_SUMMARY_CHARS),
+        verdict: context?.kind === 'REVIEW' ? 'NEEDS_FIX' : undefined,
+        finishedAt
+      };
+
+      try {
+        this.db()
+          .prepare('UPDATE threads SET delegation_context_json = ? WHERE id = ?')
+          .run(JSON.stringify(settled), row.id);
+      } catch (err) {
+        console.warn(
+          `[Delegation] Could not settle dangling child ${row.id}: ${(err as Error).message}`
+        );
+        continue;
+      }
+
+      recovered++;
+      // Published so a dashboard that reconnects to a restarted Core sees the
+      // child leave its running state, rather than showing it live forever.
+      this.publishChildState(
+        row.project_id,
+        row.id,
+        settled.parentThreadId || row.parent_thread_id || '',
+        'FAILED',
+        reason
+      );
+    }
+
+    if (recovered > 0) {
+      console.log(`[Delegation] Recovered ${recovered} dangling child thread(s) after restart`);
+    }
+    return recovered;
+  }
+
   // --- Delegation -----------------------------------------------------------
 
   /**

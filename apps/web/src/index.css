@@ -1101,3 +1101,12 @@ button:active {
 .clear-chat-btn:active {
   transform: translateY(0);
 }
+
+/* Multi-agent delegation (P7-02).
+   Marks a child thread that is doing work right now. Reuses the `pulse`
+   keyframe and the 2s cadence the waiting status badge already uses, so
+   "something is live" reads the same everywhere instead of becoming a second
+   visual vocabulary. */
+.delegation-pulse {
+  animation: pulse 2s infinite;
+}

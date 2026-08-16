@@ -16,6 +16,7 @@ export function InteractionEngine() {
   const perThreadViewState = useViewStore(s => s.perThreadViewState);
   const setActiveView = useViewStore(s => s.setActiveView);
   const setThreads = useProjectStore(s => s.setThreads);
+  const resetDelegation = useProjectStore(s => s.resetDelegation);
 
   // Rule: Changing project clears stale thread data
   useEffect(() => {
@@ -23,7 +24,11 @@ export function InteractionEngine() {
     // don't bleed into the new project's workspace while
     // SessionSidebar re-fetches.
     setThreads([]);
-  }, [activeProjectId, setThreads]);
+    // The delegation maps are keyed by thread id and belong to the same list,
+    // so they go with it — a waiting state left behind would otherwise be
+    // attributed to whichever thread of the new project happened to match.
+    resetDelegation();
+  }, [activeProjectId, setThreads, resetDelegation]);
 
   // Rule: Changing thread clears inspector selection
   useEffect(() => {

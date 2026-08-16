@@ -23,6 +23,8 @@ import { DecisionExplorer } from './components/memory/DecisionExplorer';
 import { McpServerExplorer } from './components/mcp/McpServerExplorer';
 import { SkillsExplorer } from './components/skills/SkillsExplorer';
 import { ContextView } from './components/workspace/ContextView';
+import { DelegationStatus } from './components/delegation/DelegationStatus';
+import { DelegateModal } from './components/delegation/DelegateModal';
 import { EnvironmentSettingsView } from './components/environment/EnvironmentSettingsView';
 import { AISettings } from './components/AISettings';
 import { RouterSync } from './Router';
@@ -374,6 +376,21 @@ function ProjectWorkspace({
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
 
+  // Multi-agent delegation (P7-02). Navigating to a child is an ordinary route
+  // change, so a delegated thread is inspected exactly like any other one.
+  const [showDelegateModal, setShowDelegateModal] = useState(false);
+  const parentStates = useProjectStore(s => s.parentStates);
+  const isDelegating = activeThreadId
+    ? parentStates[activeThreadId] === 'WAITING_FOR_CHILD'
+    : false;
+  const openThread = (threadId: string) => {
+    setLocation(`/workspace/project/${project.id}/thread/${threadId}/view/chat`);
+  };
+  // An artifact the child named is a file in the working tree, so the place to
+  // look at it is Changes. ChangesView owns which file is open in its own local
+  // state, so this lands on the diff rather than on that one row.
+  const openArtifact = () => setActiveTab('changes');
+
   useEffect(() => {
     setHasAutoStarted(false);
   }, [activeThreadId]);
@@ -692,6 +709,28 @@ function ProjectWorkspace({
         </div>
 
         <div className="view-navigation-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {activeTab === 'chat' && activeThreadId && (
+            <button
+              onClick={() => setShowDelegateModal(true)}
+              title="Hand this thread's work to another role, or ask for a review"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 'var(--font-weight-semibold)',
+                background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s'
+              }}
+            >
+              <IconGitBranch size={13} /> Delegate
+            </button>
+          )}
           {activeTab === 'chat' && messages.length > 0 && (
             <button className="clear-chat-btn" onClick={clearMessages} title="Clear Chat History">
               🧹 Clear Chat
@@ -772,6 +811,14 @@ function ProjectWorkspace({
 
       {activeTab === 'chat' ? (
         <>
+          {/* Whether this thread is parked behind a delegated agent, and what
+              the last one came back with. Above the transcript rather than in
+              it: it is the state of the session, not a message in it. */}
+          <DelegationStatus
+            onInspectChild={openThread}
+            onOpenArtifact={openArtifact}
+            activeBackendUrl={activeBackendUrl}
+          />
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <ChatView
               messages={messages}
@@ -902,6 +949,13 @@ function ProjectWorkspace({
             <QuestionOverlay
               questionRequest={questionRequest}
               onSelect={(id, index, text) => sendQuestionResponse(id, index, text)}
+            />
+          )}
+          {showDelegateModal && (
+            <DelegateModal
+              onClose={() => setShowDelegateModal(false)}
+              activeBackendUrl={activeBackendUrl}
+              isDelegating={isDelegating}
             />
           )}
         </>

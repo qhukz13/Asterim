@@ -1002,6 +1002,127 @@ async function main(): Promise<void> {
     await app.close();
   }
 
+  // --- Startup recovery (P7-02) ----------------------------------------------
+  describe('recoverDelegations settles children the Core stopped on top of');
+  {
+    const db = dbService.getDb();
+
+    // Three shapes a restart can leave behind: a child mid-flight with a brief,
+    // one whose row never got a readable brief at all, and one that finished
+    // properly before the process went away.
+    insertThread('rec-parent', 'Parent');
+    insertThread('rec-running', 'Interrupted child', 'rec-parent');
+    insertThread('rec-blank', 'Child with no brief', 'rec-parent');
+    insertThread('rec-review', 'Interrupted review', 'rec-parent');
+    insertThread('rec-done', 'Finished child', 'rec-parent');
+    insertThread('rec-root', 'An ordinary root thread');
+
+    db.prepare('UPDATE threads SET delegation_context_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        parentThreadId: 'rec-parent',
+        depth: 1,
+        kind: 'TASK',
+        taskDescription: 'Harden the upload route.',
+        role: 'Security Auditor',
+        requestedAt: 111
+      }),
+      'rec-running'
+    );
+    db.prepare('UPDATE threads SET delegation_context_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        parentThreadId: 'rec-parent',
+        depth: 1,
+        kind: 'REVIEW',
+        taskDescription: 'Review the diff.',
+        requestedAt: 112
+      }),
+      'rec-review'
+    );
+    db.prepare('UPDATE threads SET delegation_context_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        parentThreadId: 'rec-parent',
+        depth: 1,
+        kind: 'TASK',
+        taskDescription: 'Already done.',
+        requestedAt: 113,
+        status: 'COMPLETED',
+        summary: 'It was finished before the restart.',
+        finishedAt: 114
+      }),
+      'rec-done'
+    );
+
+    const beforeRoot = threadRow('rec-root').delegation_context_json;
+    const childEvents: AnyEvent[] = [];
+    const childHandler = (event: AnyEvent) => childEvents.push(event);
+    eventBus.subscribe(DELEGATION_CHILD_STATE_EVENT, childHandler);
+
+    const recovered = service.recoverDelegations();
+
+    eventBus.unsubscribe(DELEGATION_CHILD_STATE_EVENT, childHandler);
+
+    // Earlier sections leave their own children behind, so the count is a lower
+    // bound; which rows were settled is asserted individually below.
+    check(
+      'every dangling child is settled, including the three set up here',
+      recovered >= 3,
+      `recovered ${recovered}`
+    );
+
+    const running = JSON.parse(threadRow('rec-running').delegation_context_json);
+    equal('an interrupted child is recorded FAILED', running.status, 'FAILED');
+    check('with a reason that says what happened', /restart/i.test(running.summary));
+    check('and a finish time', typeof running.finishedAt === 'number');
+    equal('its brief is left intact', running.taskDescription, 'Harden the upload route.');
+    equal('as is the role it ran under', running.role, 'Security Auditor');
+    equal('and when it was requested', running.requestedAt, 111);
+
+    const blank = JSON.parse(threadRow('rec-blank').delegation_context_json);
+    equal('a child with no readable brief still stops reading as running', blank.status, 'FAILED');
+    equal('its parent is taken from the row', blank.parentThreadId, 'rec-parent');
+    equal('and no task description is invented', blank.taskDescription, '');
+
+    const review = JSON.parse(threadRow('rec-review').delegation_context_json);
+    equal('an interrupted review cannot have passed', review.verdict, 'NEEDS_FIX');
+
+    const done = JSON.parse(threadRow('rec-done').delegation_context_json);
+    equal('a child that already finished is untouched', done.status, 'COMPLETED');
+    equal('keeping its own summary', done.summary, 'It was finished before the restart.');
+    equal('and its own finish time', done.finishedAt, 114);
+
+    equal('a thread with no parent is not a delegation', threadRow('rec-root').delegation_context_json, beforeRoot);
+
+    equal(
+      'each settled child is announced',
+      childEvents
+        .filter(event => String(event.payload.threadId).startsWith('rec-'))
+        .map(event => `${event.payload.threadId}:${event.payload.state}`)
+        .sort(),
+      ['rec-blank:FAILED', 'rec-review:FAILED', 'rec-running:FAILED']
+    );
+    equal(
+      'naming the parent that was waiting on it',
+      childEvents.find(event => event.payload.threadId === 'rec-running')?.payload.parentThreadId,
+      'rec-parent'
+    );
+
+    equal('nothing is left to settle on a second pass', service.recoverDelegations(), 0);
+
+    equal(
+      'and the children read as failed to the REST surface',
+      service
+        .listChildren('rec-parent')
+        .map((child: { threadId: string; status: string }) => `${child.threadId}:${child.status}`)
+        .sort(),
+      ['rec-blank:FAILED', 'rec-done:COMPLETED', 'rec-review:FAILED', 'rec-running:FAILED']
+    );
+    equal(
+      'no parent is left parked after a restart',
+      service.getParentState('rec-parent'),
+      'ACTIVE'
+    );
+  }
+
   describe('the production runner speaks the client protocol');
   {
     const published: AnyEvent[] = [];

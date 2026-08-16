@@ -15,6 +15,10 @@ export interface ThreadConfig {
   project_id: string;
   name: string;
   created_at?: string;
+  /** The thread that delegated this one, when it was delegated (P7-01). */
+  parent_thread_id?: string | null;
+  /** The child's brief and recorded outcome, as stored JSON (P7-01). */
+  delegation_context_json?: string | null;
 }
 
 export class ProjectManager {
@@ -102,12 +106,29 @@ export class ProjectManager {
     remove.run(id);
   }
 
+  /**
+   * A project's threads, carrying the delegation link the dashboard draws the
+   * hierarchy from (P7-02).
+   *
+   * The two delegation columns arrived as `ALTER TABLE` statements wrapped in
+   * try/catch, so a database on which those never applied still has to open.
+   * The fallback is the pre-delegation projection: a flat list, which is
+   * exactly what the sidebar renders when nothing has been delegated anyway.
+   */
   public getThreads(projectId: string): ThreadConfig[] {
     const db = dbService.getDb();
-    const query = db.prepare(
-      'SELECT id, project_id, name, created_at FROM threads WHERE project_id = ? ORDER BY created_at ASC'
-    );
-    return query.all(projectId) as unknown as ThreadConfig[];
+    try {
+      const query = db.prepare(
+        `SELECT id, project_id, name, created_at, parent_thread_id, delegation_context_json
+           FROM threads WHERE project_id = ? ORDER BY created_at ASC`
+      );
+      return query.all(projectId) as unknown as ThreadConfig[];
+    } catch {
+      const query = db.prepare(
+        'SELECT id, project_id, name, created_at FROM threads WHERE project_id = ? ORDER BY created_at ASC'
+      );
+      return query.all(projectId) as unknown as ThreadConfig[];
+    }
   }
 
   public createThread(projectId: string, name: string): ThreadConfig {
