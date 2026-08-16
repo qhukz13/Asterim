@@ -1,9 +1,9 @@
-Task-ID: P6-06-FIX
+Task-ID: P6-07
 Phase: 6
 
-# P6-06-FIX — Hardened BaseAdapter Tool Call Echo De-Duplication & Flaky Test Resolution
+# P6-07 — Agent Profiles, Built-in Engineering Roles & Persona Management
 
-**Task ID:** P6-06-FIX
+**Task ID:** P6-07
 **Phase:** 6
 **Assigned Agent:** Claude Code
 **Orchestrator:** Antigravity
@@ -13,56 +13,125 @@ Phase: 6
 ---
 
 ## 1. Objective
-Fix the racy tool call de-duplication in `packages/adapters/src/sdk/BaseAdapter.ts` by introducing a TTL-based time-window de-duplication mechanism for recently executed tool calls, replacing the in-flight-only tracking state. Ensure `apps/server/src/services/mcp/__tests__/AgentMcpIntegration.test.ts` passes deterministically and clears the monorepo test battery gate.
+Implement Asterim's Agent Profiles & Engineering Roles subsystem: define the schema and persistence for configurable agent profiles, seed out-of-the-box system roles (Senior Backend Engineer, Frontend Reviewer, DevOps Engineer, Security Auditor, QA Engineer, Tech Lead), expose authenticated REST APIs (`/api/v1/profiles`), integrate profile selection and system prompts into `AgentService` session startup, and build the Profile Selector & Management UI in `apps/web`.
 
 ## 2. Why This Task Exists
-During verification of Task P6-06, step 4 of the test gate (`pnpm run test`) failed non-deterministically (2 of 5 runs failed). The failure was traced to a flaky assertion in `AgentMcpIntegration.test.ts` (`but only once, not twice - expected 3, got 4`).
-In `BaseAdapter.ts`, tool calls are currently de-duplicated based on `inFlightToolCalls: Set<string>`. When stdout chunks from node-pty arrive split across chunk boundaries, the first tool call completes and clears its in-flight key before the duplicate chunk is processed, causing the duplicate tool call to be dispatched a second time.
-Adding a short TTL window (e.g. 1500ms) for recently seen tool call signatures suppresses duplicate tool invocations across chunk boundaries without affecting distinct tool calls.
+Phase 6 ("AI Ecosystem") establishes Asterim as the control center for AI-native software engineering through three core primitives: MCP Server Supervision (P6-01 to P6-05), Reusable Skills Discovery (P6-06), and Agent Profiles (P6-07).
+Currently, all agent sessions run with uniform default prompts and global tool capabilities. Agent Profiles enable users and teams to tailor agent persona, system instructions, model parameters, enabled MCP servers, active skills, and automated approval rules per task or workflow.
 
-## 3. Context & Repository Evidence
-- `packages/adapters/src/sdk/BaseAdapter.ts` (lines 229-256): `runToolCall` de-duplication logic.
-- `apps/server/src/services/mcp/__tests__/AgentMcpIntegration.test.ts` (lines 1035-1039): Flaky assertion test case.
-- `tests/report.md`: QA Test Report detailing Finding 1 and root cause analysis.
+## 3. Context & Architecture
+- Blueprint Reference: `blueprint/ROADMAP.md` Phase 6 ("Agent Profiles: Pre-configured Roles & Profile Configuration Schema").
+- Profile Data Model (`packages/shared/src/types/profiles.ts`):
+  - `AgentProfile`: `id`, `name`, `role`, `description`, `systemPrompt`, `model?`, `temperature?`, `enabledMcpServers?: string[]`, `enabledSkills?: string[]`, `autoApprovalRules?: string[]`, `isBuiltin: boolean`, `workspaceId?: string`, `createdAt: number`, `updatedAt: number`.
+- Persistence: `agent_profiles` table in SQLite (`DatabaseService.ts`) with idempotent creation and default built-in profile seeding.
+- Profile Service (`apps/server/src/services/ai/ProfileService.ts`):
+  - CRUD operations for profiles with workspace scoping (`listProfiles(workspaceId?)`, `getProfile(id)`, `createProfile(data)`, `updateProfile(id, data)`, `deleteProfile(id)`).
+  - Built-in profiles cannot be deleted or mutated into invalid states; users can clone or override them.
+- Runtime Session Integration (`AgentService.ts`):
+  - `startAgent(projectId, threadId, workspace, agentType, profileId?)`:
+  - When `profileId` is provided (or configured on thread/project), load the profile definition.
+  - Combine the profile's `systemPrompt` with `McpToolPrompt` instructions (`formatSessionInstructions`).
+  - Filter `mcpTools` and `skills` to only include those allowed by `enabledMcpServers` / `enabledSkills` (or all if omitted/wildcard).
+- REST API Surface (`apps/server/src/routes/profiles.ts`):
+  - `GET /api/v1/profiles` (lists built-in + workspace-scoped profiles).
+  - `GET /api/v1/profiles/:id` (retrieves full profile details).
+  - `POST /api/v1/profiles` (creates a custom profile).
+  - `PUT /api/v1/profiles/:id` (updates a custom profile; rejects mutating built-in profiles).
+  - `DELETE /api/v1/profiles/:id` (deletes a custom profile; rejects deleting built-in profiles).
+- Web UI (`apps/web`):
+  - `useProfileStore.ts`: Zustand store for active profile selection and CRUD operations.
+  - `ProfileSelector.tsx`: Dropdown / pill in the chat header or session sidebar showing the active profile with role badge, icon, and quick switcher.
+  - `ProfileManagerModal.tsx`: Modal for browsing all profiles, inspecting details/prompts/tools, cloning built-in roles, and creating/editing custom profiles.
 
-## 4. Implementation Scope
-1. **`BaseAdapter.ts` (`packages/adapters/src/sdk/BaseAdapter.ts`)**:
-   - Update `BaseAdapter` tool call de-duplication to track executed tool call keys with timestamps in a TTL cache (e.g. 1500ms window).
-   - Suppress incoming tool calls matching a recently executed signature within the TTL window.
-   - Clean up expired cache entries to prevent memory growth.
-2. **Deterministic Verification**:
-   - Run `AgentMcpIntegration.test.ts` standalone 10 times consecutively.
-   - Run `pnpm run test` 5 times consecutively to verify 100% pass rate across all 32 test suites.
+## 4. Repository Evidence
+- `apps/server/src/services/DatabaseService.ts`: SQLite schema initialization.
+- `apps/server/src/services/AgentService.ts`: Session start and tool/skill instruction formatting.
+- `apps/server/src/services/mcp/McpToolPrompt.ts`: System prompt instruction generation.
+- `packages/shared/src/index.ts`: Shared type exports across server and web.
+- `apps/web/src/components/SessionSidebar.tsx` & `apps/web/src/components/TopBar.tsx`: Integration points for profile selector.
 
-## 5. Explicitly Forbidden Changes
-- Do NOT delete, weaken, or modify the assertion `but only once, not twice` in `AgentMcpIntegration.test.ts`.
-- Do NOT modify implementation files outside `packages/adapters/src/sdk/BaseAdapter.ts`.
-- Do NOT alter any P6-06 skills subsystem code in `apps/server/src/services/skills/`.
+## 5. Implementation Scope
+1. **Shared Types (`packages/shared/src/types/profiles.ts` & `packages/shared/src/index.ts`)**:
+   - Define `AgentProfile`, `CreateProfileInput`, `UpdateProfileInput`, and built-in role constants (`BUILTIN_PROFILES`).
+2. **Database Schema (`apps/server/src/services/DatabaseService.ts`)**:
+   - Add `agent_profiles` table:
+     ```sql
+     CREATE TABLE IF NOT EXISTS agent_profiles (
+       id TEXT PRIMARY KEY,
+       name TEXT NOT NULL,
+       role TEXT NOT NULL,
+       description TEXT NOT NULL,
+       system_prompt TEXT NOT NULL,
+       model TEXT,
+       temperature REAL,
+       enabled_mcp_servers TEXT,
+       enabled_skills TEXT,
+       auto_approval_rules TEXT,
+       is_builtin INTEGER NOT NULL DEFAULT 0,
+       workspace_id TEXT,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     );
+     ```
+3. **Profile Service (`apps/server/src/services/ai/ProfileService.ts`)**:
+   - Implement `ProfileService` singleton with built-in role seeding (`initBuiltinProfiles()`).
+   - Built-in roles:
+     1. `Senior Backend Engineer` (Architecture, API design, Node/TypeScript/SQL optimization, clean code).
+     2. `Frontend Reviewer` (UI/UX fidelity, accessibility, design token compliance, state hygiene).
+     3. `DevOps Engineer` (CI/CD, Docker containerization, infrastructure, build optimizations).
+     4. `Security Auditor` (AST hazard analysis, path traversal checks, secret leakage detection, permission boundaries).
+     5. `QA Engineer` (Test coverage, edge case analysis, regression prevention, integration verification).
+     6. `Tech Lead` (Cross-domain coordination, architectural decisions, task breakdown, trade-off review).
+   - Implement CRUD methods with guard against deleting/modifying built-in profiles.
+4. **REST API Routes (`apps/server/src/routes/profiles.ts`)**:
+   - Authenticated Fastify routes mounted under `/api/v1/profiles`.
+   - Register route plugin in `apps/server/src/index.ts`.
+5. **Agent Session Integration (`apps/server/src/services/AgentService.ts`)**:
+   - Read profile when starting agent sessions; inject profile instructions and apply MCP/Skill filter rules.
+6. **Web UI (`apps/web`)**:
+   - `apps/web/src/stores/useProfileStore.ts`: Zustand store managing active profile state and fetching profiles from `/api/v1/profiles`.
+   - `apps/web/src/components/profiles/ProfileSelector.tsx`: Compact role badge/selector component for selecting the active agent profile in the session/chat header.
+   - `apps/web/src/components/profiles/ProfileManagerModal.tsx`: Management dialog displaying role catalog, instructions, attached tools/skills, and custom profile creation/cloning.
+7. **Automated Unit & Integration Tests**:
+   - `apps/server/src/services/ai/__tests__/ProfileService.test.ts`: Test profile CRUD, built-in seeding, validation guards, and REST routes.
+   - `apps/web/src/components/profiles/__tests__/ProfileSelector.test.ts`: Test store actions and component rendering.
+   - Register new test suites in package test scripts.
 
-## 6. Acceptance Criteria
-1. `BaseAdapter.ts` de-duplicates tool calls using a short TTL time window (e.g. 1500ms) alongside in-flight tracking.
-2. `AgentMcpIntegration.test.ts` passes 10 consecutive standalone runs with 0 failures.
-3. Monorepo CI gates pass with 0 errors across 5 consecutive runs: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (all 32 test suites pass), `pnpm run build`.
+## 6. Explicitly Forbidden Changes
+- Do NOT delete, weaken, or alter any existing test assertions across the 32 passing test suites.
+- Do NOT introduce external LLM SDK dependencies (OpenAI, Anthropic) into the server; prompt formatting and profile configuration must remain local-first.
+- Do NOT alter the database migration safety model: schema changes must follow the idempotent `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ... ADD COLUMN` pattern.
 
-## 7. Definition of Done
+## 7. Acceptance Criteria
+1. `agent_profiles` table is initialized idempotently in SQLite with built-in profiles seeded automatically on startup.
+2. `ProfileService` provides full CRUD operations, protecting built-in roles from unauthorized deletion or mutation.
+3. Authenticated REST API endpoints (`GET /api/v1/profiles`, `GET /api/v1/profiles/:id`, `POST /api/v1/profiles`, `PUT /api/v1/profiles/:id`, `DELETE /api/v1/profiles/:id`) operate with full input validation.
+4. `AgentService` seamlessly applies the selected profile's system prompt and tool/skill restrictions during agent session startup.
+5. `ProfileSelector.tsx` and `ProfileManagerModal.tsx` render cleanly in `apps/web` with role badges, prompt inspection, and custom profile creation.
+6. Unit tests in `ProfileService.test.ts` and `ProfileSelector.test.ts` pass deterministically.
+7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (all test suites green), `pnpm run build`.
+
+## 8. Definition of Done
 - TypeScript typecheck passes with 0 errors (`pnpm run typecheck`).
 - ESLint passes with 0 errors (`pnpm run lint`).
-- All 32 monorepo test suites pass deterministically with 0 failures across multiple runs (`pnpm run test`).
+- All monorepo test suites (34+ suites) pass deterministically (`pnpm run test`).
 - Monorepo production build succeeds (`pnpm run build`).
 - Execution report written to `reports/current.md`.
 
-## 8. Verification Commands
+## 9. Verification Commands
 ```bash
 pnpm run typecheck
 pnpm run lint
-pnpm --filter asterim exec tsx src/services/mcp/__tests__/AgentMcpIntegration.test.ts
+pnpm --filter asterim exec tsx src/services/ai/__tests__/ProfileService.test.ts
+pnpm --filter @asterim/web exec tsx src/components/profiles/__tests__/ProfileSelector.test.ts
 pnpm run test
 pnpm run build
 ```
 
-## 9. Self-Review Requirements
-- Inspect `git diff packages/adapters/src/sdk/BaseAdapter.ts` to confirm clean implementation.
-- Verify that TTL map pruning operates cleanly without memory leaks.
+## 10. Self-Review Requirements
+- Review `git diff` to ensure clean additions without unexpected file changes.
+- Verify built-in profile prompts are rich, domain-specific, and non-generic.
+- Ensure all acceptance criteria are checked with explicit evidence in `reports/current.md`.
 
-## 10. Required Report
+## 11. Required Report
 Write execution report to `reports/current.md` adhering to schema in `AGENTS.md`.
