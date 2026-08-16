@@ -1,137 +1,132 @@
-Task-ID: P6-07
-Phase: 6
+Task-ID: P7-01
+Phase: 7
 
-# P6-07 — Agent Profiles, Built-in Engineering Roles & Persona Management
+# [P7-01] — Multi-Agent Handoff & Role Delegation Protocol
 
-**Task ID:** P6-07
-**Phase:** 6
-**Assigned Agent:** Claude Code
-**Orchestrator:** Antigravity
-**Status:** ASSIGNED
-**Date:** 2026-08-16
+**Task ID:** P7-01  
+**Phase:** Phase 7 — Multi-Agent Orchestration & Collaborative Workflows  
+**Assigned Agent:** Claude Code  
+**Orchestrator:** Antigravity  
+**Status:** ASSIGNED  
+**Date:** 2026-08-16  
 
 ---
 
 ## 1. Objective
-Implement Asterim's Agent Profiles & Engineering Roles subsystem: define the schema and persistence for configurable agent profiles, seed out-of-the-box system roles (Senior Backend Engineer, Frontend Reviewer, DevOps Engineer, Security Auditor, QA Engineer, Tech Lead), expose authenticated REST APIs (`/api/v1/profiles`), integrate profile selection and system prompts into `AgentService` session startup, and build the Profile Selector & Management UI in `apps/web`.
+
+Implement the core Multi-Agent Handoff and Role Delegation Protocol in `apps/server`: extend the SQLite schema with thread hierarchy (`threads.parent_thread_id`), author `AgentDelegationService.ts` for spawning, supervising, and resuming child agent sessions across specialized engineering roles, expose built-in delegation meta-tools to agents (`delegate_task`, `request_review`), and wire thread lifecycle events onto the Asterim `EventBus`.
+
+---
 
 ## 2. Why This Task Exists
-Phase 6 ("AI Ecosystem") establishes Asterim as the control center for AI-native software engineering through three core primitives: MCP Server Supervision (P6-01 to P6-05), Reusable Skills Discovery (P6-06), and Agent Profiles (P6-07).
-Currently, all agent sessions run with uniform default prompts and global tool capabilities. Agent Profiles enable users and teams to tailor agent persona, system instructions, model parameters, enabled MCP servers, active skills, and automated approval rules per task or workflow.
+
+In Phase 6, Asterim established the foundational multi-agent building blocks: MCP server supervision, reusable skills, and role-based agent profiles (Lead Architect, Senior Backend, Frontend, DevOps, Security Auditor, QA).
+
+However, agents currently operate in single-session isolation. Complex engineering tasks require seamless collaboration between specialized personas (e.g. a Lead Architect decomposes a feature and delegates implementation subtasks to a Backend Specialist, then requests a code review from a Security Auditor before merging). The Delegation Protocol provides the structured parent-child coordination mechanism for multi-agent workflows.
+
+---
 
 ## 3. Context & Architecture
-- Blueprint Reference: `blueprint/ROADMAP.md` Phase 6 ("Agent Profiles: Pre-configured Roles & Profile Configuration Schema").
-- Profile Data Model (`packages/shared/src/types/profiles.ts`):
-  - `AgentProfile`: `id`, `name`, `role`, `description`, `systemPrompt`, `model?`, `temperature?`, `enabledMcpServers?: string[]`, `enabledSkills?: string[]`, `autoApprovalRules?: string[]`, `isBuiltin: boolean`, `workspaceId?: string`, `createdAt: number`, `updatedAt: number`.
-- Persistence: `agent_profiles` table in SQLite (`DatabaseService.ts`) with idempotent creation and default built-in profile seeding.
-- Profile Service (`apps/server/src/services/ai/ProfileService.ts`):
-  - CRUD operations for profiles with workspace scoping (`listProfiles(workspaceId?)`, `getProfile(id)`, `createProfile(data)`, `updateProfile(id, data)`, `deleteProfile(id)`).
-  - Built-in profiles cannot be deleted or mutated into invalid states; users can clone or override them.
-- Runtime Session Integration (`AgentService.ts`):
-  - `startAgent(projectId, threadId, workspace, agentType, profileId?)`:
-  - When `profileId` is provided (or configured on thread/project), load the profile definition.
-  - Combine the profile's `systemPrompt` with `McpToolPrompt` instructions (`formatSessionInstructions`).
-  - Filter `mcpTools` and `skills` to only include those allowed by `enabledMcpServers` / `enabledSkills` (or all if omitted/wildcard).
-- REST API Surface (`apps/server/src/routes/profiles.ts`):
-  - `GET /api/v1/profiles` (lists built-in + workspace-scoped profiles).
-  - `GET /api/v1/profiles/:id` (retrieves full profile details).
-  - `POST /api/v1/profiles` (creates a custom profile).
-  - `PUT /api/v1/profiles/:id` (updates a custom profile; rejects mutating built-in profiles).
-  - `DELETE /api/v1/profiles/:id` (deletes a custom profile; rejects deleting built-in profiles).
-- Web UI (`apps/web`):
-  - `useProfileStore.ts`: Zustand store for active profile selection and CRUD operations.
-  - `ProfileSelector.tsx`: Dropdown / pill in the chat header or session sidebar showing the active profile with role badge, icon, and quick switcher.
-  - `ProfileManagerModal.tsx`: Modal for browsing all profiles, inspecting details/prompts/tools, cloning built-in roles, and creating/editing custom profiles.
 
-## 4. Repository Evidence
-- `apps/server/src/services/DatabaseService.ts`: SQLite schema initialization.
-- `apps/server/src/services/AgentService.ts`: Session start and tool/skill instruction formatting.
-- `apps/server/src/services/mcp/McpToolPrompt.ts`: System prompt instruction generation.
-- `packages/shared/src/index.ts`: Shared type exports across server and web.
-- `apps/web/src/components/SessionSidebar.tsx` & `apps/web/src/components/TopBar.tsx`: Integration points for profile selector.
+- **Thread Hierarchy**: Child threads link to their parent thread via `parent_thread_id` and maintain their own isolated session transcripts.
+- **Delegation Meta-Tools**:
+  - `delegate_task(role: string, task: string, context?: string)`: Spawns a child session under the requested role profile, pauses the parent session (`WAITING_FOR_CHILD`), streams child execution, and returns the child's final outcome to the parent's stdin.
+  - `request_review(diff: string, criteria?: string[])`: Spawns a Reviewer or Security Auditor subagent to critique changes and returns structured PASS / NEEDS_FIX feedback.
+- **Session State Transitions**:
+  - Parent: `ACTIVE` → `WAITING_FOR_CHILD` → `ACTIVE` (resumed with child output).
+  - Child: `STARTING` → `ACTIVE` → `COMPLETED` / `FAILED`.
+- **Recursion Guard**: Bounded delegation depth (max depth = 3) to prevent infinite delegation loops.
 
-## 5. Implementation Scope
-1. **Shared Types (`packages/shared/src/types/profiles.ts` & `packages/shared/src/index.ts`)**:
-   - Define `AgentProfile`, `CreateProfileInput`, `UpdateProfileInput`, and built-in role constants (`BUILTIN_PROFILES`).
-2. **Database Schema (`apps/server/src/services/DatabaseService.ts`)**:
-   - Add `agent_profiles` table:
-     ```sql
-     CREATE TABLE IF NOT EXISTS agent_profiles (
-       id TEXT PRIMARY KEY,
-       name TEXT NOT NULL,
-       role TEXT NOT NULL,
-       description TEXT NOT NULL,
-       system_prompt TEXT NOT NULL,
-       model TEXT,
-       temperature REAL,
-       enabled_mcp_servers TEXT,
-       enabled_skills TEXT,
-       auto_approval_rules TEXT,
-       is_builtin INTEGER NOT NULL DEFAULT 0,
-       workspace_id TEXT,
-       created_at INTEGER NOT NULL,
-       updated_at INTEGER NOT NULL
-     );
-     ```
-3. **Profile Service (`apps/server/src/services/ai/ProfileService.ts`)**:
-   - Implement `ProfileService` singleton with built-in role seeding (`initBuiltinProfiles()`).
-   - Built-in roles:
-     1. `Senior Backend Engineer` (Architecture, API design, Node/TypeScript/SQL optimization, clean code).
-     2. `Frontend Reviewer` (UI/UX fidelity, accessibility, design token compliance, state hygiene).
-     3. `DevOps Engineer` (CI/CD, Docker containerization, infrastructure, build optimizations).
-     4. `Security Auditor` (AST hazard analysis, path traversal checks, secret leakage detection, permission boundaries).
-     5. `QA Engineer` (Test coverage, edge case analysis, regression prevention, integration verification).
-     6. `Tech Lead` (Cross-domain coordination, architectural decisions, task breakdown, trade-off review).
-   - Implement CRUD methods with guard against deleting/modifying built-in profiles.
-4. **REST API Routes (`apps/server/src/routes/profiles.ts`)**:
-   - Authenticated Fastify routes mounted under `/api/v1/profiles`.
-   - Register route plugin in `apps/server/src/index.ts`.
-5. **Agent Session Integration (`apps/server/src/services/AgentService.ts`)**:
-   - Read profile when starting agent sessions; inject profile instructions and apply MCP/Skill filter rules.
-6. **Web UI (`apps/web`)**:
-   - `apps/web/src/stores/useProfileStore.ts`: Zustand store managing active profile state and fetching profiles from `/api/v1/profiles`.
-   - `apps/web/src/components/profiles/ProfileSelector.tsx`: Compact role badge/selector component for selecting the active agent profile in the session/chat header.
-   - `apps/web/src/components/profiles/ProfileManagerModal.tsx`: Management dialog displaying role catalog, instructions, attached tools/skills, and custom profile creation/cloning.
-7. **Automated Unit & Integration Tests**:
-   - `apps/server/src/services/ai/__tests__/ProfileService.test.ts`: Test profile CRUD, built-in seeding, validation guards, and REST routes.
-   - `apps/web/src/components/profiles/__tests__/ProfileSelector.test.ts`: Test store actions and component rendering.
-   - Register new test suites in package test scripts.
+---
 
-## 6. Explicitly Forbidden Changes
-- Do NOT delete, weaken, or alter any existing test assertions across the 32 passing test suites.
-- Do NOT introduce external LLM SDK dependencies (OpenAI, Anthropic) into the server; prompt formatting and profile configuration must remain local-first.
-- Do NOT alter the database migration safety model: schema changes must follow the idempotent `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ... ADD COLUMN` pattern.
+## 4. Implementation Scope
 
-## 7. Acceptance Criteria
-1. `agent_profiles` table is initialized idempotently in SQLite with built-in profiles seeded automatically on startup.
-2. `ProfileService` provides full CRUD operations, protecting built-in roles from unauthorized deletion or mutation.
-3. Authenticated REST API endpoints (`GET /api/v1/profiles`, `GET /api/v1/profiles/:id`, `POST /api/v1/profiles`, `PUT /api/v1/profiles/:id`, `DELETE /api/v1/profiles/:id`) operate with full input validation.
-4. `AgentService` seamlessly applies the selected profile's system prompt and tool/skill restrictions during agent session startup.
-5. `ProfileSelector.tsx` and `ProfileManagerModal.tsx` render cleanly in `apps/web` with role badges, prompt inspection, and custom profile creation.
-6. Unit tests in `ProfileService.test.ts` and `ProfileSelector.test.ts` pass deterministically.
-7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (all test suites green), `pnpm run build`.
+1. **Database Schema (`DatabaseService.ts`)**:
+   - Add `parent_thread_id TEXT` and `delegation_context_json TEXT` to `threads` table.
+   - Create index `idx_threads_parent ON threads(parent_thread_id)`.
 
-## 8. Definition of Done
-- TypeScript typecheck passes with 0 errors (`pnpm run typecheck`).
-- ESLint passes with 0 errors (`pnpm run lint`).
-- All monorepo test suites (34+ suites) pass deterministically (`pnpm run test`).
-- Monorepo production build succeeds (`pnpm run build`).
-- Execution report written to `reports/current.md`.
+2. **Shared Types (`packages/shared/src/types/delegation.ts`)**:
+   - `DelegationRequest`: `parentThreadId`, `targetRole` (or `profileId`), `taskDescription`, `inputContext?`, `timeoutMs?`.
+   - `DelegationResult`: `childThreadId`, `status` (`COMPLETED` | `FAILED` | `TIMEOUT`), `summary`, `output`, `artifacts?`.
+   - Export from `packages/shared/src/index.ts`.
 
-## 9. Verification Commands
+3. **`AgentDelegationService.ts` (`apps/server/src/services/ai/AgentDelegationService.ts`)**:
+   - `delegateTask(request: DelegationRequest)`:
+     - Resolves the target `AgentProfile` for `targetRole`.
+     - Checks delegation depth (rejects with error if `depth > 3`).
+     - Creates child thread in SQLite linked via `parent_thread_id`.
+     - Spawns child agent session via `AgentService.startAgent(childThreadId, profile.id)`.
+     - Puts parent session in waiting state.
+     - Monitors child session completion, collects output summary, and resumes parent session with formatted result.
+
+4. **Delegation Meta-Tools in `McpAgentBridge.ts` / `McpToolPrompt.ts`**:
+   - Expose `delegate_task` and `request_review` as system meta-tools available to orchestrator/architect profiles.
+   - Route tool invocations through `AgentDelegationService.delegateTask`.
+
+5. **REST API Endpoints (`apps/server/src/routes/delegation.ts` or `routes/threads.ts`)**:
+   - `POST /api/v1/threads/:id/delegate` — Manually trigger or inspect delegation.
+   - `GET /api/v1/threads/:id/children` — List child threads and their delegation status.
+   - Register in `apps/server/src/index.ts`.
+
+6. **Automated Unit & Integration Test Suite (`apps/server/src/services/ai/__tests__/AgentDelegationService.test.ts`)**:
+   - Test parent-child thread creation and hierarchy linking in SQLite.
+   - Test delegation lifecycle: parent delegation → child spawn → child execution → result returned to parent.
+   - Test timeout and child crash handling (parent resumes with failure explanation).
+   - Test delegation depth limit enforcement (depth > 3 rejected).
+   - Wire into `apps/server/package.json` `"test"` script.
+
+---
+
+## 5. Constraints & Forbidden Changes
+
+- Do NOT allow cyclic delegation loops (enforce max delegation depth = 3).
+- Child processes must inherit sanitized environments without leaking parent credentials.
+- Do NOT break any of the existing 34 test suites.
+
+---
+
+## 6. Acceptance Criteria
+
+1. SQLite schema supports parent-child thread hierarchy (`parent_thread_id`).
+2. `AgentDelegationService` successfully spawns child sessions under specified role profiles and passes task context.
+3. Parent session pauses and cleanly resumes upon child session completion or timeout.
+4. Delegation depth is bounded to prevent infinite recursion (rejects delegation when depth > 3).
+5. `delegate_task` and `request_review` are callable by agents as system meta-tools.
+6. `AgentDelegationService.test.ts` passes with comprehensive assertions.
+7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
+
+---
+
+## 7. Definition of Done
+
+- [ ] `threads.parent_thread_id` added to SQLite schema
+- [ ] Shared delegation types added to `@asterim/shared`
+- [ ] `AgentDelegationService.ts` implemented
+- [ ] Delegation meta-tools registered in `McpAgentBridge`
+- [ ] REST routes functional
+- [ ] `AgentDelegationService.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
+
+---
+
+## 8. Verification Commands
+
 ```bash
+# Run new Agent Delegation Service test suite
+pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
+
+# Run all agent AI test suites
+pnpm --filter asterim exec tsx src/services/ai/__tests__/ProfileService.test.ts
+
+# Run full monorepo CI pipeline
 pnpm run typecheck
 pnpm run lint
-pnpm --filter asterim exec tsx src/services/ai/__tests__/ProfileService.test.ts
-pnpm --filter @asterim/web exec tsx src/components/profiles/__tests__/ProfileSelector.test.ts
 pnpm run test
 pnpm run build
 ```
 
-## 10. Self-Review Requirements
-- Review `git diff` to ensure clean additions without unexpected file changes.
-- Verify built-in profile prompts are rich, domain-specific, and non-generic.
-- Ensure all acceptance criteria are checked with explicit evidence in `reports/current.md`.
+---
 
-## 11. Required Report
-Write execution report to `reports/current.md` adhering to schema in `AGENTS.md`.
+## 9. Required Report
+
+Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
