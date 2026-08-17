@@ -135,6 +135,8 @@ import memoryRoutes from './routes/memory';
 import internalRoutes from './routes/internal';
 import securityRoutes from './routes/security';
 import environmentSecretRoutes from './routes/environmentSecrets';
+import desktopRoutes from './routes/desktop';
+import { desktopNotificationService } from './services/desktop/DesktopNotificationService';
 import { secretVault } from './services/security/SecretVaultService';
 import { environmentSecretService } from './services/security/EnvironmentSecretService';
 import { projectMemoryService } from './services/ProjectMemoryService';
@@ -209,6 +211,8 @@ const start = async () => {
     await fastify.register(securityRoutes);
     console.log('[DEBUG] Registering environmentSecretRoutes');
     await fastify.register(environmentSecretRoutes);
+    console.log('[DEBUG] Registering desktopRoutes');
+    await fastify.register(desktopRoutes);
     await fastify.register(internalRoutes);
 
     // Supervised MCP servers are child processes of this one. Closing the
@@ -222,6 +226,13 @@ const start = async () => {
     // Project Memory Core: register EventBus subscriptions once, before the
     // server starts accepting requests that could publish memory events.
     projectMemoryService.initEventBusListeners();
+
+    // Native desktop toasts for the moments that block or surprise a human
+    // (P10-01). Registered alongside the other bus subscriptions and before the
+    // first request, so an approval raised during session recovery is not the
+    // one notification that is silently missed. Each handler dispatches without
+    // awaiting, and skips itself entirely on a headless host.
+    desktopNotificationService.initEventBusListeners();
 
     // The six shipped agent profiles. Seeded before the first request so the
     // catalogue is never briefly empty on a fresh workstation.

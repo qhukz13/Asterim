@@ -15,4 +15,5 @@ export * from './types/delegation';
 export * from './types/worktree';
 export * from './types/verification';
 export * from './types/security';
+export * from './types/desktop';
 
