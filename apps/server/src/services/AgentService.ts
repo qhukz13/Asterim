@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 
 import { processTreeManager } from './ProcessTreeManager';
+import { environmentSecretService } from './security/EnvironmentSecretService';
 import { mcpAgentBridge } from './mcp/McpAgentBridge';
 import { mcpToolGateway } from './mcp/McpToolGateway';
 import {
@@ -267,6 +268,15 @@ export class AgentService {
       // user writes later belongs to the next session, and a list captured once
       // would go stale without anyone noticing.
       const workspaceId = this.resolveWorkspaceId(projectId);
+
+      // The credentials this environment lends to its sessions (P9-02).
+      // Decrypted here, at the last moment before the process exists, and
+      // registered with the vault's redactor on the way out of the service — so a
+      // token the agent echoes back is already stripped by the time it reaches
+      // the log file or a client. Resolved per session start rather than cached:
+      // a secret the user rotates belongs to the next session.
+      const environmentEnv = this.resolveEnvironmentSecrets(workspaceId);
+
       const mcpTools = this.discoverMcpTools(workspaceId, workspace);
       const skills = mcpAgentBridge.discoverSkills(workspace);
 
@@ -304,7 +314,8 @@ export class AgentService {
           workspace,
           hasHistory,
           mcpTools: toolDescriptors,
-          mcpToolInstructions
+          mcpToolInstructions,
+          env: environmentEnv
         },
         (event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId, threadId };
@@ -581,6 +592,35 @@ export class AgentService {
         `[AgentService] Could not resolve the workspace for project ${projectId}: ${(err as Error).message}`
       );
       return undefined;
+    }
+  }
+
+  /**
+   * The environment secrets to hand the child process, decrypted (P9-02).
+   *
+   * Never fatal, in either direction: a project with no workspace gets nothing,
+   * and a credential that will not decrypt on this machine is dropped by
+   * `resolveEnvironmentVariables` rather than failing the session. An agent that
+   * starts without a token reports a plain authentication error the user can act
+   * on; a session that refuses to start reports nothing.
+   */
+  private resolveEnvironmentSecrets(workspaceId?: string): Record<string, string> {
+    if (!workspaceId) return {};
+    try {
+      const resolved = environmentSecretService.resolveEnvironmentVariables(workspaceId);
+      const count = Object.keys(resolved).length;
+      if (count > 0) {
+        // The names, never the values — this line ends up in the log file.
+        console.log(
+          `[AgentService] Injecting ${count} environment secret(s) into the session: ${Object.keys(resolved).join(', ')}.`
+        );
+      }
+      return resolved;
+    } catch (err) {
+      console.error(
+        `[AgentService] Could not resolve environment secrets for ${workspaceId}: ${(err as Error).message}`
+      );
+      return {};
     }
   }
 

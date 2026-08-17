@@ -27,6 +27,13 @@ export interface LaunchConfig {
   workspace: string;
   isMock?: boolean;
   hasHistory?: boolean;
+  /**
+   * Extra environment variables for the agent process — the decrypted workspace
+   * secrets an environment lends to the sessions running in it (P9-02). Resolved
+   * by the Core, never by an adapter: the values are credentials, and the only
+   * thing an adapter is allowed to do with them is hand them to `pty.spawn`.
+   */
+  env?: Record<string, string>;
   /** MCP tools this session may call, for prompts and CLI tool definitions. */
   mcpTools?: AgentToolDescriptor[];
   /** The instructions describing those tools and how to call them. */

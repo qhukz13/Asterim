@@ -42,6 +42,7 @@ const originalLoad = (Module as any)._load;
 };
 
 const { ProcessManager, sanitizeAgentEnv, INHERITABLE_ASTERIM_ENV } = require('../ProcessManager');
+const { BaseAdapter } = require('../BaseAdapter');
 
 // --- Assertion harness ---
 
@@ -163,6 +164,55 @@ async function main(): Promise<void> {
   equal('an explicitly passed variable wins over the scrub', withExplicit.ASTERIM_RELAY_URL, 'http://explicit');
   equal('alongside other explicit values', withExplicit.CUSTOM, 'kept');
   equal('and the data directory is still there', withExplicit.ASTERIM_DATA_DIR, '/tmp/asterim-test-data');
+
+  // --- Environment secrets reach the child (P9-02) ---------------------------
+  describe('BaseAdapter.start passes the session environment through');
+
+  /** The smallest possible provider: a command, and a parser that ignores output. */
+  class StubAdapter extends BaseAdapter {
+    public readonly id = 'stub';
+    public readonly capabilities = {};
+    // Declared explicitly: `BaseAdapter` arrives through `require`, so its
+    // constructor signature is not visible to the checker here.
+    constructor(sessionId: string) {
+      super(sessionId);
+    }
+    public getLaunchCommand() {
+      // Providers are free to pin their own variables; AntigravityAdapter returns
+      // an empty object, ClaudeAdapter and AiderAdapter return none at all.
+      return { cmd: 'stub-agent', args: ['--run'], env: { PROVIDER_PINNED: 'from-adapter' } };
+    }
+    public createParser() {
+      return { processOutput: () => undefined };
+    }
+  }
+
+  spawnCalls.length = 0;
+  const adapter = new StubAdapter('thread_1');
+  await adapter.start({
+    workspace: '/tmp',
+    // What EnvironmentSecretService.resolveEnvironmentVariables returns.
+    env: { DEPLOY_TOKEN: 'ghp_workspace_secret_000', PROVIDER_PINNED: 'from-secret' }
+  });
+
+  equal('the adapter spawned one process', spawnCalls.length, 1);
+  const sessionEnv = spawnCalls[0].options.env;
+  equal('an environment secret reaches the child process', sessionEnv.DEPLOY_TOKEN, 'ghp_workspace_secret_000');
+  equal(
+    "but a provider's own variable still wins over one",
+    sessionEnv.PROVIDER_PINNED,
+    'from-adapter'
+  );
+  equal('and the sanitized environment is still underneath', sessionEnv.ASTERIM_DATA_DIR, '/tmp/asterim-test-data');
+
+  spawnCalls.length = 0;
+  await new StubAdapter('thread_2').start({ workspace: '/tmp' });
+  equal(
+    'a session with no environment secrets spawns exactly as before',
+    spawnCalls[0].options.env.PROVIDER_PINNED,
+    'from-adapter'
+  );
+  equal('with nothing injected', spawnCalls[0].options.env.DEPLOY_TOKEN, undefined);
 
   delete process.env.ASTERIM_RELAY_URL;
   delete process.env.ASTERIM_SOVEREIGN_MODE;

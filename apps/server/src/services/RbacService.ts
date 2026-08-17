@@ -58,6 +58,28 @@ export class RbacService {
   }
 
   /**
+   * How many members a workspace has.
+   *
+   * Distinguishes "this user is not a member" from "this workspace has no
+   * members at all" — the second is what a workspace written before
+   * `workspace_memberships` existed looks like, and a caller enforcing
+   * membership needs to be able to tell the two apart rather than locking the
+   * local user out of their own environment (P9-02).
+   */
+  public getWorkspaceMemberCount(workspaceId: string): number {
+    try {
+      const row = dbService
+        .getDb()
+        .prepare(`SELECT COUNT(*) AS count FROM workspace_memberships WHERE workspace_id = ?`)
+        .get(workspaceId) as { count: number } | undefined;
+      return row?.count ?? 0;
+    } catch {
+      // No memberships table: every workspace in this database is unmanaged.
+      return 0;
+    }
+  }
+
+  /**
    * Check if a user has a permission in a specific workspace.
    */
   public userHasPermission(

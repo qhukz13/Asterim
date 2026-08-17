@@ -6,6 +6,7 @@ import {
   WorkspaceRole,
 } from '@asterim/shared';
 import { dbService } from './DatabaseService';
+import { environmentSecretService } from './security/EnvironmentSecretService';
 
 export class WorkspaceService {
   /**
@@ -350,6 +351,15 @@ export class WorkspaceService {
     }
     try {
       db.prepare('DELETE FROM environment_project_attachments WHERE environment_id = ?').run(workspaceId);
+    } catch {
+      // See the cascade note above.
+    }
+    try {
+      // The foreign key would cascade these rows away with the environment, but
+      // the redaction index lives in this process and has to be told, or a
+      // deleted secret keeps being stripped from output for the rest of the run
+      // (P9-02).
+      environmentSecretService.deleteEnvironmentSecrets(workspaceId);
     } catch {
       // See the cascade note above.
     }

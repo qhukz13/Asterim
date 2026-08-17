@@ -134,7 +134,9 @@ import gitRoutes from './routes/git';
 import memoryRoutes from './routes/memory';
 import internalRoutes from './routes/internal';
 import securityRoutes from './routes/security';
+import environmentSecretRoutes from './routes/environmentSecrets';
 import { secretVault } from './services/security/SecretVaultService';
+import { environmentSecretService } from './services/security/EnvironmentSecretService';
 import { projectMemoryService } from './services/ProjectMemoryService';
 
 const start = async () => {
@@ -144,7 +146,28 @@ const start = async () => {
     // TokenService, PairingService, PushService — have already upgraded their
     // own row by now through `getSecret`; this sweep covers the ones nothing
     // reads until it is needed, `ai_api_key` and `stripe_secret_key`.
-    secretVault.migrateLegacyPlaintext();
+    const settingsSweep = secretVault.migrateLegacyPlaintext();
+
+    // The same sweep over workspace credentials (P9-02). Separate from the one
+    // above because these rows are not keyed by name — the whole table is
+    // scanned — and nothing reads them until an agent session starts, so a
+    // database that has been in use since before this existed would otherwise
+    // keep its environment tokens in cleartext indefinitely.
+    const environmentSweep = environmentSecretService.migrateLegacyPlaintext();
+
+    // Encrypting a row in place does not remove what it used to say: SQLite
+    // frees the old page rather than overwriting it, so the cleartext stays
+    // readable in the file until it is rebuilt. Only after a sweep that actually
+    // moved something, because a rebuild costs a pass over the whole database
+    // and there is nothing to remove otherwise.
+    if (settingsSweep.migrated.length > 0 || environmentSweep.migrated > 0) {
+      const compacted = dbService.compact();
+      console.log(
+        compacted
+          ? '[Startup] Rebuilt the database so the migrated cleartext is gone from its freed pages.'
+          : '[Startup] Migrated credentials are encrypted, but the database could not be rebuilt; superseded cleartext may remain in freed pages until it is.'
+      );
+    }
 
     console.log('[DEBUG] Registering authRoutes');
     await fastify.register(authRoutes);
@@ -184,6 +207,8 @@ const start = async () => {
     await fastify.register(memoryRoutes);
     console.log('[DEBUG] Registering securityRoutes');
     await fastify.register(securityRoutes);
+    console.log('[DEBUG] Registering environmentSecretRoutes');
+    await fastify.register(environmentSecretRoutes);
     await fastify.register(internalRoutes);
 
     // Supervised MCP servers are child processes of this one. Closing the

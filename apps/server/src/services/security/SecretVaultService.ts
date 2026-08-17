@@ -478,6 +478,29 @@ export class SecretVaultService {
     if (this.redactionSources.delete(key)) this.rebuildRedactionIndex();
   }
 
+  /**
+   * Registers a secret this vault does not store itself (P9-02).
+   *
+   * Workspace credentials live in `environment_secrets`, not in `settings`, but
+   * they reach exactly the same places — an agent echoing `$env`, a stack trace,
+   * an `agent.output` event on its way to every joined client. Redaction stays a
+   * single index owned by one object rather than a second one installed beside
+   * it, because two redactors would each have to be given every seam, and the
+   * one that was forgotten is where the leak would be.
+   *
+   * `source` namespaces the value so a rotated or deleted secret stops being
+   * redacted without disturbing anything else; callers outside `settings` are
+   * expected to prefix it (`env-secret:<environmentId>:<KEY>`).
+   */
+  public registerRedactedValue(source: string, plaintext: string): void {
+    this.registerForRedaction(source, plaintext);
+  }
+
+  /** Stops redacting the value registered under `source`. */
+  public unregisterRedactedValue(source: string): void {
+    this.unregisterFromRedaction(source);
+  }
+
   /** Longest first, so a secret that contains another is replaced whole. */
   private rebuildRedactionIndex(): void {
     const unique = new Set<string>();

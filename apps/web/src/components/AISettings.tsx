@@ -10,6 +10,10 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
   const [provider, setProvider] = useState('agent');
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
+  // The server answers with a mask, never the key (P9-02), so the form tracks
+  // whether one is stored instead of holding it. An empty field means "leave the
+  // stored key alone", which is why it is not submitted below.
+  const [hasStoredKey, setHasStoredKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
@@ -35,8 +39,8 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
         if (data.settings) {
           if (data.settings.ai_provider) setProvider(data.settings.ai_provider);
           if (data.settings.ai_model) setModel(data.settings.ai_model);
-          if (data.settings.ai_api_key) setApiKey(data.settings.ai_api_key);
         }
+        setHasStoredKey(Boolean(data.hasApiKey));
       })
       .catch(console.error);
   }, []);
@@ -61,12 +65,19 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
           settings: {
             ai_provider: provider,
             ai_model: model,
-            ai_api_key: apiKey
+            // Sent only when the operator typed a new one. The server treats a
+            // blank credential as "unchanged", so omitting it is the same
+            // instruction stated once instead of twice.
+            ...(apiKey.length > 0 ? { ai_api_key: apiKey } : {})
           }
         })
       });
 
       if (res.ok) {
+        if (apiKey.length > 0) {
+          setHasStoredKey(true);
+          setApiKey('');
+        }
         setSaveMessage({ text: 'Settings saved successfully', isError: false });
       } else {
         setSaveMessage({ text: 'Failed to save settings', isError: true });
@@ -125,10 +136,15 @@ export function AISettings({ activeBackendUrl }: AISettingsProps) {
                 type="password"
                 className="input-box"
                 style={{ width: '100%', padding: '10px 12px' }}
-                placeholder="Enter API Key"
+                placeholder={hasStoredKey ? '•••••••• stored' : 'Enter API Key'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
+              <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                {hasStoredKey
+                  ? 'A key is stored, encrypted on this workstation. Enter a new one to replace it.'
+                  : 'Stored encrypted on this workstation and never returned by the API.'}
+              </p>
             </div>
           </>
         )}

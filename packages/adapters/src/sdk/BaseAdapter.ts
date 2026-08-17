@@ -145,7 +145,11 @@ export abstract class BaseAdapter implements IAgentProvider {
       cmd: launchParams.cmd,
       args: launchParams.args,
       cwd: config.workspace,
-      env: launchParams.env,
+      // The session's environment secrets first, then whatever the provider
+      // insists on: an adapter that sets a variable is making a decision about
+      // how its own CLI runs, and a workspace credential must not silently
+      // change that (P9-02).
+      env: { ...config.env, ...launchParams.env },
       onData: (data) => {
         // Scanned before parsing, and independently of it: a provider parser is
         // free to be a stub, and tool calls must still be answered.

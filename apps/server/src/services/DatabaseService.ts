@@ -706,6 +706,35 @@ export class DatabaseService {
   }
 
   /**
+   * Rebuilds the database file, discarding what its freed pages still hold.
+   *
+   * SQLite does not overwrite a page when a row moves or shrinks; it marks it
+   * free and reuses it later. So encrypting a credential in place leaves the
+   * cleartext readable in the file afterwards — verified on a real migration,
+   * and exactly the exposure the vault exists to close, since a backup or a
+   * support bundle copies free pages along with everything else.
+   *
+   * VACUUM alone is not enough here: in WAL mode the rebuilt pages sit in the
+   * sidecar and the original file keeps its old content until a checkpoint moves
+   * them, so the truncating checkpoint is part of the operation rather than
+   * housekeeping after it.
+   *
+   * Never throws. This runs at startup, needs a lock no other connection is
+   * holding — the MCP memory servers open the same file — and a database that
+   * could not be compacted is still a correct, encrypted database.
+   */
+  public compact(): boolean {
+    try {
+      this.db.exec('VACUUM;');
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      return true;
+    } catch (err) {
+      console.warn(`[Database] Could not compact the database: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
    * Closes the connection so WAL is checkpointed rather than abandoned.
    * Idempotent: shutdown may reach this more than once.
    */

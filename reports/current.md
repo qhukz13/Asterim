@@ -1,9 +1,9 @@
-Task-ID: P9-01
+Task-ID: P9-02
 Status: COMPLETE
 
-# Execution Report: P9-01 — Local Secret Vault & Cryptographic Keystore for Credentials at Rest
+# Execution Report: P9-02 — Workspace Environment Secrets Subsystem & In-Transit Credential Masking
 
-**Task ID:** P9-01
+**Task ID:** P9-02
 **Phase:** Phase 9 — Enterprise Hardening, Desktop Shell & Production Release
 **Status:** VERIFIED
 **Date:** 2026-08-17
@@ -13,255 +13,256 @@ Status: COMPLETE
 
 ## 1. Summary
 
-`SecretVaultService` is implemented and every credential Asterim keeps on the workstation is now
-encrypted at rest with AES-256-GCM under a key derived from the machine identity and a random
-per-installation salt in `~/.asterim/vault.salt`. Five `settings` rows are now vault-managed —
-`ai_api_key`, `vapid_keys`, `stripe_secret_key`, `jwt_secret`, `hmac_secret` — up from the two named
-in `blueprint/audit/IMPLEMENTATION_DRIFT.md` § 11, because the JWT signing key and the pairing HMAC
-secret are the two rows whose disclosure lets an attacker mint credentials for any account.
+`environment_secrets` now holds credentials the way `settings` has since P9-01: every value rests as a
+`vault:v1:` AES-256-GCM envelope produced by the singleton `SecretVaultService`, under the same
+machine-derived key. `EnvironmentSecretService` owns the table, and the three properties it was asked for
+hold in all three places a credential can escape:
 
-Legacy plaintext rows are upgraded two ways: transparently on the first `getSecret` (so a service
-that reads its own secret at boot encrypts it there and then), and by an explicit startup sweep in
-`index.ts` for the rows nothing reads until they are needed. `GET /api/v1/security/vault-status`
-reports the cipher, the salt state and a per-state count of managed rows without reading a value.
+- **At rest** — nothing writes `environment_secrets.secret_value` except through `SecretVaultService.encrypt()`.
+  Legacy cleartext rows upgrade on read and on a startup sweep.
+- **In transit** — the read path never decrypts. `GET .../secrets` returns `{ key, maskedValue: "••••••••", isSet, createdAt }`
+  and nothing else, and `GET /api/v1/system/settings` now masks `ai_api_key` with a `hasApiKey` flag instead of
+  returning the key it used to hand back in cleartext.
+- **In output** — every plaintext the service decrypts is registered with the vault's redaction index before it
+  is returned, so a token an agent echoes back is stripped from the log file and from EventBus payloads.
 
-A redaction engine strips known secret values from the log streams and from every EventBus payload,
-installed through inverted registration seams (`registerLogRedactor`, `eventBus.setRedactor`) so
-neither `utils/logger.ts` nor `EventBus.ts` gains a dependency on the database.
+Resolved secrets reach the agent process through a new `LaunchConfig.env`, merged in `BaseAdapter.start` beneath
+whatever the provider pins for itself.
 
-All monorepo gates pass with 0 errors, and an end-to-end smoke test against the packaged binary
-(`apps/server/dist/index.js`) confirms the migration and the endpoint on a real two-boot sequence.
+One thing the task did not ask for turned out to be necessary and is included: encrypting a row **in place** does
+not remove what it used to say, because SQLite frees the old page rather than overwriting it. On a real server boot
+the migrated cleartext was still greppable in `asterim.db` afterwards — see § 7. `DatabaseService.compact()` (VACUUM
+plus a truncating WAL checkpoint) now runs once, only after a sweep that actually migrated something, and the
+cleartext is gone from the files.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/security/SecretVaultService.ts` | Created | The vault: AES-256-GCM envelope, PBKDF2-HMAC-SHA512 key derivation, secret CRUD over `settings`, legacy migration, redaction engine, status |
-| `apps/server/src/services/security/__tests__/SecretVaultService.test.ts` | Created | 133-assertion suite: crypto, tamper detection, key binding, migration, redaction, status, REST route |
-| `apps/server/src/routes/security.ts` | Created | `GET /api/v1/security/vault-status` |
-| `apps/server/src/index.ts` | Modified | Startup migration sweep + `securityRoutes` registration |
-| `apps/server/src/services/TokenService.ts` | Modified | `jwt_secret` read/written through the vault |
-| `apps/server/src/services/PairingService.ts` | Modified | `hmac_secret` read/written through the vault |
-| `apps/server/src/services/PushService.ts` | Modified | `vapid_keys` read/written through the vault, with recovery from an unreadable pair |
-| `apps/server/src/services/BillingService.ts` | Modified | Stripe secret key resolved lazily: injected → env → vault |
-| `apps/server/src/services/ai/AiService.ts` | Modified | Decrypts `ai_api_key` out of the bulk `ai_*` settings read |
-| `apps/server/src/routes/system.ts` | Modified | Settings POST routes credentials through the vault; GET decrypts so the form still round-trips |
-| `apps/server/src/services/EventBus.ts` | Modified | Payload redactor seam applied in `publish` |
-| `apps/server/src/utils/logger.ts` | Modified | Log-stream redactor seam applied to the stdout/stderr intercepts |
-| `apps/server/package.json` | Modified | New suite wired into the `test` script (22 server suites, 39 monorepo-wide) |
+| `apps/server/src/services/security/EnvironmentSecretService.ts` | Created | The subsystem: CRUD over `environment_secrets` with encryption, masking, key validation, agent-variable resolution, legacy migration, status counts |
+| `apps/server/src/routes/environmentSecrets.ts` | Created | `GET`/`POST`/`DELETE` under both `/api/v1/environments/:id/secrets` and `/api/v1/workspaces/:id/secrets`, with RBAC and error→status mapping |
+| `apps/server/src/services/security/__tests__/EnvironmentSecretService.test.ts` | Created | 181-assertion suite: crypto round-trip, on-disk bytes, tamper rejection, migration, masking, redaction, REST, RBAC, settings masking, cross-machine |
+| `apps/server/src/services/security/SecretVaultService.ts` | Modified | `registerRedactedValue` / `unregisterRedactedValue`: lets a secret this vault does not store share the one redaction index |
+| `apps/server/src/routes/system.ts` | Modified | `GET /system/settings` masks every `SECRET_SETTING_KEYS` row and reports `hasApiKey` / `maskedKeys`; `POST` ignores a mask or a blank credential, and clears on explicit `null` |
+| `apps/server/src/routes/security.ts` | Modified | `vault-status` reports `vault.environmentSecrets` and folds it into `healthy` |
+| `apps/server/src/index.ts` | Modified | Registers the new routes; runs the environment-secret sweep at startup; compacts the database when either sweep migrated something |
+| `apps/server/src/services/AgentService.ts` | Modified | `resolveEnvironmentSecrets()` — decrypts the environment's secrets per session start and passes them as `config.env` |
+| `apps/server/src/services/DatabaseService.ts` | Modified | `compact()`: VACUUM + `PRAGMA wal_checkpoint(TRUNCATE)`, never throws |
+| `apps/server/src/services/RbacService.ts` | Modified | `getWorkspaceMemberCount()` — separates "not a member" from "workspace predates RBAC" |
+| `apps/server/src/services/WorkspaceService.ts` | Modified | Deleting an environment also unregisters its secrets from redaction (the FK already cascades the rows) |
+| `packages/adapters/src/sdk/types.ts` | Modified | `LaunchConfig.env` |
+| `packages/adapters/src/sdk/BaseAdapter.ts` | Modified | Passes `{ ...config.env, ...launchParams.env }` to the PTY |
+| `packages/adapters/src/sdk/__tests__/ProcessManager.test.ts` | Modified | +6 assertions that the session environment actually reaches `pty.spawn`, and that a provider's own variable still wins |
+| `apps/server/package.json` | Modified | New suite wired into `"test"` (now 23 server suites) |
+| `apps/web/src/components/AISettings.tsx` | Modified | Stops holding the API key: tracks `hasApiKey`, submits the field only when the operator typed a new one |
 
 ## 3. Implementation Details
 
-**Envelope.** `vault:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>`. 12-byte IV freshly generated per
-`encrypt()` call, 16-byte GCM tag at full length. `decrypt()` validates the prefix, the field count,
-hex encoding and both field lengths before touching the cipher, then lets `decipher.final()` verify
-the tag — OpenSSL compares it with `CRYPTO_memcmp`, so a modified ciphertext, a forged tag and a
-foreign-machine envelope all fail identically and in constant time. Structural failures raise
-`INVALID_ENVELOPE_ERROR`; authentication failures raise `TAMPERED_SECRET_ERROR`.
+**Service.** `EnvironmentSecretService` takes the vault and a lazy db accessor by constructor option, so tests run
+it on a 1,000-round key while the exported singleton shares the production vault. `getSecrets` deliberately does
+not decrypt — there is no plaintext on the listing path to leak. `getSecretValue` and
+`resolveEnvironmentVariables` share one private `openRow()`, so single reads and bulk resolution migrate legacy
+rows and register redaction on identical terms.
 
-**Key derivation.** PBKDF2-HMAC-SHA512, 100,000 iterations, 32-byte key, derived once per process
-and cached in memory. Input is `platform|arch|hostname|username|uid|homedir` plus 32 random bytes
-read from `~/.asterim/vault.salt` (created 0600 on first use). No key material is ever written to
-SQLite — the salt file holds only the salt, which is asserted by the suite. Windows has no `uid`
-reachable from Node without a native module, so the account is identified there by username and home
-directory, the same pair that decides which `~/.asterim` is in play.
+**Key rules.** A key must be a POSIX variable name (`/^[A-Za-z_][A-Za-z0-9_]{0,127}$/`), since these values are
+injected into an agent's environment. `PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `DYLD_*`,
+`NODE_OPTIONS`, `BASH_ENV`, `ENV`, `IFS` and `SHELL` are refused: they decide what the agent process *is*, not
+what it can reach, so accepting them would turn write access to a workspace's secrets into code execution inside
+every session it starts. The same check runs again on the way out, so a row written by hand or by an older build
+is skipped rather than injected.
 
-**Migration.** `getSecret()` returns a non-envelope value as-is and re-writes the row encrypted in
-the same call. `migrateLegacyPlaintext()` sweeps all five managed keys at startup and reports
-`{migrated, alreadyEncrypted, failed}`. Non-secret configuration (`ai_provider`, `ai_model`,
-`first_run_completed`) is deliberately untouched and stays readable.
+**Storage.** `INSERT … ON CONFLICT(environment_id, secret_key) DO UPDATE SET secret_value = excluded.secret_value`
+— a rotation keeps the row's original `created_at`. `ensureEnvironmentRow()` exists because
+`WorkspaceService` writes the mirrored `environments` row best-effort inside a `try/catch`; where that mirror is
+missing, it is filled in from `workspaces` so the foreign key holds. A genuinely unknown id raises
+`ENVIRONMENT_NOT_FOUND_ERROR` → 404.
 
-**Failure posture.** A row that will not decrypt on this machine — a database copied from elsewhere,
-a lost salt — reads as absent and is left on disk rather than destroyed. Services that mint their own
-secret then generate a fresh one; the cost is a re-login and a new VAPID pair, which is the only
-outcome that still boots. `vault-status` surfaces the condition as `unreadableKeys` so an operator
-can see it.
+**Redaction.** `SecretVaultService` keeps one redaction index. The new public register/unregister pair namespaces
+entries as `env-secret:<environmentId>:<KEY>`, so a rotated or deleted workspace secret stops being redacted
+without touching the `settings` entries. The startup sweep deliberately does **not** register values: it walks the
+whole table, and loading every workspace credential into a process-lifetime index would make the redactor scan all
+agent output against secrets no running session uses.
 
-**Redaction.** Plaintext values seen by the vault are registered longest-first; values of 8
-characters or fewer are not registered, because a short secret collides with ordinary log text. A
-JSON secret contributes its leaves as well as the whole blob (so the VAPID *private* key is redacted
-on its own), except fields named `public*`. `redactPayload` returns its input **by reference** when
-nothing changed, so the EventBus hot path — which carries every byte of agent output — does not pay
-an allocation per subtree for the overwhelmingly common clean payload.
+**Agent injection.** `AgentService.startAgent` resolves the environment's variables at session start (never
+cached — a rotated secret belongs to the next session) and hands them to `SessionManager` → `BaseAdapter` →
+`ProcessManager`. Merge order puts provider env last, so an adapter's deliberate choice is not overridden by a
+stored credential. A credential that will not decrypt on this machine is omitted rather than fatal: an agent
+reporting an auth error is more useful than a session that refuses to start.
+
+**Failure semantics.** `EnvironmentSecretError` carries `INVALID_SECRET_KEY_ERROR` / `PROTECTED_SECRET_KEY_ERROR`
+(400), `ENVIRONMENT_NOT_FOUND_ERROR` (404), `SECRET_STORAGE_ERROR` (500); routes map the code, never message text.
+
+**Authorization.** Secrets routes require a session (401). Where the environment has members, `workspace:read`
+governs the masked listing and `workspace:write` governs writes and deletes — a viewer can see which keys exist
+but cannot change them, and a non-member gets 403. Where the environment has **no** membership rows at all — a
+workspace written before `workspace_memberships` existed, which is the normal case on a single-user workstation —
+the authenticated local user is allowed through. That fallback is called out in § 8.
 
 ## 4. Verification
 
-Everything below was run in this session. Note the repo has no test runner: suites are standalone
-`tsx` scripts with their own assertion harnesses (`docs/p5.0-01-verification-report.md` § 3).
+Everything below was run in this session. There is still no test runner in the repo; "test" means the standalone
+assertion scripts, and the CI gates are typecheck / lint / test / build.
 
-**New suite** — `pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts`
-
-```
-133/133 assertions passed
-```
-
-**Full monorepo test gate** — 39 suites, all passing:
-
-| Package | Command | Result |
+| Gate | Command | Result |
 | :--- | :--- | :--- |
-| `asterim` | `pnpm --filter asterim run test` | 22 suites, 0 FAIL (63, 60, 140, 52, 51, 64, 89, 111, 21, 231, 52, 102, 115, 89, 43, 67, 160, 169, 138, 461, 196, **133**) |
-| `@asterim/web` | `pnpm --filter @asterim/web run test` | 8 suites, 0 FAIL |
-| `@asterim/mcp-memory-server` | `pnpm --filter @asterim/mcp-memory-server run test` | 7 suites (42, 82, 87, 62, 28, 23, 24), 0 FAIL |
-| `@asterim/relay` | `pnpm --filter @asterim/relay run test` | 71/71 |
-| `@asterim/adapters` | `pnpm --filter @asterim/adapters run test` | 23/23 |
+| New suite | `pnpm --filter asterim exec tsx src/services/security/__tests__/EnvironmentSecretService.test.ts` | **181/181 assertions passed** |
+| P9-01 suite (regression) | `pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts` | **133/133 assertions passed** |
+| Server suites | `pnpm --filter asterim run test` | **23/23 suites pass**, 0 failures (63, 60, 140, 52, 51, 64, 89, 111, 21, 231, 52, 102, 115, 89, 43, 67, 160, 169, 138, 461, 196, 133, 181) |
+| Adapters | `pnpm --filter @asterim/adapters run test` | **29/29** (was 23 — +6 for the injection wiring) |
+| Relay / Web / MCP memory | `pnpm --filter @asterim/relay run test`, `… @asterim/web run test`, `… @asterim/mcp-memory-server run test` | **71/71**, **686/686**, **24/24** |
+| Typecheck | `tsc --noEmit` in `asterim`, `@asterim/adapters`, `@asterim/web`, `@asterim/marketing`, `@asterim/shared`, `@asterim/relay`, `@asterim/mcp-memory-server` | clean, 0 errors |
+| Lint | `eslint` in all seven workspaces | **0 errors** (warnings unchanged: 298 server, 28 adapters, 302 web, 18 marketing, 3 shared, 12 mcp) |
+| Build | `@asterim/shared`, `@asterim/adapters`, `@asterim/web`, `asterim`, `@asterim/marketing`, `@asterim/relay`, `@asterim/mcp-memory-server` | all succeed (`asterim` → `dist/index.js` 956.15 KB after the web build) |
 
-The `mcp-memory-server` `relay_e2e` suite boots the real Core and pairs a device, so
-`PairingService` → vault → `hmac_secret` is exercised end to end by an existing suite as well.
+The root `pnpm run typecheck|lint|test|build` (turbo) forms were blocked by this session's command sandbox, so each
+workspace was run individually — same tasks, same tools, one process per package instead of turbo's fan-out.
 
-**Typecheck** — `tsc --noEmit` clean in all 7 workspaces (`asterim`, `@asterim/web`,
-`@asterim/marketing` via `tsc -b`, `@asterim/relay`, `@asterim/shared`, `@asterim/adapters`,
-`@asterim/mcp-memory-server`).
-
-**Lint** — `eslint` across all 7 workspaces: **0 errors**. Warning counts are unchanged in character
-from the pre-existing baseline (`asterim` 278, `@asterim/web` 302, `@asterim/adapters` 28,
-`@asterim/marketing` 18, `@asterim/mcp-memory-server` 12, `@asterim/shared` 3, `@asterim/relay` 0).
-`SecretVaultService.ts` and `routes/security.ts` produce **zero** warnings; the two on the new test
-file are the repo-standard `no-explicit-any` on an event listener.
-
-**Build** — all 7 workspaces built successfully, in dependency order, including the packaged
-`asterim` binary (`dist/index.js`, 929.95 KB) with the web dashboard copied in.
-
-**End-to-end smoke test against the packaged binary** (`scratch/p9-smoke/smoke.ts`, run via
-`pnpm --filter asterim exec tsx`; gitignored, sandboxed `HOME` so the real `~/.asterim` was never
-touched). Two boots of `apps/server/dist/index.js`, reading raw SQLite rows between them:
+**Live end-to-end run.** The real Core was booted on port 3999 against a temp data dir seeded — by direct
+`node:sqlite` writes, not through the service — with a cleartext `environment_secrets` row and a cleartext
+`ai_api_key`:
 
 ```
-boot 1 — a fresh workstation                    8 assertions
-  vault-status: AES-256-GCM / PBKDF2-HMAC-SHA512 / 100000, ready, healthy,
-  encryptedKeys >= 3, plaintextKeys 0
-  [disk] hmac_secret=vault:v1:f2e3d24de… jwt_secret=vault:v1:7c23d3b42… vapid_keys=vault:v1:5b3105389…
-  no VAPID private key readable on disk; vault.salt present and 0600
-a database carried over from before the vault existed
-  planted ai_api_key = AIzaSy-LEGACY-PLAINTEXT-SMOKE-TEST-KEY (plaintext, direct SQLite write)
-boot 2 — the startup migration hook
-  vault-status: plaintextKeys 0, unreadableKeys 0, migrationComplete true, no credential in body
-  GET /api/v1/system/settings still round-trips the value the user entered
-  the row on disk is now an envelope; the plaintext is gone from it
-
-25/25 assertions passed
+[SecretVault] Encrypted 1 legacy plaintext secret(s) at rest: ai_api_key.
+[EnvironmentSecrets] Encrypted 1 legacy plaintext environment secret(s) at rest.
+[Startup] Rebuilt the database so the migrated cleartext is gone from its freed pages.
+[DEBUG] Registering environmentSecretRoutes
 ```
+
+Endpoints, over loopback HTTP against that running server:
+
+```
+POST   /api/v1/environments/env_e2e/secrets  → 201 {"success":true,"secret":{"key":"LIVE_TOKEN","maskedValue":"••••••••","isSet":true,…}}
+GET    /api/v1/environments/env_e2e/secrets  → 200 two secrets, both masked; body contains the stored value: false
+GET    /api/v1/workspaces/env_e2e/secrets    → 200 identical (alias hits the same rows)
+GET    /api/v1/system/settings               → 200 {"settings":{"ai_provider":"gemini","ai_api_key":"••••••••"},"hasApiKey":true,"maskedKeys":["ai_api_key"]}
+GET    /api/v1/security/vault-status         → 200 …"environmentSecrets":{"total":2,"encrypted":2,"plaintext":0,"unreadable":0,"environments":1,"migrationComplete":true},"healthy":true
+DELETE /api/v1/environments/env_e2e/secrets/LIVE_TOKEN → 200, again → 404
+POST   {key:"PATH"}                          → 400 PROTECTED_SECRET_KEY_ERROR
+```
+
+**On-disk check** (independent script, raw `node:sqlite` plus a byte grep of `asterim.db`, `-wal`, `-shm`):
+
+```
+env_e2e/LEGACY_TOKEN = vault:v1:a71a0e3f…:be37a52b…:22626d11…
+ai_api_key           = vault:v1:1c9fcaa2…:870dca14…:14a94e30…
+asterim.db     contains "plaintext-legacy-token-9f3aa1c4": false
+asterim.db     contains "AIzaSy-plaintext-e2e-key-0000":  false
+asterim.db-wal contains either:                           false
+```
+
+No screenshots: the change to `apps/web` is one settings field whose behaviour is what matters (the key is no
+longer fetched into the form), and the sandbox blocked driving a browser at a live server.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `SecretVaultService` encrypts and decrypts secrets using AES-256-GCM with random IVs and
-  authenticated tags** — suite sections *"encrypt — the serialized envelope"* (5 fields, 24-hex IV,
-  32-hex tag, no plaintext present), *"round trip"* (7 shapes incl. empty string, unicode, a value
-  that itself looks like an envelope, 64 KB), *"a fresh IV for every call"* (50 encryptions of one
-  plaintext → 50 distinct IVs and 50 distinct ciphertexts, all decrypting correctly).
-- [x] **2. Tampered ciphertext or forged authentication tags are detected and rejected** — suite
-  section *"tamper detection"*: modified ciphertext, forged tag and substituted IV each yield
-  `TAMPERED_SECRET_ERROR`; truncated tag, short IV, missing field, non-hex body and a non-envelope
-  each yield `INVALID_ENVELOPE_ERROR`; the untampered envelope still decrypts afterwards. Section
-  *"the key is bound to the machine"* adds that an envelope from another machine identity is
-  rejected the same way, and *"the process singleton"* proves it for the production instance.
-- [x] **3. Legacy plaintext secrets in `settings` are transparently migrated and encrypted at rest** —
-  suite sections *"transparent migration of legacy plaintext"* (first read returns the legacy value
-  and upgrades the row in place; the plaintext is gone from disk) and *"the startup sweep"* (both
-  plaintext credentials migrated, the already-encrypted one left alone, non-secret configuration
-  untouched, a second sweep is a no-op). Confirmed against the packaged binary in the smoke test:
-  a plaintext `ai_api_key` planted by direct SQLite write is an envelope after the next boot.
-- [x] **4. `GET /api/v1/security/vault-status` reports vault encryption status without leaking
-  secrets** — suite section *"GET /api/v1/security/vault-status"*: 200, reports cipher / KDF /
-  100,000 rounds / ready / counts; the raw response body contains no secret value, no envelope and
-  not the salt; a planted plaintext row flips `healthy` to false and is reported as a count without
-  its value appearing. Confirmed live over HTTP against the packaged binary in the smoke test.
-- [x] **5. `SecretVaultService.test.ts` passes with comprehensive cryptographic assertions** —
-  133/133, covering envelope shape, round trip, IV freshness, tamper detection, machine key binding,
-  salt file permissions, secret CRUD, legacy migration, the startup sweep, unreadable rows, the
-  redaction engine (strings, JSON leaves, nested payloads, the log-stream seam, the EventBus seam),
-  status, and the REST route.
-- [x] **6. Monorepo CI gates pass with 0 errors** — typecheck clean in all 7 workspaces; lint 0
-  errors in all 7; **39** test suites pass (22 server + 8 web + 7 mcp-memory-server + 1 relay + 1
-  adapters), up from 38; all 7 builds succeed. Full outputs in § 4.
+- [x] **1. `EnvironmentSecretService` encrypts all stored environment secrets using `vault:v1:` AES-256-GCM envelopes** —
+  every write goes through `SecretVaultService.encrypt()`; asserted on the raw column (`vault:v1:` prefix, plaintext
+  absent, two environments storing the same secret produce different ciphertext), and confirmed on the real
+  database file after a live server run (§ 4).
+- [x] **2. `GET /api/v1/environments/:id/secrets` returns masked representations and presence metadata without plaintext** —
+  `getSecrets` never decrypts; the response is `{ key, maskedValue: "••••••••", isSet, createdAt }` and the raw HTTP
+  body is asserted to contain neither value, nor the password inside a connection URL, nor any envelope. Verified in
+  the suite and live, on both `/environments` and `/workspaces`.
+- [x] **3. `GET /system/settings` masks `ai_api_key` while `POST` supports seamless updates and preservation** —
+  GET returns the mask plus `hasApiKey` / `maskedKeys`; POST ignores a re-submitted mask and a blank field
+  (stored key asserted unchanged), stores a genuinely new key as an envelope, and clears on explicit `null`.
+  `apps/web/AISettings.tsx` was updated in step so the form cannot overwrite the key with a mask.
+- [x] **4. Resolved environment variables are injected decrypted, with their plaintext registered for log and EventBus redaction** —
+  `resolveEnvironmentVariables` returns the decrypted map and registers each value first: a cold service registers
+  0 values before the resolve and 1 after; a log line containing the token comes back with `[REDACTED_SECRET]`
+  (string and Buffer chunks); an `agent.output` event published through the real EventBus reaches its subscriber
+  with the credential removed and `projectId`/`threadId` intact. The injection itself is asserted at the spawn
+  boundary in `ProcessManager.test.ts` — the variable reaches `pty.spawn`, and a provider's own variable still wins.
+- [x] **5. Legacy unencrypted rows are transparently upgraded** — upgraded on read in the same call that returns the
+  value, and by `migrateLegacyPlaintext()` at startup (2 migrated / 0 failed in the suite; second sweep migrates 0).
+  Verified end-to-end on a real boot, including the file-level consequence in § 7.
+- [x] **6. `EnvironmentSecretService.test.ts` passes with unit, integration and REST assertions** — 181/181, covering
+  CRUD round-trip, empty/multi-line/Unicode values, key validation and the protected-name list, tamper and
+  malformed-envelope rejection, foreign-machine envelopes, migration on read and by sweep, FK cascade, masking,
+  redaction through both seams, all six REST routes with 400/401/403/404 paths, RBAC by role, settings masking,
+  vault-status health, freed-page compaction, and a copied-database scenario.
+- [x] **7. Monorepo CI gates pass with 0 errors** — typecheck clean, lint 0 errors, all test suites pass (23 server
+  suites plus adapters/relay/web/mcp — 40+ in total across the monorepo), every build succeeds. Per-workspace
+  invocation as noted in § 4.
 
-**Definition of Done**
-
-- [x] `SecretVaultService.ts` implemented and tested
-- [x] Database secret storage updated to use vault (5 managed keys across TokenService,
-      PairingService, PushService, AiService, BillingService, system routes)
-- [x] Legacy plaintext migration hook operational (startup sweep + transparent per-read upgrade)
-- [x] `/api/v1/security/vault-status` REST endpoint registered in `index.ts`
-- [x] `SecretVaultService.test.ts` created and passing
-- [x] Monorepo CI gates pass cleanly
+Definition of Done: service implemented and exported ✔; routes registered and verified against a running server ✔;
+`ai_api_key` masking implemented and tested ✔; agent variable resolution and redaction integrated ✔; suite created,
+wired into `"test"`, passing ✔; CI gates clean ✔.
 
 ## 6. Git Diff Review
 
-Reviewed `git diff` and `git status` line by line against every criterion and every forbidden change.
+Reviewed `git diff` and `git status` in full. 3 files added, 13 modified, 369 insertions / 147 deletions. Against
+the forbidden list:
 
-12 files in `apps/server` plus one package.json script line. Nothing outside `apps/server`. No
-schema change was needed — the vault reuses the existing `settings` table, so no `ALTER TABLE` was
-added and existing databases at `~/.asterim/asterim.db` keep opening (proved by the smoke test's
-second boot against a database written by the first).
+- **No plaintext environment secrets** — the only writer of `secret_value` other than `encrypt()` output is
+  `writeEnvelope()`, which is fed by `encrypt()`. Confirmed on disk.
+- **No cleartext in GET responses** — the removed lines in `routes/system.ts` are exactly the
+  `decryptIfEnvelope` → response path that used to return the key; nothing replaced it with another read of a value.
+- **Existing `settings` encryption and existing suites intact** — `SecretVaultService` gained two public methods and
+  changed no existing behaviour; all pre-existing suites pass unchanged, including 133/133 for P9-01.
+- **No external network dependency or KMS** — no new package, no new import outside the repo; Sovereign Mode (DEC-028)
+  untouched, and the live run above was made with `ASTERIM_SOVEREIGN_MODE=true`.
+- No stray files: the scratch seed/boot/inspect scripts used for the live run were written to `/tmp`, not the repo,
+  and nothing was added to `docs/`.
 
-Forbidden-change audit:
-
-- **No decryption key in the database.** Asserted by the suite (`'no settings row holds the vault
-  salt'`) and by construction: the derived key exists only in process memory, the salt only in
-  `vault.salt`.
-- **No unauthenticated cipher.** `aes-256-gcm` is the only cipher referenced; no CBC, no hand-rolled
-  HMAC-then-encrypt.
-- **No existing suite broken.** All 38 pre-existing suites pass unchanged; none was edited.
-
-Two nits found in self-review and fixed before reporting: a stray double blank line left in
-`index.ts`, and an unused `err` binding in the new `PushService` catch (now included in the message).
-One design issue found in self-review and fixed: `redactPayload` originally rebuilt every object it
-walked, which would have put an allocation per subtree on the EventBus hot path once any secret was
-registered — it now returns its input by reference when nothing changed, with two assertions added
-to cover it.
-
-`tests/report.md` shows as modified. **That change predates this session** — it was already dirty in
-the working tree at the start of P9-01 and belongs to the previous test gate, so it is deliberately
-excluded from this commit. `scratch/p9-smoke/` holds the end-to-end smoke test and is gitignored.
+One pre-existing unstaged change is **not** mine and was left alone: `tests/report.md` was already modified when this
+session started (the previous test-gate report). It is excluded from the commit rather than folded into a P9-02 change.
 
 ## 7. Problems Discovered
 
-1. **Import-time construction order.** `dbService`, `tokenService`, `pairingService` and
-   `pushService` are all module-level singletons, and esbuild hoists every `import` to the top of the
-   module — so placing the migration sweep "before" the service imports in `index.ts` would have been
-   an illusion. Solved by making `getSecret` self-migrating, so each service upgrades its own row at
-   construction, and keeping the explicit sweep for the rows nothing reads until later.
-2. **The logger runs before the database exists.** `initLogger()` is the first statement in
-   `index.ts`. Importing the vault from `utils/logger.ts` would have opened SQLite before the streams
-   were redirected. Solved with inverted registration (`registerLogRedactor`); the same shape is used
-   for `EventBus.setRedactor`, which also avoids a `EventBus → vault → DatabaseService` cycle in a
-   module nearly every service imports.
-3. **`BillingService` captured `STRIPE_SECRET_KEY` in its constructor,** and the module constructs an
-   instance on import — so a vault read there would have hit the database at import time and would
-   also have frozen the answer before any secret could be stored. Resolution is now lazy
-   (`resolveSecretKey()`), which also makes a key stored after startup take effect without a restart.
-4. **Short secrets are hostile to redaction.** A registered value of a few characters would blank out
-   ordinary log text. Values of 8 characters or fewer are not registered; the suite pins this.
-5. **`/api/v1/system/settings` would have broken the AI settings form.** `AISettings.tsx` reads
-   `ai_api_key` back into its input. The GET handler now decrypts envelopes, so the UI is unchanged;
-   the change is to how the key rests on disk, not to who may read it back over an already
-   authenticated request. Flagged in § 8.
+1. **Encrypting in place leaves the cleartext in the file.** The first live migration run looked correct at the query
+   level — both rows came back as `vault:v1:` envelopes — but grepping the bytes of `asterim.db` still found
+   `plaintext-legacy-token-9f3aa1c4` and the old `ai_api_key`. SQLite marks the superseded page free rather than
+   overwriting it, so "encrypted at rest" was true of the rows and false of the file, which is the exposure the vault
+   exists to close (a backup or a support bundle copies free pages too). A probe confirmed that `VACUUM` **alone does
+   not fix it in WAL mode** — the rebuilt pages sit in the sidecar while the main file keeps its old content until a
+   checkpoint — so `DatabaseService.compact()` does `VACUUM` followed by `PRAGMA wal_checkpoint(TRUNCATE)`, and
+   `index.ts` calls it once when either sweep actually migrated something. Re-run end-to-end: no cleartext in
+   `asterim.db`, `-wal` or `-shm`. **Note for Antigravity: the same exposure applies to any database already migrated
+   by P9-01 before this change; those files are cleaned by the first boot that migrates anything, and otherwise not
+   at all.**
+2. **`environment_secrets` had no reader or writer anywhere.** The table was created in P3.5 and never used, so there
+   was no existing call path to preserve — but also no prior art for how an environment id resolves. `workspaces` and
+   `environments` are mirror tables written by `WorkspaceService`, and the mirror insert is best-effort inside a
+   `try/catch`, while the FK points at `environments`. A workspace could therefore exist that cannot hold a secret;
+   `ensureEnvironmentRow()` repairs the mirror from `workspaces` instead of failing.
+3. **Foreign keys are enforced.** `node:sqlite` enables them by default even though nothing in `DatabaseService` sets
+   the pragma, so a secret for an unknown environment is a constraint failure rather than an orphan row — verified,
+   along with the `ON DELETE CASCADE` that removes an environment's secrets with it.
+4. **Masking the settings GET would have silently wiped the key.** The web form loaded `ai_api_key` into a field and
+   posted it back on every save; masking the response without touching the client would have written `••••••••` over
+   the credential on the next save. Handled on both sides — the server ignores masks and blank credentials, and the
+   form no longer holds the key at all.
+5. **`MIN_REDACTABLE_LENGTH = 8`** (P9-01) applies to environment secrets too: a stored value of eight characters or
+   fewer is *not* registered for redaction, deliberately, because such a string collides with ordinary terminal text.
+   Short credentials are encrypted at rest but will not be stripped from agent output.
 
 ## 8. Architectural Concerns
 
-1. **`GET /api/v1/system/settings` still returns `ai_api_key` in cleartext to any authenticated
-   caller.** This is unchanged behaviour, kept deliberately so the existing settings form keeps
-   working, and it is out of this task's scope — but "encrypted at rest" and "never leaves the
-   server" are different guarantees. The usual fix is to return a masked value plus a
-   `hasApiKey: true` flag and treat an empty submission as "unchanged". That is a UI change and needs
-   a task of its own.
-2. **`environment_secrets.secret_value` is still plaintext.** The vault manages the `settings` table
-   only; the workspace-scoped secrets table (`DatabaseService.ts:411`) was not named in the task's
-   scope and is untouched. It is the obvious next candidate — the vault primitives are already
-   table-agnostic (`encrypt`/`decrypt` take strings), so it is a call-site change, not a design one.
-3. **Machine-bound keys make backups non-portable.** Restoring `asterim.db` onto a new machine, or
-   renaming the host, orphans every stored secret. The failure is graceful (re-login, new VAPID pair)
-   and visible in `vault-status.unreadableKeys`, but if Phase 9 ships a desktop migration story it
-   will need an explicit export/import path — a passphrase-wrapped key envelope, not a second copy of
-   the machine key.
-4. **The OS keychain option in the drift item was not taken.** `IMPLEMENTATION_DRIFT.md` § 11 offers
-   "machine-derived keys **or** OS Keychain primitives (keytar / DPAPI / libsecret)". The former was
-   implemented because it adds no native dependency and works headless and air-gapped, which
-   DEC-028's sovereign mode wants. Worth a decision record if the enterprise tier needs the latter.
+1. **The RBAC fallback for member-less environments.** Where an environment has no `workspace_memberships` rows, any
+   authenticated caller may read and write its secrets. That is what a pre-RBAC or single-user local database looks
+   like, and enforcing membership strictly would lock the operator out of their own environment — but it is a policy
+   decision, not a technical one, and it is worth confirming. Tightening it later is a one-line change in
+   `authorize()`.
+2. **`environment_secrets` still has no UI.** The API is complete and the agent path consumes it, but nothing in
+   `apps/web` lets a user manage workspace secrets; today they can only be created over REST. A Workspace Settings
+   panel is a natural next vertical, and the masked shape was designed for it.
+3. **Machine-bound keys remain non-portable** (carried over from P9-01 § 8): moving `asterim.db` to another machine
+   yields secrets that will not decrypt, now including workspace credentials. The suite asserts this rather than
+   working around it. An export/import flow under an operator passphrase is the escape hatch if enterprise
+   deployments need one.
+4. **The startup compaction can be skipped under contention.** `compact()` needs a lock the MCP memory servers could
+   be holding; it warns and returns `false` rather than blocking the boot, and the migration is still correct — only
+   the freed-page cleanup is deferred to the next boot that migrates something. A dedicated
+   `POST /api/v1/security/compact` for an operator to run on demand would close that gap.
+5. **`environment_secrets` has no `updated_at`.** Rotation currently preserves `created_at`, so the API can say when a
+   secret was introduced but not when it last changed — worth a column if the audit surface needs it.
 
 ## 9. Recommended Next Step
 
-Extend the vault to `environment_secrets` (workspace-scoped credentials injected into agent
-processes) — the same envelope, a different table, plus redaction registration for the values so they
-cannot appear in agent stdout. Pair it with the `ai_api_key` masking change from § 8.1 as one
-vertical "secrets never leave the Core" task, since both touch the same REST surface and both are
-prerequisites for the Phase 9 enterprise hardening claim.
+**P9-03 — Workspace Secrets & Security surface in the dashboard.** The vault, the environment-secret API and the
+health endpoint now exist with nothing in `apps/web` reading any of them. One vertical: a Workspace Settings →
+Secrets panel over the masked API (list / add / rotate / delete, never displaying a value), plus a Security card
+rendering `GET /api/v1/security/vault-status` — including the new `vault.environmentSecrets` counts and the
+`healthy` flag — so an operator can see at a glance that nothing on the workstation is readable on disk. That closes
+§ 8.2 and gives the two P9-01/P9-02 subsystems the operator-facing surface enterprise hardening is ultimately for.
