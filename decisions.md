@@ -206,3 +206,66 @@
   - Asterim is certified safe for air-gapped and sovereign workstation deployment.
   - Phase 5.4 tasks remain strictly bounded within local SQLite and in-process execution.
 
+---
+
+## DEC-029: Stable vs Development Release Channels & Data Directory Isolation Architecture
+
+* **Date**: August 17, 2026
+* **Status**: Approved Architectural Standard
+* **Context**: Asterim is developed locally while also being used as the daily driver tool by developers. Running development builds and test suites against the default `~/.asterim/` directory risks clobbering production SQLite data, schema migrations, and active user credentials.
+* **Decision**: Enforce distinct, isolated runtime channels:
+  1. **Stable Channel**: Uses `~/.asterim/` data directory, standard port (default `3000`), and production `server.json`.
+  2. **Development Channel**: Activated via `ASTERIM_CHANNEL=dev` or `pnpm dev`. Uses isolated data directory `~/.asterim-dev/`, offset port (default `3001`), and separate `~/.asterim-dev/server.json`.
+  3. Stable and Development instances never share SQLite database handles, ports, or memory state.
+* **Rationale**: Guarantees zero risk of production data corruption or schema desynchronization during active Asterim development.
+* **Impact**:
+  - `DatabaseService` dynamically resolves paths based on `ASTERIM_CHANNEL`.
+  - Development builds display a visual `[DEV-CHANNEL]` badge in the Web UI.
+
+---
+
+## DEC-030: Versioned Forward Migration Engine & Database Compatibility Standard
+
+* **Date**: August 17, 2026
+* **Status**: Approved Architectural Standard
+* **Context**: Prior to Phase 7, schema updates were performed via ad-hoc `ALTER TABLE ... try/catch (ignore if exists)` queries. This lacks version tracking, checksum verification, deterministic ordering, and transactional failure rollbacks.
+* **Decision**: Establish a formal, versioned SQL migration engine:
+  1. Sequential `.sql` migration files stored in `packages/server/src/migrations/`.
+  2. Dedicated `schema_migrations` tracking table (`version`, `name`, `checksum`, `applied_at`).
+  3. Pre-migration automated snapshotting (`asterim.db.bak.<timestamp>`).
+  4. Transactional migration execution with atomic rollback on syntax/constraint failure.
+* **Rationale**: Eliminates silent schema drift and guarantees reliable database upgrades and disaster recovery.
+* **Impact**:
+  - Replaces all ad-hoc `ALTER TABLE` calls in `DatabaseService.ts`.
+
+---
+
+## DEC-031: Shared Team Agent Primitive, Turn Locking & Multi-User Event Synchronization
+
+* **Date**: August 17, 2026
+* **Status**: Approved Architectural Standard
+* **Context**: Multi-agent collaboration across teams requires persistent shared agent roles (e.g. "Backend Architect", "Security Reviewer") accessible to multiple developers without causing prompt race conditions or conversation fragmentation.
+* **Decision**: Introduce the `TeamAgent` primitive:
+  1. **Shared Persistent Identity**: Belongs to an Organization/Team with a continuous shared conversation transcript.
+  2. **Turn Locking (`AgentTurnLock`)**: FIFO turn queue ensuring that when an agent is generating output or executing a multi-step tool call, concurrent user prompts are queued and do not interrupt mid-turn.
+  3. **Role-Based Approval Governance**: Configurable policies specifying whether destructive tool calls require approval from an Admin, Owner, or the turn initiator.
+* **Rationale**: Provides predictable, multi-user agent collaboration while maintaining deterministic transcript ordering.
+* **Impact**:
+  - Introduces `TeamAgentService.ts` and `AgentTurnLock.ts` in Phase 8.
+
+---
+
+## DEC-032: Local-First Team Collaboration Security & Cloud Relay E2E Boundary
+
+* **Date**: August 17, 2026
+* **Status**: Approved Security & Architectural Standard
+* **Context**: Enabling remote team members to interact with shared team agents must not compromise Asterim's Local-First Data Sovereignty Mandate (`DEC-028`).
+* **Decision**:
+  1. **Host Workstation / On-Premise Execution**: Shared team agents execute on a designated developer workstation or private on-premise server.
+  2. **Blind E2E Relay Tunnels**: Remote team members communicate via end-to-end encrypted WebSocket tunnels (ECDH P-256 + AES-GCM-256). The Cloud Relay acts strictly as an untrusted blind packet router and stores zero source code, memory, or transcripts.
+  3. **Air-Gapped LAN Support**: Within local corporate networks, team members connect directly via ZeroConf / mDNS (Bonjour) with zero external internet communication.
+* **Rationale**: Guarantees enterprise compliance and absolute privacy for team collaboration.
+* **Impact**:
+  - Preserves `DEC-028` air-gap guarantees across all multi-user features.
+
+
