@@ -1,112 +1,118 @@
-Task-ID: P10-03
-Phase: 10
+Task-ID: P7-01
+Phase: 7
 
-# [P10-03] — Phase 10 Comprehensive Production Gate & Desktop Release Readiness Audit
+# [P7-01] — Release Channels (Stable vs Development) & Runtime Data Isolation
 
-**Task ID:** P10-03  
-**Phase:** Phase 10 — Desktop Distribution, Native Shell & Release Readiness  
+**Task ID:** P7-01  
+**Phase:** Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
-**Date:** 2026-08-17  
+**Date:** 2026-08-18  
 
 ---
 
 ## 1. Objective
 
-Conduct a comprehensive, end-to-end production gate audit for Phase 10 (Desktop Distribution, Native Shell & Release Readiness): authoritatively verify the native desktop daemon management subsystem (`DesktopDaemonService.ts`), native OS desktop notifications engine (`DesktopNotificationService.ts`), desktop REST API surface (`/api/v1/desktop/*`), shared desktop domain contracts (`@asterim/shared`), workstation daemon dashboard UI (`DesktopDaemonCard.tsx`, `useDesktopStore.ts`, `EnvironmentSettingsView.tsx`), packaged standalone binary distribution, verify all 43 automated test suites across the monorepo and CI quality gates, and author the authoritative sign-off document `docs/phase10-production-gate.md`.
+Implement Channel Runtime Isolation governed by `DEC-029`: introduce `ASTERIM_CHANNEL` (`stable` vs `dev`), dynamically resolve data directories (`~/.asterim` for Stable vs `~/.asterim-dev` for Development), isolate default ports and loopback connection descriptors (`server.json`), expose channel status via REST API, render a styled `[DEV-CHANNEL]` badge in the Web UI header during development runs, and author a comprehensive automated test suite.
 
 ---
 
 ## 2. Why This Task Exists
 
-Across tasks P10-01 and P10-02, Asterim completed the native desktop daemon and workstation controls vertical:
-- **P10-01**: Native Desktop Daemon & System Tray Subsystem (`DesktopDaemonService.ts`, `DesktopNotificationService.ts`, `apps/server/src/routes/desktop.ts`, `@asterim/shared/src/types/desktop.ts`) providing cross-platform OS notifications (Windows PowerShell WinRT, macOS osascript, Linux notify-send) with automatic EventBus subscriptions (`agent:approval_required`, `delegation.completed`, `verification.failed`), headless/CI graceful degradation, cross-platform login auto-start (Windows HKCU Run registry, macOS LaunchAgents plist, Linux XDG autostart), system tray status generation, and 24 server test suites (207 assertions in `DesktopDaemonService.test.ts`).
-- **P10-02**: Workstation Desktop Daemon Dashboard UI (`DesktopDaemonCard.tsx`, `useDesktopStore.ts`, `EnvironmentSettingsView.tsx`) providing pure view + container architecture, real-time Core tray status rendering (`ONLINE` / `PAUSED` / `OFFLINE`), 6-metric telemetry grid, role="switch" auto-start toggle with platform mechanism label, quick action launchers with pending states, design token compliance, and a 207-assertion web test suite in `DesktopDaemonUI.test.ts`.
+As established in `DEC-029` and the post-Phase-6 reconciliation, Asterim is both an active development project and a developer's daily-driver tool. 
 
-Before formally certifying Phase 10 complete and signing off on release readiness, we must execute a rigorous production gate audit across all monorepo test suites, verify all desktop invariants, cross-platform command generators, headless safety boundaries, and publish `docs/phase10-production-gate.md`.
+Running development builds, running tests, or experimenting with new features against the default `~/.asterim/` directory risks clobbering production SQLite databases, schema migrations, and user credentials. Channel Runtime Isolation guarantees physical file-system, database, and port separation between Stable daily usage and Development experiments.
 
 ---
 
-## 3. Context & Architecture
+## 3. Context & Architecture (DEC-029)
 
-- **Subsystems Under Audit**:
-  - `apps/server/src/services/desktop/DesktopDaemonService.ts`
-  - `apps/server/src/services/desktop/DesktopNotificationService.ts`
-  - `apps/server/src/routes/desktop.ts`
-  - `packages/shared/src/types/desktop.ts` & `packages/shared/src/index.ts`
-  - `apps/web/src/stores/useDesktopStore.ts`
-  - `apps/web/src/components/desktop/DesktopDaemonCard.tsx`
-  - `apps/web/src/components/environment/EnvironmentSettingsView.tsx`
-  - `apps/web/src/components/DeveloperSettings.tsx`
-- **Invariants to Verify**:
-  - **Cross-Platform OS Notifications**: Platform command generation without heavy native binary dependencies; non-blocking asynchronous dispatch; graceful skip on headless (`ASTERIM_HEADLESS=true`) and CI environments without throwing or crashing Core.
-  - **System Tray State Protocol**: Accurate derivation of tray state (`ONLINE`, `PAUSED`, `OFFLINE`), active thread count, supervised MCP count, vault status (`ENCRYPTED`), memory RSS, uptime format, and quick action launch targets.
-  - **Login Auto-Start Lifecycle**: Correct path and command generation across Windows (Registry HKCU Run), macOS (LaunchAgents plist), Linux (XDG autostart .desktop file), and safe degradation on unsupported platforms.
-  - **REST API Surface & Authentication**: Authenticated access for `/api/v1/desktop/*`, strict schema validation, structured error codes, safe response envelopes (no arbitrary client paths executed).
-  - **Dashboard UI & Design System**: Zero hardcoded hex/rgb color literals; standard token usage from `tokens.css`; pure view + connected container separation; robust handling of offline, paused, headless, loading, and error states.
-  - **Packaged Standalone Distribution**: Server build (`tsup`) bundling static SPA assets (`dist/web`), SPA catch-all routing, and executable binary entrypoint (`bin.asterim`).
+- **Channel Determination**:
+  - Explicit: `process.env.ASTERIM_CHANNEL` (`'stable'` | `'dev'`).
+  - Fallback: If unset, defaults to `'dev'` when `process.env.NODE_ENV === 'development'`, and `'stable'` in production/packaged builds.
+- **Data Directory Mapping**:
+  - `stable` → `path.join(os.homedir(), '.asterim')` (or `ASTERIM_DATA_DIR` if explicitly passed).
+  - `dev` → `path.join(os.homedir(), '.asterim-dev')` (or `ASTERIM_DATA_DIR` if explicitly passed).
+- **Port & Descriptor Mapping**:
+  - `stable` → Default Port `3000`, descriptor at `<dataDir>/server.json`.
+  - `dev` → Default Port `3001` (or offset by +1), descriptor at `<dataDir>/server.json`.
+- **UI State**:
+  - Web UI inspects the active channel via `GET /api/v1/system/channel` or socket metadata and renders a distinct `[DEV-CHANNEL]` indicator in the top navbar when `channel === 'dev'`.
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Production Gate Audit Document (`docs/phase10-production-gate.md`)**:
-   - Authoritative audit document covering:
-     - Executive Verdict (**PASS / READY FOR NEXT PHASE**).
-     - Subsystem Audit Matrix (Desktop Daemon Management, OS Notifications Engine, System Tray State Protocol, Auto-Start Lifecycle, Desktop REST Surface, Shared Domain Contracts, Workstation UI & Operator Controls, Standalone Binary Packaging & SPA Distribution).
-     - Workstream Acceptance-Criteria Audit (P10-01, P10-02).
-     - Full Test Suite Census & Census Matrix (43 suites across all workspaces, 0 failures).
-     - Desktop Invariants & Security Boundary Verifications.
-     - Observations & Architectural Notes (including `DeveloperSettings.tsx` orphaned status, status polling/EventBus recommendations, chained test runner structure).
-     - Reproduction commands and audit verification trail.
-     - Sign-off table.
+1. **Shared Channel Types & Constants (`packages/shared/src/types/channels.ts` & `packages/shared/src/constants/channels.ts`)**:
+   - `AsterimChannel`: `'stable'` | `'dev'`.
+   - `ChannelInfo`: `channel: AsterimChannel`, `dataDir: string`, `port: number`, `isDev: boolean`, `version: string`.
+   - Constants: `DEFAULT_STABLE_PORT = 3000`, `DEFAULT_DEV_PORT = 3001`, `DATA_DIR_STABLE_NAME = '.asterim'`, `DATA_DIR_DEV_NAME = '.asterim-dev'`.
+   - Export from `packages/shared/src/index.ts`.
 
-2. **Quality Gate Validation**:
-   - Run full monorepo typecheck: `pnpm run typecheck` (0 errors across 11 Turbo tasks).
-   - Run full monorepo lint: `pnpm run lint` (0 errors across 7 workspace packages).
-   - Run full monorepo test battery: `pnpm run test` (43 test suites, 0 failures).
-   - Run production build: `pnpm run build` (all 7 packages building cleanly).
+2. **Channel & Data Directory Resolver (`apps/server/src/utils/channel.ts` & `DatabaseService.ts`)**:
+   - `getAsterimChannel(): AsterimChannel`: Evaluates `process.env.ASTERIM_CHANNEL` and `process.env.NODE_ENV`.
+   - `resolveDataDir(channel?: AsterimChannel): string`: Returns appropriate path based on channel and `ASTERIM_DATA_DIR`.
+   - Update `DatabaseService.ts`, `ServerRegistry.ts`, `DesktopDaemonService.ts`, `SecretVaultService.ts`, and `SkillService.ts` to use the unified channel resolver.
+
+3. **REST API Endpoint (`apps/server/src/routes/system.ts`)**:
+   - `GET /api/v1/system/channel` — Returns `ChannelInfo`.
+   - Log active channel and data directory on Core startup.
+
+4. **Web UI Header Channel Badge (`apps/web/src/components/NavigationSidebar.tsx` / Header)**:
+   - Display a subtle, styled amber/cyan `[DEV-CHANNEL]` pill in the top header or sidebar when connected to a development channel instance.
+
+5. **Automated Unit & Integration Test Suite (`apps/server/src/services/__tests__/ChannelIsolation.test.ts`)**:
+   - Test channel resolution for explicit `ASTERIM_CHANNEL=stable` vs `ASTERIM_CHANNEL=dev`.
+   - Test fallback to `'dev'` when `NODE_ENV=development`.
+   - Test `ASTERIM_DATA_DIR` override precedence over channel defaults.
+   - Test directory creation with owner-only permissions (`0700`).
+   - Test REST route `GET /api/v1/system/channel` returning accurate channel metadata.
+   - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
 ## 5. Constraints & Forbidden Changes
 
-- Do NOT weaken any desktop daemon validation rules, error handling, or security boundaries.
-- Do NOT modify product code unless required to fix a discovered regression.
-- Keep `docs/phase10-production-gate.md` factual, evidence-backed, and reproducible.
+- Do NOT break `ASTERIM_DATA_DIR` override support (existing test suites rely on temp directories).
+- Do NOT modify user files in `~/.asterim` when running under `ASTERIM_CHANNEL=dev`.
+- Maintain 100% test pass rate across all existing monorepo test suites.
 
 ---
 
 ## 6. Acceptance Criteria
 
-1. `docs/phase10-production-gate.md` is authored with complete subsystem audit matrices, workstream audits (P10-01 and P10-02), and verification evidence.
-2. Both Phase 10 workstreams (P10-01, P10-02) are audited and verified against their acceptance criteria.
-3. 0 TypeScript compiler errors across all packages (`pnpm run typecheck`).
-4. 0 ESLint errors across all packages (`pnpm run lint`).
-5. All automated test suites pass with 0 failures (`pnpm run test` across 43 suites).
-6. Monorepo production build succeeds cleanly (`pnpm run build`).
+1. `getAsterimChannel()` correctly identifies `stable` vs `dev` based on environment variables.
+2. `resolveDataDir()` resolves `~/.asterim` for Stable and `~/.asterim-dev` for Development by default.
+3. `GET /api/v1/system/channel` returns accurate channel and data directory metadata.
+4. Web UI displays the `[DEV-CHANNEL]` badge when connected to a development backend.
+5. `ChannelIsolation.test.ts` passes with comprehensive assertions.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] `docs/phase10-production-gate.md` created and complete
-- [ ] Monorepo typecheck clean (0 errors)
-- [ ] Monorepo lint clean (0 errors)
-- [ ] Full test battery passing (0 failures, 43 suites)
-- [ ] Production build clean
+- [ ] Shared channel types and constants added to `@asterim/shared`
+- [ ] `getAsterimChannel()` and channel-aware `resolveDataDir()` implemented
+- [ ] Core services (`DatabaseService`, `ServerRegistry`, `SecretVaultService`, etc.) updated
+- [ ] `GET /api/v1/system/channel` endpoint registered
+- [ ] Web UI `[DEV-CHANNEL]` badge rendered
+- [ ] `ChannelIsolation.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
 
 ---
 
 ## 8. Verification Commands
 
 ```bash
-# Verify Phase 10 specialized test suites
-pnpm --filter asterim exec tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts
-pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts
+# Run new Channel Isolation test suite
+pnpm --filter asterim exec tsx src/services/__tests__/ChannelIsolation.test.ts
 
-# Run full monorepo CI validation pipeline
+# Run all system routes & database tests
+pnpm --filter asterim exec tsx src/services/__tests__/DatabaseService.test.ts
+
+# Run full monorepo CI pipeline
 pnpm run typecheck
 pnpm run lint
 pnpm run test
