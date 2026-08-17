@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { IconCheck, IconUser, IconBuilding, IconPlus } from '../icons/Icons';
 import { EnvironmentSecretsPanel } from './EnvironmentSecretsPanel';
+import { DesktopDaemonCard } from '../desktop/DesktopDaemonCard';
 
 export const EnvironmentSettingsView: React.FC = () => {
   const [, setLocation] = useLocation();
@@ -18,7 +19,7 @@ export const EnvironmentSettingsView: React.FC = () => {
   };
 
   const [activeSubTab, setActiveSubTab] = useState<
-    'general' | 'members' | 'projects' | 'agents' | 'secrets' | 'mcp' | 'skills' | 'knowledge' | 'audit' | 'danger'
+    'general' | 'members' | 'projects' | 'agents' | 'secrets' | 'mcp' | 'skills' | 'knowledge' | 'audit' | 'daemon' | 'danger'
   >('general');
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -205,6 +206,7 @@ export const EnvironmentSettingsView: React.FC = () => {
     { id: 'skills', label: 'Skills & Prompts' },
     { id: 'knowledge', label: 'Knowledge Items' },
     ...(!isPersonalEnv ? [{ id: 'audit', label: 'Audit Stream' }] : []),
+    { id: 'daemon', label: 'Workstation Daemon' },
     { id: 'danger', label: 'Danger Zone' },
   ];
 
@@ -933,6 +935,17 @@ export const EnvironmentSettingsView: React.FC = () => {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {activeSubTab === 'daemon' && (
+          <div style={{ maxWidth: '800px' }}>
+            <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              The local Core running as a background desktop service. This is a property of the
+              workstation rather than of <strong>{currentEnv.name}</strong> — every Environment on
+              this machine is served by the same daemon.
+            </div>
+            <DesktopDaemonCard />
           </div>
         )}
 

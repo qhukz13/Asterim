@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useWorkstations } from '../hooks/useWorkstations';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { IconSettings } from './icons/Icons';
+import { DesktopDaemonCard } from './desktop/DesktopDaemonCard';
 
 export function DeveloperSettings() {
   const {
@@ -41,6 +42,13 @@ export function DeveloperSettings() {
         <IconSettings size={18} color="var(--color-accent-primary)" />
         Developer & Remote Settings
       </h3>
+
+      {/* The local daemon, above the remote-workstation controls: this is the
+          machine serving the page, and the push toggle below concerns the
+          browser's notifications rather than the OS's. */}
+      <div style={{ marginBottom: '20px' }}>
+        <DesktopDaemonCard />
+      </div>
 
       <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {isSupported && (

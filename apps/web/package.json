@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/components/memory/__tests__/DecisionExplorer.test.ts && tsx src/components/memory/__tests__/CandidateReview.test.ts && tsx src/components/memory/__tests__/MemoryTimeline.test.ts && tsx src/stores/__tests__/useMemoryStore.test.ts && tsx src/components/mcp/__tests__/McpServerExplorer.test.ts && tsx src/components/skills/__tests__/SkillsExplorer.test.ts && tsx src/components/profiles/__tests__/ProfileSelector.test.ts && tsx src/components/delegation/__tests__/DelegationUI.test.ts && tsx src/components/environment/__tests__/EnvironmentSecretsUI.test.ts",
+    "test": "tsx src/components/memory/__tests__/DecisionExplorer.test.ts && tsx src/components/memory/__tests__/CandidateReview.test.ts && tsx src/components/memory/__tests__/MemoryTimeline.test.ts && tsx src/stores/__tests__/useMemoryStore.test.ts && tsx src/components/mcp/__tests__/McpServerExplorer.test.ts && tsx src/components/skills/__tests__/SkillsExplorer.test.ts && tsx src/components/profiles/__tests__/ProfileSelector.test.ts && tsx src/components/delegation/__tests__/DelegationUI.test.ts && tsx src/components/environment/__tests__/EnvironmentSecretsUI.test.ts && tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },
