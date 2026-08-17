@@ -1,4 +1,4 @@
-Task-ID: P10-02
+Task-ID: P10-03
 
 ## Verification Commands
 1. Run Typecheck:
@@ -9,9 +9,10 @@ Task-ID: P10-02
    `pnpm run lint`
    PASS: 0 ESLint errors across 7 workspace packages.
 
-3. Run Desktop Daemon UI Unit & Component Tests:
+3. Run Phase 10 Specialized Test Suites:
+   `pnpm --filter asterim exec tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts`
    `pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts`
-   PASS: All desktop daemon UI assertions pass with exit code 0.
+   PASS: All assertions pass with exit code 0.
 
 4. Run Full Monorepo Test Battery:
    `pnpm run test`
