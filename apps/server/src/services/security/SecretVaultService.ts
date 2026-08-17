@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { VaultStatus } from '@asterim/shared';
 import { dbService, resolveDataDir } from '../DatabaseService';
 import { registerLogRedactor } from '../../utils/logger';
 import { eventBus } from '../EventBus';
@@ -100,22 +101,11 @@ export interface SecretVaultServiceOptions {
   installRedaction?: boolean;
 }
 
-export interface VaultStatus {
-  ready: boolean;
-  algorithm: 'AES-256-GCM';
-  keyDerivation: string;
-  iterations: number;
-  ivBytes: number;
-  authTagBytes: number;
-  envelopeVersion: string;
-  saltPresent: boolean;
-  managedKeys: string[];
-  encryptedKeys: number;
-  plaintextKeys: number;
-  unreadableKeys: number;
-  migrationComplete: boolean;
-  redactedValues: number;
-}
+/**
+ * Declared in `@asterim/shared` because the dashboard renders it verbatim; a
+ * second declaration here would be the same contract in two places.
+ */
+export type { VaultStatus };
 
 interface SettingRow {
   value: string;

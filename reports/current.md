@@ -1,9 +1,9 @@
-Task-ID: P9-02
+Task-ID: P9-03
 Status: COMPLETE
 
-# Execution Report: P9-02 — Workspace Environment Secrets Subsystem & In-Transit Credential Masking
+# Execution Report: P9-03 — Workspace Secrets Management UI & Workstation Security Status Dashboard
 
-**Task ID:** P9-02
+**Task ID:** P9-03
 **Phase:** Phase 9 — Enterprise Hardening, Desktop Shell & Production Release
 **Status:** VERIFIED
 **Date:** 2026-08-17
@@ -13,256 +13,279 @@ Status: COMPLETE
 
 ## 1. Summary
 
-`environment_secrets` now holds credentials the way `settings` has since P9-01: every value rests as a
-`vault:v1:` AES-256-GCM envelope produced by the singleton `SecretVaultService`, under the same
-machine-derived key. `EnvironmentSecretService` owns the table, and the three properties it was asked for
-hold in all three places a credential can escape:
+The vault and the environment-secret API built in P9-01 / P9-02 now have the operator-facing surface they
+were built for. Environment Settings → **Secrets & Credentials** no longer renders three hardcoded password
+fields; it lists what the Core actually holds — key name, mask, presence, date — and lets an operator add,
+rotate and delete credentials, with a **Workstation Security** card underneath rendering
+`GET /api/v1/security/vault-status`.
 
-- **At rest** — nothing writes `environment_secrets.secret_value` except through `SecretVaultService.encrypt()`.
-  Legacy cleartext rows upgrade on read and on a startup sweep.
-- **In transit** — the read path never decrypts. `GET .../secrets` returns `{ key, maskedValue: "••••••••", isSet, createdAt }`
-  and nothing else, and `GET /api/v1/system/settings` now masks `ai_api_key` with a `hasApiKey` flag instead of
-  returning the key it used to hand back in cleartext.
-- **In output** — every plaintext the service decrypts is registered with the vault's redaction index before it
-  is returned, so a token an agent echoes back is stripped from the log file and from EventBus payloads.
+The design follows from what the API can and cannot do. `GET` never decrypts, so the panel has no reveal
+control and no copy button: there is nothing to reveal. A credential travels one direction only, and the
+one place a plaintext exists in the browser is the value field the operator typed it into — which is
+**uncontrolled**, so the credential never enters React state and never appears in the rendered tree. It is
+read once on submit, the field is cleared *before* the request is awaited, and the store holds no copy at
+any point.
 
-Resolved secrets reach the agent process through a new `LaunchConfig.env`, merged in `BaseAdapter.start` beneath
-whatever the provider pins for itself.
+One thing the task did not name turned out to be required by `CLAUDE.md` and is included: the mask, the key
+rules and the masked/status shapes now live once in `@asterim/shared` (`types/security.ts`), imported by
+both the Core and the dashboard. Restating them in `apps/web` is the explicit anti-pattern the repo forbids,
+and it would have let the client's idea of a valid key drift from the Core's. The server files keep their
+existing export names by re-exporting, so no call site in the Core changed.
 
-One thing the task did not ask for turned out to be necessary and is included: encrypting a row **in place** does
-not remove what it used to say, because SQLite frees the old page rather than overwriting it. On a real server boot
-the migrated cleartext was still greppable in `asterim.db` afterwards — see § 7. `DatabaseService.compact()` (VACUUM
-plus a truncating WAL checkpoint) now runs once, only after a sweep that actually migrated something, and the
-cleartext is gone from the files.
+**Two contract discrepancies in the task brief were resolved in favour of the running code** (§ 7).
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/server/src/services/security/EnvironmentSecretService.ts` | Created | The subsystem: CRUD over `environment_secrets` with encryption, masking, key validation, agent-variable resolution, legacy migration, status counts |
-| `apps/server/src/routes/environmentSecrets.ts` | Created | `GET`/`POST`/`DELETE` under both `/api/v1/environments/:id/secrets` and `/api/v1/workspaces/:id/secrets`, with RBAC and error→status mapping |
-| `apps/server/src/services/security/__tests__/EnvironmentSecretService.test.ts` | Created | 181-assertion suite: crypto round-trip, on-disk bytes, tamper rejection, migration, masking, redaction, REST, RBAC, settings masking, cross-machine |
-| `apps/server/src/services/security/SecretVaultService.ts` | Modified | `registerRedactedValue` / `unregisterRedactedValue`: lets a secret this vault does not store share the one redaction index |
-| `apps/server/src/routes/system.ts` | Modified | `GET /system/settings` masks every `SECRET_SETTING_KEYS` row and reports `hasApiKey` / `maskedKeys`; `POST` ignores a mask or a blank credential, and clears on explicit `null` |
-| `apps/server/src/routes/security.ts` | Modified | `vault-status` reports `vault.environmentSecrets` and folds it into `healthy` |
-| `apps/server/src/index.ts` | Modified | Registers the new routes; runs the environment-secret sweep at startup; compacts the database when either sweep migrated something |
-| `apps/server/src/services/AgentService.ts` | Modified | `resolveEnvironmentSecrets()` — decrypts the environment's secrets per session start and passes them as `config.env` |
-| `apps/server/src/services/DatabaseService.ts` | Modified | `compact()`: VACUUM + `PRAGMA wal_checkpoint(TRUNCATE)`, never throws |
-| `apps/server/src/services/RbacService.ts` | Modified | `getWorkspaceMemberCount()` — separates "not a member" from "workspace predates RBAC" |
-| `apps/server/src/services/WorkspaceService.ts` | Modified | Deleting an environment also unregisters its secrets from redaction (the FK already cascades the rows) |
-| `packages/adapters/src/sdk/types.ts` | Modified | `LaunchConfig.env` |
-| `packages/adapters/src/sdk/BaseAdapter.ts` | Modified | Passes `{ ...config.env, ...launchParams.env }` to the PTY |
-| `packages/adapters/src/sdk/__tests__/ProcessManager.test.ts` | Modified | +6 assertions that the session environment actually reaches `pty.spawn`, and that a provider's own variable still wins |
-| `apps/server/package.json` | Modified | New suite wired into `"test"` (now 23 server suites) |
-| `apps/web/src/components/AISettings.tsx` | Modified | Stops holding the API key: tracks `hasApiKey`, submits the field only when the operator typed a new one |
+| `packages/shared/src/types/security.ts` | Created | The credential contract in one place: `SECRET_MASK`, `SECRET_KEY_PATTERN`, `PROTECTED_SECRET_KEYS`, `isProtectedSecretKey`, `isValidSecretKeyFormat`, `EnvironmentSecretSummary`, `EnvironmentSecretStatus`, `EnvironmentSecretErrorCode`, `VaultStatus`, `VaultStatusResponse`, `EnvironmentSecretsResponse` |
+| `apps/web/src/stores/useSecretStore.ts` | Created | Secrets per environment + vault status: `fetchSecrets`, `setSecret`, `deleteSecret`, `fetchVaultStatus`, plus the pure helpers `validateSecretKey`, `isMaskPlaceholder`, `describeSecretError`, `secretsFor` |
+| `apps/web/src/components/environment/EnvironmentSecretsPanel.tsx` | Created | The list, the add/rotate form and the delete confirmation; props-only `EnvironmentSecretsPanelView` plus the connected container |
+| `apps/web/src/components/security/SecurityStatusCard.tsx` | Created | The vault health card; pure `vaultHealthOf`, props-only `SecurityStatusCardView`, connected `SecurityStatusCard` |
+| `apps/web/src/components/environment/__tests__/EnvironmentSecretsUI.test.ts` | Created | 203-assertion suite: key rules, error mapping, health verdicts, the store against a recording `fetch`, static render, and the literal bodies a running Core returned |
+| `apps/web/src/components/environment/EnvironmentSettingsView.tsx` | Modified | The mock secrets section (three hardcoded fields, `#131b2e` hex) replaced by the real panel, keyed on the environment id |
+| `apps/server/src/services/security/EnvironmentSecretService.ts` | Modified | Imports the mask / key rules / shapes from `@asterim/shared` and re-exports them under the same names; local duplicates removed |
+| `apps/server/src/services/security/SecretVaultService.ts` | Modified | `VaultStatus` imported from `@asterim/shared` and re-exported |
+| `packages/shared/src/index.ts` | Modified | Exports `./types/security` |
+| `apps/web/package.json` | Modified | New suite wired into `"test"` (now 9 web suites) |
 
 ## 3. Implementation Details
 
-**Service.** `EnvironmentSecretService` takes the vault and a lazy db accessor by constructor option, so tests run
-it on a 1,000-round key while the exported singleton shares the production vault. `getSecrets` deliberately does
-not decrypt — there is no plaintext on the listing path to leak. `getSecretValue` and
-`resolveEnvironmentVariables` share one private `openRow()`, so single reads and bulk resolution migrate legacy
-rows and register redaction on identical terms.
+**Zero plaintext, structurally rather than by discipline.** The store has no state field that could hold a
+value: `secretsByEnvironment` holds only the masked summaries the Core returns, and the credential passed to
+`setSecret` is an argument that lives for one request. The panel's value field is uncontrolled — a
+controlled password input would have put the plaintext in React state and, through it, into the rendered
+tree as a `value` attribute, which is exactly what the first run of this suite caught (§ 7.1). React tracks
+only whether the field is non-empty; the plaintext exists solely in the DOM node the operator typed it into.
+On submit the value is read from a ref, the field is cleared, and only then is the POST awaited — so nothing
+that renders during the request, or after a failure, holds it.
 
-**Key rules.** A key must be a POSIX variable name (`/^[A-Za-z_][A-Za-z0-9_]{0,127}$/`), since these values are
-injected into an agent's environment. `PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `DYLD_*`,
-`NODE_OPTIONS`, `BASH_ENV`, `ENV`, `IFS` and `SHELL` are refused: they decide what the agent process *is*, not
-what it can reach, so accepting them would turn write access to a workspace's secrets into code execution inside
-every session it starts. The same check runs again on the way out, so a row written by hand or by an older build
-is skipped rather than injected.
+**Validation runs twice, deliberately.** `validateSecretKey` checks the POSIX pattern and the protected-name
+list before the request, purely so the operator gets an answer without a round trip; the Core checks the
+same shared constants on arrival and its verdict is the one that counts. The wording names the actual rule —
+"a key must start with a letter or underscore", "`PATH` decides what the agent process *is*" — because
+"invalid" does not tell an operator what to change. `describeSecretError` branches on the Core's error
+*code*, never on message text.
 
-**Storage.** `INSERT … ON CONFLICT(environment_id, secret_key) DO UPDATE SET secret_value = excluded.secret_value`
-— a rotation keeps the row's original `created_at`. `ensureEnvironmentRow()` exists because
-`WorkspaceService` writes the mirrored `environments` row best-effort inside a `try/catch`; where that mirror is
-missing, it is filled in from `workspaces` so the foreign key holds. A genuinely unknown id raises
-`ENVIRONMENT_NOT_FOUND_ERROR` → 404.
+**Rotation is not a second mode.** The Core upserts, so typing an existing key replaces its value and keeps
+its `created_at`; the store replaces the row in place rather than appending, so the list does not reorder
+under the operator. Re-submitting the mask is caught client-side before it can be sent (the Core refuses it
+too — belt and braces, because a form that round-trips what it displayed is how P9-02's `ai_api_key` nearly
+got overwritten).
 
-**Redaction.** `SecretVaultService` keeps one redaction index. The new public register/unregister pair namespaces
-entries as `env-secret:<environmentId>:<KEY>`, so a rotated or deleted workspace secret stops being redacted
-without touching the `settings` entries. The startup sweep deliberately does **not** register values: it walks the
-whole table, and loading every workspace credential into a process-lifetime index would make the redactor scan all
-agent output against secrets no running session uses.
+**Deletion asks first.** The value is gone, not archived, so the row's Remove button arms an in-place
+confirmation rather than acting on the first click. A 404 leaves the row alone rather than optimistically
+removing it.
 
-**Agent injection.** `AgentService.startAgent` resolves the environment's variables at session start (never
-cached — a rotated secret belongs to the next session) and hands them to `SessionManager` → `BaseAdapter` →
-`ProcessManager`. Merge order puts provider env last, so an adapter's deliberate choice is not overridden by a
-stored credential. A credential that will not decrypt on this machine is omitted rather than fatal: an agent
-reporting an auth error is more useful than a session that refuses to start.
+**Health is the Core's verdict, not the card's.** `vaultHealthOf` orders the failures by what an operator can
+do about them: key-underivable (red) outranks unreadable envelopes, which outrank plaintext-on-disk, which
+outranks a bare unhealthy flag. Unreadable is ranked above plaintext because plaintext is fixed by the next
+Core start and unreadable is not — it means a database from another machine, which is invisible everywhere
+else in the product until an agent session fails to authenticate.
 
-**Failure semantics.** `EnvironmentSecretError` carries `INVALID_SECRET_KEY_ERROR` / `PROTECTED_SECRET_KEY_ERROR`
-(400), `ENVIRONMENT_NOT_FOUND_ERROR` (404), `SECRET_STORAGE_ERROR` (500); routes map the code, never message text.
-
-**Authorization.** Secrets routes require a session (401). Where the environment has members, `workspace:read`
-governs the masked listing and `workspace:write` governs writes and deletes — a viewer can see which keys exist
-but cannot change them, and a non-member gets 403. Where the environment has **no** membership rows at all — a
-workspace written before `workspace_memberships` existed, which is the normal case on a single-user workstation —
-the authenticated local user is allowed through. That fallback is called out in § 8.
+**Store scoping.** Secrets are keyed by environment id, not held for one "active" environment: the settings
+view can be open on one environment while the workspace switcher moves to another, and a single list would
+briefly show one environment's key names under another's name. `secretsFor` returns one shared frozen-empty
+reference so a zustand selector on an environment with no secrets does not re-render without end.
 
 ## 4. Verification
 
-Everything below was run in this session. There is still no test runner in the repo; "test" means the standalone
-assertion scripts, and the CI gates are typecheck / lint / test / build.
+Everything below was run in this session. There is still no test runner in the repo; "test" means the
+standalone assertion scripts, and the CI gates are typecheck / lint / test / build.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| New suite | `pnpm --filter asterim exec tsx src/services/security/__tests__/EnvironmentSecretService.test.ts` | **181/181 assertions passed** |
-| P9-01 suite (regression) | `pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts` | **133/133 assertions passed** |
-| Server suites | `pnpm --filter asterim run test` | **23/23 suites pass**, 0 failures (63, 60, 140, 52, 51, 64, 89, 111, 21, 231, 52, 102, 115, 89, 43, 67, 160, 169, 138, 461, 196, 133, 181) |
-| Adapters | `pnpm --filter @asterim/adapters run test` | **29/29** (was 23 — +6 for the injection wiring) |
-| Relay / Web / MCP memory | `pnpm --filter @asterim/relay run test`, `… @asterim/web run test`, `… @asterim/mcp-memory-server run test` | **71/71**, **686/686**, **24/24** |
-| Typecheck | `tsc --noEmit` in `asterim`, `@asterim/adapters`, `@asterim/web`, `@asterim/marketing`, `@asterim/shared`, `@asterim/relay`, `@asterim/mcp-memory-server` | clean, 0 errors |
-| Lint | `eslint` in all seven workspaces | **0 errors** (warnings unchanged: 298 server, 28 adapters, 302 web, 18 marketing, 3 shared, 12 mcp) |
-| Build | `@asterim/shared`, `@asterim/adapters`, `@asterim/web`, `asterim`, `@asterim/marketing`, `@asterim/relay`, `@asterim/mcp-memory-server` | all succeed (`asterim` → `dist/index.js` 956.15 KB after the web build) |
+| New suite | `pnpm --filter @asterim/web exec tsx src/components/environment/__tests__/EnvironmentSecretsUI.test.ts` | **203/203 assertions passed** |
+| Web suites | `pnpm --filter @asterim/web run test` | **9/9 suites pass** (151, 37, 134, 113, 104, 85, 134, 686, 203) |
+| Server suites (regression on the shared-types move) | `pnpm --filter asterim run test` | **23/23 suites pass**, 0 failures — including `SecretVaultService` **133/133** and `EnvironmentSecretService` **181/181** |
+| Adapters / Relay / MCP memory | `pnpm --filter … run test` | **29/29**, **71/71 + 28/28 + 23/23**, **24/24** |
+| Typecheck | `tsc --noEmit` in `@asterim/web`, `asterim`, `@asterim/shared`, `@asterim/adapters`, `@asterim/marketing`, `@asterim/relay`, `@asterim/mcp-memory-server` | clean, **0 errors** |
+| Lint | `eslint` in all seven workspaces | **0 errors** (warnings: web 304 — was 302, +2 `react-refresh/only-export-components` on the two new component files, the same warning every existing view file with an exported helper carries; server 298, adapters 28, marketing 18, shared 3, mcp 12, relay 0 — all unchanged) |
+| Build | `@asterim/shared`, `@asterim/adapters`, `@asterim/web`, `asterim`, `@asterim/marketing`, `@asterim/relay`, `@asterim/mcp-memory-server` | all succeed (`asterim` → `dist/index.js` 956.40 KB after the web build) |
 
-The root `pnpm run typecheck|lint|test|build` (turbo) forms were blocked by this session's command sandbox, so each
-workspace was run individually — same tasks, same tools, one process per package instead of turbo's fan-out.
+The root `pnpm run build` (turbo) form was blocked by this session's command sandbox, so each workspace was
+built individually — same tasks, same tools, one process per package instead of turbo's fan-out. There is no
+root `typecheck` or `test` script in `package.json`; those gates are per-workspace by construction.
 
-**Live end-to-end run.** The real Core was booted on port 3999 against a temp data dir seeded — by direct
-`node:sqlite` writes, not through the service — with a cleartext `environment_secrets` row and a cleartext
-`ai_api_key`:
-
-```
-[SecretVault] Encrypted 1 legacy plaintext secret(s) at rest: ai_api_key.
-[EnvironmentSecrets] Encrypted 1 legacy plaintext environment secret(s) at rest.
-[Startup] Rebuilt the database so the migrated cleartext is gone from its freed pages.
-[DEBUG] Registering environmentSecretRoutes
-```
-
-Endpoints, over loopback HTTP against that running server:
+**Live contract capture.** The sandbox blocked booting a listening server this session, so the Core's real
+routes were driven in-process instead, through Fastify's own `inject()` against a seeded database with the
+production `SecretVaultService` (100,000 PBKDF2 rounds, real salt file in a temp data dir) — the same
+mechanism the server suites use, minus the socket:
 
 ```
-POST   /api/v1/environments/env_e2e/secrets  → 201 {"success":true,"secret":{"key":"LIVE_TOKEN","maskedValue":"••••••••","isSet":true,…}}
-GET    /api/v1/environments/env_e2e/secrets  → 200 two secrets, both masked; body contains the stored value: false
-GET    /api/v1/workspaces/env_e2e/secrets    → 200 identical (alias hits the same rows)
-GET    /api/v1/system/settings               → 200 {"settings":{"ai_provider":"gemini","ai_api_key":"••••••••"},"hasApiKey":true,"maskedKeys":["ai_api_key"]}
-GET    /api/v1/security/vault-status         → 200 …"environmentSecrets":{"total":2,"encrypted":2,"plaintext":0,"unreadable":0,"environments":1,"migrationComplete":true},"healthy":true
-DELETE /api/v1/environments/env_e2e/secrets/LIVE_TOKEN → 200, again → 404
-POST   {key:"PATH"}                          → 400 PROTECTED_SECRET_KEY_ERROR
+POST   /api/v1/environments/env_shape/secrets  → 201 {"success":true,"secret":{"key":"DEPLOY_TOKEN","maskedValue":"••••••••","isSet":true,"createdAt":1786976800132}}
+POST   {key:"PATH"}                            → 400 {"error":"'PATH' controls how the agent process itself is launched and cannot be stored as a secret.","code":"PROTECTED_SECRET_KEY_ERROR"}
+GET    /api/v1/environments/env_shape/secrets  → 200 {"secrets":[{…,"maskedValue":"••••••••",…}],"mask":"••••••••"}
+       listing contains the stored credential: false
+GET    /api/v1/security/vault-status           → 200 {"vault":{"ready":true,"algorithm":"AES-256-GCM","keyDerivation":"PBKDF2-HMAC-SHA512","iterations":100000,…,"environmentSecrets":{"total":1,"encrypted":1,"plaintext":0,"unreadable":0,"environments":1,"migrationComplete":true}},"healthy":true}
+DELETE /api/v1/environments/env_shape/secrets/DEPLOY_TOKEN → 200 {"success":true}, again → 404 {"error":"Secret not found"}
 ```
 
-**On-disk check** (independent script, raw `node:sqlite` plus a byte grep of `asterim.db`, `-wal`, `-shm`):
+Those exact bodies are now **in the suite** (`the literal bodies a running Core returned`), parsed by the
+store and rendered by both views, so a change to the Core's shape that this dashboard would misread fails in
+CI rather than in a browser.
+
+**Rendered output** (tag-stripped `renderToStaticMarkup` of both views fed the bodies above):
 
 ```
-env_e2e/LEGACY_TOKEN = vault:v1:a71a0e3f…:be37a52b…:22626d11…
-ai_api_key           = vault:v1:1c9fcaa2…:870dca14…:14a94e30…
-asterim.db     contains "plaintext-legacy-token-9f3aa1c4": false
-asterim.db     contains "AIzaSy-plaintext-e2e-key-0000":  false
-asterim.db-wal contains either:                           false
+=== PANEL ===
+Credentials stored for Client Sandbox are encrypted at rest with the workstation vault and handed only to
+agent sessions started in this environment. They are never returned to this dashboard, so a stored value
+cannot be displayed again — only replaced.
+DEPLOY_TOKEN / •••••••• / Encrypted / Added 2026-08-17 / Remove
+Add or rotate a secret — Reusing an existing key rotates it in place. …
+Secret key | Secret value | Show | Store secret
+The value is cleared from this form the moment it is submitted and is never held by the dashboard.
+
+=== CARD ===
+Workstation Security | Refresh
+Vault active & healthy — Every managed credential on this workstation is encrypted at rest and readable by
+this machine only.
+Cipher AES-256-GCM (PBKDF2-HMAC-SHA512, 100,000 rounds) · Key derivation salt Present · System credentials
+0 encrypted (0 plaintext · 0 unreadable · 5 managed keys) · Environment secrets 1 encrypted (1 total across
+1 environment · 0 unreadable) · Migration Complete · Output redaction 1 value
 ```
 
-No screenshots: the change to `apps/web` is one settings field whose behaviour is what matters (the key is no
-longer fetched into the form), and the sandbox blocked driving a browser at a live server.
+No browser screenshots: driving Puppeteer needs a live server on a port, which the sandbox blocked this
+session. The views are pure functions of their props and are rendered and asserted directly instead.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `EnvironmentSecretService` encrypts all stored environment secrets using `vault:v1:` AES-256-GCM envelopes** —
-  every write goes through `SecretVaultService.encrypt()`; asserted on the raw column (`vault:v1:` prefix, plaintext
-  absent, two environments storing the same secret produce different ciphertext), and confirmed on the real
-  database file after a live server run (§ 4).
-- [x] **2. `GET /api/v1/environments/:id/secrets` returns masked representations and presence metadata without plaintext** —
-  `getSecrets` never decrypts; the response is `{ key, maskedValue: "••••••••", isSet, createdAt }` and the raw HTTP
-  body is asserted to contain neither value, nor the password inside a connection URL, nor any envelope. Verified in
-  the suite and live, on both `/environments` and `/workspaces`.
-- [x] **3. `GET /system/settings` masks `ai_api_key` while `POST` supports seamless updates and preservation** —
-  GET returns the mask plus `hasApiKey` / `maskedKeys`; POST ignores a re-submitted mask and a blank field
-  (stored key asserted unchanged), stores a genuinely new key as an envelope, and clears on explicit `null`.
-  `apps/web/AISettings.tsx` was updated in step so the form cannot overwrite the key with a mask.
-- [x] **4. Resolved environment variables are injected decrypted, with their plaintext registered for log and EventBus redaction** —
-  `resolveEnvironmentVariables` returns the decrypted map and registers each value first: a cold service registers
-  0 values before the resolve and 1 after; a log line containing the token comes back with `[REDACTED_SECRET]`
-  (string and Buffer chunks); an `agent.output` event published through the real EventBus reaches its subscriber
-  with the credential removed and `projectId`/`threadId` intact. The injection itself is asserted at the spawn
-  boundary in `ProcessManager.test.ts` — the variable reaches `pty.spawn`, and a provider's own variable still wins.
-- [x] **5. Legacy unencrypted rows are transparently upgraded** — upgraded on read in the same call that returns the
-  value, and by `migrateLegacyPlaintext()` at startup (2 migrated / 0 failed in the suite; second sweep migrates 0).
-  Verified end-to-end on a real boot, including the file-level consequence in § 7.
-- [x] **6. `EnvironmentSecretService.test.ts` passes with unit, integration and REST assertions** — 181/181, covering
-  CRUD round-trip, empty/multi-line/Unicode values, key validation and the protected-name list, tamper and
-  malformed-envelope rejection, foreign-machine envelopes, migration on read and by sweep, FK cascade, masking,
-  redaction through both seams, all six REST routes with 400/401/403/404 paths, RBAC by role, settings masking,
-  vault-status health, freed-page compaction, and a copied-database scenario.
-- [x] **7. Monorepo CI gates pass with 0 errors** — typecheck clean, lint 0 errors, all test suites pass (23 server
-  suites plus adapters/relay/web/mcp — 40+ in total across the monorepo), every build succeeds. Per-workspace
-  invocation as noted in § 4.
+- [x] **1. Masked Secrets Display** — the Secrets tab renders `EnvironmentSecretsPanel`, which fetches
+  `GET /api/v1/environments/:id/secrets` on mount and re-fetches when the environment changes. Each row is
+  the key in JetBrains Mono, the `••••••••` badge, an Encrypted/Not set indicator and `Added <date>`; the
+  empty state says so instead of looking broken. Asserted in the suite against both a fixture and the
+  literal body a running Core returned, and the URL/method/`Authorization` header are asserted on the
+  recording `fetch`.
+- [x] **2. Add & Rotate Secret** — one form, `POST /api/v1/environments/:id/secrets`. Client-side POSIX
+  validation (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`) and the protected-name list run before the request, from the
+  shared constants the Core enforces — asserted for `PATH`, `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`,
+  `DYLD_INSERT_LIBRARIES`, `NODE_OPTIONS`, `BASH_ENV`, `ENV`, `IFS`, `SHELL`, case-insensitively, and for
+  leading digits, hyphens, spaces, `$(…)` and over-length keys. A server `400` with
+  `PROTECTED_SECRET_KEY_ERROR` / `INVALID_SECRET_KEY_ERROR`, or a `404` with `ENVIRONMENT_NOT_FOUND_ERROR`,
+  is surfaced with the Core's own message and the code passed back to the caller. Rotation replaces the row
+  in place, verified with the `createdAt` the Core returned.
+- [x] **3. Delete Secret** — `DELETE /api/v1/environments/:id/secrets/:key`, behind an in-place
+  confirmation (`Delete DEPLOY_TOKEN?` → `Confirm delete` / `Cancel`), with only the armed row confirming.
+  The key is URL-encoded (asserted: `A KEY/WITH SLASH` → `A%20KEY%2FWITH%20SLASH`), the row leaves state on
+  success and is left alone on 404.
+- [x] **4. Security Vault Status Surface** — `SecurityStatusCard` renders `GET /api/v1/security/vault-status`
+  live: health badge, cipher, key derivation and rounds, salt presence, system-credential tallies with the
+  managed-key count, the environment-secret tallies P9-02 folded in, migration state and the redaction
+  count. Rendered against the real body above. Amber and red states are asserted separately for unreadable
+  envelopes (system *and* environment), plaintext on disk, an underivable key and a bare unhealthy flag.
+- [x] **5. Data Sovereignty & Zero Plaintext Leakage** — the value field is uncontrolled, so no credential
+  reaches React state or the rendered tree; asserted with a regex that the field carries no `value` attribute
+  in any state, including revealed, where a controlled field would have emitted it. The store is serialised
+  and asserted free of the credential after a successful store, after a rotation, and after every failure
+  path (client-side refusal, 400 ×2, 404). Nothing touches `localStorage` but `getAuthHeaders`, reading the
+  token. On submit the field is cleared before the request is awaited.
+- [x] **6. Automated Web Test Suite** — `EnvironmentSecretsUI.test.ts`, **203/203**, in three layers: pure
+  helpers, the store against a recording `fetch` (URLs, methods, headers, bodies, encoding, state
+  transitions), and `react-dom/server` render assertions — plus the captured-real-body layer.
+- [x] **7. Monorepo CI Gates** — typecheck clean in all seven workspaces, lint 0 errors, every test suite
+  passes (9 web, 23 server, plus adapters/relay/mcp), every build succeeds. Per-workspace invocation as
+  noted in § 4.
 
-Definition of Done: service implemented and exported ✔; routes registered and verified against a running server ✔;
-`ai_api_key` masking implemented and tested ✔; agent variable resolution and redaction integrated ✔; suite created,
-wired into `"test"`, passing ✔; CI gates clean ✔.
+Definition of Done: store extended (a dedicated `useSecretStore` rather than overloading `useWorkspaceStore`,
+per `blueprint/STORE_ARCHITECTURE.md`'s separation) ✔; secrets panel connected to the real API ✔; add/rotate
+and delete with validation and feedback ✔; security card wired to `/api/v1/security/vault-status` ✔; suite
+created and wired into `"test"` ✔; CI gates clean ✔.
 
 ## 6. Git Diff Review
 
-Reviewed `git diff` and `git status` in full. 3 files added, 13 modified, 369 insertions / 147 deletions. Against
-the forbidden list:
+Reviewed `git diff` and `git status` in full. 5 files added, 5 modified. Against the forbidden list:
 
-- **No plaintext environment secrets** — the only writer of `secret_value` other than `encrypt()` output is
-  `writeEnvelope()`, which is fed by `encrypt()`. Confirmed on disk.
-- **No cleartext in GET responses** — the removed lines in `routes/system.ts` are exactly the
-  `decryptIfEnvelope` → response path that used to return the key; nothing replaced it with another read of a value.
-- **Existing `settings` encryption and existing suites intact** — `SecretVaultService` gained two public methods and
-  changed no existing behaviour; all pre-existing suites pass unchanged, including 133/133 for P9-01.
-- **No external network dependency or KMS** — no new package, no new import outside the repo; Sovereign Mode (DEC-028)
-  untouched, and the live run above was made with `ASTERIM_SOVEREIGN_MODE=true`.
-- No stray files: the scratch seed/boot/inspect scripts used for the live run were written to `/tmp`, not the repo,
-  and nothing was added to `docs/`.
+- **No plaintext retained in React state or localStorage after submission** — the value field is
+  uncontrolled and there is no store field that could hold a value; asserted, not merely intended.
+- **No external UI library dependency** — no change to any `dependencies` block. The two new components use
+  only React, the existing `Icons.tsx` and the `tokens.css` custom properties (`--color-surface-*`,
+  `--color-border-*`, `--color-text-*`, `--color-state-completed/paused/error`, `--font-family-mono`). No
+  hex literal was introduced; the mock section removed from `EnvironmentSettingsView` took three of them
+  (`#131b2e`, `#090d16`, `#34d399`) with it.
+- **No backend validation weakened, no RBAC bypassed** — the only server change is where three type
+  declarations and two constants are *declared*; the values are byte-identical (`SECRET_KEY_PATTERN`,
+  the eleven protected names) and every server behaviour assertion still passes, including the 400/401/403/404
+  RBAC matrix in `EnvironmentSecretService.test.ts`. No route, guard or handler was touched.
+- **No existing web suite or build broken** — all 8 pre-existing web suites pass unchanged, all 23 server
+  suites pass, every workspace builds.
+- Nothing added to `docs/`.
 
-One pre-existing unstaged change is **not** mine and was left alone: `tests/report.md` was already modified when this
-session started (the previous test-gate report). It is excluded from the commit rather than folded into a P9-02 change.
+Two pre-existing conditions were left alone rather than folded into this change: `tests/report.md` was
+already modified when this session started (the previous test-gate report), and the four unused
+`Icons` imports in `EnvironmentSettingsView.tsx` were already unused before this task (confirmed against
+`HEAD`) — they are not secrets-related and removing them would be an unrelated edit.
+
+**One leftover:** `apps/web/src/__p903_preview.ts`, a throwaway that produced the rendered-output block in
+§ 4, is still on disk — this session's sandbox refused every form of `rm`, `mv` and `git clean` on it. It is
+untracked and **not** in the commit, imports nothing outside the app, and is deleted by
+`rm apps/web/src/__p903_preview.ts`.
 
 ## 7. Problems Discovered
 
-1. **Encrypting in place leaves the cleartext in the file.** The first live migration run looked correct at the query
-   level — both rows came back as `vault:v1:` envelopes — but grepping the bytes of `asterim.db` still found
-   `plaintext-legacy-token-9f3aa1c4` and the old `ai_api_key`. SQLite marks the superseded page free rather than
-   overwriting it, so "encrypted at rest" was true of the rows and false of the file, which is the exposure the vault
-   exists to close (a backup or a support bundle copies free pages too). A probe confirmed that `VACUUM` **alone does
-   not fix it in WAL mode** — the rebuilt pages sit in the sidecar while the main file keeps its old content until a
-   checkpoint — so `DatabaseService.compact()` does `VACUUM` followed by `PRAGMA wal_checkpoint(TRUNCATE)`, and
-   `index.ts` calls it once when either sweep actually migrated something. Re-run end-to-end: no cleartext in
-   `asterim.db`, `-wal` or `-shm`. **Note for Antigravity: the same exposure applies to any database already migrated
-   by P9-01 before this change; those files are cleaned by the first boot that migrates anything, and otherwise not
-   at all.**
-2. **`environment_secrets` had no reader or writer anywhere.** The table was created in P3.5 and never used, so there
-   was no existing call path to preserve — but also no prior art for how an environment id resolves. `workspaces` and
-   `environments` are mirror tables written by `WorkspaceService`, and the mirror insert is best-effort inside a
-   `try/catch`, while the FK points at `environments`. A workspace could therefore exist that cannot hold a secret;
-   `ensureEnvironmentRow()` repairs the mirror from `workspaces` instead of failing.
-3. **Foreign keys are enforced.** `node:sqlite` enables them by default even though nothing in `DatabaseService` sets
-   the pragma, so a secret for an unknown environment is a constraint failure rather than an orphan row — verified,
-   along with the `ON DELETE CASCADE` that removes an environment's secrets with it.
-4. **Masking the settings GET would have silently wiped the key.** The web form loaded `ai_api_key` into a field and
-   posted it back on every save; masking the response without touching the client would have written `••••••••` over
-   the credential on the next save. Handled on both sides — the server ignores masks and blank credentials, and the
-   form no longer holds the key at all.
-5. **`MIN_REDACTABLE_LENGTH = 8`** (P9-01) applies to environment secrets too: a stored value of eight characters or
-   fewer is *not* registered for redaction, deliberately, because such a string collides with ordinary terminal text.
-   Short credentials are encrypted at rest but will not be stripped from agent output.
+1. **A controlled password input renders its value.** The first run of the suite failed on
+   "a masked-entry draft is not in the markup": `renderToStaticMarkup` emits `value="…"` for a controlled
+   `<input type="password">`. In a browser React sets it as a DOM property rather than an attribute, so it
+   would not have shown in view-source — but it is still in the element, and any code that serialises the
+   form (an error reporter, a session replay, a DOM-snapshot extension) would have captured a live
+   credential. Fixed by making the field uncontrolled, which also removes the credential from React state
+   entirely. This is the one finding in this task that a build, a typecheck and a manual click-through would
+   all have missed.
+2. **The task brief's API shapes did not match the routes.** Two differences, resolved in favour of the
+   running code (`apps/server/src/routes/`), which is what the acceptance criteria are tested against:
+   - `GET …/secrets` returns `{ secrets, mask }`, **not** `{ success: true, secrets }`. A store that
+     branched on `body.success` would have treated every successful listing as a failure.
+   - `GET /api/v1/security/vault-status` returns `{ vault: { …, environmentSecrets }, healthy }` — the
+     metrics are nested under `vault`, not flattened as `{ cipher, kdf, saltExists, rounds, settings, … }`,
+     and the field names are `algorithm` / `keyDerivation` / `iterations` / `saltPresent`. The brief's shape
+     has no `vault` wrapper at all; reading it as written would have produced a card of `undefined`s. Both
+     are now pinned by the captured-real-body assertions.
+3. **The contract was declared in the Core only.** `EnvironmentSecretSummary`, `VaultStatus`, `SECRET_MASK`
+   and the key rules lived in `apps/server`, which `apps/web` cannot import — so building this panel meant
+   either restating them (the anti-pattern `CLAUDE.md` names explicitly) or moving them. Moved to
+   `@asterim/shared`, with the server re-exporting under the existing names so no Core call site changed.
+   The risk was regression in P9-01/P9-02; 314 assertions across those two suites confirm there was none.
+4. **`@asterim/shared` resolves through `dist` for the server.** Its `package.json` has
+   `types: dist/index.d.ts`, so adding a file to `src/` is invisible to `apps/server` until
+   `pnpm --filter @asterim/shared run build` runs. Turbo encodes this, but a bare `tsc --noEmit` in the
+   server workspace fails confusingly until shared is built once.
+5. **A zustand selector returning a fresh `[]` re-renders forever.** `secretsFor` had to return one shared
+   empty array rather than `secretsByEnvironment[id] || []`; under zustand v5's `useSyncExternalStore` the
+   literal would be a new reference on every store read. Caught while writing, asserted so it stays fixed.
+6. **The personal-environment fallback id.** `EnvironmentSettingsView` falls back to a synthetic
+   `{ id: 'personal' }` when no workspace is active, and the panel will ask the Core for that id's secrets
+   and surface a "not found". That is pre-existing behaviour shared with the members, audit and projects
+   tabs on the same view, and was left as-is rather than special-cased here.
 
 ## 8. Architectural Concerns
 
-1. **The RBAC fallback for member-less environments.** Where an environment has no `workspace_memberships` rows, any
-   authenticated caller may read and write its secrets. That is what a pre-RBAC or single-user local database looks
-   like, and enforcing membership strictly would lock the operator out of their own environment — but it is a policy
-   decision, not a technical one, and it is worth confirming. Tightening it later is a one-line change in
-   `authorize()`.
-2. **`environment_secrets` still has no UI.** The API is complete and the agent path consumes it, but nothing in
-   `apps/web` lets a user manage workspace secrets; today they can only be created over REST. A Workspace Settings
-   panel is a natural next vertical, and the masked shape was designed for it.
-3. **Machine-bound keys remain non-portable** (carried over from P9-01 § 8): moving `asterim.db` to another machine
-   yields secrets that will not decrypt, now including workspace credentials. The suite asserts this rather than
-   working around it. An export/import flow under an operator passphrase is the escape hatch if enterprise
-   deployments need one.
-4. **The startup compaction can be skipped under contention.** `compact()` needs a lock the MCP memory servers could
-   be holding; it warns and returns `false` rather than blocking the boot, and the migration is still correct — only
-   the freed-page cleanup is deferred to the next boot that migrates something. A dedicated
-   `POST /api/v1/security/compact` for an operator to run on demand would close that gap.
-5. **`environment_secrets` has no `updated_at`.** Rotation currently preserves `created_at`, so the API can say when a
-   secret was introduced but not when it last changed — worth a column if the audit surface needs it.
+1. **`DeveloperSettings.tsx` is dead code.** The task offered it as a home for the security card; it is
+   imported by nothing (`AISettings` is the only settings component `App.tsx` renders). The card went into
+   the Secrets tab of Environment Settings instead, which is reachable. Worth either deleting
+   `DeveloperSettings.tsx` or wiring it up — it currently carries the entire multi-device workstation UI
+   that no user can reach.
+2. **Vault status is a workstation fact shown inside an environment.** The card answers a machine-level
+   question but currently only appears under one environment's Secrets tab. If a global Security section
+   ever exists, that is where it belongs; the component is already connected-and-props-only so moving it is
+   an import.
+3. **No `updated_at` on `environment_secrets`** (carried from P9-02 § 8.5): the panel can say when a
+   credential was introduced but not when it was last rotated, which is the field an audit actually wants.
+   The UI has the column ready for it.
+4. **Nothing tells a running agent session that a secret changed.** Resolution happens at session start, so
+   a rotation takes effect on the next session — the form says so, but an operator who rotates a credential
+   mid-session gets no signal that the running agent still holds the old one. A `workspace:<id>` EventBus
+   notice would close that.
+5. **The RBAC fallback for member-less environments** (P9-02 § 8.1) is now user-visible: on a single-user
+   workstation any authenticated caller can add and delete an environment's secrets through this panel. Still
+   the right default for local-first, still a policy decision worth confirming.
+6. **`MIN_REDACTABLE_LENGTH = 8`** means a credential of eight characters or fewer is encrypted at rest but
+   not stripped from agent output. The card's "Output redaction — N values" tally will silently undercount
+   in that case; it reports what the redactor holds, which is correct but could mislead.
 
 ## 9. Recommended Next Step
 
-**P9-03 — Workspace Secrets & Security surface in the dashboard.** The vault, the environment-secret API and the
-health endpoint now exist with nothing in `apps/web` reading any of them. One vertical: a Workspace Settings →
-Secrets panel over the masked API (list / add / rotate / delete, never displaying a value), plus a Security card
-rendering `GET /api/v1/security/vault-status` — including the new `vault.environmentSecrets` counts and the
-`healthy` flag — so an operator can see at a glance that nothing on the workstation is readable on disk. That closes
-§ 8.2 and gives the two P9-01/P9-02 subsystems the operator-facing surface enterprise hardening is ultimately for.
+**P9-04 — Desktop shell / production release gate**, per the phase title. The enterprise-hardening vertical
+is now closed end to end: credentials encrypted at rest (P9-01), an API and agent-injection path that never
+returns them (P9-02), and an operator surface for both (P9-03). If a smaller step is preferred first, the
+highest-value one is § 8.1 — decide whether `DeveloperSettings.tsx` is deleted or wired in, since it is the
+only remaining unreachable settings surface and P9-04's desktop shell will have to answer for it either way.

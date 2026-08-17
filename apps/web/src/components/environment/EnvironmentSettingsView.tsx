@@ -4,6 +4,7 @@ import type { WorkspaceMember, WorkspaceRole, AuditLogEntry, EnvironmentPreset }
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { IconCheck, IconUser, IconBuilding, IconPlus } from '../icons/Icons';
+import { EnvironmentSecretsPanel } from './EnvironmentSecretsPanel';
 
 export const EnvironmentSettingsView: React.FC = () => {
   const [, setLocation] = useLocation();
@@ -802,36 +803,11 @@ export const EnvironmentSettingsView: React.FC = () => {
         })()}
 
         {activeSubTab === 'secrets' && (
-          <div style={{ maxWidth: '700px' }}>
-            <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-              Environment Secrets are strictly isolated. API keys added here will never leak into other Environments.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {[
-                { name: 'OPENAI_API_KEY', placeholder: 'sk-proj-...' },
-                { name: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...' },
-                { name: 'ASTERIM_API_KEY', placeholder: 'ast_ak_...' },
-              ].map((sec) => (
-                <div key={sec.name} style={{ padding: '14px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.825rem', fontWeight: 600, marginBottom: '6px' }}>{sec.name}</label>
-                  <input
-                    type="password"
-                    placeholder={sec.placeholder}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: '#090d16',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      color: '#34d399',
-                      fontSize: '0.85rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          <EnvironmentSecretsPanel
+            key={currentEnv.id}
+            environmentId={currentEnv.id}
+            environmentName={currentEnv.name}
+          />
         )}
 
         {activeSubTab === 'mcp' && (

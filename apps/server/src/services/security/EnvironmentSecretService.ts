@@ -1,5 +1,13 @@
 import crypto from 'crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import {
+  SECRET_MASK,
+  SECRET_KEY_PATTERN,
+  PROTECTED_SECRET_KEYS,
+  type EnvironmentSecretSummary,
+  type EnvironmentSecretStatus,
+  type EnvironmentSecretErrorCode
+} from '@asterim/shared';
 import { dbService } from '../DatabaseService';
 import { SecretVaultService, secretVault } from './SecretVaultService';
 
@@ -30,8 +38,20 @@ import { SecretVaultService, secretVault } from './SecretVaultService';
  * environment, and deleting one takes its credentials with it.
  */
 
-/** What a secret looks like to anything that is not the process that uses it. */
-export const SECRET_MASK = '••••••••';
+/**
+ * The wire contract — the mask, the key rules and the masked/status shapes —
+ * is defined once in `@asterim/shared` so the dashboard validates and renders
+ * against the same constants the Core enforces. Re-exported here because this
+ * service is where the rest of the Core already imports them from.
+ */
+export {
+  SECRET_MASK,
+  SECRET_KEY_PATTERN,
+  PROTECTED_SECRET_KEYS,
+  type EnvironmentSecretSummary,
+  type EnvironmentSecretStatus,
+  type EnvironmentSecretErrorCode
+};
 
 /** Namespace for this service's entries in the vault's redaction index. */
 export const ENV_SECRET_REDACTION_PREFIX = 'env-secret';
@@ -48,39 +68,8 @@ export function isMasked(value: string): boolean {
   return trimmed === SECRET_MASK || /^[•*·●]+$/u.test(trimmed);
 }
 
-/**
- * These values are injected into an agent's environment, so the key has to be a
- * usable variable name — a POSIX name, capped at a length no shell will truncate.
- */
-const SECRET_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
-
-/**
- * Names that would let a stored credential change what the agent process *is*
- * rather than what it can reach. `PATH` decides which binary runs; the loader
- * variables and `NODE_OPTIONS` inject code into it before its first instruction.
- * A workspace secret is a credential, so nothing is lost by refusing these, and
- * accepting them would turn write access to a workspace's secrets into code
- * execution inside every agent it starts.
- */
-const PROTECTED_ENV_NAMES = new Set([
-  'PATH',
-  'LD_PRELOAD',
-  'LD_LIBRARY_PATH',
-  'LD_AUDIT',
-  'DYLD_INSERT_LIBRARIES',
-  'DYLD_LIBRARY_PATH',
-  'NODE_OPTIONS',
-  'BASH_ENV',
-  'ENV',
-  'IFS',
-  'SHELL'
-]);
-
-export type EnvironmentSecretErrorCode =
-  | 'INVALID_SECRET_KEY_ERROR'
-  | 'PROTECTED_SECRET_KEY_ERROR'
-  | 'ENVIRONMENT_NOT_FOUND_ERROR'
-  | 'SECRET_STORAGE_ERROR';
+/** Lookup form of the shared protected-name list. */
+const PROTECTED_ENV_NAMES = new Set<string>(PROTECTED_SECRET_KEYS);
 
 /** A failure callers can branch on — the routes map each code to a status. */
 export class EnvironmentSecretError extends Error {
@@ -91,25 +80,6 @@ export class EnvironmentSecretError extends Error {
     this.name = 'EnvironmentSecretError';
     this.code = code;
   }
-}
-
-/** The masked shape a client is allowed to see. Carries no value. */
-export interface EnvironmentSecretSummary {
-  key: string;
-  maskedValue: string;
-  isSet: boolean;
-  createdAt: number;
-}
-
-export interface EnvironmentSecretStatus {
-  /** Rows in `environment_secrets`, whatever state they are in. */
-  total: number;
-  encrypted: number;
-  plaintext: number;
-  /** Envelopes this machine's vault key cannot open. */
-  unreadable: number;
-  environments: number;
-  migrationComplete: boolean;
 }
 
 export interface EnvironmentSecretServiceOptions {
