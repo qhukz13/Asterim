@@ -1,9 +1,9 @@
-Task-ID: P9-03
+Task-ID: P9-04
 Phase: 9
 
-# [P9-03] — Workspace Secrets Management UI & Workstation Security Status Dashboard
+# [P9-04] — Phase 9 Comprehensive Production Gate & Enterprise Security / Vault Hardening Audit
 
-**Task ID:** P9-03  
+**Task ID:** P9-04  
 **Phase:** Phase 9 — Enterprise Hardening, Desktop Shell & Production Release  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -14,131 +14,106 @@ Phase: 9
 
 ## 1. Objective
 
-Build the frontend UI for Workspace & Environment Secrets management (`apps/web/src/components/environment/EnvironmentSecretsPanel.tsx` or integrated into `EnvironmentSettingsView.tsx` / `WorkspaceSettingsModal.tsx`) and the Workstation Security Status Card (`SecurityStatusCard.tsx` / `DeveloperSettings.tsx`): allow operators to list masked secrets, add/rotate credentials with client-side POSIX validation and server-enforced safety checks, delete secrets with confirmation, and inspect real-time workstation vault cryptographic health (`GET /api/v1/security/vault-status`), backed by comprehensive component and store tests.
+Conduct a comprehensive, end-to-end production gate audit for Phase 9 (Enterprise Hardening, Secret Vault & Security Infrastructure), authoritatively verifying the local cryptographic vault (`SecretVaultService`), workspace environment secrets subsystem (`EnvironmentSecretService`), shared security contracts (`@asterim/shared`), operator dashboard UI (`EnvironmentSecretsPanel`, `SecurityStatusCard`, `useSecretStore`), remove untracked preview artifacts, verify all 41 test suites (4,883+ assertions) and monorepo CI gates, and author the authoritative sign-off document `docs/phase9-production-gate.md`.
 
 ---
 
 ## 2. Why This Task Exists
 
-In P9-01 and P9-02, the local cryptographic vault (`SecretVaultService`) and the environment secrets backend subsystem (`EnvironmentSecretService`) were implemented, encrypted at rest (`vault:v1:` envelopes), masked over REST, and registered for runtime redaction.
+Across tasks P9-01, P9-02, and P9-03, Asterim completed the full vertical enterprise security hardening milestone:
+- **P9-01**: Local Cryptographic Vault (`SecretVaultService.ts`) providing authenticated `AES-256-GCM` encryption with PBKDF2-HMAC-SHA512 key derivation, `vault:v1:` envelope serialization, automatic tamper detection, live redaction in logs/events, and zero-downtime migration of machine settings (`settings` table).
+- **P9-02**: Workspace & Environment Secrets Management (`EnvironmentSecretService.ts`) providing encrypted storage for `environment_secrets`, REST routes (`GET/POST/DELETE /api/v1/environments/:id/secrets`), masked in-transit representations (`••••••••`), protected system key enforcement (`PATH`, `LD_PRELOAD`, `NODE_OPTIONS`, etc.), system settings `ai_api_key` masking, and agent runtime secret resolution with redaction registration.
+- **P9-03**: Operator Dashboard UI & Workstation Security Status (`EnvironmentSecretsPanel.tsx`, `SecurityStatusCard.tsx`, `useSecretStore.ts`, `@asterim/shared/src/types/security.ts`), zero-plaintext uncontrolled DOM inputs, in-place deletion confirmation, live vault cryptographic health telemetry (`GET /api/v1/security/vault-status`), and a 203-assertion web test suite.
 
-However, per `reports/current.md` § 8.2 and § 9, the dashboard UI currently renders hardcoded dummy secrets in `EnvironmentSettingsView.tsx` and has no UI for inspecting workstation cryptographic health (`/api/v1/security/vault-status`). To deliver a complete, production-grade enterprise security surface:
-1. Operators must be able to view masked secrets (`••••••••`), add new credentials, rotate existing ones, and delete secrets per environment directly from the dashboard.
-2. Form inputs must enforce POSIX key naming (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`) and gracefully surface server rejections for protected keys (`PATH`, `LD_PRELOAD`, `NODE_OPTIONS`, etc.).
-3. The dashboard must provide an authoritative Security Status indicator displaying the machine vault cipher (AES-256-GCM), key derivation status, total managed secrets, unreadable keys count, and database encryption health.
-4. Plaintext credentials must never be retained in client-side state after submission or exposed in DOM text.
+Before certifying Phase 9 complete and transitioning to the next milestone, we must execute a rigorous production gate audit across all monorepo test suites, verify all cryptographic invariants, zero-leakage constraints, and data sovereignty boundaries (DEC-028), clean up leftover preview artifacts, and publish `docs/phase9-production-gate.md`.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Backend Endpoints Consumed**:
-  - `GET /api/v1/environments/:id/secrets` (or `/api/v1/workspaces/:id/secrets`): returns `{ success: true, secrets: Array<{ key: string; maskedValue: string; isSet: boolean; createdAt: number }> }`.
-  - `POST /api/v1/environments/:id/secrets`: accepts `{ key: string, value: string }`, returns 201 `{ success: true, secret: { ... } }`, returns 400 with `code: 'PROTECTED_SECRET_KEY_ERROR'` or `'INVALID_SECRET_KEY_ERROR'`.
-  - `DELETE /api/v1/environments/:id/secrets/:key`: returns 200 `{ success: true }` or 404.
-  - `GET /api/v1/security/vault-status`: returns `{ cipher: 'aes-256-gcm', kdf: 'pbkdf2-sha512', saltExists: boolean, rounds: number, settings: { total, encrypted, plaintext, unreadable, unreadableKeys }, environmentSecrets: { total, encrypted, plaintext, unreadable, environments, migrationComplete }, healthy: boolean }`.
-- **UI Design System & State Management**:
-  - Store: Extend `useWorkspaceStore.ts` (or dedicated hook/store) with `secrets`, `fetchSecrets(envId)`, `setSecret(envId, key, value)`, `deleteSecret(envId, key)`, `vaultStatus`, `fetchVaultStatus()`.
-  - Tokens: Use `--color-bg-*`, `--color-surface-*`, `--color-border-*`, `--color-text-*`, `--color-state-completed` / `--color-state-error`, JetBrains Mono for keys/masks.
-  - Interaction: Modal or inline drawer for adding/rotating secrets; confirmation dialog for deletion; non-revealing password inputs; inline status toasts for success/error.
+- **Subsystems Under Audit**:
+  - `apps/server/src/services/security/SecretVaultService.ts`
+  - `apps/server/src/services/security/EnvironmentSecretService.ts`
+  - `apps/server/src/routes/security.ts` & `apps/server/src/routes/environmentSecrets.ts` & `apps/server/src/routes/system.ts`
+  - `packages/shared/src/types/security.ts` & `packages/shared/src/index.ts`
+  - `apps/web/src/stores/useSecretStore.ts`
+  - `apps/web/src/components/environment/EnvironmentSecretsPanel.tsx`
+  - `apps/web/src/components/security/SecurityStatusCard.tsx`
+  - `apps/web/src/components/environment/EnvironmentSettingsView.tsx`
+- **Invariants to Verify**:
+  - **At-Rest Encryption**: All credentials in `settings` and `environment_secrets` stored as valid `vault:v1:<iv>:<tag>:<ciphertext>` AES-256-GCM envelopes.
+  - **In-Transit Masking**: `GET` routes never return cleartext; only masked values (`••••••••`) and metadata are emitted.
+  - **Zero Plaintext in Browser**: Form inputs are uncontrolled; credentials never enter React state or localStorage; fields cleared prior to request completion.
+  - **Tamper Resistance**: Modified ciphertext or tags throw structured tamper errors; foreign-machine database opening handles unreadable envelopes safely without crashing.
+  - **Redaction Engine**: Injected environment secrets and system keys are registered in the vault redaction set and scrubbed from log streams and EventBus events.
+  - **Data Sovereignty (DEC-028)**: 100% local cryptographic keys derived from workstation salt; zero external network calls or cloud key escrows.
+  - **Housekeeping**: Remove untracked throwaway `apps/web/src/__p903_preview.ts` so it cannot affect future typechecks.
 
 ---
 
-## 4. Repository Evidence
+## 4. Implementation Scope
 
-- `apps/server/src/routes/environmentSecrets.ts` — Environment secrets REST API specification and error codes.
-- `apps/server/src/routes/security.ts` — `GET /api/v1/security/vault-status` response contract.
-- `apps/web/src/components/environment/EnvironmentSettingsView.tsx:804–835` — Existing mock secrets section to replace.
-- `apps/web/src/components/WorkspaceSettingsModal.tsx` & `WorkspaceTabView.tsx` — Workspace settings surfaces.
-- `apps/web/src/components/DeveloperSettings.tsx` & `AISettings.tsx` — Settings components and token management patterns.
-- `apps/web/src/stores/useWorkspaceStore.ts` — Workspace state store.
-- `apps/web/src/components/profiles/__tests__/ProfileSelector.test.ts` & `DelegationUI.test.ts` — Standard web test suite patterns.
+1. **Production Gate Audit Document (`docs/phase9-production-gate.md`)**:
+   - Authoritative audit document covering:
+     - Executive Verdict (**PASS / READY FOR NEXT PHASE**).
+     - Subsystem Audit Matrix (Local Cryptographic Vault, Workspace Secrets Engine, Shared Security Contracts, Dashboard UI & Operator Controls, REST Surface & Auth, Redaction Engine, Data Sovereignty & DEC-028).
+     - Workstream Acceptance-Criteria Audit (P9-01, P9-02, P9-03).
+     - Full Test Suite Census & Census Matrix (41 suites, 4,883+ assertions, 0 failures).
+     - Security Invariants & Boundary Verifications.
+     - Observations & Architectural Notes (including contract shape documentation, `DeveloperSettings.tsx` status, `MIN_REDACTABLE_LENGTH`).
+     - Reproduction commands and audit verification trail.
+     - Sign-off table.
 
----
+2. **Housekeeping Cleanup**:
+   - Clean up untracked `apps/web/src/__p903_preview.ts` if present.
 
-## 5. Implementation Scope
-
-1. **Workspace Store / State Layer (`apps/web/src/stores/useWorkspaceStore.ts` or `useSecretStore.ts`)**:
-   - State for environment secrets list (`Array<{ key: string; maskedValue: string; isSet: boolean; createdAt: number }>`).
-   - Actions: `fetchSecrets(environmentId: string)`, `addSecret(environmentId: string, key: string, value: string)`, `deleteSecret(environmentId: string, key: string)`.
-   - Action / state for vault security status: `vaultStatus: VaultStatusResponse | null`, `fetchVaultStatus()`.
-   - Error handling: structured error message extraction (e.g. protected variable name, invalid format, unauthorized).
-
-2. **Environment Secrets Management UI Component (`apps/web/src/components/environment/EnvironmentSecretsPanel.tsx` or integrated in `EnvironmentSettingsView.tsx`)**:
-   - Real-time list of configured secrets for the selected environment.
-   - Per-secret row: key name in monospace font, masked value badge (`••••••••`), creation date, delete button with confirmation.
-   - "Add Secret" form / modal:
-     - `Secret Key`: Text input with client-side POSIX naming validation (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`) and protected key warning (`PATH`, `LD_PRELOAD`, etc.).
-     - `Secret Value`: Password input with show/hide toggle (only during entry before submission).
-     - Submitting immediately clears the input field from memory and updates the list.
-   - Empty state when no secrets are configured.
-
-3. **Workstation Security Status Card (`apps/web/src/components/security/SecurityStatusCard.tsx` or `DeveloperSettings.tsx`)**:
-   - Visual card displaying:
-     - Health Status Badge (Green "Vault Active & Healthy" / Amber "Unreadable Envelopes Detected").
-     - AES-256-GCM encryption indicator with PBKDF2 salt status.
-     - Environment Secrets tally: Total encrypted secrets across all environments, migration completion status.
-     - System Settings tally: Encrypted system keys count.
-   - Accessible in Developer Settings or as a sub-panel in Environment Settings / Workspace Settings.
-
-4. **Component & Store Test Suite (`apps/web/src/components/environment/__tests__/EnvironmentSecretsUI.test.ts`)**:
-   - Unit tests for key validation logic (valid POSIX vs invalid characters vs protected system names).
-   - Mocked fetch integration tests for `useWorkspaceStore` (or secret actions):
-     - Fetching secrets list (asserting URL, headers, masked shape).
-     - Adding secret (asserting POST payload, handling 201 success and 400 error codes).
-     - Deleting secret (asserting DELETE URL and removal from state).
-     - Fetching and parsing vault status.
-   - Static markup render tests via `react-dom/server` verifying:
-     - Masked representation rendered (`••••••••`), no cleartext leaked.
-     - Add Secret form elements and labels.
-     - Security Status card with health badges and metric tallies.
-   - Wire into `apps/web/package.json` `"test"` script.
+3. **Quality Gate Validation**:
+   - Run full monorepo typecheck: `pnpm run typecheck` (0 errors across 11 Turbo tasks).
+   - Run full monorepo lint: `pnpm run lint` (0 errors across 7 workspace packages).
+   - Run full monorepo test battery: `pnpm run test` (41 test suites, 0 failures across 4,883+ assertions).
+   - Run production build: `pnpm run build` (all 7 packages building cleanly).
 
 ---
 
-## 6. Explicitly Forbidden Changes
+## 5. Constraints & Forbidden Changes
 
-- Do NOT retain plaintext secret values in React state or localStorage after form submission.
-- Do NOT add external UI library dependencies (keep using existing tokens and lightweight components).
-- Do NOT weaken backend validation or bypass server RBAC rules.
-- Do NOT break existing web test suites or monorepo build pipelines.
-
----
-
-## 7. Acceptance Criteria
-
-1. **Masked Secrets Display**: The Secrets tab in `EnvironmentSettingsView` dynamically fetches and displays masked secrets (`••••••••`) with timestamps and presence indicators from `GET /api/v1/environments/:id/secrets`.
-2. **Add & Rotate Secret**: Operators can create new secrets or rotate existing ones via `POST /api/v1/environments/:id/secrets`, with client-side POSIX validation and proper handling of server error responses (e.g. `PROTECTED_SECRET_KEY_ERROR`).
-3. **Delete Secret**: Operators can remove secrets with a confirmation step via `DELETE /api/v1/environments/:id/secrets/:key`.
-4. **Security Vault Status Surface**: Workstation Security / Vault Status card renders live metrics from `GET /api/v1/security/vault-status` (cipher, health flag, system keys counts, environment secrets counts).
-5. **Data Sovereignty & Zero Plaintext Leakage**: Plaintext secrets are cleared from form state immediately upon submission and are never rendered in the DOM or stored in client storage.
-6. **Automated Web Test Suite**: `EnvironmentSecretsUI.test.ts` passes with complete store, helper, and static render assertions.
-7. **Monorepo CI Gates**: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, and `pnpm run build` pass with 0 errors across the monorepo.
+- Do NOT weaken any cryptographic guarantees, PBKDF2 iteration bounds, or validation rules.
+- Do NOT modify product code unless required to fix a discovered regression.
+- Keep `docs/phase9-production-gate.md` factual, evidence-backed, and reproducible.
 
 ---
 
-## 8. Definition of Done
+## 6. Acceptance Criteria
 
-- [ ] Workspace store extended with secrets and vault-status actions
-- [ ] Secrets panel in `EnvironmentSettingsView` connected to real API
-- [ ] Add/Rotate and Delete secret flows fully functional with validation and feedback
-- [ ] Security Status card implemented and wired to `/api/v1/security/vault-status`
-- [ ] `EnvironmentSecretsUI.test.ts` created and wired into `apps/web/package.json`
-- [ ] Monorepo CI gates pass cleanly (typecheck, lint, test, build)
+1. `docs/phase9-production-gate.md` is authored with complete subsystem audit matrices, workstream audits (P9-01 through P9-03), and verification evidence.
+2. All 3 Phase 9 workstreams (P9-01, P9-02, P9-03) are audited and verified against their acceptance criteria.
+3. 0 TypeScript compiler errors across all packages (`pnpm run typecheck`).
+4. 0 ESLint errors across all packages (`pnpm run lint`).
+5. All automated test suites pass with 0 failures (`pnpm run test` across 41 suites, 4,883+ assertions).
+6. Monorepo production build succeeds cleanly (`pnpm run build`).
 
 ---
 
-## 9. Verification Commands
+## 7. Definition of Done
+
+- [ ] `docs/phase9-production-gate.md` created and complete
+- [ ] Untracked `apps/web/src/__p903_preview.ts` removed
+- [ ] Monorepo typecheck clean (0 errors)
+- [ ] Monorepo lint clean (0 errors)
+- [ ] Full test battery passing (0 failures, 41 suites, 4,883+ assertions)
+- [ ] Production build clean
+
+---
+
+## 8. Verification Commands
 
 ```bash
-# Run web Environment Secrets & Security UI test suite
+# Verify Phase 9 specialized test suites
 pnpm --filter @asterim/web exec tsx src/components/environment/__tests__/EnvironmentSecretsUI.test.ts
-
-# Run server cryptographic regression suites
 pnpm --filter asterim exec tsx src/services/security/__tests__/EnvironmentSecretService.test.ts
 pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts
 
-# Run full monorepo CI pipeline
+# Run full monorepo CI validation pipeline
 pnpm run typecheck
 pnpm run lint
 pnpm run test
@@ -147,14 +122,6 @@ pnpm run build
 
 ---
 
-## 10. Self-Review Requirements
-
-- Inspect `git diff` against all acceptance criteria and forbidden changes before reporting.
-- Verify that no plaintext secret value is stored in React component state or logged to console.
-- Confirm all monorepo test suites pass and build succeeds.
-
----
-
-## 11. Required Report
+## 9. Required Report
 
 Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
