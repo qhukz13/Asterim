@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { resolveDataDir } from './channel';
 
 let originalStdoutWrite: any = null;
 
@@ -45,9 +45,12 @@ export function redactChunk(chunk: any): any {
 }
 
 export function initLogger() {
-  const logDir = path.join(os.homedir(), '.asterim');
+  // The channel's own directory (DEC-029). A development run writing its console
+  // output into `~/.asterim/server.log` would both truncate the stable Core's
+  // log on startup and leave the operator reading the wrong process's output.
+  const logDir = resolveDataDir();
   if (!fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir, { recursive: true });
+    fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
   }
   const logFile = path.join(logDir, 'server.log');
 

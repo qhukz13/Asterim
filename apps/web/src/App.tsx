@@ -17,6 +17,7 @@ import { ConnectWorkstationModal } from './components/overlays/ConnectWorkstatio
 import { FirstRunWizard } from './components/overlays/FirstRunWizard';
 import { useProjects, Project } from './hooks/useProjects';
 import { useWorkstations } from './hooks/useWorkstations';
+import { useChannel } from './hooks/useChannel';
 import { PwaUpdater } from './PwaUpdater';
 import { ChangesView } from './components/git/ChangesView';
 import { DecisionExplorer } from './components/memory/DecisionExplorer';
@@ -1024,11 +1025,16 @@ export function App() {
   const threads = useProjectStore(s => s.threads);
   const activeThread = threads.find(t => t.id === activeThreadId);
 
+  // Which Asterim this is (DEC-029). Only the Core knows, and the answer decides
+  // whether the header carries the [DEV-CHANNEL] badge.
+  const channelInfo = useChannel(workstations.activeBackendUrl);
+
   const topBar = (
     <TopBar
       projectName={selectedProject?.name}
       missionTitle={activeThread?.name}
       activeWorkstationName={workstations.activeWorkstation?.name}
+      channelInfo={channelInfo}
       onConnectWorkstation={() => setShowConnect(true)}
     />
   );

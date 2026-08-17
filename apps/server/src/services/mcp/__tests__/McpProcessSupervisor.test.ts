@@ -188,6 +188,7 @@ async function main(): Promise<void> {
       PATH: '/usr/bin',
       HOME: '/home/dev',
       ASTERIM_DATA_DIR: '/home/dev/.asterim',
+      ASTERIM_CHANNEL: 'dev',
       ASTERIM_RELAY_URL: 'https://relay.example.com',
       ASTERIM_RELAY_SECRET: 'relay-secret-value',
       RELAY_SECRET: 'relay-secret-value',
@@ -208,6 +209,11 @@ async function main(): Promise<void> {
       'ASTERIM_DATA_DIR is kept, so an MCP memory server can find the database',
       clean.ASTERIM_DATA_DIR,
       '/home/dev/.asterim'
+    );
+    equal(
+      'and ASTERIM_CHANNEL, or a dev-channel child would open ~/.asterim (DEC-029)',
+      clean.ASTERIM_CHANNEL,
+      'dev'
     );
 
     for (const blocked of [

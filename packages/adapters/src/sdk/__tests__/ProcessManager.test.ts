@@ -106,9 +106,14 @@ async function main(): Promise<void> {
   );
 
   equal(
-    'exactly one ASTERIM_ variable is inheritable',
+    'only the two variables that name this Asterim’s database are inheritable',
     [...INHERITABLE_ASTERIM_ENV],
-    ['ASTERIM_DATA_DIR']
+    ['ASTERIM_DATA_DIR', 'ASTERIM_CHANNEL']
+  );
+  equal(
+    'ASTERIM_CHANNEL survives, or a dev-channel child would open ~/.asterim (DEC-029)',
+    sanitizeAgentEnv({ ASTERIM_CHANNEL: 'dev' }).ASTERIM_CHANNEL,
+    'dev'
   );
   check(
     'it is an allow-list, so new variables are private by default',

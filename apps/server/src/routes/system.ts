@@ -7,6 +7,7 @@ import { secretVault, SECRET_SETTING_KEYS } from '../services/security/SecretVau
 import { SECRET_MASK, isMasked } from '../services/security/EnvironmentSecretService';
 import { startupService } from '../services/StartupService';
 import { mdnsService } from '../services/mDNSService';
+import { describeChannel } from '../utils/channel';
 
 export default async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/system', async (request, reply) => {
@@ -29,6 +30,19 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       sovereignMode: isSovereignMode(),
       binaries: startupService.getAgentBinariesStatus()
     };
+  });
+
+  /**
+   * Which Asterim this is (DEC-029).
+   *
+   * The dashboard is served from the same origin as the Core it is talking to,
+   * so this is the only way it can tell a development Core from the operator's
+   * real one — and the badge it renders from the answer is what stops a session
+   * being spent in the wrong instance. The reply is derived entirely from this
+   * process's own environment; nothing the caller sends affects it.
+   */
+  fastify.get('/api/v1/system/channel', async () => {
+    return describeChannel();
   });
 
   fastify.post('/api/v1/system/first-run-complete', async (request, reply) => {

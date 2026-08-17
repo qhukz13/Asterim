@@ -16,4 +16,6 @@ export * from './types/worktree';
 export * from './types/verification';
 export * from './types/security';
 export * from './types/desktop';
+export * from './types/channels';
+export * from './constants/channels';
 

@@ -6,7 +6,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
+import { describeChannel, resolveDataDir, resolvePort } from './utils/channel';
 import { SocketManager, registerSocketManager } from './sockets/socketManager';
 import projectRoutes from './routes/projects';
 import './services/AgentService';
@@ -17,8 +17,10 @@ import { authMiddleware } from './middleware/authMiddleware';
 // Crash Reporting (Phase 6)
 const logCrash = (error: Error, type: string) => {
   try {
-    const crashDir = path.join(os.homedir(), '.asterim');
-    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
+    // The channel's directory, so a development crash is not filed among the
+    // stable Core's crashes (DEC-029).
+    const crashDir = resolveDataDir();
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true, mode: 0o700 });
     const logPath = path.join(crashDir, 'crash.log');
     const msg = `\n[${new Date().toISOString()}] ${type}: ${error.stack || error.message}\n`;
     fs.appendFileSync(logPath, msg);
@@ -239,7 +241,14 @@ const start = async () => {
     const { profileService } = await import('./services/ai/ProfileService');
     profileService.initBuiltinProfiles();
 
-    const port = parseInt(process.env.PORT || '3000', 10);
+    // The channel supplies the default port, so a stable Core on 3000 and a
+    // development Core on 3001 can be up at the same time (DEC-029). An explicit
+    // PORT still wins.
+    const channelInfo = describeChannel();
+    console.log(
+      `[Server] Release channel: ${channelInfo.channel} · data directory: ${channelInfo.dataDir} · port: ${channelInfo.port}`
+    );
+    const port = resolvePort(channelInfo.channel);
     // `::` accepts both IPv6 and IPv4 on every interface, which is what a LAN
     // workstation wants. A deployment that should not be reachable from the
     // network — or one behind a reverse proxy — overrides it with HOST.

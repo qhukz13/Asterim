@@ -3,6 +3,8 @@ import { useDebugLifecycle } from '../utils/debug';
 import { useCommandPaletteStore } from '../stores/useCommandPaletteStore';
 import { IconCheck, IconAlertTriangle, IconTarget, IconTerminal } from './icons/Icons';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { ChannelBadge } from './ChannelBadge';
+import type { ChannelInfo } from '@asterim/shared';
 
 export interface TopBarProps {
   projectName?: string;
@@ -10,6 +12,8 @@ export interface TopBarProps {
   agentStatus?: string;
   agentType?: string;
   activeWorkstationName?: string;
+  /** The connected Core's release channel; the badge only appears for `dev`. */
+  channelInfo?: ChannelInfo | null;
   onConnectWorkstation?: () => void;
 }
 
@@ -19,6 +23,7 @@ export function TopBar({
   agentStatus = 'idle',
   agentType = 'Claude Code',
   activeWorkstationName,
+  channelInfo = null,
   onConnectWorkstation
 }: TopBarProps) {
   useDebugLifecycle('TopBar', { projectName, missionTitle, agentStatus, activeWorkstationName });
@@ -123,6 +128,7 @@ export function TopBar({
       {/* Left: Location Context (Brand Mark + Workspace Switcher + Project / Mission) */}
       <div className="topbar-left" style={{ gap: 'var(--spacing-2)', alignItems: 'center', whiteSpace: 'nowrap' }}>
         <WorkspaceSwitcher />
+        <ChannelBadge channel={channelInfo} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)', whiteSpace: 'nowrap' }}>
           <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>/</span>
           <span

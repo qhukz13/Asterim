@@ -3,21 +3,17 @@ import type { DatabaseSync } from 'node:sqlite';
 const req = typeof require !== 'undefined' ? require : (module as any).require;
 const { DatabaseSync: DBSync } = req('node:sqlite');
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
+import { getAsterimChannel, resolveDataDir } from '../utils/channel';
 
 /**
- * Resolves the Asterim data directory.
- * Priority: ASTERIM_DATA_DIR env var → ~/.asterim
+ * The directory holding asterim.db and the loopback descriptor.
+ *
+ * Re-exported from `utils/channel` rather than declared here: the channel
+ * decides the path now (DEC-029), and the services that already import it from
+ * this module keep working unchanged.
  */
-/** The directory holding asterim.db and the loopback descriptor. */
-export function resolveDataDir(): string {
-  const envDir = process.env.ASTERIM_DATA_DIR;
-  if (envDir) {
-    return path.resolve(envDir);
-  }
-  return path.join(os.homedir(), '.asterim');
-}
+export { resolveDataDir };
 
 /**
  * Restricts a path to its owner. POSIX only — Windows ACLs do not map onto
@@ -54,7 +50,11 @@ export class DatabaseService {
     enforceOwnerOnly(dataDir, 0o700);
 
     this.dbPath = path.join(dataDir, 'asterim.db');
-    console.log(`[Database] Using database at: ${this.dbPath}`);
+    // The channel is named on the same line as the file it chose, so a run that
+    // opened the wrong database is visible in the first lines of the log rather
+    // than after it has written to it (DEC-029). The existing prefix is kept
+    // verbatim: the MCP memory server's stdio guard suites assert on it.
+    console.log(`[Database] Using database at: ${this.dbPath} (channel: ${getAsterimChannel()})`);
 
     this.db = new DBSync(this.dbPath);
 

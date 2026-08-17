@@ -7,8 +7,14 @@ import * as pty from 'node-pty';
  * mode switches, anything added later — and an agent has no reason to read it.
  * The list is an allow-list rather than a deny-list because a deny-list only
  * protects against the variables someone remembered to name.
+ *
+ * Both entries name the same thing: which database this Asterim owns.
+ * `ASTERIM_CHANNEL` is on the list because a child that cannot see it resolves
+ * `~/.asterim` by default — so a development Core with no `ASTERIM_DATA_DIR`
+ * set would spawn MCP memory servers that write into the operator's stable
+ * database, which is exactly what DEC-029 exists to make impossible.
  */
-export const INHERITABLE_ASTERIM_ENV = new Set(['ASTERIM_DATA_DIR']);
+export const INHERITABLE_ASTERIM_ENV = new Set(['ASTERIM_DATA_DIR', 'ASTERIM_CHANNEL']);
 
 /**
  * Strips internal Asterim configuration from an environment.

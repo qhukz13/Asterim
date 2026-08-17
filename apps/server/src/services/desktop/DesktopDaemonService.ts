@@ -37,6 +37,8 @@ import {
   DESKTOP_REGISTRY_RUN_KEY,
   DESKTOP_REGISTRY_VALUE_NAME,
   DESKTOP_XDG_AUTOSTART_FILE,
+  dataDirNameForChannel,
+  defaultPortForChannel,
   type DesktopLaunchCommand,
   type DesktopPlatform,
   type DesktopStatus,
@@ -46,6 +48,7 @@ import {
   type DesktopVaultState
 } from '@asterim/shared';
 import { dbService, resolveDataDir } from '../DatabaseService';
+import { getAsterimChannel } from '../../utils/channel';
 import { secretVault } from '../security/SecretVaultService';
 import { normalizePlatform } from './DesktopNotificationService';
 
@@ -339,10 +342,11 @@ export class DesktopDaemonService {
   /**
    * Where the Core's console output is.
    *
-   * `initLogger` writes to `~/.asterim/server.log` unconditionally, so that is
-   * the truthful answer on a normal install. A run with `ASTERIM_DATA_DIR`
-   * pointed elsewhere is checked first, because if a log is there it is the one
-   * that run produced.
+   * `initLogger` writes into the channel's data directory, so a run with
+   * `ASTERIM_DATA_DIR` pointed elsewhere is checked first: if a log is there it
+   * is the one that run produced. The fallback is the channel's home-relative
+   * directory — `~/.asterim` on stable, `~/.asterim-dev` on development — never
+   * the other channel's (DEC-029).
    */
   public logFilePath(): string {
     const inDataDir = path.join(this.dataDirectory(), SERVER_LOG_FILENAME);
@@ -351,12 +355,18 @@ export class DesktopDaemonService {
     } catch {
       /* an unreadable data directory falls through to the default location. */
     }
-    return path.join(this.homeDirectory(), '.asterim', SERVER_LOG_FILENAME);
+    return path.join(
+      this.homeDirectory(),
+      dataDirNameForChannel(getAsterimChannel()),
+      SERVER_LOG_FILENAME
+    );
   }
 
   /** Where this machine serves the dashboard. */
   public webUrl(): string {
-    const port = this.env().PORT || '3000';
+    // Without an explicit PORT the channel decides, so the tray on a development
+    // Core opens 3001 rather than whatever the stable one is serving.
+    const port = this.env().PORT || String(defaultPortForChannel(getAsterimChannel()));
     return `http://localhost:${port}`;
   }
 

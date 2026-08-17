@@ -1,428 +1,287 @@
-<<<<<<< HEAD
-Task-ID: P10-03
+Task-ID: P7-01
 Status: COMPLETE
 
-# Execution Report: P10-03 — Phase 10 Comprehensive Production Gate & Desktop Release Readiness Audit
+# Execution Report: P7-01 — Release Channels (Stable vs Development) & Runtime Data Isolation
 
-**Task ID:** P10-03
-**Phase:** Phase 10 — Desktop Distribution, Native Shell & Release Readiness
-**Status:** VERIFIED
-**Date:** 2026-08-17
+**Task ID:** P7-01
+**Phase:** Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation
+**Status:** IMPLEMENTED & VERIFIED
+**Date:** 2026-08-18
 **Author:** Claude Code
-**Commit under audit:** `8e89347` (`pipeline: dispatch task P10-03`)
-**Toolchain:** Node v24.13.1, pnpm 9.0.0, turbo 2.9.18, TypeScript 5.4
-=======
-# Task: POST-PHASE-6 ROADMAP RECONCILIATION
-**Status:** COMPLETE  
-**Result:** PASS  
-**Date:** 2026-08-17  
-**Author:** Antigravity (CTO, Lead Architect & Orchestrator)  
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
 
 ---
 
-## 1. Executive Summary
+## 1. Summary
 
-<<<<<<< HEAD
-Phase 10's production gate was executed and `docs/phase10-production-gate.md` authored.
-**Verdict: PASS — READY FOR NEXT PHASE.**
+Channel Runtime Isolation is implemented per `DEC-029`. A single resolver
+(`apps/server/src/utils/channel.ts`) decides the channel, the data directory and
+the default port, and every runtime path that lands on disk now goes through it:
+`asterim.db`, `server.json`, `server.log`, `crash.log`, the vault salt and the
+workstation skills directory. `ASTERIM_CHANNEL=dev` (or `NODE_ENV=development`)
+moves all of them to `~/.asterim-dev` and port 3001; stable keeps `~/.asterim`
+and 3000. `ASTERIM_DATA_DIR` still outranks both, so every existing temp-directory
+test suite is unaffected.
 
-Both Phase 10 workstreams were re-audited against the code at `8e89347` rather than against their
-own reports: P10-01 (native desktop daemon, tray state protocol, OS notifications, login auto-start,
-`/api/v1/desktop/*`) and P10-02 (`useDesktopStore`, `DesktopDaemonCard`, settings integration). All
-twelve acceptance criteria across the two workstreams hold.
+`GET /api/v1/system/channel` publishes the resolved `ChannelInfo`, and the
+dashboard header renders an amber `[DEV-CHANNEL]` pill when the Core it is talking
+to answers `dev`.
 
-All four monorepo quality gates were run live **per workspace**, so Turbo's cache could not replay a
-prior run: 0 TypeScript errors across 7 packages, 0 ESLint errors across 7 packages, **43 suites /
-5,297 assertions / 0 failures**, and a clean 7-package build. The Turbo aggregate form was run
-afterwards for the record (11/11, 7/7, 9/9, 7/7 tasks).
+Two isolation gaps found during self-review were closed beyond the literal file
+list in the task:
 
-Beyond the suites, a **live pass over the packaged standalone distribution** was executed, because
-that is the one audited subsystem the 43 suites structurally cannot cover — none of them boots the
-artefact `pnpm build` produces. Two Cores were spawned from `apps/server/dist/index.js` against
-throwaway data directories on ephemeral ports, and driven over real HTTP: SPA serving and the `/api`
-catch-all, the authentication boundary on all six desktop routes, a real pairing handshake, the live
-tray protocol, the headless notification skip, input validation, and the property that no
-client-supplied path is ever launched. **67/67 live checks passed.**
+* **`initLogger` and the crash handler** wrote to `~/.asterim` unconditionally. A
+  development run therefore truncated the stable Core's `server.log` on every
+  start and filed its crashes among the stable ones — a direct violation of the
+  task's "do NOT modify user files in `~/.asterim` under `ASTERIM_CHANNEL=dev`"
+  constraint. Both now resolve through the channel.
+* **`sanitizeAgentEnv`** allow-listed only `ASTERIM_DATA_DIR` for child
+  processes. A dev-channel Core with no `ASTERIM_DATA_DIR` set would therefore
+  spawn MCP memory servers that resolved `~/.asterim` and wrote to the operator's
+  stable database. `ASTERIM_CHANNEL` was added to the allow-list.
 
-No product code was modified. No validation rule, error path or security boundary was weakened.
-Eight observations are recorded in §8 of the gate document; none blocks the phase, and two warrant
-an explicit orchestrator decision before a public release.
-
-=======
-Completed a comprehensive, honest, and rigorous reconciliation of the original Asterim Commercial Roadmap (`blueprint/ROADMAP.md`) against actual codebase implementations, identified legacy technical debt, and authored the authoritative strategic roadmap for **Phases 7–10**.
-
-Authoritative Documents Created:
-1. [`docs/phase5-10-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-10-reconciliation.md): Factual historical phase-by-phase audit, remaining legacy work inventory, and production risk mitigations.
-2. [`docs/phase7-10-roadmap.md`](file:///c:/Projects/Asterim/docs/phase7-10-roadmap.md): Complete strategic plan for Phases 7–10, incorporating **Initiative A (Stable/Development Release Channels & Migration Engine)** and **Initiative B (Shared Team Agents & Multi-User Governance)** under `DEC-028` Local-First Data Sovereignty.
-
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
 ---
 
-## 2. Original Phase Status
+## 2. Files Changed
 
-<<<<<<< HEAD
-| File | Change | Purpose |
+### Created
+
+| File | Purpose |
+| :--- | :--- |
+| `packages/shared/src/types/channels.ts` | `AsterimChannel`, `ChannelInfo` — the contract the dashboard renders |
+| `packages/shared/src/constants/channels.ts` | Ports, directory names, `parseAsterimChannel`, `dataDirNameForChannel`, `defaultPortForChannel` |
+| `apps/server/src/utils/channel.ts` | `getAsterimChannel`, `isDevChannel`, `resolveDataDir`, `resolvePort`, `resolveServerVersion`, `describeChannel` |
+| `apps/server/src/services/__tests__/ChannelIsolation.test.ts` | 90 assertions across resolution, precedence, the real consumers, and the REST route |
+| `apps/web/src/components/ChannelBadge.tsx` | The `[DEV-CHANNEL]` pill plus `shouldShowChannelBadge` / `channelBadgeTitle` |
+| `apps/web/src/hooks/useChannel.ts` | One same-origin read of `/api/v1/system/channel` |
+| `apps/web/src/components/__tests__/ChannelBadge.test.ts` | 19 assertions, including a real `TopBar` render |
+
+### Modified
+
+| File | Change |
+| :--- | :--- |
+| `packages/shared/src/index.ts` | Exports the new types and constants |
+| `apps/server/src/services/DatabaseService.ts` | `resolveDataDir` re-exported from `utils/channel`; startup log names the channel |
+| `apps/server/src/services/skills/SkillService.ts` | Dropped its duplicate resolver; imports the shared one |
+| `apps/server/src/services/desktop/DesktopDaemonService.ts` | `logFilePath()` fallback and `webUrl()` follow the channel |
+| `apps/server/src/utils/logger.ts` | `server.log` goes to the channel's directory, created `0700` |
+| `apps/server/src/index.ts` | `crash.log` follows the channel; port from `resolvePort()`; startup logs channel/dir/port |
+| `apps/server/src/routes/system.ts` | `GET /api/v1/system/channel` |
+| `apps/web/src/components/TopBar.tsx` | Renders `<ChannelBadge />` in the header |
+| `apps/web/src/App.tsx` | Feeds the badge from `useChannel()` |
+| `apps/web/vite.config.ts` | Dev-server proxy targets the channel's port |
+| `packages/adapters/src/sdk/ProcessManager.ts` | `ASTERIM_CHANNEL` added to `INHERITABLE_ASTERIM_ENV` |
+| `packages/adapters/src/sdk/__tests__/ProcessManager.test.ts` | Updated allow-list assertion + new channel-inheritance assertion |
+| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Asserts `ASTERIM_CHANNEL` survives `sanitizeMcpEnv` |
+| `apps/server/package.json`, `apps/web/package.json` | New suites wired into `test` |
+
+`ServerRegistry.ts` and `SecretVaultService.ts` needed no edit: both already
+consume `resolveDataDir` from `DatabaseService`, so they became channel-aware
+when that function did. This is asserted rather than assumed — the suite checks
+`serverRegistry.filePath` for both channels.
+
+---
+
+## 3. Implementation Details
+
+**Channel determination.** An explicit `ASTERIM_CHANNEL` wins; otherwise
+`NODE_ENV === 'development'` means `dev`, and everything else means `stable`.
+`parseAsterimChannel` accepts `dev`/`development` and `stable`/`production`/`prod`,
+case- and whitespace-insensitive. A value it does not recognise returns `null`
+and the caller falls through to the `NODE_ENV` rule — guessing what a typo meant
+is precisely how a development run ends up pointed at `~/.asterim`.
+
+**Precedence.** `ASTERIM_DATA_DIR` > channel default, and `PORT` > channel
+default. Both resolvers read `process.env` on every call rather than capturing at
+import, because the service singletons are module-level and every test suite in
+the repository sets `ASTERIM_DATA_DIR` before requiring them. A non-numeric or
+empty `PORT` falls back to the channel default rather than producing `NaN`.
+
+**Version.** `resolveServerVersion()` walks up from `__dirname` for a
+`package.json`, so it works both under `tsx watch` (`src/utils/`) and in the
+packaged `dist/` build, and falls back to `0.0.0` rather than throwing.
+
+**Permissions.** Directories created by the logger and the crash handler now use
+`mode: 0o700`, matching what `DatabaseService` already enforced under `DEC-028`.
+
+**Vite proxy.** The dev-server proxy follows `ASTERIM_CHANNEL`/`PORT` only, and
+deliberately does *not* read `NODE_ENV`: Vite sets `NODE_ENV=development` for its
+own dev server, so reading it would retarget the proxy to 3001 for every existing
+`pnpm dev` while the Core — which is not started with `NODE_ENV` set — is still
+on 3000.
+
+**`useChannel` is same-origin.** It does not use `resolveBackendUrl()`, which
+hardcodes port 3000. Asking that URL which channel it is would answer about the
+stable Core rather than the process serving the page, and a development
+dashboard would never badge itself.
+
+---
+
+## 4. Verification
+
+Everything below was run in this session. The root scripts (`pnpm run test` etc.)
+were blocked by the sandbox, so each workspace was invoked directly via
+`pnpm --filter` — the same commands turbo would run.
+
+**New suites**
+
+```
+pnpm --filter asterim exec tsx src/services/__tests__/ChannelIsolation.test.ts
+  → 90/90 assertions passed
+
+pnpm --filter @asterim/web exec tsx src/components/__tests__/ChannelBadge.test.ts
+  → 19/19 assertions passed
+```
+
+**Full test gate — 0 failed assertions in every workspace**
+
+| Workspace | Suites | Result |
 | :--- | :--- | :--- |
-| `docs/phase10-production-gate.md` | **created** (the only committed change) | The authoritative Phase 10 sign-off: executive verdict, 25-row subsystem audit matrix, per-workstream acceptance-criteria audit for P10-01 and P10-02, full 43-suite census, 11 desktop invariant verifications, the live packaged-distribution pass, reproduction commands, 8 observations, sign-off table |
-| `reports/current.md` | overwritten | This report |
-| `scratch/p10-live-gate.ts` | created, **git-ignored** | Driver for the live pass over the packaged binary. `scratch/` is in `.gitignore` (line 51) and is part of no build, matching the P9-04 precedent (`scratch/p9-gate-live-check.ts`) |
-| `scratch/p10-gate-run.sh` | created, **git-ignored** | Throwaway gate-runner scaffold, superseded by running each gate directly |
+| `asterim` | 25 | 0 FAIL |
+| `@asterim/web` | 11 | 0 FAIL |
+| `@asterim/adapters` | 1 | 0 FAIL (30/30) |
+| `@asterim/mcp-memory-server` | 7 | 0 FAIL |
 
-**No product source file, `package.json`, config or blueprint document was modified.**
+**Typecheck — clean in all 7 workspaces**
 
----
-=======
-| Phase ID | Original Roadmap Scope | Actual Codebase Status | Classification | Key Architectural Finding |
-| :--- | :--- | :---: | :---: | :--- |
-| **Phase 1** | Product UX & Design System | Complete in `apps/web` | **COMPLETE** | Dark-mode shell, navigation, xterm.js, command palette. |
-| **Phase 2** | Authentication & Account Platform | Complete in `apps/server` & `apps/marketing` | **COMPLETE** | User sessions, password hashing, RBAC, feature entitlements, device pairing. |
-| **Phase 3** | Teams & Workspaces | Redefined to Local Workspaces | **REDEFINED** | Redefined under `DEC-028` to local workstation workspaces (`workspaces` table) with environment presets. Multi-user team agents elevated to Phase 8. |
-| **Phase 4** | Developer Workstation Hardening | Complete in `apps/server` | **COMPLETE** | `ProcessTreeManager`, orphan process reaper, 16ms terminal backpressure, AST command security guard. |
-| **Phase 4.5** | Marketing & Product Presentation | Complete in `apps/marketing` | **COMPLETE** | 10-Act product story, `Satoshi` tokens, interactive workstation simulators, truth contract. |
-| **Phase 5** | SaaS Foundation & Project Memory | Complete across server, relay, mcp | **COMPLETE** | SQLite WAL Project Memory, stdio MCP memory server, loopback relay (`DEC-026`), drift detection (`DEC-027`), Stripe billing, Sovereign Mode air-gap (`DEC-028`). |
-| **Phase 6** | AI Ecosystem (MCP, Skills, Profiles) | Complete across server & web | **COMPLETE** | Stdio MCP supervisor, autostart, per-server `SerialQueue`, `.agents/skills` parser, 6 built-in engineering roles, capability filtering. |
-| **Original Phase 7** | Extensions Platform & Marketplace | Replaced by MCP & Skills | **REDEFINED / OBSOLETE** | Proprietary JS/WASM extension sandbox superseded by open MCP standards and Markdown Skills. |
-| **Original Phase 8** | Automation & Workflows | Partial / Programmatic | **PARTIAL** | Worktree sandboxing (`GitWorktreeService`) and verification pipelines (`VerificationPipelineService`) built; visual canvas editor deferred. |
-| **Original Phase 9** | Enterprise Security & IAM | Local Hardening Complete | **PARTIAL / REDEFINED** | Local Secret Vault (`SecretVaultService` AES-256-GCM) complete; enterprise cloud SAML/OIDC deferred. |
-| **Original Phase 10** | AI Operating System Vision | Foundational Primitives Built | **REDEFINED** | Evolved into the local-first collaborative agent control plane. |
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
+`@asterim/shared`, `@asterim/adapters`, `asterim`, `@asterim/web`,
+`@asterim/mcp-memory-server`, `@asterim/relay`, `@asterim/marketing` — all
+`tsc --noEmit` (or `tsc -b`) with no output.
 
----
+**Lint — 0 errors everywhere**
 
-<<<<<<< HEAD
-### 3.1 What the audit re-derived rather than inherited
+| Workspace | Result |
+| :--- | :--- |
+| `asterim` | 312 problems (0 errors) |
+| `@asterim/web` | 311 problems (0 errors) |
+| `@asterim/shared` | 3 problems (0 errors) |
+| `@asterim/adapters` | 28 problems (0 errors) |
+| `@asterim/mcp-memory-server` | 12 problems (0 errors) |
+| `@asterim/marketing` | 18 problems (0 errors) |
+| `@asterim/relay` | clean |
 
-Every matrix row cites a file and line read in this session. Specifically re-verified against source
-rather than accepted from the P10-01/P10-02 reports:
+The two `react-refresh/only-export-components` warnings on `ChannelBadge.tsx`
+join 82 pre-existing instances of the same warning in the dashboard.
 
-- **The EventBus subscriptions are real events.** The P10-01 brief named `agent:approval_required`
-  and `verification.failed`; neither exists. Grep against the publishers confirms the implementation
-  subscribes to `agent.approval_request` (`ApprovalManager.ts:435`), `delegation.completed` and
-  `delegation.batch_completed` (`packages/shared/src/types/delegation.ts:346,356`), and derives
-  `PIPELINE_FAILED` from the `verificationReport` on a completed delegation. Same coverage, correct
-  names — audited and accepted, recorded as observation §8.4.
-- **Design-token compliance.** `DesktopDaemonCard.tsx` and `useDesktopStore.ts` were grepped for hex
-  and `rgb`/`rgba` literals: **zero of each**. All seven referenced custom properties were confirmed
-  to exist in `apps/web/src/styles/tokens.css`. One hex literal *was* introduced in
-  `EnvironmentSettingsView.tsx:943` — observation §8.2.
-- **Operator reachability.** `DeveloperSettings.tsx` is still imported by nothing; the card is
-  reachable through the `Workstation Daemon` tab in `EnvironmentSettingsView.tsx:209,941`.
-- **No new dependency.** `git diff HEAD~4 HEAD -- apps/*/package.json` touches only the two `test`
-  script chains.
+**Build — every workspace built**
 
-### 3.2 The live pass (`scratch/p10-live-gate.ts`, 67 checks)
+`@asterim/shared`, `@asterim/adapters`, `@asterim/web` (vite + PWA precache),
+`asterim` (tsup, 990 KB, web copied into `dist/web`), `@asterim/relay`,
+`@asterim/marketing`, `@asterim/mcp-memory-server`. The built server bundle
+contains both the `.asterim-dev` path and the `system/channel` route.
 
-The unit suites deliberately fake process launch and inject the platform — correct for a unit suite,
-and it leaves the packaged artefact untested. The live driver closes that:
-
-1. **Artefacts (7).** `dist/index.js`, `bin.asterim → ./dist/index.js`, `files:["dist"]`,
-   `dist/web/index.html` containing a real root node, the hashed asset bundle, `sw.js`.
-2. **The argv boundary, for real (2).** `execFile('/bin/echo', ['"; touch …; echo "'])` on this host:
-   the argument came back intact and the sentinel file was never created — the shell-injection
-   property proven with a real process rather than by inspecting a recorder.
-3. **Packaged boot + SPA (14).** `apps/server/dist/index.js` spawned under `NODE_ENV=production`.
-   `/` serves the dashboard; a deep client route serves **byte-identical** `index.html`; the hashed
-   bundle is served as JavaScript; an unknown `/api` route is a JSON **404**, not the SPA shell; all
-   six desktop routes answer **401** anonymously.
-4. **Paired live status (22).** The real PIN was read from the Core's own `pairing_pin.txt`, exchanged
-   at `POST /api/v1/auth/pair`, and used to read `GET /api/v1/desktop/status`. Platform, `isHeadless`,
-   `dataDir` and `webUrl` all match this run exactly; tray state `ONLINE`; RSS > 0; uptime ≥ 0; vault
-   `ENCRYPTED`; five menu rows in the declared order. The **raw HTTP body** carries neither the
-   bearer token used to fetch it, nor a `vault:v1:` envelope, nor the PIN.
-5. **Notify validation & headless skip (8).** Missing / whitespace-only title and non-string body all
-   400; a valid call on a headless host is a **200 with `dispatched:false, skipped:'HEADLESS',
-   success:true`**; an unrecognised `type` is coerced to `SYSTEM` rather than rejected.
-6. **Autostart validation & no client path (5).** Missing and non-boolean `enabled` both 400;
-   `POST /open-data-dir` with `{path:'/etc', target:'/etc/shadow'}` is accepted, ignored, and the
-   Core answers about its own directory.
-7. **Crash safety (4).** After every route was exercised, `/health` is still 200, the child is alive,
-   `desktopRoutes` registered at boot, and no `[DesktopRoute]` failure was logged.
-8. **The development posture (4).** A second Core under `NODE_ENV=development` serves
-   `/api/v1/desktop/status` *and* `/api/v1/security/vault-status` without a token — evidencing that
-   this is the shared `authMiddleware` fallback and not a desktop-route exemption (observation §8.1).
-
-Both boots used throwaway `ASTERIM_DATA_DIR`s, removed afterwards, and forced `ASTERIM_HEADLESS=true`
-so no check could put a real toast on the operator's screen.
-
----
-=======
-## 3. Remaining Legacy Work
-
-### P0 — Release / Security / Correctness Blockers
-1. **Single SQLite Database Collision Risk**: Development builds and test suites touch production `~/.asterim/asterim.db`. *Assigned to Phase 7*.
-2. **Unversioned Ad-Hoc Migrations**: `DatabaseService.ts` relies on raw `ALTER TABLE ... try/catch`. *Assigned to Phase 7 (MigrationEngine)*.
-3. **Orphan Worktree Recovery on Crash**: Boot-time detection and pruning of dead `.asterim/worktrees/` directories after unclean server termination. *Assigned to Phase 7*.
-
-### P1 — Important Production Work
-1. **Windows Signal Timing Assertions in Test Suites**: Guard Win32 `TerminateProcess()` timing discrepancies in unit test assertions.
-2. **Socket Disconnection State Re-Attachment**: Ensure browser UI re-synchronizes pending approval states seamlessly on WebSocket reconnect.
-
-### P2 — Future Improvements & Non-Critical Polish
-1. **Visual Canvas Workflow Builder**: Replaced by declarative YAML pipelines (`.asterim/pipelines/*.yaml`); visual drag-and-drop editor deferred post-Phase 10.
-2. **Proprietary Extension Marketplace**: Superseded by standard Git-based Skills repositories. Declared **OBSOLETE**.
+**Not run:** a live browser/puppeteer capture of the badge against a running
+dev-channel Core. The sandbox denied launching `node dist/index.js`, so the Core
+could not be started on 3001 in this session. `scratch/p7-01-channel-smoke.sh`
+was left in place to perform exactly that check (start the built Core on the dev
+channel against a throwaway `HOME`, curl the endpoint, confirm `~/.asterim` was
+never created) when it can be executed. In its place, the same three properties
+are asserted in-process by `ChannelIsolation.test.ts`, which constructs real
+`DatabaseService` instances against a fake `HOME`.
 
 ---
 
-## 4. Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation
+## 5. Acceptance Criteria Review
 
-* **Goal**: Complete runtime separation between Stable and Development channels, implement a versioned SQL migration engine, and eliminate database corruption risks during active development.
-* **Deliverables**:
-  - `ASTERIM_CHANNEL=stable|dev` environment governance.
-  - Isolated data directories (`~/.asterim` for Stable, `~/.asterim-dev` for Development).
-  - Dedicated port and loopback descriptor separation (Port 3000 vs 3001).
-  - Versioned SQL `MigrationEngine.ts` with `schema_migrations` tracking, SHA-256 checksum validation, and automated rollback.
-  - Snapshot & backup CLI utilities (`asterim db:snapshot`, `asterim db:migrate`).
-  - Worktree orphan boot-time cleanup hook.
-* **Complexity**: **MEDIUM** (2 Sprints).
-
----
-
-## 5. Phase 8 — Collaborative Team Agents & Multi-User Governance
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
-
-* **Goal**: Enable engineering teams to collaborate with shared, persistent AI agents with turn concurrency locks, team-wide project memory, and role-based approval governance under local-first sovereignty.
-* **Deliverables**:
-  - `TeamAgentService.ts` and SQLite schema (`team_agents`, `team_threads`, `team_turn_queue`).
-  - `AgentTurnLock.ts` FIFO concurrency queue preventing simultaneous prompt collisions.
-  - Collaborative Web UI with team agent explorer, active turn queue, and multi-user presence indicators.
-  - Role-based approval governance (Owner/Admin approval gates for destructive tool calls).
-  - LAN ZeroConf discovery and blind E2E Encrypted Cloud Relay tunnels (`DEC-028` compliant).
-* **Complexity**: **HIGH** (3-4 Sprints).
-
-<<<<<<< HEAD
-Everything below was executed in this session. Nothing is quoted from a prior report.
-
-### 4.1 Phase 10 specialised suites
-
-```
-pnpm --filter asterim exec tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts
-  → 207/207 assertions passed   (exit 0)
-
-pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts
-  → 207/207 assertions passed   (exit 0)
-```
-
-### 4.2 Monorepo gates, per workspace (Turbo cache bypassed)
-
-| Gate | Command | Result |
-| :--- | :--- | :--- |
-| Typecheck | `pnpm --filter "*" run typecheck` | **PASS** — shared, relay, marketing, web, adapters, server, mcp-memory-server all `Done`; **0 errors** |
-| Lint | `pnpm --filter "*" run lint` | **PASS** — `0 errors` in all 7: shared 3 / adapters 28 / marketing 18 / web 309 / server 312 / mcp-memory-server 12 warnings = **682 warnings, 0 errors** |
-| Test | `pnpm --filter "*" run test` | **PASS** — **43 suites, 5,297 assertions, 0 failures** |
-| Build | `pnpm --filter "*" run build` | **PASS** — 7/7; web `✓ built in 7.53s` + PWA precache 11 entries; server `tsup` CJS `dist/index.js 987.10 KB` then `dist/web` copy; mcp-memory-server `dist/index.js 88.54 KB` |
-
-### 4.3 Turbo aggregate form (the literal commands in the brief)
-
-```
-pnpm typecheck  → Tasks: 11 successful, 11 total
-pnpm lint       → Tasks:  7 successful,  7 total
-pnpm test       → Tasks:  9 successful,  9 total
-pnpm build      → Tasks:  7 successful,  7 total
-```
-
-*(These four ran from a warm cache, which is why §4.2 was run first and uncached — the aggregate is
-recorded for completeness, not as the evidence.)*
-
-### 4.4 Suite census — 43 suites, 5,297 assertions
-
-| Workspace | Suites | Assertions |
-| :--- | :-: | ---: |
-| `asterim` (server) | 24 | 2,995 |
-| `@asterim/web` | 10 | 1,854 |
-| `@asterim/mcp-memory-server` | 7 | 348 |
-| `@asterim/relay` | 1 | 71 |
-| `@asterim/adapters` | 1 | 29 |
-| **Total** | **43** | **5,297** |
-
-The per-suite breakdown is §4 of `docs/phase10-production-gate.md`. `@asterim/shared`,
-`@asterim/marketing` and `@asterim/eslint-config` declare no `test` script.
-
-### 4.5 Live pass over the packaged distribution
-
-```
-pnpm --filter asterim exec tsx ../../scratch/p10-live-gate.ts
-  → 67/67 live checks passed
-```
-
-=======
----
-
-## 6. Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution
-
-* **Goal**: Scale multi-agent workflows into automated, event-driven engineering pipelines executing across isolated Git worktrees with automated verification gates and pull request synthesis.
-* **Deliverables**:
-  - Declarative YAML pipeline engine (`PipelineEngine.ts` parsing `.asterim/pipelines/*.yaml`).
-  - Multi-worktree fleet orchestrator provisioning concurrent sandboxes without git collisions.
-  - Automated verification pipeline toolchain integration (typecheck, lint, test, build).
-  - Pipeline DAG execution dashboard with live step progress and automated PR synthesis.
-* **Complexity**: **HIGH** (3 Sprints).
-
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
----
-
-## 7. Phase 10 — Enterprise Fleet Deployment, Air-Gapped Sovereign Appliances & GA Packaging
-
-<<<<<<< HEAD
-- [x] **1 — `docs/phase10-production-gate.md` is authored with complete subsystem audit matrices, workstream audits (P10-01 and P10-02) and verification evidence.**
-  Created. Contains the executive verdict, a **25-row subsystem audit matrix** covering every
-  subsystem the brief listed (daemon management, OS notifications engine, tray state protocol,
-  auto-start lifecycle, desktop REST surface, shared domain contracts, workstation UI & operator
-  controls, standalone binary packaging & SPA distribution), the per-workstream acceptance-criteria
-  audit (§3.1 P10-01, §3.2 P10-02), the full test census (§4), 11 desktop invariant verifications
-  (§5), the live packaged-distribution pass (§6), reproduction commands (§7), 8 observations (§8)
-  and the sign-off table (§9).
-- [x] **2 — Both Phase 10 workstreams (P10-01, P10-02) are audited and verified against their acceptance criteria.**
-  Each brief was recovered from its dispatch commit (`git show ff079cb:tasks/current.md`,
-  `git show c00c1a7:tasks/current.md`) and each criterion quoted and re-verified against source at
-  `8e89347`. **P10-01: 6/6 PASS. P10-02: 6/6 PASS.** Two scope divergences in P10-01 (the brief's
-  non-existent event names; a sixth route `open-log` beyond the five specified) are recorded,
-  justified and accepted in §3.1.
-- [x] **3 — 0 TypeScript compiler errors across all packages.**
-  `pnpm --filter "*" run typecheck` — 7/7 packages `Done`, 0 errors. `pnpm typecheck` — 11/11 tasks.
-- [x] **4 — 0 ESLint errors across all packages.**
-  `pnpm --filter "*" run lint` — every workspace reports `0 errors`; 682 warnings, all pre-existing
-  `no-explicit-any` / `no-unused-vars`. `pnpm lint` — 7/7 tasks.
-- [x] **5 — All automated test suites pass with 0 failures (43 suites).**
-  `pnpm --filter "*" run test` — 43 summary lines observed and tabulated (§4.4), 5,297 assertions,
-  **0 failures**. Both Phase 10 suites at 207/207 individually (§4.1).
-- [x] **6 — Monorepo production build succeeds cleanly.**
-  `pnpm --filter "*" run build` — 7/7 packages, every artefact produced; `pnpm build` — 7/7 tasks.
-  Additionally verified **beyond** the criterion: the produced binary boots and serves the SPA
-  (§4.5).
+- [x] **1. `getAsterimChannel()` correctly identifies `stable` vs `dev` from the environment** — 11 assertions in `ChannelIsolation.test.ts` § *"getAsterimChannel: an explicit channel wins, NODE_ENV decides otherwise"*: explicit `stable`/`dev`, explicit beating `NODE_ENV` in both directions, `NODE_ENV=development` → dev, `NODE_ENV=production` → stable, nothing set → stable, and two misspelling cases that must fall through rather than be guessed at.
+- [x] **2. `resolveDataDir()` resolves `~/.asterim` for Stable and `~/.asterim-dev` for Development by default** — 6 assertions against a fake `HOME` (`stable resolves to ~/.asterim`, `dev resolves to ~/.asterim-dev`, the two never coincide, dev is not nested inside stable, explicit channel argument, `NODE_ENV` alone moves it), plus 4 more proving `ASTERIM_DATA_DIR` still outranks the channel.
+- [x] **3. `GET /api/v1/system/channel` returns accurate channel and data directory metadata** — 13 assertions through `fastify.inject()` against the real `systemRoutes`: 200 on both channels, `channel`/`isDev`/`dataDir`/`port`/`version` correct for each, the `ASTERIM_DATA_DIR` override reflected, and a request carrying attacker-supplied `channel`/`dataDir` query and header values proving nothing the caller sends changes the answer.
+- [x] **4. Web UI displays the `[DEV-CHANNEL]` badge when connected to a development backend** — `ChannelBadge.test.ts`: the predicate (dev badged, stable not, null not), the tooltip naming the data directory/port/version, real `react-dom/server` markup containing `[DEV-CHANNEL]` and using `var(--color-state-paused)` rather than a hardcoded hex, and — layer 3 — the real `TopBar` rendered with a dev `ChannelInfo`, asserting the badge appears *inside* the `<header>` and is absent for stable and for a Core that has not answered.
+- [x] **5. `ChannelIsolation.test.ts` passes with comprehensive assertions** — 90/90. Beyond resolution and precedence it covers the real consumers (`ServerRegistry.filePath`, `globalSkillsDir`, `DesktopDaemonService.webUrl`/`logFilePath` on both channels) and physical isolation: a dev-channel `DatabaseService` creates `~/.asterim-dev` at `0700` with the database at `0600`, and `~/.asterim` is asserted **not to exist** afterwards.
+- [x] **6. Monorepo CI gates pass with 0 errors** — typecheck clean in all 7 workspaces; lint 0 errors in all 7; 0 failed assertions across all 44 test suites; every workspace builds. Command-by-command results in § 4. (Root `pnpm run …` wrappers were sandbox-blocked; each workspace was run directly with the identical underlying command.)
 
 ### Definition of Done
 
-- [x] `docs/phase10-production-gate.md` created and complete
-- [x] Monorepo typecheck clean (0 errors)
-- [x] Monorepo lint clean (0 errors)
-- [x] Full test battery passing (0 failures, 43 suites)
-- [x] Production build clean
+- [x] Shared channel types and constants added to `@asterim/shared`
+- [x] `getAsterimChannel()` and channel-aware `resolveDataDir()` implemented
+- [x] Core services updated — `DatabaseService` (direct), `ServerRegistry` / `SecretVaultService` / `DesktopDaemonService` (via the shared resolver, asserted), `SkillService` (duplicate resolver removed), plus `logger` and the crash handler
+- [x] `GET /api/v1/system/channel` endpoint registered
+- [x] Web UI `[DEV-CHANNEL]` badge rendered
+- [x] `ChannelIsolation.test.ts` created and passing, wired into `apps/server` `test`
+- [x] Monorepo CI gates pass cleanly
 
-=======
-* **Goal**: Package Asterim for universal commercial distribution, delivering cross-platform native desktop installers, single-binary sovereign appliances, enterprise fleet administration, and formal General Availability (GA) certification.
-* **Deliverables**:
-  - Native desktop installers with background system tray service (Windows MSI, macOS DMG/LaunchAgent, Linux AppImage/deb).
-  - Single-container sovereign appliance Docker image (`asterim-sovereign`) with local LLM connectors for 100% offline air-gapped server racks.
-  - Enterprise fleet policy configuration (`asterim.policy.json`) and structured audit log exporter (SIEM/Syslog).
-  - Public GA release certification and security compliance documentation.
-* **Complexity**: **HIGH** (3 Sprints).
-
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
 ---
 
-## 8. Major Proposed Architectural Decisions
+## 6. Git Diff Review
 
-<<<<<<< HEAD
-`git status` before the audit: clean apart from `tests/report.md`. `git diff` was reviewed against
-every acceptance criterion and every constraint in §5 of the brief.
+`git diff` was read in full against every criterion. Three issues were found by
+that review and fixed before this report:
 
-- **Committed by this task: one file.** `docs/phase10-production-gate.md` (new), plus this report.
-- **No product code touched.** No `.ts`/`.tsx` under `apps/` or `packages/`, no `package.json`, no
-  config, no blueprint document, no `decisions.md` entry.
-- **No desktop validation rule, error-handling path or security boundary weakened** — nothing in
-  those files was edited at all.
-- **No arbitrary docs created.** `docs/phase10-production-gate.md` is the exact path the brief
-  specified; nothing else was added under `docs/`.
-- **Nothing stray committed.** The two audit helpers live in `scratch/`, which `.gitignore:51`
-  excludes and no build reads — the same arrangement as the P9-04 gate.
-- **`tests/report.md` left untouched.** It carries the uncommitted P10-02 test-gate record from the
-  prior verification session. It is not this task's artefact, so it was neither modified nor
-  committed; it remains in the working tree for the orchestrator to dispose of.
+1. **`useChannel` asked the wrong Core.** It initially routed through
+   `resolveBackendUrl()`, which hardcodes port 3000. A dashboard served by a
+   development Core on 3001 would have queried the *stable* Core and never
+   badged itself — silently failing criterion 4 in exactly the situation it
+   exists for. Now same-origin unless an explicit workstation URL is given.
+2. **Child processes lost the channel.** `sanitizeAgentEnv`'s allow-list held
+   only `ASTERIM_DATA_DIR`, so a dev-channel Core would spawn MCP memory servers
+   that opened `~/.asterim`. Fixed in `ProcessManager.ts`, with assertions added
+   in both the adapters and MCP supervisor suites.
+3. **A reworded log line broke another package.** Changing the
+   `[Database] Using database at:` prefix broke four assertions in
+   `@asterim/mcp-memory-server`, which depend on that exact string to prove the
+   stdio guard routes it to stderr. The prefix is restored verbatim and the
+   channel appended as a suffix. Worth recording: those suites run the *built*
+   `dist/index.js`, so a stale build masked the breakage on the first run — the
+   package must be rebuilt before its tests are trusted.
 
-=======
-* **PROPOSED DEC-029**: Stable vs Development Release Channels & Data Directory Isolation (`~/.asterim` vs `~/.asterim-dev`).
-* **PROPOSED DEC-030**: Versioned Forward Migration Engine & Database Compatibility Standard (`MigrationEngine.ts` with `schema_migrations`).
-* **PROPOSED DEC-031**: Shared Team Agent Primitive, Turn Locking & Multi-User Event Synchronization (`TeamAgent` + `AgentTurnLock`).
-* **PROPOSED DEC-032**: Local-First Team Collaboration Security & Cloud Relay E2E Boundary (Blind E2E tunnels, zero cloud code persistence).
+No forbidden changes: `ASTERIM_DATA_DIR` precedence is preserved and directly
+asserted (5 assertions); nothing under `~/.asterim` is written on the dev
+channel, asserted by absence; no migration framework, no schema change, no
+credential handling touched; no new dependencies. `.env.example` was left alone
+(it is documented as stale and was out of scope).
 
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
 ---
 
-## 9. Human Review Required
+## 7. Problems Discovered
 
-<<<<<<< HEAD
-1. **The desktop REST surface is only authenticated under `NODE_ENV=production`.** The first live
-   run returned 200 to every anonymous desktop request. The cause is not in the desktop routes:
-   `authMiddleware.ts:76` hands every `/api/v1/*` caller a fully-entitled `defaultDevUser` whenever
-   `NODE_ENV !== 'production'`, and neither the `dev` nor the `build` script sets it. That posture is
-   pre-existing and repo-wide — the live pass confirms `/api/v1/security/vault-status` behaves
-   identically — but Phase 10 changes what it exposes: an unauthenticated caller on any interface
-   (`index.ts:246` binds `::`) can now launch processes on the operator's desktop and write an OS
-   login entry. The gate re-ran under `NODE_ENV=production`, where all six routes correctly 401.
-   Recorded as observation §8.1 with a recommendation; **not fixed here**, because narrowing the
-   auth fallback is an architectural change to a shared middleware and belongs in a task of its own.
-2. **`initLogger` ignores `ASTERIM_DATA_DIR`.** `utils/logger.ts:48` writes to
-   `os.homedir()/.asterim/server.log` unconditionally and truncates it on every start. Two
-   consequences: the live driver's first attempt to read the child's boot log from its temp data
-   directory found nothing (fixed in the driver by reading both locations), and **this audit's two
-   live boots truncated and overwrote the workstation's own `~/.asterim/server.log`** — a
-   development log, not data, but a real side effect worth stating plainly. No Phase 10 defect
-   follows from it: `DesktopDaemonService.logFilePath:347` already checks the data directory first
-   and falls back to `~/.asterim`, so `View Server Log` opens the right file either way. Recorded as
-   observation §8.5.
-3. **`PairingService` writes `pairing_pin.txt` to `process.cwd()`, not the data directory**
-   (`PairingService.ts:82`). The first live boot therefore dropped a PIN file into `apps/server/dist/`.
-   The driver now runs each child with its cwd set to its own temp data directory and removes any
-   stray copy on start; `apps/server/dist/` was verified clean afterwards. `dist/` is git-ignored, so
-   nothing leaked into the repository.
-4. **`.claude/settings.json` does not allow the `pnpm run <script>` spelling.** The brief's literal
-   commands (`pnpm run typecheck`, etc.) are rejected at the permission layer; the allowlist has
-   `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` and `pnpm --filter *`. Both accepted
-   spellings were run, which is strictly stronger than the brief asked for. The P10-02 report and the
-   P10-02 test gate flagged the same friction — aligning the allowlist or the brief wording would
-   settle it.
-5. **`pnpm typecheck -- --force` does not do what it looks like.** The `--` forwards `--force` to the
-   underlying script rather than to Turbo, so `tsc` receives it and fails with `TS5093`. The gates
-   were instead run per workspace (`pnpm --filter "*" run …`), which bypasses the Turbo cache
-   entirely and is the stronger form.
+* **`CLAUDE.md` § Commands is wrong about testing.** It states there is "no test
+  runner or test script anywhere in the repo" and that CI runs only lint and
+  build. In fact `asterim`, `@asterim/web`, `@asterim/adapters` and
+  `@asterim/mcp-memory-server` all have substantial `test` scripts (44 suites,
+  several thousand assertions) driven by `tsx`, and `turbo.json` defines a `test`
+  task. Worth correcting so future tasks do not skip the gate.
+* **Stale build artefacts are load-bearing.** `@asterim/mcp-memory-server`'s
+  suites spawn `dist/index.js`, so they silently test old code until the package
+  is rebuilt. This produced a false pass and then a confusing false failure
+  during this task.
+* **The dashboard's `resolveBackendUrl()` hardcodes port 3000.** It is correct
+  today only because the stable Core is the only one that has ever existed. Any
+  future store or hook that uses it against a non-3000 Core will address the
+  wrong process. Left as-is here — changing it is outside this task's scope.
 
 ---
 
 ## 8. Architectural Concerns
 
-Full detail in §8 of `docs/phase10-production-gate.md`. Ranked by what needs a decision:
-
-1. **The `NODE_ENV` auth fallback (§8.1).** Worth an explicit decision before any public release:
-   either the packaged binary defaults to `NODE_ENV=production`, or the dev fallback is narrowed to
-   loopback sources. The desktop routes raised the stakes; they did not create the gap.
-2. **`EnvironmentSettingsView.tsx` design-token debt (§8.2).** 23 hex literals, one of them added by
-   P10-02. Not fixed here — a single tokenised line among 22 raw ones is worse than either
-   endpoint. Worth a dedicated one-pass migration task.
-3. **`DeveloperSettings.tsx` is still orphaned (§8.3).** Two consecutive phase briefs have now named
-   it as an integration point. Delete it or route to it before a third does.
-4. **Brief-vs-code event naming drift (§8.4).** The P10-01 brief's event names were wrong and the
-   error propagated into the P10-03 brief. A pass over the phase plan to quote real event names
-   would stop it recurring.
-5. **Tray status is pull-only (§8.6).** Fine for a polled card; a native tray shell will want a
-   `desktop.status_changed` event rather than a shorter poll interval.
-6. **`setPaused` has no writer (§8.7).** `PAUSED` is unreachable in production today. Deliberate and
-   documented — recorded so it is not mistaken for dead code and deleted.
-7. **`&&`-chained `test` scripts (§8.8).** A red run reports partial results. Repo-wide, long-standing.
+1. **`ASTERIM_CHANNEL` should probably be set by `pnpm dev`.** `DEC-029` says the
+   development channel is "activated via `ASTERIM_CHANNEL=dev` **or `pnpm dev`**".
+   Today `pnpm dev` sets neither `ASTERIM_CHANNEL` nor `NODE_ENV`, so it still
+   resolves to `stable` — the fallback rule is in place, but the trigger the
+   decision names is not wired. Adding `ASTERIM_CHANNEL=dev` to the `dev` scripts
+   in `apps/server` and `apps/web` would complete it, and would move every
+   developer's daily `pnpm dev` onto `~/.asterim-dev` and port 3001. That is a
+   deliberate behaviour change for every contributor and it contradicts the ports
+   documented in `CLAUDE.md`, so it is left for Antigravity to approve rather than
+   done silently here.
+2. **`resolveDataDir` is now re-exported from `DatabaseService`** for backward
+   compatibility with ~6 importers. A follow-up could repoint those imports at
+   `utils/channel` and drop the re-export, so the database module is not the
+   apparent owner of a path decision it no longer makes.
+3. **`DEC-030` (migration engine) will interact with this.** Pre-migration
+   snapshots (`asterim.db.bak.<timestamp>`) must be written to the *channel's*
+   data directory. Since they will be joined onto `resolveDataDir()`, that comes
+   for free — worth stating explicitly in the P7-02 task so it is not
+   re-derived.
 
 ---
 
 ## 9. Recommended Next Step
 
-Phase 10 is signed off. Recommended sequence:
+Proceed to the Phase 7 migration-engine task (`DEC-030`): the versioned forward
+migration engine with `schema_migrations`, SHA-256 checksums, transactional
+rollback and pre-migration snapshots, replacing the ad-hoc
+`ALTER TABLE … try/catch` blocks in `DatabaseService.init()`. Channel isolation
+is a prerequisite that is now in place — migrations can be exercised on
+`~/.asterim-dev` without any risk to the operator's stable database.
 
-1. **Orchestrator review of this gate** against `docs/phase10-production-gate.md` and the diff (one
-   new document).
-2. **A hardening task for observation §8.1** — decide and implement the `NODE_ENV` / loopback policy
-   for the authenticated REST surface. This is the only finding with a security dimension, it is
-   cheap to fix, and it is the sort of thing that should not be discovered after a binary ships.
-3. **Phase 11 dispatch.** The desktop vertical's natural continuation is the native shell that
-   consumes the tray protocol P10-01 already publishes — the Core owns the state and the commands,
-   and nothing renders them as an actual tray icon yet. A `desktop.status_changed` event (§8.6) and a
-   writer for `setPaused` (§8.7) would land naturally with it.
-4. **Optional housekeeping**, if the orchestrator wants it as its own task: the
-   `EnvironmentSettingsView.tsx` token migration (§8.2) and the `DeveloperSettings.tsx` disposition
-   (§8.3).
-=======
-This concludes the Post-Phase-6 Roadmap Reconciliation and Strategic Planning task.
-
-**HUMAN REVIEW GATE**:
-- Antigravity is halted and awaiting human operator review and sign-off on [`docs/phase5-10-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-10-reconciliation.md) and [`docs/phase7-10-roadmap.md`](file:///c:/Projects/Asterim/docs/phase7-10-roadmap.md).
-- No implementation tasks have been dispatched.
-- Upon human approval, the first vertical implementation task for Phase 7 (Task P7-01: Channel Runtime Isolation & Migration Engine) will be decomposed and dispatched to `tasks/current.md`.
->>>>>>> 77e0e23074b35f3b54ab4b7b2b2eb0bceba9fe2e
+Separately, a decision is requested on § 8.1 (whether `pnpm dev` should export
+`ASTERIM_CHANNEL=dev`).

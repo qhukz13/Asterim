@@ -21,9 +21,9 @@
  */
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { SkillDefinition, SkillExecutionResult, SkillScope, isSkillToolName, SKILL_TOOL_PREFIX } from '@asterim/shared';
+import { resolveDataDir } from '../../utils/channel';
 import { parseFrontmatter, YamlMapping, YamlValue } from './SkillFrontmatter';
 import { validateToolArguments } from '../mcp/SchemaValidator';
 
@@ -77,12 +77,6 @@ const SCHEMA_KEYS = [
  * no whitespace, no quotes, nothing that would end the token early.
  */
 const VALID_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/** Where the Asterim data directory lives — the same rule the database uses. */
-function resolveDataDir(): string {
-  const envDir = process.env.ASTERIM_DATA_DIR;
-  return envDir ? path.resolve(envDir) : path.join(os.homedir(), '.asterim');
-}
 
 /** The workstation-wide skills directory, `~/.asterim/skills` by default. */
 export function globalSkillsDir(): string {
