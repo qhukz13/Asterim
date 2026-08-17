@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { isSovereignMode, announceSovereignBlock } from './SovereignMode';
 import { dbService } from './DatabaseService';
+import { secretVault } from './security/SecretVaultService';
 import { eventBus } from './EventBus';
 import { AsterimEvent, ApprovalRequestPayload } from '@asterim/shared';
 
@@ -13,15 +14,31 @@ export class PushService {
     this.setupListeners();
   }
 
+  /**
+   * The VAPID pair identifies this Core to the push gateways; its private half
+   * is a signing key and is stored through the vault (P9-01) rather than as a
+   * plaintext JSON blob in `settings`.
+   *
+   * A pair that cannot be read back — an unparseable row, or a vault key that
+   * no longer matches this machine — is replaced. Existing browser
+   * subscriptions were bound to the old public key and stop working either way,
+   * so a fresh pair is the only state from which push can work again.
+   */
   private init() {
-    const db = dbService.getDb();
+    const stored = secretVault.getSecret('vapid_keys');
+    let keys: { publicKey?: string; privateKey?: string } | null = null;
 
-    // Check if VAPID keys exist
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('vapid_keys') as
-      { value: string } | undefined;
+    if (stored) {
+      try {
+        keys = JSON.parse(stored);
+      } catch (err) {
+        console.error(
+          `[PushService] Stored VAPID keys are unreadable (${(err as Error).message}); generating a new pair.`
+        );
+      }
+    }
 
-    if (row) {
-      const keys = JSON.parse(row.value);
+    if (keys && keys.publicKey && keys.privateKey) {
       this.vapidPublicKey = keys.publicKey;
       this.vapidPrivateKey = keys.privateKey;
     } else {
@@ -29,11 +46,7 @@ export class PushService {
       const vapidKeys = webpush.generateVAPIDKeys();
       this.vapidPublicKey = vapidKeys.publicKey;
       this.vapidPrivateKey = vapidKeys.privateKey;
-
-      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
-        'vapid_keys',
-        JSON.stringify(vapidKeys)
-      );
+      secretVault.setSecret('vapid_keys', JSON.stringify(vapidKeys));
     }
 
     webpush.setVapidDetails(

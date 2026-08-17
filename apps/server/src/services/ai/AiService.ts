@@ -1,4 +1,5 @@
 import { dbService } from '../DatabaseService';
+import { secretVault } from '../security/SecretVaultService';
 import { IAIProvider } from './IAIProvider';
 import { GeminiProvider } from './providers/GeminiProvider';
 import { ActiveAgentProvider } from './providers/ActiveAgentProvider';
@@ -31,9 +32,13 @@ class AiService {
       const query = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'ai_%'");
       const rows = query.all() as { key: string; value: string }[];
       
+      // `ai_api_key` is held as a vault envelope (P9-01) while `ai_provider`
+      // and `ai_model` are plain configuration, and both arrive in this one
+      // result set — so every row is offered to the vault and only envelopes
+      // are decrypted.
       const config: Record<string, string> = {};
       for (const row of rows) {
-        config[row.key] = row.value;
+        config[row.key] = secretVault.decryptIfEnvelope(row.value, row.key);
       }
 
       // DEC-028 § 3: sovereign mode "enforces local CLI execution via

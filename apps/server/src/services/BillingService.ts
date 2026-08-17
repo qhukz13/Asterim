@@ -1,4 +1,5 @@
 import { dbService } from './DatabaseService';
+import { secretVault } from './security/SecretVaultService';
 import { entitlementService } from './EntitlementService';
 import { PLANS } from './PlanService';
 import { BillingStatus, FeatureEntitlement, PlanTier, SubscriptionStatus } from '@asterim/shared';
@@ -156,12 +157,12 @@ export interface BillingServiceOptions {
 }
 
 export class BillingService {
-  private readonly secretKey?: string;
+  private readonly injectedSecretKey?: string;
   private readonly priceIds: Partial<Record<PlanTier, string>>;
   private readonly injectedGateway?: StripeGateway;
 
   constructor(options: BillingServiceOptions = {}) {
-    this.secretKey = options.secretKey ?? process.env.STRIPE_SECRET_KEY;
+    this.injectedSecretKey = options.secretKey;
     this.priceIds = options.priceIds ?? {
       pro: process.env.STRIPE_PRICE_PRO,
       team: process.env.STRIPE_PRICE_TEAM
@@ -169,20 +170,36 @@ export class BillingService {
     this.injectedGateway = options.gateway;
   }
 
+  /**
+   * The Stripe secret key, in the order a deployment is allowed to supply it:
+   * injected by a test, then the environment, then the vault (P9-01).
+   *
+   * Resolved on each use rather than in the constructor so that a key stored
+   * through the vault after the process started is picked up, and so that
+   * constructing a BillingService — which every import of this module does —
+   * does not read the database.
+   */
+  private resolveSecretKey(): string | undefined {
+    if (this.injectedSecretKey) return this.injectedSecretKey;
+    if (process.env.STRIPE_SECRET_KEY) return process.env.STRIPE_SECRET_KEY;
+    return secretVault.getSecret('stripe_secret_key') ?? undefined;
+  }
+
   /** True when this deployment can actually start a checkout. */
   public isConfigured(): boolean {
-    return Boolean(this.injectedGateway || this.secretKey);
+    return Boolean(this.injectedGateway || this.resolveSecretKey());
   }
 
   private gateway(): StripeGateway {
     if (this.injectedGateway) return this.injectedGateway;
-    if (!this.secretKey) {
+    const secretKey = this.resolveSecretKey();
+    if (!secretKey) {
       throw new BillingError(
         'STRIPE_NOT_CONFIGURED',
         'Billing is not configured on this server. Set STRIPE_SECRET_KEY to enable checkout. The Community edition remains fully available without it.'
       );
     }
-    return new HttpStripeGateway(this.secretKey);
+    return new HttpStripeGateway(secretKey);
   }
 
   private getAccount(accountId: string): AccountRow {

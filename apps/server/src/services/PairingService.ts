@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { dbService } from './DatabaseService';
+import { secretVault } from './security/SecretVaultService';
 import { printToConsole } from '../utils/logger';
 
 /** Outcome of a single device pairing attempt. */
@@ -63,17 +63,15 @@ export class PairingService {
     // Generate a fresh PIN on startup
     this.currentPin = this.generatePin();
 
-    // Load or generate HMAC secret for session tokens
-    const db = dbService.getDb();
-    const query = db.prepare("SELECT value FROM settings WHERE key = 'hmac_secret'");
-    const row = query.get() as { value: string } | undefined;
-
-    if (row) {
-      this.hmacSecret = row.value;
+    // Load or generate the HMAC secret for session tokens. Encrypted at rest
+    // through the vault (P9-01) — it is what makes a pairing token unforgeable,
+    // so a readable copy of it is as good as the PIN.
+    const stored = secretVault.getSecret('hmac_secret');
+    if (stored) {
+      this.hmacSecret = stored;
     } else {
       this.hmacSecret = crypto.randomBytes(32).toString('hex');
-      const insert = db.prepare("INSERT INTO settings (key, value) VALUES ('hmac_secret', ?)");
-      insert.run(this.hmacSecret);
+      secretVault.setSecret('hmac_secret', this.hmacSecret);
     }
 
     printToConsole('\n=======================================');

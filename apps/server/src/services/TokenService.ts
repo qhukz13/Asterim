@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { dbService } from './DatabaseService';
+import { secretVault } from './security/SecretVaultService';
 import { AccessTokenPayload, RefreshTokenPayload } from '@asterim/shared';
 
 export class TokenService {
@@ -9,18 +9,24 @@ export class TokenService {
     this.initSecret();
   }
 
+  /**
+   * The HS256 signing key for every access and refresh token this Core issues.
+   * Held in the vault rather than as a plaintext `settings` row (P9-01): anyone
+   * who could read it could mint a token for any account.
+   *
+   * A vault that cannot return the stored value — a database moved to another
+   * machine, a lost `vault.salt` — yields a fresh secret, which invalidates
+   * outstanding tokens and forces a re-login. That is the correct outcome; the
+   * alternative is a Core that will not start.
+   */
   private initSecret() {
-    const db = dbService.getDb();
-    const query = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'");
-    const row = query.get() as { value: string } | undefined;
-
-    if (row) {
-      this.jwtSecret = row.value;
-    } else {
-      this.jwtSecret = crypto.randomBytes(64).toString('hex');
-      const insert = db.prepare("INSERT INTO settings (key, value) VALUES ('jwt_secret', ?)");
-      insert.run(this.jwtSecret);
+    const stored = secretVault.getSecret('jwt_secret');
+    if (stored) {
+      this.jwtSecret = stored;
+      return;
     }
+    this.jwtSecret = crypto.randomBytes(64).toString('hex');
+    secretVault.setSecret('jwt_secret', this.jwtSecret);
   }
 
   /**

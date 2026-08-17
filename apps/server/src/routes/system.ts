@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { relayClient } from '../services/RelayClient';
 import { pushService } from '../services/PushService';
 import { dbService } from '../services/DatabaseService';
+import { secretVault, SECRET_SETTING_KEYS } from '../services/security/SecretVaultService';
 import { startupService } from '../services/StartupService';
 import { mdnsService } from '../services/mDNSService';
 
@@ -48,8 +49,12 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       const db = dbService.getDb();
       const query = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'ai_%'");
       const rows = query.all() as { key: string; value: string }[];
+      // `ai_api_key` is stored encrypted (P9-01). It is decrypted here so the
+      // settings form still round-trips the value the user entered; the change
+      // is to how the key rests on disk, not to who may read it back over an
+      // already-authenticated request.
       const settings = rows.reduce((acc, row) => {
-        acc[row.key] = row.value;
+        acc[row.key] = secretVault.decryptIfEnvelope(row.value, row.key);
         return acc;
       }, {} as Record<string, string>);
       return { settings };
@@ -68,7 +73,12 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       db.exec('BEGIN');
       try {
         for (const [key, value] of Object.entries(settings)) {
-          if (typeof value === 'string') {
+          if (typeof value !== 'string') continue;
+          // A credential goes in through the vault and lands as an envelope;
+          // ordinary configuration is written as it arrives (P9-01).
+          if ((SECRET_SETTING_KEYS as readonly string[]).includes(key)) {
+            secretVault.setSecret(key, value);
+          } else {
             insert.run(key, value);
           }
         }

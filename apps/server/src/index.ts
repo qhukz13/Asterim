@@ -133,10 +133,19 @@ import contextRoutes from './routes/context';
 import gitRoutes from './routes/git';
 import memoryRoutes from './routes/memory';
 import internalRoutes from './routes/internal';
+import securityRoutes from './routes/security';
+import { secretVault } from './services/security/SecretVaultService';
 import { projectMemoryService } from './services/ProjectMemoryService';
 
 const start = async () => {
   try {
+    // Encrypt anything the vault owns that is still plaintext (P9-01), before
+    // the first request can read it. Services that mint their own secret —
+    // TokenService, PairingService, PushService — have already upgraded their
+    // own row by now through `getSecret`; this sweep covers the ones nothing
+    // reads until it is needed, `ai_api_key` and `stripe_secret_key`.
+    secretVault.migrateLegacyPlaintext();
+
     console.log('[DEBUG] Registering authRoutes');
     await fastify.register(authRoutes);
     console.log('[DEBUG] Registering sessionRoutes');
@@ -173,6 +182,8 @@ const start = async () => {
     await fastify.register(contextRoutes);
     console.log('[DEBUG] Registering memoryRoutes');
     await fastify.register(memoryRoutes);
+    console.log('[DEBUG] Registering securityRoutes');
+    await fastify.register(securityRoutes);
     await fastify.register(internalRoutes);
 
     // Supervised MCP servers are child processes of this one. Closing the
