@@ -1,9 +1,9 @@
-Task-ID: P10-01
+Task-ID: P10-02
 Phase: 10
 
-# [P10-01] — Native Desktop Daemon Management, System Tray & OS Notifications
+# [P10-02] — Workstation Desktop Daemon Dashboard UI & System Controls
 
-**Task ID:** P10-01  
+**Task ID:** P10-02  
 **Phase:** Phase 10 — Desktop Distribution, Native Shell & Release Readiness  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -14,114 +14,117 @@ Phase: 10
 
 ## 1. Objective
 
-Implement the Native Desktop Daemon Management subsystem in `apps/server`: author `DesktopDaemonService.ts` and `DesktopNotificationService.ts` to manage native OS desktop notifications for human approval gates and delegation events, provide cross-platform system tray state generation (Windows, macOS, Linux), configure auto-start on OS login, expose desktop management REST endpoints, and author a comprehensive automated test suite.
+Implement the Workstation Desktop Daemon UI and system control components in `@asterim/web`: author `useDesktopStore.ts` to communicate with the Core desktop REST surface (`/api/v1/desktop/*`), build `DesktopDaemonCard.tsx` to render live daemon state (tray status, thread counts, MCP supervisor health, vault encryption badge, memory usage, uptime, OS login auto-start switch, and native launch actions), integrate into the workstation/settings views, and author a comprehensive automated test suite in `apps/web/src/components/desktop/__tests__/DesktopDaemonUI.test.ts`.
 
 ---
 
 ## 2. Why This Task Exists
 
-Asterim has built an enterprise-grade local-first multi-agent engineering platform: project memory, cross-agent MCP tooling, role profiles, Git worktree sandboxing, automated verification pipelines, and encrypted secret vaults.
+Task P10-01 established the native desktop subsystem on the server, providing OS toast notifications, system tray menu state, launch command runners, and login auto-start configuration across Windows, macOS, and Linux.
 
-However, running Asterim as a foreground terminal process is friction for everyday developer use. Developers require a background desktop service:
-1. Native OS desktop toast notifications when an agent requests approval (`agent:approval_required`) or finishes a long-running batch delegation.
-2. System tray / menu bar integration to monitor status, open the dashboard, inspect logs, or reveal `~/.asterim` in the native file explorer.
-3. Configurable auto-start on user login so Asterim is always ready on the developer's workstation.
+To complete the vertical, developer operators need visibility and control directly from the Asterim Web Dashboard:
+1. Monitoring whether the local desktop daemon is `ONLINE`, `PAUSED`, or `OFFLINE`, and checking memory footprint and active thread/MCP load.
+2. Toggling login auto-start on/off with instant feedback.
+3. Quick actions to reveal the `~/.asterim` data directory in the native file explorer, open the server log file, or test native OS notifications.
 
 ---
 
 ## 3. Context & Architecture
 
-- **Cross-Platform OS Notifications**:
-  - Windows: PowerShell WinRT / `ToastNotification` or native toast fallback.
-  - macOS: `osascript` / `NSUserNotification` fallback.
-  - Linux: `notify-send` / Freedesktop notification spec.
-  - Non-blocking execution: notification dispatches must never block event loops or fail-crash on headless/CI systems.
-- **System Tray Menu & Status Protocol**:
-  - Real-time status model: Core state (`ONLINE` / `PAUSED`), active thread count, active MCP servers count, vault status (`ENCRYPTED`), memory usage.
-  - Quick action commands: Open Dashboard in default browser, Open Data Folder in OS explorer (`explorer.exe` / `open` / `xdg-open`), View Server Log.
-- **Login Auto-Start**:
-  - Windows: HKCU Run registry key (`Software\Microsoft\Windows\CurrentVersion\Run`).
-  - macOS: `~/Library/LaunchAgents/io.asterim.desktop.plist`.
-  - Linux: `~/.config/autostart/asterim.desktop`.
+- **Shared Desktop Types (`@asterim/shared`)**:
+  - Consume `DesktopStatus`, `DesktopTrayStatus`, `DesktopTrayMenuItem`, `DesktopNotificationType`, `DesktopActionResponse`, `DesktopNotifyResponse`, `DesktopAutoStartResponse` from `@asterim/shared`.
+- **Core Desktop REST API (`apps/server/src/routes/desktop.ts`)**:
+  - `GET /api/v1/desktop/status` — Returns `{ desktop: DesktopStatus, menu: DesktopTrayMenuItem[] }`.
+  - `POST /api/v1/desktop/autostart` — Accepts `{ enabled: boolean }`, returns `DesktopAutoStartResponse`.
+  - `POST /api/v1/desktop/open-data-dir` — Launches native file explorer for `~/.asterim`.
+  - `POST /api/v1/desktop/open-log` — Opens `server.log` in native editor.
+  - `POST /api/v1/desktop/notify` — Dispatches test notification `{ title, body, type }`.
+- **UI Design System (`blueprint/DESIGN_SYSTEM.md`)**:
+  - Use monochrome surfaces (`--color-surface-1`, `--color-surface-2`), standard borders (`--color-border-default`, `--color-border-subtle`), and semantic state colors (`--color-state-completed`, `--color-state-paused`, `--color-state-error`).
+  - Follow the pure view + connected container component pattern established by `SecurityStatusCard.tsx` and `EnvironmentSecretsPanel.tsx`.
 
 ---
 
 ## 4. Implementation Scope
 
-1. **Shared Types (`packages/shared/src/types/desktop.ts`)**:
-   - `DesktopStatus`: `isHeadless`, `platform`, `autoStartEnabled`, `trayStatus`, `activeAgentsCount`, `vaultEncrypted`, `webUrl`, `dataDir`.
-   - `DesktopNotificationInput`: `title`, `body`, `type` (`APPROVAL_REQUIRED` | `DELEGATION_COMPLETED` | `PIPELINE_FAILED` | `SYSTEM`), `actionUrl?`.
-   - Export from `packages/shared/src/index.ts`.
+1. **Zustand Desktop Store (`apps/web/src/stores/useDesktopStore.ts`)**:
+   - State:
+     - `status: DesktopStatus | null`
+     - `menu: DesktopTrayMenuItem[]`
+     - `isLoading: boolean`
+     - `isTogglingAutoStart: boolean`
+     - `error: string | null`
+     - `actionNotice: string | null`
+   - Actions:
+     - `fetchStatus(): Promise<void>`
+     - `toggleAutoStart(enabled: boolean): Promise<boolean>`
+     - `openDataDirectory(): Promise<boolean>`
+     - `openLogFile(): Promise<boolean>`
+     - `sendTestNotification(type?: DesktopNotificationType): Promise<boolean>`
+     - `clearError(): void`
+     - `clearNotice(): void`
+   - Include authentication token (`asterim_token` from `localStorage`) on all requests.
 
-2. **`DesktopNotificationService.ts` (`apps/server/src/services/desktop/DesktopNotificationService.ts`)**:
-   - `notify(input: DesktopNotificationInput): Promise<boolean>`:
-     - Dispatches native OS notification using platform-appropriate commands without third-party native binary dependencies.
-     - Gracefully degrades / skips in headless or CI environments (`ASTERIM_HEADLESS=true` or `CI=true`).
-     - Subscribes to `EventBus` events (`agent:approval_required`, `delegation.completed`, `verification.failed`) to trigger notifications automatically.
+2. **Desktop Daemon Card Component (`apps/web/src/components/desktop/DesktopDaemonCard.tsx`)**:
+   - Pure View (`DesktopDaemonCardView`):
+     - Displays Core tray state badge (`ONLINE` / `PAUSED` / `OFFLINE`) with descriptive status indicator.
+     - Grid metrics: Platform (`win32` / `darwin` / `linux`), Active Threads count, Supervised MCP Servers count, Workstation Vault badge (`ENCRYPTED` / `PLAINTEXT` / `UNAVAILABLE`), Memory RSS (MB), Uptime (formatted as readable duration).
+     - Headless / CI badge if `isHeadless` is true.
+     - Auto-start toggle switch showing configured state and target platform mechanism (Registry / LaunchAgent / XDG).
+     - Action buttons: "Reveal Data Directory", "View Server Log", "Test OS Notification".
+     - Proper loading spinners, disabled states during pending actions, and error banner handling.
+   - Connected Container (`DesktopDaemonCard`):
+     - Binds to `useDesktopStore`, triggers `fetchStatus()` on mount, and wires callbacks.
 
-3. **`DesktopDaemonService.ts` (`apps/server/src/services/desktop/DesktopDaemonService.ts`)**:
-   - `getStatus(): DesktopStatus`: Assembles live desktop metrics (vault status, port, active sessions).
-   - `openDashboard(): Promise<void>`: Launches system default browser pointing to the Web UI.
-   - `openDataDirectory(): Promise<void>`: Reveals `~/.asterim` in native file manager.
-   - `openLogFile(): Promise<void>`: Opens `server.log` in default text editor.
-   - `setAutoStart(enabled: boolean): Promise<boolean>`: Configures or removes OS login auto-start entry.
-   - `getAutoStart(): Promise<boolean>`: Checks if auto-start is configured.
+3. **Settings & Workstation Integration**:
+   - Mount `DesktopDaemonCard` in `apps/web/src/components/DeveloperSettings.tsx` and/or make it accessible in the Workstation / Environment settings surfaces so developers can easily monitor daemon status.
 
-4. **REST API Endpoints (`apps/server/src/routes/desktop.ts`)**:
-   - `GET /api/v1/desktop/status` — Get desktop daemon status and metrics.
-   - `POST /api/v1/desktop/open-dashboard` — Launch default browser.
-   - `POST /api/v1/desktop/open-data-dir` — Reveal data folder in OS explorer.
-   - `POST /api/v1/desktop/notify` — Test / dispatch desktop notification.
-   - `POST /api/v1/desktop/autostart` — Toggle auto-start on login (`{ enabled: boolean }`).
-   - Register in `apps/server/src/index.ts`.
-
-5. **Automated Unit & Integration Test Suite (`apps/server/src/services/desktop/__tests__/DesktopDaemonService.test.ts`)**:
-   - Test notification payload formatting and platform command generation.
-   - Test headless / CI environment detection (skips execution without throwing).
-   - Test auto-start path generation across Windows, macOS, and Linux.
-   - Test REST route handlers with `fastify.inject()`.
-   - Wire into `apps/server/package.json` `"test"` script.
+4. **Automated Unit & Component Test Suite (`apps/web/src/components/desktop/__tests__/DesktopDaemonUI.test.ts`)**:
+   - Pure helper tests: tray status verdict mappings, uptime formatter, memory badge text.
+   - Store action tests: verify `fetchStatus`, `toggleAutoStart`, `openDataDirectory`, `openLogFile`, and `sendTestNotification` against a mock `fetch` harness recording headers, HTTP methods, and payload bodies.
+   - Static markup tests: verify rendering via `react-dom/server` across all states (`ONLINE`, `PAUSED`, `OFFLINE`, `isHeadless: true`, auto-start enabled/disabled, loading, error).
+   - Wire the new suite into `apps/web/package.json` `"test"` script (raising web suites from 9 to 10, total suites from 42 to 43).
 
 ---
 
 ## 5. Constraints & Forbidden Changes
 
-- Do NOT add heavy native binary dependencies (e.g. Electron / node-gyp native addons) to `apps/server` (use pure Node.js + OS CLI wrappers for maximum portability).
-- Notification dispatch must be completely asynchronous and fail-safe (a failed notification must never impact Core server stability).
-- Do NOT break any of the existing 41 test suites.
+- Do NOT add heavy third-party UI dependencies.
+- Do NOT hardcode colors (use CSS variables from `tokens.css`).
+- Do NOT modify server-side files or break existing backend contracts.
+- Do NOT break any of the existing 42 test suites across the monorepo.
 
 ---
 
 ## 6. Acceptance Criteria
 
-1. `DesktopNotificationService` generates cross-platform notifications and safely degrades in headless/CI environments.
-2. `DesktopDaemonService` opens browser, data folder, and log files using platform-native launch commands.
-3. Auto-start configuration generates valid platform-native startup entries (Registry / LaunchAgent / XDG).
-4. Authenticated REST endpoints under `/api/v1/desktop/` return accurate status and handle actions cleanly.
-5. `DesktopDaemonService.test.ts` passes with comprehensive cross-platform assertions.
-6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (42 test suites), `pnpm run build`.
+1. `useDesktopStore.ts` handles desktop status fetching, auto-start toggling, and quick action dispatch with authenticated REST headers and error handling.
+2. `DesktopDaemonCard.tsx` renders live daemon metrics (tray state, active threads, MCP servers, vault state, memory, uptime) and provides working controls for auto-start and quick actions.
+3. Auto-start toggle accurately reflects server state and sends `POST /api/v1/desktop/autostart`.
+4. Quick actions trigger respective endpoints (`open-data-dir`, `open-log`, `notify`) and display clear visual feedback.
+5. `DesktopDaemonUI.test.ts` passes with comprehensive assertions covering helpers, store actions, and component rendering.
+6. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` (43 test suites), `pnpm run build`.
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] Shared desktop types defined in `@asterim/shared`
-- [ ] `DesktopNotificationService.ts` implemented
-- [ ] `DesktopDaemonService.ts` implemented
-- [ ] REST routes `/api/v1/desktop/` registered and tested
-- [ ] `DesktopDaemonService.test.ts` passing
-- [ ] Monorepo CI gates pass cleanly
+- [ ] `useDesktopStore.ts` implemented in `apps/web/src/stores/`
+- [ ] `DesktopDaemonCard.tsx` implemented in `apps/web/src/components/desktop/`
+- [ ] Integrated into `DeveloperSettings.tsx` / workstation settings views
+- [ ] `DesktopDaemonUI.test.ts` created and wired into `apps/web/package.json` test script
+- [ ] Monorepo CI gates pass cleanly (typecheck, lint, 43 test suites, build)
 
 ---
 
 ## 8. Verification Commands
 
 ```bash
-# Run new Desktop Daemon test suite
-pnpm --filter asterim exec tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts
+# Run new Desktop Daemon UI test suite
+pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts
 
-# Run all security & system test suites
-pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts
+# Run all web test suites
+pnpm --filter @asterim/web run test
 
 # Run full monorepo CI pipeline
 pnpm run typecheck
