@@ -1,207 +1,121 @@
-Task-ID: P10-02
-Status: COMPLETE
-
-# Execution Report: P10-02 — Workstation Desktop Daemon Dashboard UI & System Controls
-
-**Task ID:** P10-02
-**Phase:** Phase 10 — Desktop Distribution, Native Shell & Release Readiness
-**Status:** VERIFIED
-**Date:** 2026-08-17
-**Author:** Claude Code
+# Task: POST-PHASE-6 ROADMAP RECONCILIATION
+**Status:** COMPLETE  
+**Result:** PASS  
+**Date:** 2026-08-17  
+**Author:** Antigravity (CTO, Lead Architect & Orchestrator)  
 
 ---
 
-## 1. Summary
+## 1. Executive Summary
 
-The P10-01 desktop subsystem now has a dashboard. `useDesktopStore` speaks to the five
-`/api/v1/desktop/*` endpoints with authenticated headers, and `DesktopDaemonCard` renders the
-Core's own `DesktopTrayStatus` — the same verdict the tray icon shows — plus the auto-start switch
-and the three quick actions. It is mounted in `DeveloperSettings` and, because that component is
-currently not rendered anywhere in the app, also as a new **Workstation Daemon** tab in
-`EnvironmentSettingsView`, which is the settings surface `App.tsx` actually mounts.
+Completed a comprehensive, honest, and rigorous reconciliation of the original Asterim Commercial Roadmap (`blueprint/ROADMAP.md`) against actual codebase implementations, identified legacy technical debt, and authored the authoritative strategic roadmap for **Phases 7–10**.
 
-A 207-assertion suite covers the pure helpers, every store action against a recording `fetch`, and
-static rendering across ONLINE / PAUSED / OFFLINE / headless / auto-start on and off / loading /
-pending / error. It is wired into `apps/web` `test`, raising web suites from 9 to 10 and the
-monorepo from 42 to 43. All seven workspaces typecheck, lint (0 errors), test and build clean.
+Authoritative Documents Created:
+1. [`docs/phase5-10-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-10-reconciliation.md): Factual historical phase-by-phase audit, remaining legacy work inventory, and production risk mitigations.
+2. [`docs/phase7-10-roadmap.md`](file:///c:/Projects/Asterim/docs/phase7-10-roadmap.md): Complete strategic plan for Phases 7–10, incorporating **Initiative A (Stable/Development Release Channels & Migration Engine)** and **Initiative B (Shared Team Agents & Multi-User Governance)** under `DEC-028` Local-First Data Sovereignty.
 
-No server file was touched and no dependency was added.
+---
 
-## 2. Files Changed
+## 2. Original Phase Status
 
-| File | Change Type | Purpose |
-| :--- | :---: | :--- |
-| `apps/web/src/stores/useDesktopStore.ts` | Created | Desktop daemon state + the five authenticated REST calls |
-| `apps/web/src/components/desktop/DesktopDaemonCard.tsx` | Created | Pure view + connected container, and the pure state-mapping helpers |
-| `apps/web/src/components/desktop/__tests__/DesktopDaemonUI.test.ts` | Created | 207-assertion suite over helpers, store and rendering |
-| `apps/web/src/components/DeveloperSettings.tsx` | Modified | Mounts the card above the remote-workstation controls |
-| `apps/web/src/components/environment/EnvironmentSettingsView.tsx` | Modified | New `daemon` sub-tab ("Workstation Daemon") so the card is reachable |
-| `apps/web/package.json` | Modified | New suite appended to the `test` script (9 → 10 web suites) |
+| Phase ID | Original Roadmap Scope | Actual Codebase Status | Classification | Key Architectural Finding |
+| :--- | :--- | :---: | :---: | :--- |
+| **Phase 1** | Product UX & Design System | Complete in `apps/web` | **COMPLETE** | Dark-mode shell, navigation, xterm.js, command palette. |
+| **Phase 2** | Authentication & Account Platform | Complete in `apps/server` & `apps/marketing` | **COMPLETE** | User sessions, password hashing, RBAC, feature entitlements, device pairing. |
+| **Phase 3** | Teams & Workspaces | Redefined to Local Workspaces | **REDEFINED** | Redefined under `DEC-028` to local workstation workspaces (`workspaces` table) with environment presets. Multi-user team agents elevated to Phase 8. |
+| **Phase 4** | Developer Workstation Hardening | Complete in `apps/server` | **COMPLETE** | `ProcessTreeManager`, orphan process reaper, 16ms terminal backpressure, AST command security guard. |
+| **Phase 4.5** | Marketing & Product Presentation | Complete in `apps/marketing` | **COMPLETE** | 10-Act product story, `Satoshi` tokens, interactive workstation simulators, truth contract. |
+| **Phase 5** | SaaS Foundation & Project Memory | Complete across server, relay, mcp | **COMPLETE** | SQLite WAL Project Memory, stdio MCP memory server, loopback relay (`DEC-026`), drift detection (`DEC-027`), Stripe billing, Sovereign Mode air-gap (`DEC-028`). |
+| **Phase 6** | AI Ecosystem (MCP, Skills, Profiles) | Complete across server & web | **COMPLETE** | Stdio MCP supervisor, autostart, per-server `SerialQueue`, `.agents/skills` parser, 6 built-in engineering roles, capability filtering. |
+| **Original Phase 7** | Extensions Platform & Marketplace | Replaced by MCP & Skills | **REDEFINED / OBSOLETE** | Proprietary JS/WASM extension sandbox superseded by open MCP standards and Markdown Skills. |
+| **Original Phase 8** | Automation & Workflows | Partial / Programmatic | **PARTIAL** | Worktree sandboxing (`GitWorktreeService`) and verification pipelines (`VerificationPipelineService`) built; visual canvas editor deferred. |
+| **Original Phase 9** | Enterprise Security & IAM | Local Hardening Complete | **PARTIAL / REDEFINED** | Local Secret Vault (`SecretVaultService` AES-256-GCM) complete; enterprise cloud SAML/OIDC deferred. |
+| **Original Phase 10** | AI Operating System Vision | Foundational Primitives Built | **REDEFINED** | Evolved into the local-first collaborative agent control plane. |
 
-## 3. Implementation Details
+---
 
-**Store (`useDesktopStore`).** State is exactly the shape the task specified — `status`, `menu`,
-`isLoading`, `isTogglingAutoStart`, `error`, `actionNotice` — plus one addition, `pendingAction:
-'open-data-dir' | 'open-log' | 'notify' | null`, without which "disabled states during pending
-actions" could not name *which* button is running and all three would spin at once. Actions:
-`fetchStatus`, `toggleAutoStart`, `openDataDirectory`, `openLogFile`, `sendTestNotification`,
-`clearError`, `clearNotice`.
+## 3. Remaining Legacy Work
 
-Authentication goes through the existing `getAuthHeaders()` (`apps/web/src/utils/auth.ts`) rather
-than a direct `localStorage.getItem('asterim_token')`: it resolves the per-backend key first and
-falls back to the plain `asterim_token`, so the card works against a LAN workstation as well as
-localhost. The reads carry no `Content-Type`; the two JSON POSTs declare one.
+### P0 — Release / Security / Correctness Blockers
+1. **Single SQLite Database Collision Risk**: Development builds and test suites touch production `~/.asterim/asterim.db`. *Assigned to Phase 7*.
+2. **Unversioned Ad-Hoc Migrations**: `DatabaseService.ts` relies on raw `ALTER TABLE ... try/catch`. *Assigned to Phase 7 (MigrationEngine)*.
+3. **Orphan Worktree Recovery on Crash**: Boot-time detection and pruning of dead `.asterim/worktrees/` directories after unclean server termination. *Assigned to Phase 7*.
 
-Three behaviours are deliberate rather than incidental:
+### P1 — Important Production Work
+1. **Windows Signal Timing Assertions in Test Suites**: Guard Win32 `TerminateProcess()` timing discrepancies in unit test assertions.
+2. **Socket Disconnection State Re-Attachment**: Ensure browser UI re-synchronizes pending approval states seamlessly on WebSocket reconnect.
 
-- **The Core's `enabled` is authoritative.** `POST /autostart` answers `{success:false,
-  enabled:false}` to a request for `true` on a platform with no mechanism. The switch settles on
-  what the machine actually is and the reason goes to `error` — it never stays on a state that was
-  refused.
-- **A headless skip is a notice, not an error.** `POST /notify` answers 200 / `success:true` /
-  `dispatched:false` / `skipped:'HEADLESS'` by design. Because nothing appears on screen in that
-  case, `describeNotifyOutcome` says why in words; treating it as a failure would make the button
-  read as broken on exactly the hosts where it is correct.
-- **A 200 with `success:false`** from `open-data-dir` / `open-log` (no launcher on this platform)
-  is reported on `error` with the Core's own reason — the request worked, the thing did not happen.
+### P2 — Future Improvements & Non-Critical Polish
+1. **Visual Canvas Workflow Builder**: Replaced by declarative YAML pipelines (`.asterim/pipelines/*.yaml`); visual drag-and-drop editor deferred post-Phase 10.
+2. **Proprietary Extension Marketplace**: Superseded by standard Git-based Skills repositories. Declared **OBSOLETE**.
 
-A failed `fetchStatus` leaves the previously loaded status in place rather than blanking a card the
-operator is reading.
+---
 
-**Card (`DesktopDaemonCard`).** Pure view + connected container, following `SecurityStatusCard`.
-The view computes no health of its own: `trayVerdictOf` maps the Core's `DesktopTrayState` to
-wording and a token colour, keeping `PAUSED` (running, deliberately not acting — amber) distinct
-from `OFFLINE` (cannot read its own database — red), which is the distinction the shared type
-exists to preserve. Other pure helpers: `formatUptime` (two units at most: `3d 4h`, `4h 12m`,
-`1m 30s`, `45s`; `unknown` for absent/NaN/negative), `formatMemory`, `vaultBadgeOf`,
-`autoStartMechanismOf` (Registry HKCU Run key / LaunchAgent / XDG autostart entry, and
-`available:false` for `unsupported`).
+## 4. Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation
 
-Rendered: state banner, Headless / CI badge, a six-cell metric grid (Platform, Active threads,
-Supervised MCP, Workstation vault, Memory RSS, Uptime), the auto-start row as a
-`role="switch"` + `aria-checked` button with the platform mechanism named beside it, the three
-action buttons with per-action pending labels and `aria-busy`, `role="alert"` for errors,
-`role="status"` for notices (an error suppresses a stale notice so the card never says a thing
-worked and failed at once), and the resolved `dataDir`. Every colour is a `tokens.css` custom
-property — the suite asserts no hex or `rgb()` literal survives into the markup. Transitions are
-150 ms.
+* **Goal**: Complete runtime separation between Stable and Development channels, implement a versioned SQL migration engine, and eliminate database corruption risks during active development.
+* **Deliverables**:
+  - `ASTERIM_CHANNEL=stable|dev` environment governance.
+  - Isolated data directories (`~/.asterim` for Stable, `~/.asterim-dev` for Development).
+  - Dedicated port and loopback descriptor separation (Port 3000 vs 3001).
+  - Versioned SQL `MigrationEngine.ts` with `schema_migrations` tracking, SHA-256 checksum validation, and automated rollback.
+  - Snapshot & backup CLI utilities (`asterim db:snapshot`, `asterim db:migrate`).
+  - Worktree orphan boot-time cleanup hook.
+* **Complexity**: **MEDIUM** (2 Sprints).
 
-The container re-reads the status after a *successful* toggle only: `fetchStatus` clears `error`,
-so an unconditional refresh would erase the reason a refused toggle had just written.
+---
 
-**Integration.** `DeveloperSettings.tsx` mounts the card as the task specified. That component is
-not currently imported anywhere (verified by grep across `apps/`), so the card is also mounted as a
-`daemon` sub-tab in `EnvironmentSettingsView`, which `App.tsx` renders for the `workspace` and
-`environment` tabs. The tab copy states that the daemon is a workstation property rather than an
-Environment one.
+## 5. Phase 8 — Collaborative Team Agents & Multi-User Governance
 
-## 4. Verification
+* **Goal**: Enable engineering teams to collaborate with shared, persistent AI agents with turn concurrency locks, team-wide project memory, and role-based approval governance under local-first sovereignty.
+* **Deliverables**:
+  - `TeamAgentService.ts` and SQLite schema (`team_agents`, `team_threads`, `team_turn_queue`).
+  - `AgentTurnLock.ts` FIFO concurrency queue preventing simultaneous prompt collisions.
+  - Collaborative Web UI with team agent explorer, active turn queue, and multi-user presence indicators.
+  - Role-based approval governance (Owner/Admin approval gates for destructive tool calls).
+  - LAN ZeroConf discovery and blind E2E Encrypted Cloud Relay tunnels (`DEC-028` compliant).
+* **Complexity**: **HIGH** (3-4 Sprints).
 
-Run per workspace (`pnpm --filter <pkg> run <script>`); the root turbo scripts are equivalent
-fan-outs over the same seven workspaces.
+---
 
-| Gate | Result |
-| :--- | :--- |
-| `pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts` | **207/207 assertions passed** |
-| `typecheck` — shared, adapters, web, asterim, marketing, relay, mcp-memory-server | 7/7 clean, 0 errors |
-| `lint` — all seven | 0 errors (warnings only, all pre-existing categories; the new card contributes 5 `react-refresh/only-export-components` warnings, identical in kind to `SecurityStatusCard.tsx` and `EnvironmentSecretsPanel.tsx`, which export pure helpers beside components) |
-| `build` — all seven, in dependency order incl. `asterim` copying `apps/web/dist` | clean |
-| `test` — 43 suites | all passing, 0 `FAIL` lines |
+## 6. Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution
 
-Test totals per workspace: **web 10** (151, 37, 134, 113, 104, 85, 134, 686, 203, **207**),
-**server 24** (0 FAIL lines; DesktopDaemonService suite 207/207), **mcp-memory-server 7** (7
-"assertions passed" lines), **adapters 1** (29/29), **relay 1** (71/71) — **43 suites total**, up
-from 42.
+* **Goal**: Scale multi-agent workflows into automated, event-driven engineering pipelines executing across isolated Git worktrees with automated verification gates and pull request synthesis.
+* **Deliverables**:
+  - Declarative YAML pipeline engine (`PipelineEngine.ts` parsing `.asterim/pipelines/*.yaml`).
+  - Multi-worktree fleet orchestrator provisioning concurrent sandboxes without git collisions.
+  - Automated verification pipeline toolchain integration (typecheck, lint, test, build).
+  - Pipeline DAG execution dashboard with live step progress and automated PR synthesis.
+* **Complexity**: **HIGH** (3 Sprints).
 
-Not run: browser/puppeteer capture. The task did not request one, and the card's rendering is
-covered by `react-dom/server` across all nine states.
+---
 
-## 5. Acceptance Criteria Review
+## 7. Phase 10 — Enterprise Fleet Deployment, Air-Gapped Sovereign Appliances & GA Packaging
 
-- [x] **1. `useDesktopStore.ts` handles status fetching, auto-start toggling and quick action
-  dispatch with authenticated REST headers and error handling** — all five endpoints exercised
-  against the recording `fetch`; every request asserted to carry `Bearer test-token`, the two JSON
-  POSTs to declare `application/json`. Error handling covered for 400, 401, 500, `success:false`
-  and a rejecting `fetch`; each case asserts the flag is released rather than left spinning.
-- [x] **2. `DesktopDaemonCard.tsx` renders live daemon metrics and provides working controls** —
-  `DesktopDaemonCardView renders a healthy daemon` asserts platform, thread count, `3 running` MCP,
-  `ENCRYPTED`, `182 MB`, `4h 12m`, dataDir and the Core's tooltip; `renders the unhappy states`
-  covers PAUSED, OFFLINE, PLAINTEXT, null status and loading; `renders the headless case` asserts
-  the badge and that the notification button — and only it — is disabled.
-- [x] **3. Auto-start toggle accurately reflects server state and sends `POST /autostart`** —
-  `useDesktopStore — toggling auto-start` asserts URL, method, JSON header and `{enabled:true}` /
-  `{enabled:false}` bodies; `a platform that cannot register a login item` asserts the switch
-  settles on the Core's `enabled:false` after asking for `true` and surfaces the reason. Rendering
-  asserts `role="switch"`, `aria-checked` in both states, the per-platform mechanism label
-  (Registry / LaunchAgent / XDG) and a disabled switch on `unsupported`.
-- [x] **4. Quick actions trigger their endpoints and display clear feedback** — `the launch actions
-  address their own endpoints` asserts `/open-data-dir` and `/open-log` are hit with POST, the
-  token and **no body**; `the test notification` asserts `/notify` with a title, body and
-  `type:'SYSTEM'` (and a caller-supplied type passed through). Feedback: distinct notices per
-  action, `Opening…` / `Sending…` pending labels with `aria-busy`, the other buttons disabled
-  during a pending action, and the headless skip explained instead of read as failure.
-- [x] **5. `DesktopDaemonUI.test.ts` passes with comprehensive assertions** — 207/207 across pure
-  helpers, all five store actions, nine render states, a "no request carries a path or a command"
-  guard, a design-token guard, and a section replaying the literal JSON bodies
-  `apps/server/src/routes/desktop.ts` returns.
-- [x] **6. Monorepo CI gates pass with 0 errors** — typecheck 7/7 clean; lint 0 errors; 43 test
-  suites all passing; build clean across all seven workspaces including the `asterim` web-dist copy
-  step. See §4.
+* **Goal**: Package Asterim for universal commercial distribution, delivering cross-platform native desktop installers, single-binary sovereign appliances, enterprise fleet administration, and formal General Availability (GA) certification.
+* **Deliverables**:
+  - Native desktop installers with background system tray service (Windows MSI, macOS DMG/LaunchAgent, Linux AppImage/deb).
+  - Single-container sovereign appliance Docker image (`asterim-sovereign`) with local LLM connectors for 100% offline air-gapped server racks.
+  - Enterprise fleet policy configuration (`asterim.policy.json`) and structured audit log exporter (SIEM/Syslog).
+  - Public GA release certification and security compliance documentation.
+* **Complexity**: **HIGH** (3 Sprints).
 
-Definition of Done: store ✅, card ✅, integrated into `DeveloperSettings.tsx` **and**
-`EnvironmentSettingsView.tsx` ✅, suite created and wired into `apps/web/package.json` ✅, CI gates
-clean ✅.
+---
 
-## 6. Git Diff Review
+## 8. Major Proposed Architectural Decisions
 
-`git status` / `git diff` reviewed line by line. Three files modified — `apps/web/package.json`
-(one line: the suite appended to `test`), `DeveloperSettings.tsx` (+8: one import, one mounted
-card) and `EnvironmentSettingsView.tsx` (+14: one import, one union member, one tab entry, one
-render block) — plus two new paths under `apps/web/src`. No server, shared, adapters, relay or
-marketing file is touched; no backend contract is altered; no dependency was added to any
-`package.json`; no colour literal was introduced; nothing was written to `docs/`.
+* **PROPOSED DEC-029**: Stable vs Development Release Channels & Data Directory Isolation (`~/.asterim` vs `~/.asterim-dev`).
+* **PROPOSED DEC-030**: Versioned Forward Migration Engine & Database Compatibility Standard (`MigrationEngine.ts` with `schema_migrations`).
+* **PROPOSED DEC-031**: Shared Team Agent Primitive, Turn Locking & Multi-User Event Synchronization (`TeamAgent` + `AgentTurnLock`).
+* **PROPOSED DEC-032**: Local-First Team Collaboration Security & Cloud Relay E2E Boundary (Blind E2E tunnels, zero cloud code persistence).
 
-`tests/report.md` was already modified in the working tree when this session started (it is in the
-pre-session `git status`). It is not mine, I did not touch it, and it is **not** included in the
-commit for this task.
+---
 
-## 7. Problems Discovered
+## 9. Human Review Required
 
-1. **`DeveloperSettings.tsx` is dead code.** Grep across `apps/` finds no importer — it is defined
-   and never rendered. Mounting the card only there would have satisfied the letter of scope item 3
-   while leaving the feature unreachable, so the `EnvironmentSettingsView` tab was added as well
-   (the task's "and/or … so developers can easily monitor daemon status").
-2. **`fetchStatus` clears `error`.** The first version of the container refreshed unconditionally
-   after a toggle, which wiped the "auto-start is not available on this platform" message a
-   fraction of a second after it appeared. It now refreshes on success only.
-3. **Three distinct "it did not happen" shapes** come back from these routes — non-2xx, 200 with
-   `success:false`, and 200 with `success:true, dispatched:false`. Collapsing them would have made
-   a correctly-skipped headless toast look like a bug. They are handled separately and each is
-   asserted.
-4. **The root `pnpm run <script>` commands were not runnable in this session** (blocked at the
-   shell layer). Every gate was instead run directly per workspace with
-   `pnpm --filter <pkg> run <script>`, which is exactly what those turbo tasks fan out to — all
-   seven workspaces covered, nothing skipped.
+This concludes the Post-Phase-6 Roadmap Reconciliation and Strategic Planning task.
 
-## 8. Architectural Concerns
-
-1. **`DeveloperSettings.tsx` is orphaned.** Worth either mounting it or deleting it; as it stands
-   it is a maintenance surface nobody sees. Not actioned here — outside this task's scope.
-2. **The status is a one-shot read.** The card fetches on mount and on the explicit Refresh press.
-   Thread and MCP counts move underneath it. The Core already publishes agent lifecycle on the
-   EventBus, so a `desktop.status_changed` broadcast (or a poll on an interval) would keep the card
-   live — but that is a Core-side contract addition and belongs in a task, not in this one.
-3. **`DesktopTrayMenuItem[]` is fetched and stored but not rendered.** The task specified consuming
-   the type and storing `menu`, and the store does; the card renders the same actions as first-class
-   buttons rather than replicating the tray menu. The data is there for a future surface that wants
-   the Core's own enable/disable verdicts per row.
-4. **`web` now has 10 chained `tsx` invocations in one `test` script.** A failure in suite 3 stops
-   suites 4–10 from running at all. A trivial runner script would give full-sweep results per run;
-   flagging rather than acting, since the pattern is repo-wide.
-
-## 9. Recommended Next Step
-
-The desktop vertical is closed end to end (Core P10-01, dashboard P10-02). The natural successor is
-the packaging/distribution half of Phase 10 — a single-binary or installer artefact that makes the
-auto-start entry this card toggles point at something a user actually installed — or, if the daemon
-surface is to be finished first, a live status channel per §8.2.
+**HUMAN REVIEW GATE**:
+- Antigravity is halted and awaiting human operator review and sign-off on [`docs/phase5-10-reconciliation.md`](file:///c:/Projects/Asterim/docs/phase5-10-reconciliation.md) and [`docs/phase7-10-roadmap.md`](file:///c:/Projects/Asterim/docs/phase7-10-roadmap.md).
+- No implementation tasks have been dispatched.
+- Upon human approval, the first vertical implementation task for Phase 7 (Task P7-01: Channel Runtime Isolation & Migration Engine) will be decomposed and dispatched to `tasks/current.md`.

@@ -1,18 +1,18 @@
-# Asterim Platform Strategic Roadmap: Phases 7–10 & Beyond
+# Asterim Strategic Roadmap: Phases 7–10
 
-**Authoritative Source of Truth:** `blueprint/ROADMAP.md`  
-**Version:** 2.0.0 (Post-Phase-6 Reconciled Edition)  
-**Date:** 2026-08-17  
-**Governance Authority:** `blueprint/PRODUCT_VISION.md`, `blueprint/ARCHITECTURE.md`, `decisions.md`  
+**Milestone Scope:** Collaborative Agent Workspace & Production Release Architecture  
+**Author:** Antigravity (CTO & Lead Architect)  
+**Status:** PROPOSED & READY FOR HUMAN REVIEW  
+**Governance Authority:** `blueprint/PRODUCT_VISION.md`, `blueprint/ARCHITECTURE.md`, `decisions.md` (DEC-001 through DEC-028)  
 
 ---
 
-## 1. Product Evolution Trajectory & Core Principle
+## 1. Product Evolution Trajectory
 
 Asterim is evolving across four distinct strategic horizons:
 
 ```text
-Product Evolution Trajectory:
+Product Evolution:
 ┌────────────────────────┐      ┌────────────────────────┐
 │  AI AGENT WORKSTATION  │  ──► │ MULTI-AGENT CONTROL    │
 │  (Phases 1 — 5)        │      │ PLANE (Phase 6)        │
@@ -40,46 +40,11 @@ It is **NOT**:
 * An AI model provider (it orchestrates local and cloud models via standard protocols).
 * A cloud IDE (it operates locally on developers' workstations).
 * A replacement for agent CLIs like Claude Code or Aider (it supervises, governs, and collaborates with them).
-* A service that stores user source code in the cloud by default.
+* A service that stores source code in the cloud by default.
 
 ---
 
-## 2. Completed Historical Phases Summary & Reconciliation
-
-| Phase ID | Scope & Title | Status | Key Architectural Findings |
-| :--- | :--- | :---: | :--- |
-| **Phase 1** | Product UX & Design System | **COMPLETE** | Dark-mode workspace shell, navigation sidebar, xterm.js terminal streaming, command palette (`Cmd+K`). |
-| **Phase 2** | Authentication & Account Platform | **COMPLETE** | User sessions, Argon2/bcrypt password hashing, RBAC, feature entitlements, device pairing PIN. |
-| **Phase 3** | Teams & Workspaces | **REDEFINED** | Redefined under `DEC-028` to local workstation workspaces (`workspaces` table) with environment presets. Multi-user team agents elevated to Phase 8. |
-| **Phase 4** | Developer Workstation Engine Hardening | **COMPLETE** | `ProcessTreeManager`, orphan process reaper, 16ms terminal backpressure chunker, AST command security guard. |
-| **Phase 4.5** | Marketing & Product Presentation | **COMPLETE** | 10-Act product story, `Satoshi` tokens, interactive workstation simulators, truth contract (`DEC-016`–`DEC-022`). |
-| **Phase 5** | SaaS Foundation & Project Memory | **COMPLETE** | SQLite WAL Project Memory Core, `@asterim/mcp-memory-server`, loopback relay (`DEC-026`), drift detection (`DEC-027`), Stripe billing, Sovereign Mode air-gap (`DEC-028`). |
-| **Phase 6** | AI Ecosystem (MCP, Skills & Profiles) | **COMPLETE** | Stdio MCP supervisor, autostart, per-server `SerialQueue`, `.agents/skills` parser, 6 built-in engineering roles, capability filtering. |
-
-*Historical Archive: The original v1.0 launch roadmap is preserved in [`blueprint/ROADMAP_ARCHIVE_V1.md`](file:///c:/Projects/Asterim/blueprint/ROADMAP_ARCHIVE_V1.md).*
-
----
-
-## 3. Remaining Legacy Work Inventory
-
-Before executing new roadmap milestones, all technical debt and legacy gaps are strictly accounted for:
-
-### P0 — Release / Security / Correctness Blockers
-1. **Single SQLite Database Collision Risk**: Development builds and test suites touch production `~/.asterim/asterim.db`. Developers using Asterim daily cannot safely test experimental branches without risking database corruption. *(Addressed in Phase 7)*.
-2. **Unversioned Ad-Hoc Migrations**: `DatabaseService.ts` relies on raw `ALTER TABLE ... try/catch` without a `schema_migrations` tracking table or checksum validation. *(Addressed in Phase 7)*.
-3. **Orphan Worktree Recovery on Crash**: Boot-time detection and pruning of dead `.asterim/worktrees/` directories after unclean server termination. *(Addressed in Phase 7)*.
-
-### P1 — Important Production Work
-1. **Windows Signal Timing Assertions in Test Suites**: Guard Win32 `TerminateProcess()` timing discrepancies in unit test assertions (`process.platform === 'win32'`).
-2. **Socket Disconnection State Re-Attachment**: Ensure browser UI re-synchronizes pending approval states seamlessly on WebSocket reconnect.
-
-### P2 — Future Improvements & Non-Critical Polish
-1. **Visual Canvas Workflow Builder**: Replaced by declarative YAML pipelines (`.asterim/pipelines/*.yaml`); visual drag-and-drop editor deferred post-Phase 10.
-2. **Proprietary Extension Marketplace**: Superseded by standard Git-based Skills repositories. Declared **OBSOLETE**.
-
----
-
-## 4. Core Strategic Initiatives
+## 2. Core Strategic Initiatives
 
 ---
 
@@ -126,11 +91,11 @@ AI agents today are isolated to single developer machines. When a developer solv
 
 ---
 
-## 5. Authoritative Phase Roadmap: Phases 7–10
+## 3. Detailed Phase Roadmap: Phases 7–10
 
 ---
 
-### Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation
+### Phase 7 — Release Channels, Migration Engine & Runtime Isolation
 
 #### Goal
 Establish complete separation between Stable and Development channels, implement a robust versioned SQL migration engine, and eliminate all risks of production database corruption during active development.
@@ -305,26 +270,22 @@ Individual developers get a polished, native desktop app that installs in second
 
 ---
 
-## 6. Formal Architectural Decisions (DEC Register)
+## 4. Proposed Architectural Decisions (DEC Register)
 
-The following architectural decisions govern this roadmap:
+The following decisions are proposed as part of this roadmap:
 
-### DEC-029: Stable vs Development Release Channels & Data Directory Isolation
-* **Status**: Approved Architectural Standard
+### PROPOSED DEC-029: Stable vs Development Release Channels & Data Directory Isolation
 * **Context**: Developers need to run Asterim as their daily driver while developing new Asterim features.
-* **Decision**: Enforce distinct data directories (`~/.asterim` for Stable, `~/.asterim-dev` for Development) governed by `ASTERIM_CHANNEL`. Stable and Dev instances never share a database file, port, or connection descriptor.
+* **Decision**: Enforce distinct data directories (`~/.asterim` for Stable, `~/.asterim-dev` for Development) governed by `ASTERIM_CHANNEL`. Stable and Dev instances never share a database file or port.
 
-### DEC-030: Versioned Forward Migration Engine & Database Compatibility Standard
-* **Status**: Approved Architectural Standard
+### PROPOSED DEC-030: Versioned Forward Migration Engine & Database Compatibility Standard
 * **Context**: Schema evolution must be reliable, reproducible, and recoverable without data corruption.
-* **Decision**: Replace ad-hoc `ALTER TABLE` statements with sequential SQL migrations tracked in `schema_migrations` with SHA-256 checksums, transactional rollback, and automated pre-migration snapshots.
+* **Decision**: Replace ad-hoc `ALTER TABLE` statements with sequential SQL migrations tracked in `schema_migrations` with SHA-256 checksums and automated pre-migration snapshots.
 
-### DEC-031: Shared Team Agent Primitive, Turn Locking & Multi-User Event Synchronization
-* **Status**: Approved Architectural Standard
+### PROPOSED DEC-031: Shared Team Agent Primitive, Turn Locking & Multi-User Event Synchronization
 * **Context**: Teams need to share persistent agent personas without colliding during simultaneous prompts.
 * **Decision**: Introduce `TeamAgent` with `AgentTurnLock` FIFO queueing, single-turn atomicity, and real-time Socket.IO status broadcasting.
 
-### DEC-032: Local-First Team Collaboration Security & Cloud Relay E2E Boundary
-* **Status**: Approved Architectural Standard
+### PROPOSED DEC-032: Local-First Team Collaboration Security & Cloud Relay E2E Boundary
 * **Context**: Team members must collaborate without exposing sensitive codebase context to cloud servers.
 * **Decision**: Host workstation maintains source code and transcripts; Cloud Relay operates strictly as an untrusted, blind E2E encrypted packet router (ECDH P-256 + AES-GCM-256) adhering to `DEC-028`.
