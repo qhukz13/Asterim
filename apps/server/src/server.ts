@@ -145,6 +145,7 @@ import skillRoutes from './routes/skills';
 import profileRoutes from './routes/profiles';
 import delegationRoutes from './routes/delegation';
 import teamAgentRoutes from './routes/teamAgents';
+import pipelineRoutes from './routes/pipelines';
 import worktreeRoutes from './routes/worktrees';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
@@ -212,6 +213,8 @@ const start = async () => {
     await fastify.register(delegationRoutes);
     console.log('[DEBUG] Registering teamAgentRoutes');
     await fastify.register(teamAgentRoutes);
+    console.log('[DEBUG] Registering pipelineRoutes');
+    await fastify.register(pipelineRoutes);
     console.log('[DEBUG] Registering worktreeRoutes');
     await fastify.register(worktreeRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
@@ -319,6 +322,13 @@ const start = async () => {
     // busy is one the whole team is blocked behind.
     const { teamAgentService } = await import('./services/ai/TeamAgentService');
     teamAgentService.recoverTurns();
+
+    // And the pipeline runs it stopped in the middle of (P9-01). Every step of
+    // a run is a delegated session, none of which survived the restart, so a
+    // row still claiming RUNNING describes something that ended when the Core
+    // did — and a run left showing itself live is one nothing will ever move.
+    const { pipelineEngine } = await import('./services/pipeline/PipelineEngine');
+    pipelineEngine.recoverRuns();
 
     // Start event log pruning (runs immediately then every hour)
     pruningService.start();

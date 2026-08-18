@@ -1,11 +1,11 @@
-Task-ID: P8-04
+Task-ID: P9-01
 Status: COMPLETE
 
-# Execution Report: P8-04 — End-to-End Destructive Tool Approval Interception & EventBus Resolution for Shared Team Agents
+# Execution Report: P9-01 — Declarative Pipeline Engine, Schema & Multi-Step Execution Controller
 
-**Task ID:** P8-04
-**Phase:** Phase 8 — Collaborative Team Agents & Multi-User Governance
-**Status:** IMPLEMENTED (verified: 363/363 server + 395/395 web assertions, all workspaces typecheck, lint, test and build clean)
+**Task ID:** P9-01
+**Phase:** Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution
+**Status:** IMPLEMENTED (verified: 199/199 new pipeline assertions, all server suites green, monorepo typecheck / lint / test / build clean)
 **Date:** 2026-08-18
 **Author:** Claude Code
 
@@ -13,220 +13,294 @@ Status: COMPLETE
 
 ## 1. Summary
 
-The three seams P8-03 left open are now joined, so a destructive tool call in a shared team
-thread travels the whole way and back:
+A pipeline is now a declarative DAG that Asterim can read, refuse, run, watch and stop.
 
-1. **Interception.** `EventBusTeamTurnExecutor` now watches `agent.approval_request` /
-   `agent.approval_cancelled` for the thread it is serving, for exactly as long as it serves
-   it. When `ApprovalManager` raises a prompt, the running turn parks itself in
-   `AWAITING_APPROVAL` carrying the action — `actionId`, `command`, `description`, `riskLevel`,
-   `warnings` — and the whole team is told through the existing `team_turn:started` transition.
-   Nobody has to call `markTurnAwaitingApproval` by hand any more.
-2. **Resolution.** `TeamAgentService.resolveTurnApproval` now publishes `client.approval_response`
-   with the action id, the decision and the thread. That is the event `ApprovalManager` resolves
-   its pending promise on and `AgentService` turns into a `y`/`n` keystroke in the PTY, so a
-   governance decision recorded in SQLite now actually reaches the blocked agent. A rejection also
-   cancels every other prompt the thread had outstanding.
-3. **The card.** `TurnApprovalCard` renders what the agent proposed to do, not only what the
-   member asked for: the command in monospace, the Core's description, a graded risk badge, and
-   the analyser's security warnings.
+1. **Schema.** Migration `004_pipelines` adds `pipelines`, `pipeline_runs` and
+   `pipeline_step_runs` with the two required indexes and `ON DELETE CASCADE` down both
+   foreign keys. The declaration keeps its YAML verbatim; the run keeps its own step rows,
+   so a months-old run stays readable after the pipeline it came from has been rewritten.
+2. **Grammar.** `SafeYaml.ts` is a deliberately small YAML reader — block mappings and
+   sequences, quoted and plain scalars, `|`/`>` block scalars, flow collections, one
+   document — that refuses anchors, aliases, tags, directives, tab indentation, second
+   documents and prototype-reaching keys. A definition file is something an agent can write
+   into a repository, so the reader is part of the trust boundary and no general-purpose
+   YAML dependency was added to it.
+3. **Validation.** `PipelineParser.ts` turns a document into a `PipelineDefinition` or
+   refuses it with the line that stopped it: unique step ids, resolvable `roleProfileId`s
+   (id, role or profile name, exactly as a delegation resolves one), dependencies that
+   exist, no self-dependency, and no cycle — the error names the path that closes it.
+4. **Execution.** `PipelineEngine.ts` walks the DAG: ready set → dispatch → record → repeat.
+   Every step is a delegated child of one root thread per run, so a step inherits the
+   Phase 7/8 machinery already verified — profile resolution, worktree sandbox, verification
+   pipeline, timeout, stop-before-resume — and the engine adds scheduling and persistence
+   rather than a second way to run an agent. Steps with no dependency path between them run
+   concurrently; a ready set wider than the delegation concurrency bound runs in batches.
+   Each step is handed its transitive ancestors' summaries, output and diffs, plus the run's
+   parameters, with `{{ name }}` substitution.
+5. **Fail-closed.** One failed step ends the run: everything still pending is marked
+   `SKIPPED` rather than run on input that never arrived, and no session is left behind —
+   the delegation that failed stopped its own child before returning. A cancellation is a
+   different answer (`CANCELLED`, not `FAILED`) and reaches running steps through the
+   delegation service that owns their sessions.
+6. **Surface.** Six authenticated routes under `/api/v1/pipelines` and
+   `/api/v1/pipeline-runs`, registered in `server.ts`, with workspace RBAC and a
+   line-numbered 400 for a definition that will not parse.
 
-No new dependency, no new route, no schema change, and no weakening of `AgentTurnLock`: the
-approval still holds the lock, and the resolution still goes through `resumeFromApproval` /
-`releaseTurn`.
+---
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `packages/shared/src/types/teamAgent.ts` | Modified | `TeamApprovalRiskLevel` and `TeamPendingApprovalInfo`; `pendingApproval` on `TeamTurnQueueItem` and on `TeamTurnEventPayload` |
-| `apps/server/src/services/ai/AgentTurnLock.ts` | Modified | `markAwaitingApproval` accepts the pending action and keeps it on the active turn; `resumeFromApproval` clears it; every transition broadcasts it |
-| `apps/server/src/services/ai/TeamAgentService.ts` | Modified | `toPendingApprovalInfo` parser; `TeamTurnRunParams` approval hooks; executor subscription to `agent.approval_request`/`agent.approval_cancelled`; `parkOnApproval`, `releaseApprovalHold`, `signalApproval`, `cancelPendingApprovals`; `resolveTurnApproval` publishes `client.approval_response` |
-| `apps/web/src/stores/useTeamAgentStore.ts` | Modified | `pendingApprovalOf`, `approvalRiskTone`, and `withPendingApproval` retention in the queue reducer |
-| `apps/web/src/components/teamAgents/ActiveTurnQueueInspector.tsx` | Modified | `TurnApprovalCard` renders the pending action: description, command, risk badge, warnings |
-| `apps/server/src/services/ai/__tests__/TeamAgentService.test.ts` | Modified | Sections 18–20: payload parsing, end-to-end interception/approval/rejection/cancellation against the real `ApprovalManager`, and refusal without an intercepted action (+64 assertions) |
-| `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts` | Modified | Pending-action helpers, reducer retention, and card rendering of command/risk/warnings (+31 assertions) |
+| `packages/shared/src/types/pipeline.ts` | Created | The contract: `PipelineDefinition`/`PipelineStep`/`PipelineRun`/`PipelineStepRun`, the three status/trigger unions, bounds, the five event names and payloads, and the pure DAG algebra (`findPipelineCycle`, `topologicalPipelineOrder`, `pipelineAncestorIds`, `readyPipelineStepIds`, `aggregatePipelineRunStatus`). |
+| `packages/shared/src/index.ts` | Modified | Exports `./types/pipeline`. |
+| `apps/server/src/migrations/004_pipelines.ts` | Created | The three tables, `idx_pipeline_runs_pipeline`, `idx_pipeline_step_runs_run`, `idx_pipelines_workspace`. |
+| `apps/server/src/migrations/index.ts` | Modified | Registers migration 4; `LATEST_SCHEMA_VERSION` follows. |
+| `apps/server/src/services/pipeline/SafeYaml.ts` | Created | The restricted YAML reader and its refusals. |
+| `apps/server/src/services/pipeline/PipelineParser.ts` | Created | Document → validated `PipelineDefinition`; DAG and role validation; `.asterim/pipelines/` directory reader. |
+| `apps/server/src/services/pipeline/PipelineEngine.ts` | Created | Pipeline CRUD, `runPipeline`, `cancelPipeline`, `recoverRuns`, run/step persistence, context handoff, the five Socket.IO events. |
+| `apps/server/src/routes/pipelines.ts` | Created | The six REST endpoints with auth and workspace RBAC. |
+| `apps/server/src/server.ts` | Modified | Registers `pipelineRoutes`; settles runs a previous process left `RUNNING` at startup. |
+| `apps/server/src/services/pipeline/__tests__/PipelineEngine.test.ts` | Created | 199 assertions across schema, grammar, validation, DAG algebra, storage, sequential/parallel/batched execution, context handoff, failure, cancellation, recovery and REST. |
+| `apps/server/package.json` | Modified | Wires the suite into `"test"`. |
 
-`apps/web/src/components/teamAgents/TeamThreadChatView.tsx` needed no edit: it already renders the
-same `TurnApprovalCard`, so the transcript view gained the tool detail with it (asserted).
+---
 
 ## 3. Implementation Details
 
-**Where the interception lives.** In the executor, not in a service-level singleton subscription.
-`EventBusTeamTurnExecutor.watch` already owns a per-turn subscription to `chat.message` and
-`agent.status`; the two approval events join it and are torn down by the same `finish`. This
-means the prompt is matched to the turn by construction — the subscription only exists while that
-turn is being served — so no listener accumulates on the bus, no second `TeamAgentService`
-instance reacts to another instance's threads, and there is no "is this still the active turn"
-check to get wrong. Matching works because a shared thread's agent session runs under the team
-thread's own id, which is the `threadId` `McpToolGateway` passes to `ApprovalManager`.
+**Scheduling.** `readyPipelineStepIds` is the whole schedule: a step is ready when it is
+`PENDING` and every declared dependency is `PASSED`. Nothing in a definition states what runs
+in parallel, so a definition cannot claim a parallelism its data dependencies contradict. A
+ready set is dispatched in slices of `PIPELINE_MAX_PARALLEL_STEPS` (= `MAX_CONCURRENT_DELEGATIONS`,
+4); one ready step goes through `delegateTask`, several through `delegateParallel`, whose
+results are positionally matched back to their steps.
 
-**The turn timeout is restarted when a prompt arrives.** The 10-minute turn timeout exists to
-catch an agent that has gone quiet. A turn parked on an approval is not quiet — it is waiting on
-the team — so letting a human's deliberation consume the agent's answer window would fail turns
-for the crime of being asked about.
+**Context handoff.** `buildStepContext` collects the run's parameters and every transitive
+ancestor's summary, changed files, output (≤4k) and diff (≤6k), newest-last, then bounds the
+whole thing to `MAX_PIPELINE_CONTEXT_CHARS` *including* the "earlier context omitted" notice —
+the delegation service refuses an over-long `inputContext` rather than trimming one, so a brief
+that was not cut here would be a step that failed to dispatch. The same reasoning applies to
+`taskDescription`: parameter substitution can lengthen a task the parser already bounded, so
+the substituted brief is truncated to `MAX_PIPELINE_TASK_CHARS`.
 
-**`toPendingApprovalInfo`** reads the payload defensively (exported, unit-tested): no action id
-means no prompt; a risk level that is not one of the four is dropped rather than coerced; warnings
-that are not strings are discarded; command and description are truncated. An unanalysed prompt
-reports *no* risk level rather than `low`, because claiming "low risk" is a claim the Core did not
-make.
+**Cancellation.** `cancelPipeline` records the reason on the in-memory run record and then asks
+`AgentDelegationService.cancelAllDelegations` to stop the children — the service owns their
+sessions, ends each wait, stops each process and settles each row. The loop reads the reason
+when the batch it was waiting on returns and marks the batch and everything after it
+`CANCELLED`. A run this process is not executing (one a restart left behind) is settled in
+storage alone, which is also what `recoverRuns()` does at startup.
 
-**Where the pending action is stored.** On the live turn inside `AgentTurnLock`, and deliberately
-not in `team_turn_queue`. An outstanding prompt only exists while the process holding
-`ApprovalManager`'s promise is up — `recoverTurns` settles anything mid-flight as FAILED after a
-restart — so a persisted row would describe an action nothing is waiting on. The live queue is
-what every transition broadcasts and what `GET /team-threads/:id` returns, so every client sees it
-without a schema change.
+**Safety.** The YAML reader bounds input size, line count, nesting depth and collection size
+while reading rather than after; refuses `&`, `*`, `!`, `%`, `?`, tab indentation, a second
+document, duplicate keys and `__proto__`/`constructor`/`prototype` keys. The parser refuses
+unknown keys, so a silently-ignored `depends_on:` cannot become a pipeline that runs its steps
+in the wrong order while looking correct.
 
-**The resolution bridge.** `resolveTurnApproval` reads the pending action from the lock *before*
-touching it (resuming clears it), then publishes `client.approval_response` — after
-`resumeFromApproval` on APPROVED, and before `releaseTurn` on REJECTED so the agent is told `n`
-while it is still the turn holding the lock. A rejection then calls
-`ApprovalManager.cancelApprovalsForThread`, so a second prompt from the same session cannot sit on
-screen for a turn that no longer exists. A turn parked by hand (no `actionId`) publishes nothing:
-a `client.approval_response` naming no action would put a stray keystroke into whatever session
-was running.
+**Authorization.** Reads require `workspace:read`, saves `workspace:write`, and running or
+cancelling `agent:spawn` — a pipeline starts agent sessions against a checkout. An existing
+pipeline is governed by the workspace it already belongs to, never by a `workspaceId` in the
+request. A workspace with no membership rows at all is treated as unmanaged (DEC-028), matching
+the team-agent and environment-secret surfaces.
 
-**Cancellation.** `agent.approval_cancelled` for the exact action the turn is parked on resumes it
-(lock + row + thread state). A cancellation naming some other action is ignored, so it cannot
-release a turn parked on a live prompt.
-
-**Web.** `applyTurnEventToQueue` keeps the pending action when a transition omits it: it reads it
-from the payload's top-level copy, and a re-announced park keeps what is already known — otherwise
-a repeated `started` would blank a card naming `rm -rf /` while somebody is reading it. It is
-dropped when the turn is no longer parked. `approvalRiskTone` gives each of the four levels its own
-label and design-token colour (no hex values), because one alarm colour on both `ls` and
-`rm -rf /` teaches members to ignore the badge.
+---
 
 ## 4. Verification
 
-Run from the repository root. The root `pnpm run <task>` scripts delegate to `turbo`, which this
-non-interactive session's sandbox refuses to launch; each workspace's own gate command was
-therefore run directly (same commands turbo invokes), for **all seven workspaces**.
+All commands run from the repository root unless noted.
 
-| Gate | Command | Result |
-| :--- | :--- | :--- |
-| Team agent backend suite | `pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts` | **363/363 assertions passed**, exit 0 (was 299 before this task) |
-| Team agent UI suite | `pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts` | **395/395 assertions passed**, exit 0 (was 364) |
-| Typecheck | `pnpm --filter <ws> exec tsc --noEmit` × 7 (`asterim`, `@asterim/web`, `@asterim/marketing`, `@asterim/relay`, `@asterim/shared`, `@asterim/adapters`, `@asterim/mcp-memory-server`) | **0 errors** in every workspace |
-| Lint | each workspace's `lint` command (`eslint .` / `eslint src/`) × 7 | **0 errors** (296 web + 321 server + 28 adapters + 18 marketing + 12 mcp-memory-server + 3 shared warnings, all pre-existing `no-explicit-any` style warnings) |
-| Server test script | `pnpm --filter asterim run test` (28 suites) | all suites passed, exit 0 |
-| Web test script | `pnpm --filter @asterim/web run test` (12 suites) | all suites passed, exit 0 |
-| Other test scripts | `@asterim/adapters` 30/30, `@asterim/relay` 71/71, `@asterim/mcp-memory-server` 24/24 | all passed |
-| Build | `pnpm --filter <ws> run build` × 7, in dependency order (shared → adapters → web → asterim → marketing/relay/mcp-memory-server) | all succeeded; `asterim` copied `apps/web/dist` into `dist/web` as designed |
+```
+pnpm --filter asterim exec tsx src/services/pipeline/__tests__/PipelineEngine.test.ts
+  → 199 passed, 0 failed
 
-The new backend section runs against the **real** `ApprovalManager` and the **real** `EventBus`
-with the production `EventBusTeamTurnExecutor`; only the agent process is stood in for (it raises
-a genuine `requestApproval` and waits on the promise, exactly as `McpToolGateway` does). The test
-also mirrors `AgentService`'s handler to assert the `y`/`n` keystroke that would be written into
-the PTY.
+pnpm typecheck   → Tasks: 11 successful, 11 total   (tsc --noEmit in every workspace)
+pnpm lint        → Tasks: 7 successful, 7 total     (0 errors; warnings are the pre-existing
+                                                     `no-explicit-any` style warnings, and the
+                                                     11 added are in the new test file, matching
+                                                     every other suite in the repo)
+pnpm test        → Tasks: 10 successful, 10 total   (0 `FAIL` lines across all suites;
+                                                     asterim: 199 passed, 0 failed)
+pnpm build       → Tasks: 7 successful, 7 total     (server bundle 1.18 MB, web + marketing built)
+```
 
-No visual/puppeteer QA was run: the change is inside an existing card that has render coverage
-through `react-dom/server`, and no dev server was started for this session.
+The AI/delegation/team suites named in the task ran as part of `pnpm test` and are green
+(`AgentDelegationService.test.ts`, `TeamAgentService.test.ts`, `VerificationPipelineService.test.ts`).
+
+What the 199 assertions cover:
+
+- **Migration** — the three tables, every required column, both required indexes, the
+  `schema_migrations` row for version 4, and that re-opening the same database is idempotent.
+- **Grammar** — scalars, numbers, booleans, `~`, nested sequences of mappings, flow lists,
+  literal and folded block scalars, comment stripping that respects quotes; and refusals for
+  anchors, aliases, tags, tabs, a second document, duplicate keys, prototype keys, a
+  non-mapping line and an unterminated quote.
+- **Validation** — a good definition parses; missing name/steps/role/task, duplicate ids, an
+  unknown dependency, a self-dependency, two- and three-step cycles, an unplayed role, an
+  unknown key, a bad trigger, an unusable step id and too many steps are each refused, and the
+  cycle error names the path.
+- **DAG algebra** — order, ancestors, readiness at each stage, "a failed dependency leaves its
+  dependents unready forever", cycle detection, and status aggregation.
+- **Execution** — a sequential run passes in dependency order with peak concurrency 1; a
+  fan-out/fan-in run reaches peak concurrency ≥ 3 and the join is handed all four ancestors'
+  answers; six independent steps run in batches that never exceed the bound; the downstream
+  brief carries the upstream summary and the run parameters, and never anything from a step
+  that has not run.
+- **Events** — one `pipeline:started` listing every planned step, one `pipeline:step_started`
+  and one `pipeline:step_completed` per step carrying the settled row, one `pipeline:completed`
+  on success and `pipeline:failed` otherwise, all routed to the project.
+- **Failure** — the failing step is `FAILED` with its reason, the two steps behind it are
+  `SKIPPED` with no thread, no further session was started, the failing child was stopped, and
+  the run explains which step stopped it.
+- **Cancellation** — a run stopped mid-step ends `CANCELLED` (not `FAILED`), the running step
+  and everything behind it are `CANCELLED` with the operator's reason, the running child was
+  stopped, cancelling a settled run reports `false`, and an unknown run is refused.
+- **Bounds** — an enormous ancestor diff and an enormous parameter still produce a brief the
+  delegation service accepts, and a run with a 2 000-character parameter passes.
+- **Recovery** — a run left `RUNNING` by a previous process is settled once and only once.
+- **REST** — 401 anonymous on read and run, 201 create, 400 with a line number for unreadable
+  YAML, 400 naming the cycle for a cyclic definition, 400 for an empty body, list, read, 404 for
+  unknown ids, a run that passes end-to-end **through the production `EventBusSessionRunner`**
+  (the test stands in for `AgentService` on the bus rather than using the fake), run read-back
+  with per-step progress, and cancel-after-settle.
+
+Not run: no browser/screenshot verification — this task adds no UI (the Pipeline Execution
+Dashboard is a later Phase 9 deliverable).
+
+---
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. Automatic Approval Parking** — `agent.approval_request` for an active team thread parks
-  the turn with the full action. Server suite §19: "the agent's tool call parks the turn by itself",
-  "nobody had to call anything for it", "the durable row says so too", "and the thread record",
-  "the turn carries the action it is parked on" (actionId), "the command the agent proposed, not
-  the instruction", "what the Core would say about it" (description), "how dangerous it judged it"
-  (`critical`), "and why" (both warnings), plus "the turn behind it has not started".
-- [x] **2. EventBus Resolution Dispatch** — `resolveTurnApproval` publishes `client.approval_response`
-  with the right action and boolean. Server suite §19: "the decision reached the agent", "as the
-  action it answers", "on the thread the agent is running under", "and as the keystroke the Core
-  writes into the session" (`y`), and "the blocked tool call was released" — the real
-  `ApprovalManager` promise resolved `true`, which is the downstream resolver unblocking.
-- [x] **3. Rejection Queue Advancement** — Server suite §19: "the agent was told as well" +
-  keystroke `n`, "the blocked tool call was denied" (promise resolved `false`), "the turn is
-  cancelled rather than failed", "its caller is told so" (the running turn received the rejection
-  error), "nothing of that turn is left waiting on a human"
-  (`approvalManager.getPendingActionIds(threadId)` empty — the `ApprovalManager` notification),
-  and "the queue advanced to the member behind it" (the FIFO successor completed).
-- [x] **4. UI Tool Command & Risk Rendering** — Web suite: "the pending action is its own region",
-  "the command the agent proposed is rendered verbatim", "in monospace, as a command", "with what
-  the Core would say about it", "the risk is graded" + "labelled for a screen reader", "the
-  warnings are listed"/"each of them", alongside "the instruction is still there beside it" and
-  "both answers are still offered". Attribution and policy assertions from P8-02/P8-03 still pass.
-  The same detail is asserted in `TeamThreadChatView` ("the transcript view carries the same
-  detail", "including the command", "and its warnings"), and a member who cannot answer still sees
-  it ("a member who cannot answer is still shown what is being asked for").
-- [x] **5. Automated Tests Pass** — `TeamAgentService.test.ts` 363/363 and `TeamAgentUI.test.ts`
-  395/395, both exit 0, with new end-to-end coverage of interception, approval, rejection,
-  prompt cancellation, defensive payload parsing, and a manual park that must not signal a phantom
-  action.
-- [x] **6. Monorepo CI Gates Pass** — typecheck, lint, test and build are clean across all seven
-  workspaces (§4). Root `pnpm run …` wrappers could not be invoked in this sandbox; the underlying
-  per-workspace commands were run instead and are recorded above.
+- [x] **1. Migration applies cleanly via `MigrationEngine`** — `004_pipelines` applies in order
+  after 001–003 on a fresh database (`[MigrationEngine] Applied 4 (004_pipelines)`); the test
+  asserts all three tables, every column named in the task, both required indexes, and the
+  `schema_migrations` row `version 4 / 004_pipelines`. Re-opening the database is idempotent.
+  *Deviation, deliberate:* the task names `packages/server/src/migrations/003_pipelines.sql`.
+  There is no `packages/server` workspace — the server is `apps/server` — migrations in this
+  repo are `.ts` modules by the rationale in `migrations/index.ts` (the Core ships as one
+  bundled `dist/index.js`, so a migration a runtime `readdir` cannot find is a database that
+  cannot be opened), and version 3 is already taken by `003_team_approval_governance`.
+  Renumbering an applied migration would break every existing database's checksum, so the
+  migration is `apps/server/src/migrations/004_pipelines.ts` with exactly the schema the task
+  specified.
+- [x] **2. `PipelineParser` validates YAML and rejects cyclic DAGs** — 15 refusal assertions
+  including two- and three-step cycles, self-dependency, duplicate ids and unknown
+  dependencies; the cycle error names the path (`a → c → b → a`). A cyclic definition never
+  reaches storage (`savePipeline` refuses it) and a cyclic definition posted over HTTP is a 400.
+- [x] **3. `PipelineEngine` executes sequential and parallel steps by DAG topology** — the
+  sequential run has peak concurrency 1 and starts its second child only after the first
+  settled; the fan-out run reaches peak concurrency ≥ 3 with the join starting after all three
+  of its dependencies completed; a six-wide ready set runs in batches bounded by
+  `PIPELINE_MAX_PARALLEL_STEPS` and all six pass.
+- [x] **4. Outputs and context flow to downstream steps** — the second step's brief contains
+  `done:TOKEN-IMPLEMENT` and the upstream step's id; the four-ancestor join is handed all four
+  answers; the first step is told nothing about steps that have not run; run parameters travel
+  with every brief. Bounds are asserted so an enormous ancestor diff still dispatches.
+- [x] **5. Authenticated REST endpoints function correctly** — all six routes exercised over
+  `fastify.inject`, including 401s for anonymous callers, the 400/404/409 mapping, and a full
+  run driven through the production session runner. RBAC is enforced against the pipeline's own
+  workspace with the DEC-028 unmanaged-workspace exception.
+- [x] **6. `PipelineEngine.test.ts` passes with comprehensive DAG and execution assertions** —
+  199 passed, 0 failed; wired into `apps/server` `"test"` between the team-agent and
+  verification suites.
+- [x] **7. Monorepo CI gates pass with 0 errors** — `pnpm typecheck` 11/11, `pnpm lint` 7/7 with
+  0 errors, `pnpm test` 10/10 with no `FAIL` line anywhere, `pnpm build` 7/7.
 
-Definition of Done: `TeamPendingApprovalInfo` exported from `@asterim/shared` ✅; interception
-transitions the turn to `AWAITING_APPROVAL` ✅; `resolveTurnApproval` emits
-`client.approval_response` ✅; `TurnApprovalCard` shows command, risk badge and warnings ✅; both
-suites updated and passing ✅; all gates green ✅.
+**Definition of Done**
+
+- [x] `004_pipelines` created and verified
+- [x] Shared pipeline types in `@asterim/shared`
+- [x] `PipelineParser.ts` implemented (with `SafeYaml.ts` beside it)
+- [x] `PipelineEngine.ts` implemented
+- [x] REST routes registered in `server.ts`
+- [x] `PipelineEngine.test.ts` created and passing
+- [x] Monorepo CI gates pass cleanly
+
+---
 
 ## 6. Git Diff Review
 
-`git status` shows seven modified files and no new ones — every change is inside a file the task
-named or its direct dependency (`AgentTurnLock.ts`, which owns the live turn the pending action
-rides on). Reviewed file by file:
+`git status` after the work: four modified files (`apps/server/package.json`,
+`apps/server/src/migrations/index.ts`, `apps/server/src/server.ts`,
+`packages/shared/src/index.ts`) and five new ones (the migration, the three pipeline service
+modules plus the test, the route, the shared type module).
 
-- No type is duplicated between server and web: `TeamApprovalRiskLevel` and
-  `TeamPendingApprovalInfo` are declared once in `@asterim/shared` and imported on both sides.
-  `ApprovalManager.CommandSecurityAnalysis` was left alone; its `riskLevel` is structurally
-  compatible and is validated at the boundary by `toPendingApprovalInfo`.
-- `AgentTurnLock` atomicity is untouched: no new path grants, releases or bypasses the lock. The
-  only additions are a field on the active turn and its clearing on resume.
-- No SQLite schema change, no migration, no new route, no new dependency, no `.env` change.
-- Nothing new leaves the workstation: the pending action is published on the existing EventBus and
-  the existing project/workspace socket rooms only (DEC-028/DEC-032 unaffected).
-- Single-developer/unauthenticated paths are unchanged: the `unmanaged` branch of
-  `evaluateTeamApproval` was not touched, a turn parked without details still works end to end
-  (§20), and the non-team agent approval path (`socketManager` → `client.approval_response`) is
-  unmodified — the service publishes the same event that surface already publishes.
-- `tests/report.md` is also modified in the working tree; that is the P8-03 verification gate
-  report written by the previous test-runner session, not part of this task, and it was left
-  uncommitted and untouched.
+Reviewed line by line:
+
+- `server.ts` — one import, one `register` call in the existing sequence, one `recoverRuns()`
+  next to the other recovery calls. No existing route, hook or startup step was touched.
+- `migrations/index.ts` — one import, one array entry. No applied migration was edited, so no
+  existing database's checksum changes.
+- `packages/shared/src/index.ts` — one export line.
+- `apps/server/package.json` — the new suite inserted into the `"test"` chain; nothing else,
+  and **no dependency was added** (the YAML reader is hand-written for exactly that reason).
+- No forbidden changes: nothing under `blueprint/`, no ADR or decision edited, no change to
+  `AgentDelegationService`, `GitWorktreeService`, `VerificationPipelineService`, the EventBus,
+  the socket manager or any existing route. No debug scripts or scratch files were added; the
+  test writes only into its own temp directory and cleans it up.
+
+One unrelated file, `tests/report.md`, was already modified in the working tree when this task
+started (the P8-04 verification gate report). It is **not** part of this commit and was left
+untouched.
+
+---
 
 ## 7. Problems Discovered
 
-- **Where to subscribe.** A `TeamAgentService`-level subscription to `agent.approval_request` would
-  have leaked one listener per constructed service (the test suite builds six) and would have
-  needed an "is this my thread, is this its active turn" check. Scoping the subscription to the
-  executor's per-turn `watch` removes both problems and disposes itself on every exit path.
-- **Ordering on rejection.** `ApprovalManager` resolves its promise synchronously inside
-  `publish`, and `AgentTurnLock.releaseTurn` starts the next turn synchronously too. Publishing
-  `client.approval_response` *before* releasing the lock is what lets the refused session stop
-  talking before the next member's turn arms its own watcher; the reverse order would let a
-  refused turn's trailing output be read as the next turn's answer.
-- **`resumeFromApproval` clears the pending action**, so `resolveTurnApproval` has to read it from
-  the lock before it tells the lock anything. This is easy to get wrong on a later edit; the
-  comment at the read site says so.
+1. **No YAML dependency exists in the monorepo**, and adding one is a speculative-dependency
+   decision that is not this task's to make. `SafeYaml.ts` is the answer: a restricted reader
+   whose refusals are the contract. It is also the safer answer — a pipeline definition is a
+   file an agent can write, and anchors/aliases alone are an expansion bomb.
+2. **The delegation service refuses over-long input rather than trimming it.**
+   `optionalText(..., MAX_CONTEXT_CHARS)` throws, so the first draft of `buildStepContext` —
+   which bounded the body but then prefixed a notice — could have produced a 60 034-character
+   context and failed the batch it was building. Both the context and the substituted task are
+   now cut *inside* the bound, with regression assertions for a 200 KB ancestor diff and a
+   100 KB parameter.
+3. **One parent may not have two delegations in flight from the same call site.**
+   `delegateTask` refuses `ALREADY_DELEGATING`, and `delegateParallel` caps a batch at
+   `MAX_CONCURRENT_DELEGATIONS`. Rather than build a second execution path, the engine slices
+   each ready set to that bound and dispatches successive batches — the DAG is honoured either
+   way, and the machine is not asked to run more agent processes than the rest of the Core
+   already allows.
+4. **Version 3 was taken.** See the criterion-1 note: renumbering is not an option once a
+   migration has been applied, so the pipeline migration is 4.
+5. **A run left `RUNNING` by a crash would show as live forever.** The schema this task adds
+   makes that state representable, so `recoverRuns()` and its startup call were added with it
+   rather than left for a later task to discover.
+
+---
 
 ## 8. Architectural Concerns
 
-1. **Two prompts at once.** If a session raised a second `agent.approval_request` while the turn is
-   already parked, the newer action replaces the older on the turn, and answering resolves only the
-   newer one — the older would sit in `ApprovalManager` until its own timeout. With a PTY-driven
-   agent that stops on each prompt this cannot currently happen, and a rejection cancels everything
-   the thread had outstanding regardless. If a provider ever batches tool calls, the turn will need
-   a list rather than a single `pendingApproval`.
-2. **Restart loses the prompt, deliberately.** Because the pending action is not persisted, a Core
-   restart while a turn is parked settles the turn as FAILED (existing `recoverTurns` behaviour)
-   rather than restoring an unanswerable card. `ApprovalManager.recoverPendingApprovals` does
-   re-publish `agent.approval_request` from the `approvals` table, but with no `threadId`, so it
-   cannot re-park anything. If Phase 8 wants parked turns to survive a restart, that is a change
-   proposal (persisting `action_id` on both sides), not an implementation detail.
-3. **`ApprovalRequestPayload` in `@asterim/shared` is stale** — it declares only
-   `actionId`/`description`/`command`, while `ApprovalManager` has published `securityAnalysis`
-   since P6-05. I read the payload defensively rather than widen the shared type, which would have
-   touched contracts outside this task's scope; widening it is a small, worthwhile follow-up.
+1. **`pipelines` is scoped by `workspace_id`, but a run needs a `project_id`.** The definition
+   declares `projectId:` (or the run context supplies one), and the engine refuses a run that
+   can find neither. If Phase 9 wants pipelines bound to a project rather than to a workspace,
+   that is a schema decision worth making before the dashboard reads it.
+2. **Batching is per ready set, not per step.** A ready set of six runs as 4 + 2, so the two
+   wait for the slowest of the four rather than for the first free slot. A true slot scheduler
+   would be a change to how a delegation registers concurrency, not to the engine, and is worth
+   doing only if pipelines routinely go wider than four.
+3. **Cancellation is a five-event vocabulary.** A cancelled run publishes `pipeline:failed` with
+   `run.status === 'CANCELLED'`, because the task specifies five events and a sixth terminal
+   event a dashboard did not know about would leave the run showing as live. If the UI wants to
+   distinguish them without reading the payload, `pipeline:cancelled` is a one-line addition —
+   but it needs a decision, not an invention.
+4. **Retry policies and step-level triggers are declared in the roadmap but not in this task.**
+   `PipelineTriggerType` carries `GIT_COMMIT`, `FILE_CHANGE` and `SCHEDULE`, and nothing yet
+   fires them: every run today is `MANUAL`, through the REST surface. The trigger listeners are
+   a task of their own.
+5. **`importFromDirectory` matches definitions by name**, so renaming a pipeline in its file
+   creates a second row rather than renaming the first. That is the right default for an import
+   with no id in the file; if `.asterim/pipelines/` is to be the source of truth, the file's
+   path should become the identity.
+
+---
 
 ## 9. Recommended Next Step
 
-Phase 8's functional gap (DEC-031 § 3) is closed. The natural next step is the Phase 8 verification
-gate — a `tests/current.md` assignment that re-runs the full monorepo gates plus a manual/puppeteer
-pass on a live thread parked on a real destructive command, confirming the card, the badge and the
-`y`/`n` round trip in the browser rather than only in `react-dom/server`. If instead the phase
-continues with implementation, the shared `ApprovalRequestPayload` widening (§8.3) is the smallest
-useful unit.
+**P9-02 — Worktree Fleet Orchestrator & pipeline trigger listeners.** The engine already gives
+every step its own sandbox through the delegation path, so the next vertical is the fleet view
+of them: `.asterim/worktrees/pipeline-<runId>-step-<stepId>` naming, conflict detection across
+concurrent step worktrees, and the branch-merge/PR-synthesis path the roadmap names. Wiring
+`GIT_COMMIT` / `FILE_CHANGE` / `SCHEDULE` triggers onto the EventBus and `workspaceMonitor`
+belongs in the same task or the one after it; the Pipeline Execution Dashboard (the DAG graph,
+live step progress, diff artifacts) should follow once the run shape it renders is settled.

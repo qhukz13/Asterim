@@ -1,6 +1,7 @@
 import { baselineMigration } from './001_baseline';
 import { teamAgentsMigration } from './002_team_agents';
 import { teamApprovalGovernanceMigration } from './003_team_approval_governance';
+import { pipelinesMigration } from './004_pipelines';
 import type { MigrationDefinition } from './types';
 
 export type { MigrationDefinition, ColumnAddition } from './types';
@@ -23,7 +24,8 @@ export type { MigrationDefinition, ColumnAddition } from './types';
 export const migrations: MigrationDefinition[] = [
   baselineMigration,
   teamAgentsMigration,
-  teamApprovalGovernanceMigration
+  teamApprovalGovernanceMigration,
+  pipelinesMigration
 ];
 
 /** The version a database is expected to be on after this build has migrated it. */
