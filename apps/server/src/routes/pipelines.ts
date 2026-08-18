@@ -45,7 +45,14 @@ const STATUS_BY_CODE: Record<PipelineErrorCode, number> = {
   PROJECT_NOT_FOUND: 404,
   // The request is permitted and well-formed; the pipeline is simply already
   // doing the thing that was asked for.
-  ALREADY_RUNNING: 409
+  ALREADY_RUNNING: 409,
+  // The run kept no worktree fleet — an old run, or a project that is not a
+  // repository. Nothing about the request is wrong, so it is a 400 rather than
+  // a 404: the run exists, it just has no branches to answer about.
+  NO_FLEET: 400,
+  RUN_IN_PROGRESS: 409,
+  // The state of the repository is what refuses this, not the request.
+  SYNTHESIS_CONFLICT: 409
 };
 
 function sendPipelineError(reply: FastifyReply, err: unknown): FastifyReply {
@@ -214,6 +221,55 @@ export default async function pipelineRoutes(fastify: FastifyInstance) {
       const pipeline = pipelineEngine.getPipeline(run.pipelineId);
       if (!authorize(request, reply, pipeline?.workspaceId, 'workspace:read')) return reply;
       return reply.send({ run });
+    } catch (err) {
+      return sendPipelineError(reply, err);
+    }
+  });
+
+  // GET /api/v1/pipeline-runs/:id/conflicts — could this run's branches combine?
+  //
+  // A read: it merges the run's step branches in a throwaway checkout to find
+  // out, and changes nothing in the repository, so `workspace:read` is the bar.
+  fastify.get('/api/v1/pipeline-runs/:id/conflicts', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    try {
+      const run = pipelineEngine.requireRun(id);
+      const pipeline = pipelineEngine.getPipeline(run.pipelineId);
+      if (!authorize(request, reply, pipeline?.workspaceId, 'workspace:read')) return reply;
+
+      const analysis = await pipelineEngine.analyzeRunConflicts(id);
+      return reply.send({ runId: id, analysis });
+    } catch (err) {
+      return sendPipelineError(reply, err);
+    }
+  });
+
+  // POST /api/v1/pipeline-runs/:id/synthesize — consolidate the passing steps
+  //
+  // Writes: it creates `asterim/pipeline/<runId>/pr` in the project's
+  // repository, which is a change to the repository even though it is not a
+  // change to the operator's branch or working tree. `workspace:write`, and a
+  // conflict comes back as a 409 naming the files rather than as a merge
+  // somebody has to undo.
+  fastify.post('/api/v1/pipeline-runs/:id/synthesize', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const body = (request.body as { stepIds?: unknown; message?: unknown } | null) || null;
+    const stepIds = Array.isArray(body?.stepIds)
+      ? body.stepIds.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+      : undefined;
+    const message = typeof body?.message === 'string' ? body.message : undefined;
+
+    try {
+      const run = pipelineEngine.requireRun(id);
+      const pipeline = pipelineEngine.getPipeline(run.pipelineId);
+      if (!authorize(request, reply, pipeline?.workspaceId, 'workspace:write')) return reply;
+
+      const synthesis = await pipelineEngine.synthesizeRun(id, { stepIds, message });
+      return reply.send({ synthesis, run: pipelineEngine.getRun(id) });
     } catch (err) {
       return sendPipelineError(reply, err);
     }

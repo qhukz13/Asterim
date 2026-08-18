@@ -55,12 +55,15 @@ import {
   PIPELINE_STEP_COMPLETED_EVENT,
   PIPELINE_STEP_STARTED_EVENT,
   Pipeline,
+  PipelineConflictAnalysis,
   PipelineDefinition,
   PipelineRun,
   PipelineRunStatus,
   PipelineStep,
   PipelineStepRun,
   PipelineStepStatus,
+  PipelineStepWorktree,
+  PipelineSynthesisResult,
   aggregatePipelineRunStatus,
   isTerminalPipelineRunStatus,
   pipelineAncestorIds,
@@ -72,6 +75,11 @@ import { dbService } from '../DatabaseService';
 import { ProfileService, profileService } from '../ai/ProfileService';
 import { AgentDelegationService, agentDelegationService } from '../ai/AgentDelegationService';
 import { PipelineParser, pipelineParser } from './PipelineParser';
+import {
+  WorktreeFleetError,
+  WorktreeFleetService,
+  worktreeFleetService
+} from './WorktreeFleetService';
 
 /** What a pipeline request can be refused for. */
 export type PipelineErrorCode =
@@ -79,7 +87,13 @@ export type PipelineErrorCode =
   | 'PIPELINE_NOT_FOUND'
   | 'RUN_NOT_FOUND'
   | 'PROJECT_NOT_FOUND'
-  | 'ALREADY_RUNNING';
+  | 'ALREADY_RUNNING'
+  /** The run kept no worktree fleet, so there are no branches to work with. */
+  | 'NO_FLEET'
+  /** Asked to consolidate a run that has not finished. */
+  | 'RUN_IN_PROGRESS'
+  /** The branches asked for cannot be combined. */
+  | 'SYNTHESIS_CONFLICT';
 
 export class PipelineError extends Error {
   constructor(
@@ -100,6 +114,10 @@ interface ActiveRun {
   rootThreadId: string;
   /** Set by a cancellation; read by the loop between batches. */
   cancelReason?: string;
+  /** The checkout the run's fleet is provisioned in, when it has one (P9-02). */
+  repoPath?: string;
+  /** The commit every root step branched from. */
+  baseCommit?: string;
 }
 
 interface PipelineRow {
@@ -123,6 +141,9 @@ interface RunRow {
   started_at: number;
   completed_at: number | null;
   error_message: string | null;
+  base_commit: string | null;
+  synthesis_branch: string | null;
+  synthesis_commit: string | null;
 }
 
 interface StepRunRow {
@@ -134,6 +155,9 @@ interface StepRunRow {
   status: string;
   thread_id: string | null;
   worktree_path: string | null;
+  worktree_branch: string | null;
+  commit_sha: string | null;
+  attempts: number | null;
   diff: string | null;
   output: string | null;
   started_at: number | null;
@@ -149,7 +173,8 @@ export class PipelineEngine {
     private readonly delegation: AgentDelegationService = agentDelegationService,
     private readonly parser: PipelineParser = pipelineParser,
     private readonly profiles: ProfileService = profileService,
-    private readonly bus: EventBus = eventBus
+    private readonly bus: EventBus = eventBus,
+    private readonly fleet: WorktreeFleetService = worktreeFleetService
   ) {}
 
   private db() {
@@ -352,13 +377,26 @@ export class PipelineEngine {
     const rootThreadId = this.createRootThread(projectId, definition, runId);
     const startedAt = Date.now();
 
+    // The fleet's base is resolved once, before the first step, so every step of
+    // the run — and any synthesis of it afterwards — is measured against the
+    // same commit even if the operator's HEAD moves while it is running (P9-02).
+    const fleet = await this.openFleet(projectId);
+
     this.db()
       .prepare(
         `INSERT INTO pipeline_runs
-           (id, pipeline_id, status, current_step_id, run_context_json, project_id, root_thread_id, started_at)
-         VALUES (?, ?, 'RUNNING', NULL, ?, ?, ?, ?)`
+           (id, pipeline_id, status, current_step_id, run_context_json, project_id, root_thread_id, started_at, base_commit)
+         VALUES (?, ?, 'RUNNING', NULL, ?, ?, ?, ?, ?)`
       )
-      .run(runId, pipeline.id, JSON.stringify(context), projectId, rootThreadId, startedAt);
+      .run(
+        runId,
+        pipeline.id,
+        JSON.stringify(context),
+        projectId,
+        rootThreadId,
+        startedAt,
+        fleet?.baseCommit ?? null
+      );
 
     for (const step of steps) {
       this.db()
@@ -370,7 +408,12 @@ export class PipelineEngine {
         .run(`pstep_${crypto.randomUUID()}`, runId, step.id, step.name, step.roleProfileId);
     }
 
-    this.active.set(runId, { pipelineId: pipeline.id, rootThreadId });
+    this.active.set(runId, {
+      pipelineId: pipeline.id,
+      rootThreadId,
+      repoPath: fleet?.repoPath,
+      baseCommit: fleet?.baseCommit
+    });
 
     this.publish(PIPELINE_STARTED_EVENT, {
       projectId,
@@ -441,6 +484,10 @@ export class PipelineEngine {
     const statuses: Record<string, PipelineStepStatus> = {};
     for (const step of steps) statuses[step.id] = 'PENDING';
     const results = new Map<string, DelegationResult>();
+    /** The checkout each step ran in, so its work can be settled onto its branch. */
+    const worktrees = new Map<string, PipelineStepWorktree>();
+    /** How many times each step was dispatched, retries included. */
+    const attempts = new Map<string, number>();
 
     for (;;) {
       const cancelReason = this.active.get(runId)?.cancelReason;
@@ -454,7 +501,7 @@ export class PipelineEngine {
       if (ready.length === 0) break;
 
       const batch = ready.map(id => steps.find(step => step.id === id) as PipelineStep);
-      const outcomes = await this.dispatch(
+      const outcomes = await this.dispatchWithRetries(
         runId,
         pipeline,
         batch,
@@ -463,19 +510,47 @@ export class PipelineEngine {
         results,
         projectId,
         rootThreadId,
-        context
+        context,
+        worktrees,
+        attempts
       );
 
       const stopped = this.active.get(runId)?.cancelReason;
       for (let position = 0; position < batch.length; position++) {
         const step = batch[position];
         const result = outcomes[position];
-        const passed = result?.status === 'COMPLETED';
+        const worktree = worktrees.get(step.id);
+        let passed = result?.status === 'COMPLETED';
+        let failure: string | undefined;
+        let commitSha: string | undefined;
+
+        // A successor is branched from a *commit*, so a passing step's work is
+        // put onto its own branch before anything downstream is planned. A
+        // settle that fails is the step failing: a successor branched from the
+        // previous commit would silently be handed the wrong input (P9-02).
+        if (passed && worktree && !stopped) {
+          try {
+            const settled = await this.fleet.settleStep(
+              worktree,
+              `Asterim: ${pipeline.definition.name} — step ${step.id}`
+            );
+            commitSha = settled.commitSha;
+          } catch (err) {
+            passed = false;
+            failure = `The step's work could not be committed to its branch: ${(err as Error).message}`;
+          }
+        }
+
         const status: PipelineStepStatus = passed ? 'PASSED' : stopped ? 'CANCELLED' : 'FAILED';
 
         statuses[step.id] = status;
         if (result) results.set(step.id, result);
-        this.recordStepOutcome(runId, step, status, result, stopped);
+        this.recordStepOutcome(runId, step, status, result, stopped, {
+          attempts: attempts.get(step.id) ?? 0,
+          branch: worktree?.branch,
+          commitSha,
+          failure
+        });
         this.publishStepCompleted(runId, pipeline.id, projectId, rootThreadId, step.id);
       }
 
@@ -498,6 +573,105 @@ export class PipelineEngine {
     this.finish(runId, statuses);
   }
 
+  /**
+   * One batch, dispatched and then re-dispatched for the steps that may retry
+   * (P9-02).
+   *
+   * A retry is a fresh delegation in a fresh checkout, not a resumption of the
+   * session that failed: what is usually being retried *is* the session — an
+   * agent process that died on boot, a network call it made that timed out —
+   * and handing the next attempt the last one's half-written files would be a
+   * different piece of work from the one the definition asked for.
+   *
+   * Only the failed steps of a batch are retried, and only while the run has
+   * not been cancelled; the wait between attempts is interruptible for the same
+   * reason, because a sixty-second `retryDelayMs` must not be sixty seconds of
+   * a cancel button that has not done anything yet.
+   */
+  private async dispatchWithRetries(
+    runId: string,
+    pipeline: Pipeline,
+    batch: PipelineStep[],
+    steps: PipelineStep[],
+    statuses: Record<string, PipelineStepStatus>,
+    results: Map<string, DelegationResult>,
+    projectId: string,
+    rootThreadId: string,
+    context: Record<string, unknown>,
+    worktrees: Map<string, PipelineStepWorktree>,
+    attempts: Map<string, number>
+  ): Promise<Array<DelegationResult | null>> {
+    const outcomes = await this.dispatch(
+      runId,
+      pipeline,
+      batch,
+      steps,
+      statuses,
+      results,
+      projectId,
+      rootThreadId,
+      context,
+      worktrees,
+      attempts
+    );
+
+    for (;;) {
+      if (this.active.get(runId)?.cancelReason) return outcomes;
+
+      const retrying = batch.filter((step, position) => {
+        const failed = outcomes[position]?.status !== 'COMPLETED';
+        const used = attempts.get(step.id) ?? 1;
+        return failed && used <= Math.max(0, step.retries ?? 0);
+      });
+      if (retrying.length === 0) return outcomes;
+
+      const delay = Math.max(0, ...retrying.map(step => Math.max(0, step.retryDelayMs ?? 0)));
+      if (delay > 0 && !(await this.waitBetweenAttempts(runId, delay))) return outcomes;
+
+      for (const step of retrying) {
+        console.log(
+          `[Pipeline] Retrying step '${step.id}' of run ${runId} (attempt ${(attempts.get(step.id) ?? 1) + 1} of ${(step.retries ?? 0) + 1}).`
+        );
+      }
+
+      const retried = await this.dispatch(
+        runId,
+        pipeline,
+        retrying,
+        steps,
+        statuses,
+        results,
+        projectId,
+        rootThreadId,
+        context,
+        worktrees,
+        attempts
+      );
+
+      for (let position = 0; position < retrying.length; position++) {
+        const index = batch.indexOf(retrying[position]);
+        if (index >= 0) outcomes[index] = retried[position];
+      }
+    }
+  }
+
+  /**
+   * Waits out a step's `retryDelayMs`, answering `false` if the run was stopped.
+   *
+   * In slices, so a cancellation that lands during the wait is acted on within
+   * a tick rather than at the end of a minute.
+   */
+  private async waitBetweenAttempts(runId: string, delayMs: number): Promise<boolean> {
+    const deadline = Date.now() + delayMs;
+    while (Date.now() < deadline) {
+      if (this.active.get(runId)?.cancelReason) return false;
+      const slice = Math.min(100, deadline - Date.now());
+      if (slice <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, slice));
+    }
+    return !this.active.get(runId)?.cancelReason;
+  }
+
   /** Starts one batch of ready steps and waits for all of them. */
   private async dispatch(
     runId: string,
@@ -508,18 +682,21 @@ export class PipelineEngine {
     results: Map<string, DelegationResult>,
     projectId: string,
     rootThreadId: string,
-    context: Record<string, unknown>
+    context: Record<string, unknown>,
+    worktrees: Map<string, PipelineStepWorktree>,
+    attempts: Map<string, number>
   ): Promise<Array<DelegationResult | null>> {
     const startedAt = Date.now();
 
     for (const step of batch) {
       statuses[step.id] = 'RUNNING';
+      attempts.set(step.id, (attempts.get(step.id) ?? 0) + 1);
       this.db()
         .prepare(
-          `UPDATE pipeline_step_runs SET status = 'RUNNING', started_at = ?
+          `UPDATE pipeline_step_runs SET status = 'RUNNING', started_at = ?, attempts = ?
             WHERE pipeline_run_id = ? AND step_id = ?`
         )
-        .run(startedAt, runId, step.id);
+        .run(startedAt, attempts.get(step.id) ?? 1, runId, step.id);
       this.publish(PIPELINE_STEP_STARTED_EVENT, {
         projectId,
         threadId: rootThreadId,
@@ -528,7 +705,8 @@ export class PipelineEngine {
         stepId: step.id,
         stepName: step.name,
         roleProfileId: step.roleProfileId,
-        batchStepIds: batch.map(entry => entry.id)
+        batchStepIds: batch.map(entry => entry.id),
+        attempt: attempts.get(step.id) ?? 1
       });
     }
 
@@ -536,29 +714,81 @@ export class PipelineEngine {
       .prepare('UPDATE pipeline_runs SET current_step_id = ? WHERE id = ?')
       .run(batch[0].id, runId);
 
-    const requests = batch.map(step => ({
-      ...this.targetFor(step),
-      // Substitution can lengthen a task the parser already bounded — a
-      // parameter is a value the caller supplies — so the brief is cut back to
-      // what a delegation accepts rather than refused by it.
-      taskDescription: truncate(substitute(step.task, context), MAX_PIPELINE_TASK_CHARS),
-      inputContext: this.buildStepContext(pipeline.definition, step, steps, results, context),
-      timeoutMs: step.timeoutMs,
-      isolateWorktree: step.isolateWorktree,
-      verifyPipeline: step.verifyPipeline,
-      verificationSteps: step.verificationSteps
-    }));
+    // Each step gets its own checkout, branched from its ancestors' rather than
+    // from the repository's HEAD, so a downstream step reads the code its
+    // predecessors actually wrote (P9-02). A step whose checkout cannot be
+    // provisioned — most often because two ancestors of a join conflict — fails
+    // without an agent ever being started, which is the fail-closed answer: a
+    // step run on half its input answers a question nobody asked.
+    const failures = new Map<string, DelegationResult>();
+    const dispatchable: PipelineStep[] = [];
+    for (const step of batch) {
+      worktrees.delete(step.id);
+      try {
+        const worktree = await this.provisionStepWorktree(runId, step, steps);
+        if (worktree) worktrees.set(step.id, worktree);
+        dispatchable.push(step);
+      } catch (err) {
+        const message =
+          err instanceof WorktreeFleetError
+            ? err.message
+            : `The step's checkout could not be provisioned: ${(err as Error).message}`;
+        console.warn(`[Pipeline] Step '${step.id}' of run ${runId} was not started: ${message}`);
+        failures.set(step.id, {
+          childThreadId: '',
+          status: 'FAILED',
+          summary: message,
+          output: ''
+        });
+      }
+    }
+
+    const requests = dispatchable.map(step => {
+      const worktree = worktrees.get(step.id);
+      return {
+        ...this.targetFor(step),
+        // Substitution can lengthen a task the parser already bounded — a
+        // parameter is a value the caller supplies — so the brief is cut back to
+        // what a delegation accepts rather than refused by it.
+        taskDescription: truncate(substitute(step.task, context), MAX_PIPELINE_TASK_CHARS),
+        inputContext: this.buildStepContext(pipeline.definition, step, steps, results, context),
+        timeoutMs: step.timeoutMs,
+        isolateWorktree: step.isolateWorktree,
+        verifyPipeline: step.verifyPipeline,
+        verificationSteps: step.verificationSteps,
+        // Set only when the fleet provisioned one; without it a delegation
+        // sandboxes itself exactly as it did in P9-01.
+        ...(worktree
+          ? {
+              sandbox: {
+                path: worktree.path,
+                branch: worktree.branch,
+                baseCommit: worktree.baseCommit
+              }
+            }
+          : {})
+      };
+    });
+
+    const answer = (outcomes: Map<string, DelegationResult | null>): Array<DelegationResult | null> =>
+      batch.map(step => failures.get(step.id) ?? outcomes.get(step.id) ?? null);
+
+    if (requests.length === 0) return answer(new Map());
 
     try {
+      const outcomes = new Map<string, DelegationResult | null>();
       if (requests.length === 1) {
-        const result = await this.delegation.delegateTask(
-          { parentThreadId: rootThreadId, ...requests[0] },
-          // The root thread has no agent session of its own: it is a container
-          // for the run's children, and a report written into it would be text
-          // nobody reads.
-          { resumeParent: false }
+        outcomes.set(
+          dispatchable[0].id,
+          await this.delegation.delegateTask(
+            { parentThreadId: rootThreadId, ...requests[0] },
+            // The root thread has no agent session of its own: it is a container
+            // for the run's children, and a report written into it would be text
+            // nobody reads.
+            { resumeParent: false }
+          )
         );
-        return [result];
+        return answer(outcomes);
       }
 
       const outcome = await this.delegation.delegateParallel(
@@ -566,20 +796,83 @@ export class PipelineEngine {
         { resumeParent: false }
       );
       // `delegateParallel` answers in the order it was asked, which is the order
-      // of `batch`, so a result can be matched to its step by position.
-      return batch.map((_step, position) => outcome.results[position] ?? null);
+      // of `dispatchable`, so a result can be matched to its step by position.
+      dispatchable.forEach((step, position) => {
+        outcomes.set(step.id, outcome.results[position] ?? null);
+      });
+      return answer(outcomes);
     } catch (err) {
       // A refusal from the delegation service — an unresolvable role, a thread
       // that vanished — is the batch's failure, not the Core's. Every step in it
       // fails with the same reason.
       console.error(`[Pipeline] Batch dispatch failed for run ${runId}:`, err);
       const message = (err as Error).message;
-      return batch.map(() => ({
-        childThreadId: '',
-        status: 'FAILED' as const,
-        summary: message,
-        output: ''
-      }));
+      const outcomes = new Map<string, DelegationResult | null>(
+        dispatchable.map(step => [
+          step.id,
+          { childThreadId: '', status: 'FAILED' as const, summary: message, output: '' }
+        ])
+      );
+      return answer(outcomes);
+    }
+  }
+
+  /**
+   * The checkout one step runs in, chained from the steps it depends on.
+   *
+   * `null` — and not an error — when the run has no fleet: a project that is not
+   * a git repository, or one with no commits, is a pipeline that runs the way it
+   * did in P9-01, with each step sandboxed by its own delegation. A step that
+   * explicitly declares `isolateWorktree: false` is left alone too, because that
+   * is an operator saying the step must see the project as it is.
+   */
+  private async provisionStepWorktree(
+    runId: string,
+    step: PipelineStep,
+    steps: PipelineStep[]
+  ): Promise<PipelineStepWorktree | null> {
+    const active = this.active.get(runId);
+    if (!active?.repoPath || !active.baseCommit) return null;
+    if (step.isolateWorktree === false) return null;
+
+    // Direct dependencies, and that is enough to be transitive: each of them was
+    // chained from *its* dependencies, so a documentation step branched from a
+    // test step's branch already carries the implementation two levels up.
+    const chainFrom = step.dependsOn.filter(id => steps.some(entry => entry.id === id));
+
+    return this.fleet.provisionStep({
+      repoPath: active.repoPath,
+      runId,
+      stepId: step.id,
+      baseCommit: active.baseCommit,
+      chainFrom
+    });
+  }
+
+  /**
+   * The checkout and commit a run's fleet works from, or `null` for no fleet.
+   *
+   * Never throws: a project that is not a repository, one with no commits, or a
+   * workstation with no git at all is a pipeline that runs the way it did in
+   * P9-01. A run that refused to start over a missing fleet would be a
+   * regression for every project that never had one.
+   */
+  private async openFleet(
+    projectId: string
+  ): Promise<{ repoPath: string; baseCommit: string } | null> {
+    const row = this.db().prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as
+      | unknown as { path?: string }
+      | undefined;
+    const repoPath = row?.path;
+    if (!repoPath || !fs.existsSync(path.join(repoPath, '.git'))) return null;
+
+    try {
+      return { repoPath, baseCommit: await this.fleet.resolveRunBase(repoPath) };
+    } catch (err) {
+      console.warn(
+        `[Pipeline] Project ${projectId} gets no worktree fleet; its steps sandbox themselves: ${(err as Error).message}`
+      );
+      return null;
     }
   }
 
@@ -669,30 +962,50 @@ export class PipelineEngine {
     step: PipelineStep,
     status: PipelineStepStatus,
     result: DelegationResult | null,
-    cancelReason?: string
+    cancelReason?: string,
+    fleet?: {
+      /** How many times the step was dispatched, retries included (P9-02). */
+      attempts?: number;
+      branch?: string;
+      commitSha?: string;
+      /** A failure the delegation did not report, such as a settle that failed. */
+      failure?: string;
+    }
   ): void {
     const failure =
       status === 'PASSED'
         ? null
         : status === 'CANCELLED'
           ? (cancelReason ?? DEFAULT_PIPELINE_CANCELLATION_REASON)
-          : (result?.summary ?? 'The step did not complete.');
+          : (fleet?.failure ?? result?.summary ?? 'The step did not complete.');
+
+    // What the attempts add up to belongs on the row rather than in a log line:
+    // "passed" and "passed on the third try" are different facts about a step,
+    // and only one of them says the step is flaky.
+    const attempted = Math.max(1, fleet?.attempts ?? 1);
+    const note =
+      attempted > 1 && failure
+        ? `${failure} (after ${attempted} attempts)`
+        : failure;
 
     this.db()
       .prepare(
         `UPDATE pipeline_step_runs
-            SET status = ?, thread_id = ?, worktree_path = ?, diff = ?, output = ?,
-                completed_at = ?, error_message = ?
+            SET status = ?, thread_id = ?, worktree_path = ?, worktree_branch = ?, commit_sha = ?,
+                attempts = ?, diff = ?, output = ?, completed_at = ?, error_message = ?
           WHERE pipeline_run_id = ? AND step_id = ?`
       )
       .run(
         status,
         result?.childThreadId || null,
         result?.worktreePath ?? null,
+        fleet?.branch ?? null,
+        fleet?.commitSha ?? null,
+        attempted,
         result?.diff ? truncate(result.diff, MAX_PIPELINE_STEP_DIFF_CHARS) : null,
         result?.output ? truncate(result.output, MAX_PIPELINE_STEP_OUTPUT_CHARS) : null,
         Date.now(),
-        failure,
+        note,
         runId,
         step.id
       );
@@ -836,6 +1149,118 @@ export class PipelineEngine {
     return run;
   }
 
+  // --- Fleet (P9-02) --------------------------------------------------------
+
+  /**
+   * Whether a run's step branches could be combined, and where they could not.
+   *
+   * Asked of the branches rather than of the steps' diffs, because "these two
+   * agents both edited this file" and "these two agents wrote things git cannot
+   * reconcile" are different questions and only the second one stops a merge.
+   * Nothing is changed by asking; see `WorktreeFleetService.analyzeConflicts`.
+   *
+   * Every step that has a branch is analyzed, not only the ones that passed: a
+   * failed step's branch still exists, and an operator deciding what to keep is
+   * owed the same answer about it.
+   */
+  public async analyzeRunConflicts(runId: string): Promise<PipelineConflictAnalysis> {
+    const run = this.requireRun(runId);
+    const { repoPath, baseCommit } = this.requireFleet(run);
+    return this.fleet.analyzeConflicts(
+      repoPath,
+      run.id,
+      run.steps.map(step => step.stepId),
+      baseCommit
+    );
+  }
+
+  /**
+   * Consolidates a run's passing steps into one branch an operator can merge.
+   *
+   * Refused while the run is still going: consolidating a pipeline mid-flight
+   * would produce a branch that claims to be the run's result and is not. A
+   * conflict is refused too, with the paths on it, rather than resolved — which
+   * step's version of a file is right is not a question an orchestrator can
+   * answer, and guessing would put a wrong merge on a branch somebody is about
+   * to open a pull request from.
+   *
+   * The branch is left behind on purpose; nothing is merged into the operator's
+   * own branch here, and nothing in this call touches their working tree.
+   */
+  public async synthesizeRun(
+    runId: string,
+    options: { stepIds?: string[]; message?: string } = {}
+  ): Promise<PipelineSynthesisResult> {
+    const run = this.requireRun(runId);
+    if (!isTerminalPipelineRunStatus(run.status)) {
+      throw new PipelineError(
+        'RUN_IN_PROGRESS',
+        `Run ${runId} is still ${run.status.toLowerCase()}. Wait for it to finish, or cancel it, before consolidating its work.`
+      );
+    }
+    const { repoPath, baseCommit } = this.requireFleet(run);
+
+    const wanted = options.stepIds?.length ? new Set(options.stepIds) : null;
+    const steps = run.steps
+      .filter(step => step.status === 'PASSED')
+      .filter(step => !wanted || wanted.has(step.stepId))
+      .map(step => ({
+        stepId: step.stepId,
+        stepName: step.stepName,
+        roleProfileId: step.roleProfileId
+      }));
+
+    if (steps.length === 0) {
+      throw new PipelineError(
+        'INVALID_INPUT',
+        `Run ${runId} has no passing step to consolidate.`
+      );
+    }
+
+    try {
+      const result = await this.fleet.synthesize({
+        repoPath,
+        runId: run.id,
+        baseCommit,
+        steps,
+        pipelineName: this.getPipeline(run.pipelineId)?.name,
+        message: options.message
+      });
+      this.db()
+        .prepare('UPDATE pipeline_runs SET synthesis_branch = ?, synthesis_commit = ? WHERE id = ?')
+        .run(result.branchName, result.commitSha, run.id);
+      return result;
+    } catch (err) {
+      if (err instanceof WorktreeFleetError) {
+        throw new PipelineError(
+          err.code === 'SYNTHESIS_CONFLICT'
+            ? 'SYNTHESIS_CONFLICT'
+            : err.code === 'NOTHING_TO_SYNTHESIZE'
+              ? 'INVALID_INPUT'
+              : 'NO_FLEET',
+          err.message
+        );
+      }
+      throw err;
+    }
+  }
+
+  /** The checkout and base commit a run's fleet lives in, or a refusal. */
+  private requireFleet(run: PipelineRun): { repoPath: string; baseCommit: string } {
+    const row = run.projectId
+      ? (this.db().prepare('SELECT path FROM projects WHERE id = ?').get(run.projectId) as
+          | unknown as { path?: string }
+          | undefined)
+      : undefined;
+    if (!run.baseCommit || !row?.path) {
+      throw new PipelineError(
+        'NO_FLEET',
+        `Run ${run.id} kept no worktree fleet — its project is not a git repository, or it predates P9-02 — so there are no step branches to work with.`
+      );
+    }
+    return { repoPath: row.path, baseCommit: run.baseCommit };
+  }
+
   /** A pipeline's runs, newest first. */
   public listRuns(pipelineId: string, limit = 20): PipelineRun[] {
     const rows = this.db()
@@ -918,6 +1343,9 @@ export class PipelineEngine {
       errorMessage: row.error_message ?? undefined,
       rootThreadId: row.root_thread_id ?? undefined,
       projectId: row.project_id ?? undefined,
+      baseCommit: row.base_commit ?? undefined,
+      synthesisBranch: row.synthesis_branch ?? undefined,
+      synthesisCommit: row.synthesis_commit ?? undefined,
       steps: steps.map(step => this.toStepRun(step))
     };
   }
@@ -932,6 +1360,9 @@ export class PipelineEngine {
       status: row.status as PipelineStepStatus,
       threadId: row.thread_id ?? undefined,
       worktreePath: row.worktree_path ?? undefined,
+      worktreeBranch: row.worktree_branch ?? undefined,
+      commitSha: row.commit_sha ?? undefined,
+      attempts: row.attempts ?? undefined,
       diff: row.diff ?? undefined,
       output: row.output ?? undefined,
       startedAt: row.started_at ?? undefined,

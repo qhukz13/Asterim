@@ -330,6 +330,14 @@ const start = async () => {
     const { pipelineEngine } = await import('./services/pipeline/PipelineEngine');
     pipelineEngine.recoverRuns();
 
+    // Automated triggers (P9-02). Started after recovery, so a commit or a file
+    // change that arrives in the first second cannot start a run while rows the
+    // previous process left behind still claim to be running.
+    const { pipelineTriggerService } = await import(
+      './services/pipeline/PipelineTriggerService'
+    );
+    pipelineTriggerService.start();
+
     // Start event log pruning (runs immediately then every hour)
     pruningService.start();
 

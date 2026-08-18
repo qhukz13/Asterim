@@ -50,6 +50,7 @@ import {
   DelegationParentState,
   DelegationRequest,
   DelegationResult,
+  DelegationSandbox,
   DelegationStatus,
   MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATION_DEPTH,
@@ -592,7 +593,8 @@ export class AgentDelegationService {
       ...options,
       isolateWorktree: request?.isolateWorktree,
       verifyPipeline: request?.verifyPipeline,
-      verificationSteps: normalizeStepNames(request?.verificationSteps)
+      verificationSteps: normalizeStepNames(request?.verificationSteps),
+      sandbox: request?.sandbox
     });
   }
 
@@ -632,6 +634,8 @@ export class AgentDelegationService {
       verifyPipeline?: boolean;
       /** Which discovered verification steps to run, by name (P8-02). */
       verificationSteps?: string[];
+      /** A checkout provisioned by Asterim's own code for this child (P9-02). */
+      sandbox?: DelegationSandbox;
     }
   ): Promise<DelegationResult> {
     const parentThreadId = parent.id;
@@ -682,7 +686,8 @@ export class AgentDelegationService {
         parent,
         childThreadId,
         context,
-        options.isolateWorktree
+        options.isolateWorktree,
+        options.sandbox
       );
 
       let outcome: ChildOutcome;
@@ -839,7 +844,8 @@ export class AgentDelegationService {
           // agents edit the same repository at the same time.
           isolateWorktree: entry.isolateWorktree,
           verifyPipeline: entry.verifyPipeline,
-          verificationSteps: entry.verificationSteps
+          verificationSteps: entry.verificationSteps,
+          sandbox: entry.sandbox
         })
       )
     );
@@ -899,6 +905,7 @@ export class AgentDelegationService {
     isolateWorktree?: boolean;
     verifyPipeline?: boolean;
     verificationSteps?: string[];
+    sandbox?: DelegationSandbox;
   } {
     const taskDescription = requireText(item?.taskDescription, 'taskDescription', MAX_TASK_CHARS);
     const inputContext = optionalText(item?.inputContext, 'inputContext', MAX_CONTEXT_CHARS);
@@ -928,7 +935,10 @@ export class AgentDelegationService {
       timeoutMs,
       isolateWorktree: item?.isolateWorktree,
       verifyPipeline: item?.verifyPipeline,
-      verificationSteps: normalizeStepNames(item?.verificationSteps)
+      verificationSteps: normalizeStepNames(item?.verificationSteps),
+      // Never read from an agent's `delegate_parallel` arguments: `parseParallelItems`
+      // does not carry it, so only Asterim's own code can put one here (P9-02).
+      sandbox: item?.sandbox
     };
   }
 
@@ -1306,8 +1316,32 @@ export class AgentDelegationService {
     parent: ThreadRow,
     childThreadId: string,
     context: DelegationContext,
-    isolateWorktree?: boolean
+    isolateWorktree?: boolean,
+    sandbox?: DelegationSandbox
   ): Promise<WorktreeInfo | null> {
+    // A checkout the caller provisioned wins over both the default and an
+    // explicit `isolateWorktree`: the child already has its isolation, and
+    // making a second one would run it somewhere its predecessors' work is not
+    // (P9-02). Only Asterim's own orchestration can set this — it is not part
+    // of the tool schema an agent writes.
+    if (sandbox?.path && fs.existsSync(sandbox.path)) {
+      const adopted: WorktreeInfo = {
+        threadId: childThreadId,
+        path: sandbox.path,
+        branch: sandbox.branch ?? '',
+        baseCommit: sandbox.baseCommit ?? '',
+        createdAt: Date.now(),
+        status: 'ACTIVE'
+      };
+      this.db()
+        .prepare('UPDATE threads SET worktree_path = ?, worktree_branch = ? WHERE id = ?')
+        .run(adopted.path, adopted.branch || null, childThreadId);
+      context.worktreePath = adopted.path;
+      context.worktreeBranch = adopted.branch || undefined;
+      context.worktreeBaseCommit = adopted.baseCommit || undefined;
+      return adopted;
+    }
+
     const wanted = isolateWorktree ?? context.kind === 'TASK';
     if (!wanted) return null;
 

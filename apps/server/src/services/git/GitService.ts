@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { PIPELINE_GIT_COMMIT_EVENT } from '@asterim/shared';
 import { eventBus } from '../EventBus';
 import { GitProvider } from './GitProvider';
 import { RepositoryManager } from './RepositoryManager';
@@ -77,9 +78,28 @@ export class GitService {
           case 'unstage':
             await this.commit.unstageFile(path, payload.file);
             break;
-          case 'commit':
+          case 'commit': {
             await this.commit.commit(path, payload.message);
+            // Said on the bus so automated pipelines can be started by it
+            // (P9-02). Published only after the commit succeeded, and carrying
+            // the commit it produced, because a trigger that fired on an
+            // attempted commit would run agents against a tree that still has
+            // the changes in it.
+            let commitSha: string | undefined;
+            try {
+              commitSha = (await this.provider.exec('git rev-parse HEAD', path)).trim();
+            } catch {
+              /* The commit landed; not knowing its sha is not worth losing the event over. */
+            }
+            eventBus.publish({
+              id: crypto.randomUUID(),
+              timestamp: Date.now(),
+              source: 'system:git',
+              type: PIPELINE_GIT_COMMIT_EVENT,
+              payload: { projectId: project.id, commitSha, message: payload.message }
+            });
             break;
+          }
           case 'push':
             await this.remote.push(path);
             break;

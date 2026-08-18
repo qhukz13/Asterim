@@ -110,6 +110,21 @@ export function isValidPipelineStepId(id: string): boolean {
   return PIPELINE_STEP_ID_PATTERN.test(id);
 }
 
+/**
+ * How many times a step may be re-dispatched after a failure (P9-02).
+ *
+ * Three, and not more, because a retry is only ever worth doing for a failure
+ * that is *transient* — an agent process that died on boot, a network call the
+ * step made that timed out — and a step that has failed four times is failing
+ * for a reason the fifth attempt will meet as well. Each attempt is a whole
+ * agent session, so an unbounded `retries:` in a hand-written file would be a
+ * pipeline that never fails and never finishes.
+ */
+export const MAX_PIPELINE_STEP_RETRIES = 3;
+
+/** How long a step may be made to wait between attempts. */
+export const MAX_PIPELINE_RETRY_DELAY_MS = 60000;
+
 /** One node of the DAG. */
 export interface PipelineStep {
   /** Unique within the pipeline, and what `dependsOn` names. */
@@ -135,6 +150,16 @@ export interface PipelineStep {
   verifyPipeline?: boolean;
   /** Which discovered verification steps to run, by name. */
   verificationSteps?: string[];
+  /**
+   * How many extra attempts this step gets after a failure (P9-02).
+   *
+   * Unset and `0` mean the same thing — one attempt — and the retry is a fresh
+   * delegation in a fresh sandbox rather than a resumption of the session that
+   * failed, because the failure being retried is usually the session itself.
+   */
+  retries?: number;
+  /** How long to wait before the next attempt. Unset means immediately. */
+  retryDelayMs?: number;
 }
 
 /** A whole pipeline, as the YAML declares it. */
@@ -180,6 +205,12 @@ export interface PipelineStepRun {
   threadId?: string;
   /** The sandbox it ran in, when it ran in one. */
   worktreePath?: string;
+  /** The fleet branch that sandbox sits on, when the run used a fleet (P9-02). */
+  worktreeBranch?: string;
+  /** What that branch settled at, which is what downstream steps chain from. */
+  commitSha?: string;
+  /** How many times the step was dispatched. `1` for a step that never failed. */
+  attempts?: number;
   /** What it changed there, bounded. */
   diff?: string;
   /** What it said, bounded. */
@@ -204,8 +235,176 @@ export interface PipelineRun {
   /** The root thread every step is delegated from. */
   rootThreadId?: string;
   projectId?: string;
+  /** The commit the run's first step worktrees were branched from (P9-02). */
+  baseCommit?: string;
+  /** The consolidated branch a synthesis produced, once one has (P9-02). */
+  synthesisBranch?: string;
+  /** The summary commit on that branch. */
+  synthesisCommit?: string;
   steps: PipelineStepRun[];
 }
+
+// --- Worktree fleet (P9-02) --------------------------------------------------
+
+/**
+ * The branch namespace every step of every run is checked out on.
+ *
+ * Separate from `asterim/sandbox/` on purpose: a delegation's sandbox is named
+ * after the thread that owns it and is thrown away with it, while a fleet branch
+ * is named after the *run and the step*, which is what makes it addressable
+ * after the fact — a downstream step chains from it, a conflict analysis merges
+ * it, and a synthesis consolidates it. Anything under this prefix is Asterim's
+ * and may be deleted; anything that is not is somebody's real branch.
+ */
+export const PIPELINE_BRANCH_PREFIX = 'asterim/pipeline/';
+
+/** The project-relative directory a run's step checkouts are provisioned under. */
+export const PIPELINE_WORKTREE_DIR = '.asterim/worktrees/pipeline';
+
+/**
+ * What a run id or step id must look like to become a branch and a directory.
+ *
+ * Both end up on a git command line and in a path, so this refuses everything
+ * that is not one shape of identifier rather than trying to escape the rest —
+ * the same reasoning `isSafeWorktreeThreadId` applies to a thread id.
+ */
+const SAFE_PIPELINE_REF_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/** Whether an id may be used to name a fleet branch and a checkout directory. */
+export function isSafePipelineRefComponent(value: string): boolean {
+  if (typeof value !== 'string') return false;
+  // `..` would escape the fleet directory, and git refuses it in a ref name.
+  if (value.includes('..')) return false;
+  return SAFE_PIPELINE_REF_COMPONENT.test(value);
+}
+
+/** The branch one step of one run works on. */
+export function pipelineStepBranchName(runId: string, stepId: string): string {
+  return `${PIPELINE_BRANCH_PREFIX}${runId}/step-${stepId}`;
+}
+
+/** The consolidated branch a passing run synthesizes into. */
+export function pipelineSynthesisBranchName(runId: string): string {
+  return `${PIPELINE_BRANCH_PREFIX}${runId}/pr`;
+}
+
+/** Whether a branch is one the fleet provisioned, and may therefore delete. */
+export function isPipelineBranch(branch: string | null | undefined): boolean {
+  return !!branch && branch.startsWith(PIPELINE_BRANCH_PREFIX);
+}
+
+/** One provisioned step checkout. */
+export interface PipelineStepWorktree {
+  runId: string;
+  stepId: string;
+  /** Absolute path to the checkout. */
+  path: string;
+  /** The fleet branch it sits on. */
+  branch: string;
+  /** The commit it was branched from: an ancestor's tip, or the run's base. */
+  baseCommit: string;
+  /** The steps whose branches this one was chained from, in order. */
+  chainedFrom: string[];
+  createdAt: number;
+}
+
+/** One pair of fleet branches that cannot be merged, and where they disagree. */
+export interface PipelineBranchConflict {
+  stepIds: [string, string];
+  branches: [string, string];
+  /** The paths git could not reconcile between them. */
+  files: string[];
+}
+
+/**
+ * What a run's parallel step branches would do if they were merged (P9-02).
+ *
+ * Reported rather than thrown, and before anything is merged, because the point
+ * is to know whether a consolidation *would* work — an operator deciding
+ * whether to synthesize, and an engine deciding whether a fan-out can be joined,
+ * both need the answer without the repository having been changed to find it.
+ */
+export interface PipelineConflictAnalysis {
+  hasConflicts: boolean;
+  /** Every path any pair conflicts on, deduplicated and sorted. */
+  conflictedFiles: string[];
+  /** The branches that were analyzed. */
+  branches: string[];
+  /** Which pairs conflict, for a report that has to name them. */
+  conflicts: PipelineBranchConflict[];
+  /** Steps whose branch no longer exists, so nothing could be said about them. */
+  missingStepIds: string[];
+}
+
+/** What a caller asks for when it consolidates a run's work. */
+export interface PipelineSynthesisRequest {
+  runId: string;
+  /** Which steps to consolidate. Unset means every step that passed. */
+  stepIds?: string[];
+  /** The summary commit's message. Unset means a generated one. */
+  message?: string;
+}
+
+/** The branch a synthesis produced. */
+export interface PipelineSynthesisResult {
+  /** `asterim/pipeline/<runId>/pr`. */
+  branchName: string;
+  /** The summary commit at its tip. */
+  commitSha: string;
+  /** The steps whose branches it carries, in dependency order. */
+  mergedStepIds: string[];
+  /** Steps that were asked for but had nothing to contribute. */
+  skippedStepIds: string[];
+  /** The commit the branch was started from. */
+  baseCommit: string;
+}
+
+// --- Triggers (P9-02) --------------------------------------------------------
+
+/**
+ * The bus events an automated trigger listens for.
+ *
+ * Named here rather than in the trigger service because they are a contract
+ * between two subsystems: whoever publishes a commit or a file change and
+ * whoever starts a pipeline because of one.
+ */
+export const PIPELINE_GIT_COMMIT_EVENT = 'git:commit';
+export const PIPELINE_FILE_CHANGE_EVENT = 'workspace:file_change';
+
+/** Published when a listener has decided a pipeline should run. */
+export const PIPELINE_TRIGGERED_EVENT = 'pipeline:triggered';
+
+/** Why a run was started, and by what. */
+export interface PipelineTriggerEvent {
+  /** Which listener matched: never `MANUAL`, which is a REST call instead. */
+  trigger: PipelineTriggerType;
+  pipelineId: string;
+  projectId: string;
+  /** The commit that caused it, for `GIT_COMMIT`. */
+  commitSha?: string;
+  /** The paths that caused it, bounded, for `FILE_CHANGE`. */
+  changedFiles?: string[];
+  /** When the listener decided, which is not when the run reaches its first step. */
+  triggeredAt: number;
+}
+
+/**
+ * How often a `SCHEDULE` pipeline may run, at the fastest.
+ *
+ * A scheduled pipeline starts agent sessions that edit a checkout; one that
+ * fired every second would be a workstation with no cycles left for the person
+ * using it. A definition asking for less than this is run at this instead.
+ */
+export const MIN_PIPELINE_SCHEDULE_MS = 60000;
+
+/**
+ * How long a burst of file changes is collected before it starts one run.
+ *
+ * A single editor save produces several `file.changed` events, and a checkout or
+ * a `pnpm install` produces thousands. Without a quiet period, a `FILE_CHANGE`
+ * pipeline would start a run per event and refuse all but the first.
+ */
+export const PIPELINE_FILE_CHANGE_DEBOUNCE_MS = 3000;
 
 // --- DAG algebra -------------------------------------------------------------
 
@@ -421,6 +620,8 @@ export interface PipelineStepStartedPayload {
   roleProfileId: string;
   /** The steps dispatched together with this one. */
   batchStepIds: string[];
+  /** Which attempt this is, counting from 1 (P9-02). */
+  attempt?: number;
 }
 
 export interface PipelineStepCompletedPayload {

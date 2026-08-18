@@ -28,6 +28,8 @@ import fs from 'fs';
 import path from 'path';
 import {
   MAX_DELEGATION_TIMEOUT_MS,
+  MAX_PIPELINE_RETRY_DELAY_MS,
+  MAX_PIPELINE_STEP_RETRIES,
   MAX_PIPELINE_DESCRIPTION_CHARS,
   MAX_PIPELINE_NAME_CHARS,
   MAX_PIPELINE_PARAMETERS,
@@ -76,7 +78,9 @@ const STEP_KEYS: readonly string[] = [
   'timeoutMs',
   'isolateWorktree',
   'verifyPipeline',
-  'verificationSteps'
+  'verificationSteps',
+  'retries',
+  'retryDelayMs'
 ];
 
 /** The keys a definition may carry. */
@@ -301,6 +305,25 @@ export class PipelineParser {
         `steps[${position}].verificationSteps`
       );
     }
+    // Retries are read here rather than defaulted, so `retries: 0` and a file
+    // that says nothing stay the same thing all the way down to the engine —
+    // one attempt (P9-02).
+    if (isSet(value.retries)) {
+      step.retries = readBoundedInteger(
+        value.retries,
+        `steps[${position}].retries`,
+        0,
+        MAX_PIPELINE_STEP_RETRIES
+      );
+    }
+    if (isSet(value.retryDelayMs)) {
+      step.retryDelayMs = readBoundedInteger(
+        value.retryDelayMs,
+        `steps[${position}].retryDelayMs`,
+        0,
+        MAX_PIPELINE_RETRY_DELAY_MS
+      );
+    }
 
     return step;
   }
@@ -403,6 +426,28 @@ function readTimeout(value: YamlValue, position: number): number {
     );
   }
   return Math.floor(value);
+}
+
+/**
+ * A whole number inside a bound, refusing everything else (P9-02).
+ *
+ * A bound rather than a clamp: `retries: 50` in a hand-written file is somebody
+ * expecting fifty attempts, and silently running three would be a pipeline that
+ * does something other than what its definition says.
+ */
+function readBoundedInteger(
+  value: YamlValue,
+  field: string,
+  lowest: number,
+  highest: number
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new PipelineParseError(`\`${field}\` must be a whole number.`);
+  }
+  if (value < lowest || value > highest) {
+    throw new PipelineParseError(`\`${field}\` must be between ${lowest} and ${highest}.`);
+  }
+  return value;
 }
 
 function readDependsOn(value: YamlValue, position: number): string[] {

@@ -98,6 +98,29 @@ export type DelegationKind = 'TASK' | 'REVIEW';
 /** A reviewer's verdict, reduced to the two answers a caller can act on. */
 export type ReviewVerdict = 'PASS' | 'NEEDS_FIX';
 
+/**
+ * A checkout the caller has already provisioned for a child to run in (P9-02).
+ *
+ * The one way a delegation runs somewhere other than the sandbox it would have
+ * made for itself, and it exists for the pipeline worktree fleet: a step of a
+ * run works on `asterim/pipeline/<runId>/step-<stepId>`, branched from its
+ * predecessor's tip rather than from the repository's HEAD, which is what lets
+ * a later step read and refine an earlier one's changes.
+ *
+ * Deliberately **not** part of the `delegate_task` tool schema. An agent that
+ * could name the directory its child runs in could name the operator's working
+ * tree, which is precisely what worktree isolation exists to prevent; this is
+ * set by Asterim's own orchestration code and by nothing that a model writes.
+ */
+export interface DelegationSandbox {
+  /** Absolute path to an existing checkout. */
+  path: string;
+  /** The branch it sits on, recorded on the child's thread row. */
+  branch?: string;
+  /** The commit its diff is taken against. */
+  baseCommit?: string;
+}
+
 /** What one thread asks for when it hands work to another. */
 export interface DelegationRequest {
   /** The thread that will wait for the result. */
@@ -150,6 +173,14 @@ export interface DelegationRequest {
    * command this way, only choose among the ones the project already declares.
    */
   verificationSteps?: string[];
+  /**
+   * A checkout to run in instead of provisioning one (P9-02).
+   *
+   * Set by the pipeline worktree fleet and by nothing an agent writes; see
+   * `DelegationSandbox`. When it is set, `isolateWorktree` is not consulted —
+   * the child already has its isolation.
+   */
+  sandbox?: DelegationSandbox;
 }
 
 /** What the parent gets back, whether or not the child succeeded. */
@@ -228,6 +259,8 @@ export interface ParallelDelegationItem {
   verifyPipeline?: boolean;
   /** Which discovered verification steps to run for it, by name (P8-02). */
   verificationSteps?: string[];
+  /** A checkout provisioned for this piece by Asterim's own code (P9-02). */
+  sandbox?: DelegationSandbox;
 }
 
 /** Several pieces of work handed out at once, from one parent. */
