@@ -185,6 +185,43 @@ export interface TeamTurnRequest {
   context?: unknown;
 }
 
+/**
+ * How dangerous the Core judged the action a turn is parked on.
+ *
+ * The same four levels `ApprovalManager` grades a command or an MCP tool call
+ * with, restated here because they cross the WebSocket boundary: the dashboard
+ * renders the badge, and a second vocabulary on the client would let the two
+ * disagree about what "critical" means.
+ */
+export type TeamApprovalRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * The action a parked turn is actually waiting on (DEC-031 § 3).
+ *
+ * Attached to the turn when the agent's session raises a tool approval, and the
+ * reason it exists is that the instruction alone does not describe what is
+ * about to happen: "clean up the branches" is what a member asked for, and
+ * `git push --force` is what the agent proposes to do about it. Somebody
+ * deciding whether to allow that is owed the second, not only the first.
+ *
+ * `actionId` is what a decision answers — it is the id `ApprovalManager` is
+ * holding a promise on, and without it a resolution over HTTP cannot reach the
+ * agent that is blocked.
+ */
+export interface TeamPendingApprovalInfo {
+  /** The pending action id the Core is waiting on. */
+  actionId: string;
+  /** The command or tool call, as the agent proposed it. */
+  command?: string;
+  /** What the Core would show on an ordinary approval card. */
+  description?: string;
+  riskLevel?: TeamApprovalRiskLevel;
+  /** Why the Core judged it that way, in the analyser's own words. */
+  warnings?: string[];
+  /** When the agent asked. */
+  requestedAt?: number;
+}
+
 /** A submitted instruction, as it sits in the queue. */
 export interface TeamTurnQueueItem {
   id: string;
@@ -200,6 +237,14 @@ export interface TeamTurnQueueItem {
   errorMessage?: string;
   /** How this turn's approval prompt was answered, once one was answered. */
   approval?: TeamTurnApprovalRecord;
+  /**
+   * The action this turn is parked on, while it is parked on one.
+   *
+   * Present only on a turn in `AWAITING_APPROVAL`: it is cleared the moment the
+   * turn resumes, because a stale tool call rendered next to a running turn
+   * would read as a prompt nobody has answered.
+   */
+  pendingApproval?: TeamPendingApprovalInfo;
 }
 
 /**
@@ -351,6 +396,14 @@ export interface TeamTurnEventPayload {
   queuePosition: number;
   /** How many turns are still waiting behind the active one. */
   queueLength: number;
+  /**
+   * The action the turn is parked on, when it is parked on one.
+   *
+   * A copy of `turn.pendingApproval`, carried at the top level so a client that
+   * only reads the transition — a notification surface, a relay bridge — can
+   * say what is being asked for without unpacking the turn.
+   */
+  pendingApproval?: TeamPendingApprovalInfo;
 }
 
 /**

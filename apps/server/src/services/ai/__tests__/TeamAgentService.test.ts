@@ -2161,6 +2161,432 @@ async function main(): Promise<void> {
 
     await app.close();
   }
+
+  // --- 18. What a pending action is read as ---------------------------------
+  describe('an approval request is read defensively before the team is shown it');
+
+  {
+    const { toPendingApprovalInfo } = require('../TeamAgentService');
+
+    equal('a payload with no action id is not a prompt', toPendingApprovalInfo({ command: 'rm -rf /' }), null);
+    equal('and neither is nothing at all', toPendingApprovalInfo(undefined), null);
+
+    const full = toPendingApprovalInfo({
+      actionId: 'act-1',
+      description: "The agent wants to call the MCP tool 'fs__delete'.",
+      command: 'fs__delete {"path":"/etc/passwd"}',
+      securityAnalysis: {
+        riskLevel: 'critical',
+        isPathTraversal: true,
+        warnings: ['The tool destroys data that may not be recoverable.', '', 42],
+        requiresExplicitHumanApproval: true
+      }
+    });
+    equal('the action id is what a decision answers', full.actionId, 'act-1');
+    equal('the command is carried verbatim', full.command, 'fs__delete {"path":"/etc/passwd"}');
+    check('with its description', full.description.includes('fs__delete'));
+    equal('the risk grade is kept', full.riskLevel, 'critical');
+    equal(
+      'and only the warnings that are actually words',
+      full.warnings,
+      ['The tool destroys data that may not be recoverable.']
+    );
+    check('with a timestamp', typeof full.requestedAt === 'number');
+
+    const unanalysed = toPendingApprovalInfo({ actionId: 'act-2', command: 'ls' });
+    equal('an unanalysed prompt claims no risk level rather than a low one', unanalysed.riskLevel, undefined);
+    equal('and carries no warnings rather than an empty list', unanalysed.warnings, undefined);
+    equal(
+      'a risk level that is not one of the four is dropped',
+      toPendingApprovalInfo({ actionId: 'a', securityAnalysis: { riskLevel: 'apocalyptic' } }).riskLevel,
+      undefined
+    );
+
+    const huge = toPendingApprovalInfo({ actionId: 'act-3', command: 'x'.repeat(9000) });
+    check('and an enormous command is truncated rather than broadcast whole', huge.command.length < 9000);
+  }
+
+  // --- 19. End-to-end tool approval interception (P8-04, DEC-031 § 3) --------
+  describe('a destructive tool call parks the turn, and the team’s answer reaches the agent');
+
+  {
+    const { eventBus } = require('../../EventBus');
+    const { approvalManager } = require('../../ApprovalManager');
+    const { EventBusTeamTurnExecutor } = require('../TeamAgentService');
+
+    const projectId = 'proj-approval';
+
+    interface WiredEvent {
+      type: string;
+      turnId: string;
+      status: string;
+      state: string;
+      pending?: { actionId?: string; command?: string; riskLevel?: string; warnings?: string[] };
+    }
+    const wiredEvents: WiredEvent[] = [];
+    const wiredLock = new AgentTurnLock((type: string, payload: any) => {
+      wiredEvents.push({
+        type,
+        turnId: payload.turn.id,
+        status: payload.turn.status,
+        state: payload.state,
+        // Both places it is carried: on the turn, and alongside it.
+        pending: payload.pendingApproval ?? payload.turn.pendingApproval
+      });
+    });
+
+    // The production executor, on the real bus: this section is about the seam
+    // between `ApprovalManager` and the turn queue, so substituting either end
+    // would test only that the test agrees with itself.
+    const wired = new TeamAgentService({
+      lock: wiredLock,
+      executor: new EventBusTeamTurnExecutor(eventBus),
+      turnTimeoutMs: 4000
+    });
+
+    const toolAgent = wired.createTeamAgent({
+      teamId: 'team-alpha',
+      name: 'Deploy Bot',
+      role: 'deployer',
+      systemPrompt: 'You deploy things.',
+      approvalPolicy: 'ANY_MEMBER'
+    });
+    const toolThread = wired.createTeamThread({ teamAgentId: toolAgent.id, projectId });
+
+    const COMMAND = 'fs__delete {"path":"/etc/passwd"}';
+    const DESCRIPTION =
+      "The agent wants to call the MCP tool 'fs__delete'. The tool destroys data that may not be recoverable.";
+    const WARNINGS = [
+      'The tool destroys data that may not be recoverable.',
+      'An argument names a protected system location.'
+    ];
+
+    /** Every `y`/`n` the Core would have written into the PTY. */
+    const keystrokes: Array<{ threadId?: string; key: string; actionId?: string }> = [];
+    const onResponse = (event: { payload?: Record<string, unknown> }) => {
+      const payload = event?.payload ?? {};
+      // Exactly what `AgentService` does with this event.
+      keystrokes.push({
+        threadId: payload.threadId as string | undefined,
+        key: payload.approved ? 'y' : 'n',
+        actionId: payload.actionId as string | undefined
+      });
+    };
+    eventBus.subscribe('client.approval_response', onResponse);
+
+    /**
+     * The agent session, standing in for a PTY driven by `McpToolGateway`.
+     *
+     * An instruction that names something destructive is not answered — it
+     * raises a real approval through the real `ApprovalManager` and waits, which
+     * is exactly what a gated tool call does. Everything else is answered at
+     * once.
+     */
+    const asked: Array<{ actionId: string; verdict: Promise<boolean> }> = [];
+    const verdicts: boolean[] = [];
+
+    const say = (content: string) => {
+      eventBus.publish({
+        id: `chat-${content.length}`,
+        timestamp: Date.now(),
+        source: 'test:agent',
+        type: 'chat.message',
+        payload: { threadId: toolThread.id, projectId, role: 'agent', content }
+      });
+      eventBus.publish({
+        id: `status-${content.length}`,
+        timestamp: Date.now(),
+        source: 'test:agent',
+        type: 'agent.status',
+        payload: { threadId: toolThread.id, projectId, status: 'idle' }
+      });
+    };
+
+    const onInstruction = (event: { payload?: Record<string, unknown> }) => {
+      const payload = event?.payload ?? {};
+      if (payload.threadId !== toolThread.id) return;
+      const content = String(payload.content ?? '');
+      // The persona and the standing context are setup, not questions.
+      if (!content.startsWith('[')) return;
+
+      if (!/delete|force-push/i.test(content)) {
+        setTimeout(() => say(`answered: ${content}`), 1);
+        return;
+      }
+
+      setTimeout(() => {
+        let actionId = '';
+        const verdict = approvalManager.requestApproval(projectId, DESCRIPTION, COMMAND, 4000, {
+          threadId: toolThread.id,
+          securityAnalysis: {
+            riskLevel: 'critical',
+            isPathTraversal: true,
+            warnings: WARNINGS,
+            requiresExplicitHumanApproval: true
+          },
+          onActionId: (id: string) => {
+            actionId = id;
+          }
+        });
+        // Answered without a tick of its own, so a refused turn's session has
+        // already stopped talking by the time the member behind it is served.
+        verdict.then((approved: boolean) => {
+          verdicts.push(approved);
+          say(approved ? 'done: the tool ran' : 'stopped: the team refused that action');
+        });
+        asked.push({ actionId, verdict });
+      }, 1);
+    };
+    eventBus.subscribe('client.chat_message', onInstruction);
+
+    /** Waits until the thread is parked on a prompt, or gives up. */
+    const waitForParked = async (turnId: string, timeoutMs = 3000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const live = wired.getQueueState(toolThread.id);
+        if (live.state === 'AWAITING_APPROVAL' && live.activeTurn?.id === turnId) return true;
+        await delay(2);
+      }
+      return false;
+    };
+
+    // --- an approval that is granted ---
+    const destructive = wired.enqueueTurn({
+      teamThreadId: toolThread.id,
+      userId: 'user-ana',
+      userName: 'Ana',
+      instruction: 'delete the staging database'
+    });
+    const behindIt = wired.enqueueTurn({
+      teamThreadId: toolThread.id,
+      userId: 'user-ben',
+      userName: 'Ben',
+      instruction: 'then summarise what changed'
+    });
+
+    check('the agent’s tool call parks the turn by itself', await waitForParked(destructive.turn.id));
+
+    const parkedState = wired.getQueueState(toolThread.id);
+    equal('nobody had to call anything for it', parkedState.state, 'AWAITING_APPROVAL');
+    equal(
+      'the durable row says so too',
+      wired.getTurn(destructive.turn.id).status,
+      'AWAITING_APPROVAL'
+    );
+    equal(
+      'and the thread record',
+      wired.getTeamThread(toolThread.id).status,
+      'AWAITING_APPROVAL'
+    );
+    equal(
+      'the turn carries the action it is parked on',
+      parkedState.activeTurn.pendingApproval.actionId,
+      asked[0].actionId
+    );
+    equal(
+      'the command the agent proposed, not the instruction',
+      parkedState.activeTurn.pendingApproval.command,
+      COMMAND
+    );
+    check(
+      'what the Core would say about it',
+      parkedState.activeTurn.pendingApproval.description.includes('fs__delete')
+    );
+    equal(
+      'how dangerous it judged it',
+      parkedState.activeTurn.pendingApproval.riskLevel,
+      'critical'
+    );
+    equal('and why', parkedState.activeTurn.pendingApproval.warnings, WARNINGS);
+    check('the turn behind it has not started', wired.getTurn(behindIt.turn.id).status === 'QUEUED');
+
+    const parkedEvent = wiredEvents.find(
+      event => event.turnId === destructive.turn.id && event.state === 'AWAITING_APPROVAL'
+    );
+    equal('the room was told, as a started transition', parkedEvent?.type, 'team_turn:started');
+    equal('carrying the pending action', parkedEvent?.pending?.actionId, asked[0].actionId);
+    equal('with its risk level', parkedEvent?.pending?.riskLevel, 'critical');
+
+    const approved = wired.resolveTurnApproval(
+      toolThread.id,
+      destructive.turn.id,
+      { userId: 'user-zoe', userName: 'Zoe', role: 'owner' },
+      'APPROVED',
+      'Staging only.'
+    );
+    equal('an owner may answer it', approved.approval.decision, 'APPROVED');
+    equal('the decision reached the agent', keystrokes.length, 1);
+    equal('as the action it answers', keystrokes[0].actionId, asked[0].actionId);
+    equal('on the thread the agent is running under', keystrokes[0].threadId, toolThread.id);
+    equal('and as the keystroke the Core writes into the session', keystrokes[0].key, 'y');
+    equal('the turn is running again', wired.getQueueState(toolThread.id).state, 'PROCESSING_TURN');
+    equal(
+      'with no prompt still hanging off it',
+      wired.getQueueState(toolThread.id).activeTurn.pendingApproval,
+      undefined
+    );
+
+    equal('the blocked tool call was released', await asked[0].verdict, true);
+    equal('the turn completed', (await destructive.completion).status, 'COMPLETED');
+    check(
+      'and the agent’s answer reached the shared transcript',
+      wired
+        .listMessages(toolThread.id)
+        .some((message: { role: string; content: string }) =>
+          message.role === 'assistant' && message.content.includes('the tool ran')
+        )
+    );
+    equal('the turn behind it was then served', (await behindIt.completion).status, 'COMPLETED');
+    equal(
+      'nothing is left waiting on a human',
+      approvalManager.getPendingActionIds(toolThread.id).length,
+      0
+    );
+
+    // --- an approval that is refused ---
+    const refused = wired.enqueueTurn({
+      teamThreadId: toolThread.id,
+      userId: 'user-ana',
+      userName: 'Ana',
+      instruction: 'force-push the release branch'
+    });
+    check('the second destructive turn parks too', await waitForParked(refused.turn.id));
+
+    const nextInLine = wired.enqueueTurn({
+      teamThreadId: toolThread.id,
+      userId: 'user-ben',
+      userName: 'Ben',
+      instruction: 'write the release notes'
+    });
+
+    const rejected = wired.resolveTurnApproval(
+      toolThread.id,
+      refused.turn.id,
+      { userId: 'user-zoe', userName: 'Zoe', role: 'owner' },
+      'REJECTED',
+      'Not on the release branch.'
+    );
+    equal('the refusal is recorded', rejected.approval.decision, 'REJECTED');
+    equal('the agent was told as well', keystrokes.length, 2);
+    equal('with the action it refers to', keystrokes[1].actionId, asked[1].actionId);
+    equal('and the keystroke that stops it', keystrokes[1].key, 'n');
+    equal('the blocked tool call was denied', await asked[1].verdict, false);
+    equal('the turn is cancelled rather than failed', wired.getTurn(refused.turn.id).status, 'CANCELLED');
+    equal('its caller is told so', (await refused.completion).status, 'CANCELLED');
+    equal(
+      'nothing of that turn is left waiting on a human',
+      approvalManager.getPendingActionIds(toolThread.id).length,
+      0
+    );
+    equal('and the queue advanced to the member behind it', (await nextInLine.completion).status, 'COMPLETED');
+    check(
+      'the refused action never became an answer in the transcript',
+      !wired
+        .listMessages(toolThread.id)
+        .some((message: { role: string; content: string }) =>
+          message.role === 'assistant' && message.content.includes('the team refused')
+        )
+    );
+
+    // --- a prompt that goes away on its own ---
+    const abandoned = wired.enqueueTurn({
+      teamThreadId: toolThread.id,
+      userId: 'user-ana',
+      userName: 'Ana',
+      instruction: 'delete the old build artefacts'
+    });
+    check('it parks like the others', await waitForParked(abandoned.turn.id));
+
+    const abandonedAction = asked[2].actionId;
+    equal(
+      'cancelling the prompt is reported',
+      approvalManager.cancelApproval(abandonedAction, 'The session was stopped.'),
+      true
+    );
+    equal(
+      'the turn does not stay parked on a question nobody can answer',
+      wired.getQueueState(toolThread.id).state,
+      'PROCESSING_TURN'
+    );
+    equal(
+      'and the durable row agrees',
+      wired.getTurn(abandoned.turn.id).status,
+      'PROCESSING'
+    );
+    equal('a cancelled prompt is a denial to the agent', await asked[2].verdict, false);
+    equal('the turn then finishes on its own', (await abandoned.completion).status, 'COMPLETED');
+    equal('no decision was signalled for it', keystrokes.length, 2);
+    equal('and the thread ends idle', wired.getTeamThread(toolThread.id).status, 'IDLE');
+
+    eventBus.unsubscribe('client.chat_message', onInstruction);
+    eventBus.unsubscribe('client.approval_response', onResponse);
+  }
+
+  // --- 20. Refusing without an intercepted action ----------------------------
+  describe('a turn parked by hand still refuses cleanly, without signalling a phantom action');
+
+  {
+    const { eventBus } = require('../../EventBus');
+
+    const stray: unknown[] = [];
+    const onResponse = (event: unknown) => stray.push(event);
+    eventBus.subscribe('client.approval_response', onResponse);
+
+    const cancelled: Array<{ threadId: string; reason?: string }> = [];
+    const manual = new TeamAgentService({
+      lock: new AgentTurnLock(() => undefined),
+      executor,
+      turnTimeoutMs: 5000,
+      approvals: {
+        cancelApprovalsForThread: (threadId: string, reason?: string) => {
+          cancelled.push({ threadId, reason });
+          return 0;
+        }
+      }
+    });
+
+    const manualAgent = manual.createTeamAgent({
+      teamId: 'team-alpha',
+      name: 'Manual',
+      role: 'manual',
+      systemPrompt: 'p'
+    });
+    const manualThread = manual.createTeamThread({
+      teamAgentId: manualAgent.id,
+      projectId: 'proj-1'
+    });
+
+    executor.manual = true;
+    const turn = manual.enqueueTurn({
+      teamThreadId: manualThread.id,
+      userId: 'user-ana',
+      userName: 'Ana',
+      instruction: 'something that needs a human'
+    });
+    check('it reaches the agent', await executor.waitForStart(turn.turn.id));
+
+    const parked = manual.markTurnAwaitingApproval(manualThread.id, turn.turn.id);
+    equal('a park with no details still parks', parked.status, 'AWAITING_APPROVAL');
+    equal('and claims no action', parked.pendingApproval, undefined);
+
+    manual.resolveTurnApproval(
+      manualThread.id,
+      turn.turn.id,
+      { userId: 'user-zoe', userName: 'Zoe', role: 'owner' },
+      'REJECTED'
+    );
+    equal('no keystroke is sent into a session nothing asked', stray.length, 0);
+    equal('but the thread’s prompts are cleared anyway', cancelled.length, 1);
+    equal('for the thread that was refused', cancelled[0].threadId, manualThread.id);
+    check('with a reason that names who refused it', (cancelled[0].reason || '').includes('Zoe'));
+
+    executor.release(turn.turn.id);
+    await turn.completion;
+    executor.manual = false;
+    equal('and the refused turn stays cancelled', manual.getTurn(turn.turn.id).status, 'CANCELLED');
+
+    eventBus.unsubscribe('client.approval_response', onResponse);
+  }
 }
 
 main()

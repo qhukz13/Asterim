@@ -14,6 +14,8 @@ import type {
   TeamAgentMessage,
   TeamApprovalDecision,
   TeamApprovalPolicy,
+  TeamApprovalRiskLevel,
+  TeamPendingApprovalInfo,
   TeamThread,
   TeamThreadTurnState,
   TeamThreadViewer,
@@ -294,6 +296,67 @@ export function awaitingApprovalTurn(queue: TeamTurnQueueState | null): TeamTurn
   return queue.activeTurn?.status === 'AWAITING_APPROVAL' ? queue.activeTurn : null;
 }
 
+/**
+ * The action a parked turn is actually waiting on, when the Core said what it
+ * is (P8-04, DEC-031 § 3).
+ *
+ * Absent on a turn parked without details — a prompt raised by something that
+ * did not describe itself — and the card then falls back to the instruction,
+ * because "somebody must approve this" is still worth saying.
+ */
+export function pendingApprovalOf(
+  turn: TeamTurnQueueItem | null | undefined
+): TeamPendingApprovalInfo | null {
+  return turn?.pendingApproval ?? null;
+}
+
+export interface ApprovalRiskTone {
+  label: string;
+  color: string;
+  background: string;
+}
+
+/**
+ * How dangerous the Core judged the pending action, as a badge.
+ *
+ * Four distinct tones rather than one alarm colour: a member who sees the same
+ * red on `ls` and on `rm -rf /` learns to ignore it, and the point of putting
+ * the analysis on the card at all is that the difference is what they are being
+ * asked to decide about.
+ */
+export function approvalRiskTone(risk: TeamApprovalRiskLevel | undefined): ApprovalRiskTone | null {
+  switch (risk) {
+    case 'critical':
+      return {
+        label: 'Critical risk',
+        color: 'var(--color-state-error)',
+        background: 'var(--color-state-error-bg)'
+      };
+    case 'high':
+      return {
+        label: 'High risk',
+        color: 'var(--color-state-paused)',
+        background: 'var(--color-state-paused-bg)'
+      };
+    case 'medium':
+      return {
+        label: 'Medium risk',
+        color: 'var(--color-state-waiting)',
+        background: 'var(--color-state-waiting-bg)'
+      };
+    case 'low':
+      return {
+        label: 'Low risk',
+        color: 'var(--color-text-secondary)',
+        background: 'var(--color-surface-3)'
+      };
+    default:
+      // An analysis that never arrived is not a low-risk one, and saying so
+      // would be a claim the Core did not make.
+      return null;
+  }
+}
+
 /** Two initials for an author badge, from whatever name the Core recorded. */
 export function authorInitials(name: string | undefined): string {
   const trimmed = (name || '').trim();
@@ -341,6 +404,29 @@ export function formatRelativeTime(timestamp: number, now: number = Date.now()):
 /** A queue with one turn removed, wherever it was. */
 function withoutTurn(queue: TeamTurnQueueItem[], turnId: string): TeamTurnQueueItem[] {
   return queue.filter(entry => entry.id !== turnId);
+}
+
+/**
+ * The turn from a transition, with the action it is parked on kept (P8-04).
+ *
+ * Two ways it can be missing from the turn itself and still be known: the
+ * transition may carry it alongside the turn, and a turn that is *still* parked
+ * keeps whatever the last transition said it was parked on. Dropping it would
+ * replace a card naming `rm -rf /` with one naming nothing, which is the moment
+ * a member stops reading the card.
+ */
+function withPendingApproval(
+  base: TeamTurnQueueState,
+  turn: TeamTurnQueueItem,
+  payload: TeamTurnEventPayload
+): TeamTurnQueueItem {
+  if (turn.pendingApproval) return turn;
+  const carried =
+    payload.pendingApproval ??
+    (turn.status === 'AWAITING_APPROVAL' && base.activeTurn?.id === turn.id
+      ? base.activeTurn.pendingApproval
+      : undefined);
+  return carried ? { ...turn, pendingApproval: carried } : turn;
 }
 
 /**
@@ -398,14 +484,14 @@ export function applyTurnEventToQueue(
         : {
             ...base,
             state: payload.state,
-            activeTurn: turn,
+            activeTurn: withPendingApproval(base, turn, payload),
             queuedTurns: withoutTurn(base.queuedTurns, turn.id)
           };
     case TEAM_TURN_STARTED_EVENT:
       return {
         ...base,
         state: payload.state,
-        activeTurn: turn,
+        activeTurn: withPendingApproval(base, turn, payload),
         queuedTurns: withoutTurn(base.queuedTurns, turn.id)
       };
     case TEAM_TURN_COMPLETED_EVENT:

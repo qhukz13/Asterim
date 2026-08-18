@@ -41,6 +41,8 @@ import type {
   TeamAgent,
   TeamAgentMessage,
   TeamApprovalPolicy,
+  TeamApprovalRiskLevel,
+  TeamPendingApprovalInfo,
   TeamThread,
   TeamThreadTurnState,
   TeamThreadViewer,
@@ -186,6 +188,23 @@ function turnFixture(overrides: Partial<TeamTurnQueueItem> = {}): TeamTurnQueueI
     instruction: 'Review the auth middleware change.',
     status: 'QUEUED',
     queuedAt: NOW - 120_000,
+    ...overrides
+  };
+}
+
+function pendingApprovalFixture(
+  overrides: Partial<TeamPendingApprovalInfo> = {}
+): TeamPendingApprovalInfo {
+  return {
+    actionId: 'act_1',
+    command: 'fs__delete {"path":"/etc/passwd"}',
+    description: "The agent wants to call the MCP tool 'fs__delete'.",
+    riskLevel: 'critical',
+    warnings: [
+      'The tool destroys data that may not be recoverable.',
+      'An argument names a protected system location.'
+    ],
+    requestedAt: NOW - 30_000,
     ...overrides
   };
 }
@@ -340,6 +359,8 @@ async function main(): Promise<void> {
     approvalPolicyRequirement,
     effectiveApprovalPolicy,
     awaitingApprovalTurn,
+    pendingApprovalOf,
+    approvalRiskTone,
     authorInitials,
     messageAuthorLabel,
     systemPromptPreview,
@@ -653,6 +674,39 @@ async function main(): Promise<void> {
     equal('and a queue that is not there at all has none', awaitingApprovalTurn(null), null);
   }
 
+  describe('the pending action is what the agent proposes, graded by how bad it is');
+  {
+    equal(
+      'a parked turn carries the action it is parked on',
+      pendingApprovalOf(turnFixture({ status: 'AWAITING_APPROVAL', pendingApproval: pendingApprovalFixture() }))
+        ?.command,
+      'fs__delete {"path":"/etc/passwd"}'
+    );
+    equal('a turn without one claims nothing', pendingApprovalOf(turnFixture()), null);
+    equal('and neither does no turn at all', pendingApprovalOf(null), null);
+
+    const levels: TeamApprovalRiskLevel[] = ['low', 'medium', 'high', 'critical'];
+    equal(
+      'each risk level reads as words',
+      levels.map(level => approvalRiskTone(level)?.label),
+      ['Low risk', 'Medium risk', 'High risk', 'Critical risk']
+    );
+    equal(
+      'and none of the four share a colour, so the badge means something',
+      new Set(levels.map(level => approvalRiskTone(level)?.color)).size,
+      4
+    );
+    check(
+      'every tone is a design token, not a hex value',
+      levels.every(level => !(approvalRiskTone(level)?.color || '').includes('#'))
+    );
+    equal(
+      'an ungraded action claims no risk rather than a low one',
+      approvalRiskTone(undefined),
+      null
+    );
+  }
+
   describe('systemPromptPreview shows the role without cutting mid-word');
   {
     equal('a short prompt is untouched', systemPromptPreview('Be terse.'), 'Be terse.');
@@ -742,6 +796,64 @@ async function main(): Promise<void> {
 
     const untouched = applyTurnEventToQueue(queue, 'chat.message', eventFixture(ada, 'IDLE'));
     equal('an unrelated event changes nothing', untouched, queue);
+  }
+
+  describe('the action a turn is parked on survives the transitions it arrives with');
+  {
+    const ada = turnFixture();
+    const pending = pendingApprovalFixture();
+
+    let queue = applyTurnEventToQueue(
+      null,
+      TEAM_TURN_STARTED_EVENT,
+      eventFixture({ ...ada, status: 'PROCESSING' }, 'PROCESSING_TURN')
+    );
+    queue = applyTurnEventToQueue(
+      queue,
+      TEAM_TURN_STARTED_EVENT,
+      eventFixture({ ...ada, status: 'AWAITING_APPROVAL', pendingApproval: pending }, 'AWAITING_APPROVAL')
+    );
+    equal(
+      'parking carries what the agent asked to do',
+      queue.activeTurn?.pendingApproval?.command,
+      pending.command
+    );
+
+    // A transition that carries the action beside the turn rather than on it —
+    // a relay bridge, a client that reshaped the turn — still says what is
+    // being asked for.
+    const beside = applyTurnEventToQueue(
+      queueFixture(),
+      TEAM_TURN_STARTED_EVENT,
+      eventFixture({ ...ada, status: 'AWAITING_APPROVAL' }, 'AWAITING_APPROVAL', {
+        pendingApproval: pending
+      })
+    );
+    equal('carried alongside the turn, it is still adopted', beside.activeTurn?.pendingApproval?.actionId, 'act_1');
+
+    // A repeated `started` for a turn that is still parked must not blank the
+    // card while the team is reading it.
+    const repeated = applyTurnEventToQueue(
+      queue,
+      TEAM_TURN_STARTED_EVENT,
+      eventFixture({ ...ada, status: 'AWAITING_APPROVAL' }, 'AWAITING_APPROVAL')
+    );
+    equal(
+      'a re-announced park keeps the action already known',
+      repeated.activeTurn?.pendingApproval?.actionId,
+      'act_1'
+    );
+
+    const resumed = applyTurnEventToQueue(
+      queue,
+      TEAM_TURN_APPROVAL_EVENT,
+      eventFixture({ ...ada, status: 'PROCESSING' }, 'PROCESSING_TURN')
+    );
+    equal(
+      'and an answered one drops it, rather than showing a prompt nobody owes an answer',
+      resumed.activeTurn?.pendingApproval,
+      undefined
+    );
   }
 
   // --- 3. Store REST behaviour ----------------------------------------------
@@ -1620,6 +1732,101 @@ async function main(): Promise<void> {
       'and still says the thread is waiting on a person',
       inChat.includes('Waiting on an approval for Ada Lovelace')
     );
+  }
+
+  describe('the approval card shows the action itself, not only the request behind it');
+  {
+    const toolQueue = queueFixture({
+      state: 'AWAITING_APPROVAL',
+      activeTurn: turnFixture({
+        status: 'AWAITING_APPROVAL',
+        startedAt: NOW - 300_000,
+        instruction: 'tidy up the old branches',
+        pendingApproval: pendingApprovalFixture()
+      })
+    });
+
+    const withAction = renderInspector({
+      queue: toolQueue,
+      approvalPolicy: 'ANY_MEMBER',
+      viewer: viewerFixture('owner'),
+      onResolveApproval: noop
+    });
+    check('the pending action is its own region', withAction.includes('aria-label="Pending action"'));
+    check(
+      'the command the agent proposed is rendered verbatim',
+      withAction.includes('fs__delete {&quot;path&quot;:&quot;/etc/passwd&quot;}')
+    );
+    check('in monospace, as a command', withAction.includes('<code'));
+    check('with what the Core would say about it', withAction.includes('wants to call the MCP tool'));
+    check('the instruction is still there beside it', withAction.includes('tidy up the old branches'));
+    check('the risk is graded', withAction.includes('Critical risk'));
+    check('and labelled for a screen reader', withAction.includes('aria-label="Risk level: Critical risk"'));
+    check('the warnings are listed', withAction.includes('aria-label="Security warnings"'));
+    check(
+      'each of them',
+      withAction.includes('The tool destroys data that may not be recoverable.') &&
+        withAction.includes('An argument names a protected system location.')
+    );
+    check('and both answers are still offered', withAction.includes('>Approve<') && withAction.includes('>Reject<'));
+
+    const graded = renderInspector({
+      queue: queueFixture({
+        state: 'AWAITING_APPROVAL',
+        activeTurn: turnFixture({
+          status: 'AWAITING_APPROVAL',
+          pendingApproval: pendingApprovalFixture({ riskLevel: 'medium', warnings: undefined })
+        })
+      }),
+      viewer: viewerFixture('owner'),
+      onResolveApproval: noop
+    });
+    check('a milder action is graded as such', graded.includes('Medium risk'));
+    check('and not as critical', !graded.includes('Critical risk'));
+    check('a prompt with no warnings shows no empty warning list', !graded.includes('Security warnings'));
+
+    const ungraded = renderInspector({
+      queue: queueFixture({
+        state: 'AWAITING_APPROVAL',
+        activeTurn: turnFixture({
+          status: 'AWAITING_APPROVAL',
+          pendingApproval: { actionId: 'act_2', command: 'rm -rf ./build' }
+        })
+      }),
+      viewer: viewerFixture('owner'),
+      onResolveApproval: noop
+    });
+    check('an ungraded action claims no risk level', !ungraded.includes('risk<'));
+    check('but still shows the command', ungraded.includes('rm -rf ./build'));
+
+    const bare = renderInspector({
+      queue: queueFixture({
+        state: 'AWAITING_APPROVAL',
+        activeTurn: turnFixture({ status: 'AWAITING_APPROVAL' })
+      }),
+      viewer: viewerFixture('owner'),
+      onResolveApproval: noop
+    });
+    check(
+      'a turn parked with no details falls back to the instruction alone',
+      !bare.includes('Pending action') && bare.includes('needs approval')
+    );
+
+    const readOnly = renderInspector({ queue: toolQueue, viewer: viewerFixture('viewer') });
+    check(
+      'a member who cannot answer is still shown what is being asked for',
+      readOnly.includes('fs__delete') && readOnly.includes('Critical risk')
+    );
+
+    const inChat = renderChat({
+      queue: toolQueue,
+      approvalPolicy: 'ANY_MEMBER',
+      viewer: viewerFixture('owner'),
+      onResolveApproval: noop
+    });
+    check('the transcript view carries the same detail', inChat.includes('Critical risk'));
+    check('including the command', inChat.includes('fs__delete'));
+    check('and its warnings', inChat.includes('An argument names a protected system location.'));
   }
 
   describe('TeamThreadChatView attributes every line to somebody');

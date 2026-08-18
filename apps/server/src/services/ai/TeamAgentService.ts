@@ -47,6 +47,8 @@ import {
   TeamAgentMessageRole,
   TeamApprovalDecision,
   TeamApprovalPolicy,
+  TeamApprovalRiskLevel,
+  TeamPendingApprovalInfo,
   TeamThread,
   TeamThreadTurnState,
   TeamTurnApprovalEventPayload,
@@ -62,6 +64,7 @@ import {
   WorkspaceRole,
   isTeamApprovalPolicy
 } from '@asterim/shared';
+import { approvalManager } from '../ApprovalManager';
 import { dbService } from '../DatabaseService';
 import { EventBus, eventBus } from '../EventBus';
 import { projectMemoryService } from '../ProjectMemoryService';
@@ -305,6 +308,52 @@ function truncate(text: string, max: number): string {
 
 function isTurnState(value: string): value is TeamThreadTurnState {
   return value === 'IDLE' || value === 'PROCESSING_TURN' || value === 'AWAITING_APPROVAL';
+}
+
+/** Whether a value is one of the four risk levels the analyser grades with. */
+function isRiskLevel(value: unknown): value is TeamApprovalRiskLevel {
+  return value === 'low' || value === 'medium' || value === 'high' || value === 'critical';
+}
+
+/** How much of a pending action is worth putting in front of the whole team. */
+export const MAX_TEAM_APPROVAL_COMMAND_CHARS = 2000;
+export const MAX_TEAM_APPROVAL_WARNINGS = 12;
+
+/**
+ * An `agent.approval_request` payload, as a turn carries it.
+ *
+ * Every field is read defensively: the payload is produced by `ApprovalManager`
+ * today, but it crosses the EventBus, where anything may publish anything, and
+ * a malformed prompt must degrade to "something needs approving" rather than
+ * put an unrenderable object in front of the team. `null` when there is no
+ * action id, because a prompt nothing can answer is not a prompt.
+ */
+export function toPendingApprovalInfo(
+  payload: Record<string, unknown> | undefined | null
+): TeamPendingApprovalInfo | null {
+  const actionId = typeof payload?.actionId === 'string' ? payload.actionId.trim() : '';
+  if (!actionId) return null;
+
+  const analysis = (payload?.securityAnalysis ?? {}) as Record<string, unknown>;
+  const rawWarnings = Array.isArray(analysis.warnings) ? analysis.warnings : [];
+  const warnings = rawWarnings
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+    .slice(0, MAX_TEAM_APPROVAL_WARNINGS);
+
+  return {
+    actionId,
+    command:
+      typeof payload?.command === 'string' && payload.command.trim() !== ''
+        ? truncate(payload.command, MAX_TEAM_APPROVAL_COMMAND_CHARS)
+        : undefined,
+    description:
+      typeof payload?.description === 'string' && payload.description.trim() !== ''
+        ? truncate(payload.description, MAX_TEAM_APPROVAL_COMMAND_CHARS)
+        : undefined,
+    riskLevel: isRiskLevel(analysis.riskLevel) ? analysis.riskLevel : undefined,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    requestedAt: Date.now()
+  };
 }
 
 /**
@@ -599,21 +648,49 @@ export function composeTeamMemoryBrief(memory: TeamMemorySnapshot): string | und
 
 // --- Turn execution ---
 
+/** What one turn is run with, from the moment it holds the lock. */
+export interface TeamTurnRunParams {
+  agent: TeamAgent;
+  thread: TeamThread;
+  turn: TeamTurnQueueItem;
+  timeoutMs: number;
+  /**
+   * The team's standing rules, intent and decisions for the bound project.
+   * Absent when the thread has no project, or its project has no memory.
+   */
+  memoryBrief?: string;
+  /**
+   * The agent's session has stopped on a destructive action (DEC-031 § 3).
+   *
+   * Reported rather than decided here: the executor knows only that something
+   * is being asked for, and what happens to the queue as a result — the turn
+   * parking, the rest of the team being told why — belongs to the service.
+   */
+  onApprovalRequest?: (pending: TeamPendingApprovalInfo) => void;
+  /**
+   * A raised approval went away without the team answering it — the session was
+   * stopped, or it timed out. The turn must not stay parked on a prompt that no
+   * longer exists, or the thread waits for an answer nobody can give.
+   */
+  onApprovalCancelled?: (actionId: string) => void;
+}
+
 /** What a turn is handed to, once it holds the lock. */
 export interface TeamTurnExecutor {
-  run(params: {
-    agent: TeamAgent;
-    thread: TeamThread;
-    turn: TeamTurnQueueItem;
-    timeoutMs: number;
-    /**
-     * The team's standing rules, intent and decisions for the bound project.
-     * Absent when the thread has no project, or its project has no memory.
-     */
-    memoryBrief?: string;
-  }): Promise<{ output: string; toolCalls?: unknown }>;
+  run(params: TeamTurnRunParams): Promise<{ output: string; toolCalls?: unknown }>;
   /** Forgets whatever session state it holds for a thread that is going away. */
   reset?(threadId: string): void;
+}
+
+/**
+ * The part of `ApprovalManager` a refused turn needs.
+ *
+ * Narrow on purpose: the service must be able to say "nobody is going to answer
+ * these" when a turn is rejected, and nothing more. Injectable so the queueing
+ * behaviour can be asserted without the Core's approval singleton.
+ */
+export interface TeamApprovalSink {
+  cancelApprovalsForThread(threadId: string, reason?: string): number;
 }
 
 /**
@@ -657,13 +734,7 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
 
   constructor(private readonly bus: EventBus = eventBus) {}
 
-  public async run(params: {
-    agent: TeamAgent;
-    thread: TeamThread;
-    turn: TeamTurnQueueItem;
-    timeoutMs: number;
-    memoryBrief?: string;
-  }): Promise<{ output: string; toolCalls?: unknown }> {
+  public async run(params: TeamTurnRunParams): Promise<{ output: string; toolCalls?: unknown }> {
     const { agent, thread, turn, timeoutMs, memoryBrief } = params;
     const projectId = thread.projectId;
     if (!projectId) {
@@ -673,9 +744,10 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
       );
     }
 
-    // Armed before the session is asked for anything, so output that arrives
-    // between the send and the subscribe cannot be missed.
-    const watching = this.watch(thread.id, timeoutMs);
+    // Armed before the session is asked for anything, so output — or an
+    // approval prompt — that arrives between the send and the subscribe cannot
+    // be missed.
+    const watching = this.watch(thread.id, timeoutMs, params);
 
     if (!this.briefed.has(thread.id)) {
       this.publish('client.command', {
@@ -736,10 +808,21 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
     });
   }
 
-  /** Resolves when the session has answered, failed, or run out of time. */
+  /**
+   * Resolves when the session has answered, failed, or run out of time.
+   *
+   * Also where a destructive tool call is intercepted. `ApprovalManager`
+   * publishes `agent.approval_request` on this bus with the thread it belongs
+   * to, and a team thread's session runs under the team thread's own id — so
+   * the prompt that stopped the agent is matched to the turn that is being
+   * served without either side knowing about the other. The subscription lives
+   * exactly as long as the turn does, which is why nothing here has to check
+   * whether the turn it is reporting for is still the active one.
+   */
   private watch(
     threadId: string,
-    timeoutMs: number
+    timeoutMs: number,
+    hooks: Pick<TeamTurnRunParams, 'onApprovalRequest' | 'onApprovalCancelled'> = {}
   ): Promise<{ output: string; failure?: string }> {
     return new Promise(resolve => {
       const chunks: string[] = [];
@@ -752,6 +835,8 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
         clearTimeout(timer);
         this.bus.unsubscribe('chat.message', onChat);
         this.bus.unsubscribe('agent.status', onStatus);
+        this.bus.unsubscribe('agent.approval_request', onApprovalRequest);
+        this.bus.unsubscribe('agent.approval_cancelled', onApprovalCancelled);
         resolve({ output: truncate(chunks.join('').trim(), MAX_TEAM_OUTPUT_CHARS), failure });
       };
 
@@ -786,16 +871,59 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
         if (status === 'idle' && sawOutput) finish();
       };
 
+      /**
+       * The agent stopped on something a person has to allow.
+       *
+       * The countdown is restarted as well as reported. The timeout exists to
+       * catch an agent that has gone quiet, and a turn parked on an approval is
+       * not quiet — it is waiting on the team. Letting the deliberation eat the
+       * agent's answer window would fail turns for the crime of being asked
+       * about.
+       */
+      const onApprovalRequest = (event: { payload?: Record<string, unknown> }) => {
+        const payload = event?.payload ?? {};
+        if (payload.threadId !== threadId) return;
+        const pending = toPendingApprovalInfo(payload);
+        if (!pending) return;
+        arm();
+        try {
+          hooks.onApprovalRequest?.(pending);
+        } catch (err) {
+          // The turn is still running; a queue that could not be told about the
+          // prompt is not a reason to abandon it.
+          console.error('[TeamAgentService] Could not park a turn on its approval:', (err as Error).message);
+        }
+      };
+
+      const onApprovalCancelled = (event: { payload?: Record<string, unknown> }) => {
+        const payload = event?.payload ?? {};
+        if (payload.threadId !== threadId) return;
+        const actionId = typeof payload.actionId === 'string' ? payload.actionId : '';
+        if (!actionId) return;
+        try {
+          hooks.onApprovalCancelled?.(actionId);
+        } catch (err) {
+          console.error('[TeamAgentService] Could not clear a cancelled approval:', (err as Error).message);
+        }
+      };
+
       // Deliberately not unref'd: this timer is the only thing that will ever
       // release the lock if the agent goes quiet, and a lock nobody releases is
       // a shared thread that never moves again.
-      const timer = setTimeout(
-        () => finish(`The shared agent did not answer within ${Math.round(timeoutMs / 1000)}s.`),
-        timeoutMs
-      );
+      let timer: ReturnType<typeof setTimeout>;
+      function arm(): void {
+        clearTimeout(timer);
+        timer = setTimeout(
+          () => finish(`The shared agent did not answer within ${Math.round(timeoutMs / 1000)}s.`),
+          timeoutMs
+        );
+      }
+      arm();
 
       this.bus.subscribe('chat.message', onChat);
       this.bus.subscribe('agent.status', onStatus);
+      this.bus.subscribe('agent.approval_request', onApprovalRequest);
+      this.bus.subscribe('agent.approval_cancelled', onApprovalCancelled);
     });
   }
 }
@@ -821,6 +949,9 @@ export class TeamAgentService {
   private readonly turnTimeoutMs: number;
   private readonly memory: TeamMemoryProvider;
   private readonly broadcast: TurnBroadcaster;
+  /** Where `client.approval_response` is published. See `signalApproval`. */
+  private readonly bus: EventBus;
+  private readonly approvals: TeamApprovalSink;
 
   /**
    * Turns whose approval was rejected while they were still in the executor.
@@ -839,12 +970,18 @@ export class TeamAgentService {
     memory?: TeamMemoryProvider;
     /** Where approval resolutions are announced. Defaults to the EventBus. */
     broadcast?: TurnBroadcaster;
+    /** Where `client.approval_response` is published. Defaults to the EventBus. */
+    bus?: EventBus;
+    /** What is told that a refused turn's prompts are dead. */
+    approvals?: TeamApprovalSink;
   }) {
     this.lock = options?.lock ?? agentTurnLock;
     this.executor = options?.executor ?? new EventBusTeamTurnExecutor();
     this.turnTimeoutMs = options?.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.memory = options?.memory ?? projectMemoryTeamProvider;
     this.broadcast = options?.broadcast ?? eventBusTurnBroadcaster();
+    this.bus = options?.bus ?? eventBus;
+    this.approvals = options?.approvals ?? approvalManager;
   }
 
   private db() {
@@ -1275,7 +1412,11 @@ export class TeamAgentService {
           timeoutMs: this.turnTimeoutMs,
           // Read here rather than when the turn was queued: a rule recorded
           // while this turn waited its place in line still governs it.
-          memoryBrief: this.memoryBriefFor(live)
+          memoryBrief: this.memoryBriefFor(live),
+          // The seam that makes destructive tool interception real: the
+          // executor observes the prompt, and the queue is what parks on it.
+          onApprovalRequest: pending => this.parkOnApproval(thread.id, turn.id, pending),
+          onApprovalCancelled: actionId => this.releaseApprovalHold(thread.id, turn.id, actionId)
         })
       );
       output = result.output;
@@ -1377,12 +1518,23 @@ export class TeamAgentService {
    * sits on a half-executed tool call is the exact collision the queue exists
    * to prevent. What changes is only that the thread can now say *why* nothing
    * is moving.
+   *
+   * `pending` is what the agent asked to do. It is deliberately not written to
+   * `team_turn_queue`: an outstanding prompt only exists while the process
+   * holding the agent's promise is up — a restart settles the turn as failed
+   * (`recoverTurns`) — so persisting it would produce a row describing an
+   * action nothing is waiting on. The live queue carries it, and the live queue
+   * is what every transition broadcasts.
    */
-  public markTurnAwaitingApproval(teamThreadId: string, turnId: string): TeamTurnQueueItem {
+  public markTurnAwaitingApproval(
+    teamThreadId: string,
+    turnId: string,
+    pending?: TeamPendingApprovalInfo
+  ): TeamTurnQueueItem {
     this.requireTeamThread(teamThreadId);
     const turn = this.requireTurnOnThread(teamThreadId, turnId);
 
-    if (!this.lock.markAwaitingApproval(teamThreadId, turnId)) {
+    if (!this.lock.markAwaitingApproval(teamThreadId, turnId, pending)) {
       throw new TeamAgentError(
         'TURN_NOT_AWAITING_APPROVAL',
         `Turn ${turnId} is not the turn being served, so it cannot be parked on an approval.`
@@ -1394,7 +1546,60 @@ export class TeamAgentService {
       .run(turnId);
     this.syncThreadState(teamThreadId);
 
-    return { ...turn, status: 'AWAITING_APPROVAL' };
+    return {
+      ...turn,
+      status: 'AWAITING_APPROVAL',
+      pendingApproval: this.lock.getQueueState(teamThreadId).activeTurn?.pendingApproval
+    };
+  }
+
+  /**
+   * Parks the running turn because its agent asked for something destructive.
+   *
+   * Called from the executor's interception rather than by a person, so it
+   * cannot be allowed to end the turn: a prompt that arrives a moment after the
+   * turn released the lock is an ordinary race, not a failure, and the turn it
+   * names may already be over.
+   */
+  private parkOnApproval(
+    teamThreadId: string,
+    turnId: string,
+    pending: TeamPendingApprovalInfo
+  ): void {
+    try {
+      this.markTurnAwaitingApproval(teamThreadId, turnId, pending);
+    } catch (err) {
+      console.warn(
+        `[TeamAgentService] Could not park turn ${turnId} on approval ${pending.actionId}:`,
+        (err as Error).message
+      );
+    }
+  }
+
+  /**
+   * The prompt went away without the team answering it.
+   *
+   * A cancelled approval — a stopped session, a timeout inside
+   * `ApprovalManager` — is already denied at the agent's end, so the turn is
+   * put back in flight rather than left parked on a question nobody can now
+   * answer. Only the prompt it names: a cancellation for some other action must
+   * not release a turn that is parked on a live one.
+   */
+  private releaseApprovalHold(teamThreadId: string, turnId: string, actionId: string): void {
+    try {
+      const live = this.lock.getQueueState(teamThreadId);
+      if (live.activeTurn?.id !== turnId || live.state !== 'AWAITING_APPROVAL') return;
+      if (live.activeTurn.pendingApproval?.actionId !== actionId) return;
+
+      this.lock.resumeFromApproval(teamThreadId, turnId);
+      this.db().prepare("UPDATE team_turn_queue SET status = 'PROCESSING' WHERE id = ?").run(turnId);
+      this.syncThreadState(teamThreadId);
+    } catch (err) {
+      console.warn(
+        `[TeamAgentService] Could not clear cancelled approval ${actionId}:`,
+        (err as Error).message
+      );
+    }
   }
 
   /**
@@ -1432,8 +1637,11 @@ export class TeamAgentService {
     const note = optionalText(comment, 'comment', MAX_TEAM_DESCRIPTION_CHARS);
 
     // The lock is the authority on what is being served, so it — not the
-    // durable row — decides whether there is a prompt to answer at all.
+    // durable row — decides whether there is a prompt to answer at all. It is
+    // also where the pending action lives, and it has to be read before the
+    // lock is told anything: resuming the turn clears it.
     const live = this.lock.getQueueState(teamThreadId);
+    const pending = live.activeTurn?.pendingApproval;
     if (live.activeTurn?.id !== turnId || live.state !== 'AWAITING_APPROVAL') {
       throw new TeamAgentError(
         'TURN_NOT_AWAITING_APPROVAL',
@@ -1472,6 +1680,10 @@ export class TeamAgentService {
       this.db()
         .prepare("UPDATE team_turn_queue SET status = 'PROCESSING' WHERE id = ?")
         .run(turnId);
+      // Told before the queue state is announced: the agent is what the team is
+      // waiting on, and it has been sitting on a half-executed tool call since
+      // the prompt went out.
+      this.signalApproval(thread, pending, true);
     } else {
       this.db()
         .prepare(
@@ -1479,6 +1691,15 @@ export class TeamAgentService {
            WHERE id = ?`
         )
         .run(approval.resolvedAt, refusal, turnId);
+      // The agent is told first, and told 'n': it is holding a tool call open,
+      // and a refusal that only updates rows would leave it executing the very
+      // action the team just refused.
+      this.signalApproval(thread, pending, false);
+      // Anything else this thread raised is dead with the turn. Without this a
+      // second prompt from the same session would sit in `ApprovalManager`
+      // until it timed out, holding a card on every member's screen for a turn
+      // that no longer exists.
+      this.cancelPendingApprovals(teamThreadId, refusal);
       // Released before the runner is told, so the member behind this one
       // starts immediately rather than waiting on an agent that is still
       // finishing an action nobody is going to accept.
@@ -1646,6 +1867,61 @@ export class TeamAgentService {
         approval.resolvedAt,
         turnId
       );
+  }
+
+  /**
+   * Carries a team's decision back to the agent that is blocked on it.
+   *
+   * This is the other half of the interception, and without it the governance
+   * built in P8-03 stops at the database: `ApprovalManager` is holding a promise
+   * on `actionId`, `AgentService` is waiting to write `y` or `n` into the PTY,
+   * and both of them listen for exactly one event. Publishing it here is what
+   * turns "the row says APPROVED" into "the agent carried on".
+   *
+   * The thread id is the team thread's own, because a shared thread's session
+   * runs under it — the same identity the prompt arrived with.
+   *
+   * Nothing is published for a turn parked without a known action: a manual
+   * park has no pending promise, and a `client.approval_response` naming no
+   * action would send a stray keystroke into whatever session was running.
+   */
+  private signalApproval(
+    thread: TeamThread,
+    pending: TeamPendingApprovalInfo | undefined,
+    approved: boolean
+  ): void {
+    if (!pending?.actionId) return;
+    try {
+      this.bus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server:team-agent',
+        type: 'client.approval_response',
+        payload: {
+          actionId: pending.actionId,
+          approved,
+          threadId: thread.id,
+          projectId: thread.projectId
+        }
+      });
+    } catch (err) {
+      console.error(
+        '[TeamAgentService] Could not signal an approval decision to the agent:',
+        (err as Error).message
+      );
+    }
+  }
+
+  /** Refuses whatever else this thread's session was waiting on. */
+  private cancelPendingApprovals(teamThreadId: string, reason: string): void {
+    try {
+      this.approvals.cancelApprovalsForThread(teamThreadId, reason);
+    } catch (err) {
+      console.warn(
+        '[TeamAgentService] Could not cancel the thread’s pending approvals:',
+        (err as Error).message
+      );
+    }
   }
 
   /** Tells the room who decided. A dashboard that cannot be told is not fatal. */

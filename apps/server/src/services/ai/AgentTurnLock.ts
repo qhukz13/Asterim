@@ -37,6 +37,7 @@ import {
   TEAM_TURN_COMPLETED_EVENT,
   TEAM_TURN_QUEUED_EVENT,
   TEAM_TURN_STARTED_EVENT,
+  TeamPendingApprovalInfo,
   TeamThreadTurnState,
   TeamTurnEventPayload,
   TeamTurnQueueItem,
@@ -256,21 +257,42 @@ export class AgentTurnLock {
    * The lock is still held — an approval prompt is part of a turn, not a gap
    * between turns — and the state changes only so a queue inspector can say
    * why nothing is moving.
+   *
+   * `pending` is what the agent actually proposed to do: the action id a
+   * decision has to answer, and enough of the call for a person to decide about
+   * it. It rides on the turn rather than in a table of its own because every
+   * transition already carries the turn, so the whole team sees the same
+   * prompt without a second fetch.
    */
-  public markAwaitingApproval(threadId: string, turnId: string): boolean {
+  public markAwaitingApproval(
+    threadId: string,
+    turnId: string,
+    pending?: TeamPendingApprovalInfo
+  ): boolean {
     const lane = this.lanes.get(threadId);
     if (!lane || lane.active?.id !== turnId) return false;
     lane.active.status = 'AWAITING_APPROVAL';
+    // A park with no details does not erase details a previous one supplied:
+    // the two callers are the tool interception and a manual park, and only
+    // the first knows what the agent asked for.
+    if (pending) lane.active.pendingApproval = pending;
     lane.state = 'AWAITING_APPROVAL';
     this.emit(TEAM_TURN_STARTED_EVENT, lane, lane.active);
     return true;
   }
 
-  /** The other half of {@link markAwaitingApproval}: the human answered. */
+  /**
+   * The other half of {@link markAwaitingApproval}: the human answered.
+   *
+   * The pending action is dropped as the turn resumes. Leaving it would show
+   * every member of the team a destructive command sitting under a turn that is
+   * running again, which reads as a prompt nobody has answered yet.
+   */
   public resumeFromApproval(threadId: string, turnId: string): boolean {
     const lane = this.lanes.get(threadId);
     if (!lane || lane.active?.id !== turnId) return false;
     lane.active.status = 'PROCESSING';
+    lane.active.pendingApproval = undefined;
     lane.state = 'PROCESSING_TURN';
     this.emit(TEAM_TURN_STARTED_EVENT, lane, lane.active);
     return true;
@@ -409,7 +431,8 @@ export class AgentTurnLock {
         turn: { ...turn },
         state: lane.state,
         queuePosition: this.positionOf(lane, turn.id),
-        queueLength: lane.queue.length
+        queueLength: lane.queue.length,
+        pendingApproval: turn.pendingApproval
       });
     } catch (err) {
       // A dashboard that cannot be told is not a reason to stall the queue.

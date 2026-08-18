@@ -11,12 +11,14 @@ import {
   activeOperator,
   approvalPolicyLabel,
   approvalPolicyRequirement,
+  approvalRiskTone,
   authorInitials,
   awaitingApprovalTurn,
   canCancelTurn,
   canResolveApproval,
   effectiveApprovalPolicy,
   formatRelativeTime,
+  pendingApprovalOf,
   pendingTurnCount,
   queuePositionLabel,
   threadStateTone,
@@ -86,13 +88,21 @@ export interface TurnApprovalCardProps {
 /**
  * The prompt a parked turn is waiting on, and who may answer it (DEC-031 § 3).
  *
- * Three things, and all three are needed for the card to be actionable rather
- * than merely informative: whose turn is blocked and what it asked for; which
- * policy is in force, so a member who cannot answer knows who to go and find;
- * and the two answers, offered only to somebody the policy admits. Showing
- * Approve to a viewer would be offering a button whose only outcome is a 403,
- * and a shared thread stalled on a prompt nobody realises they must answer is
- * exactly the failure the queue was built to make visible.
+ * Four things, and all four are needed for the card to be actionable rather
+ * than merely informative: whose turn is blocked and what they asked for; *what
+ * the agent proposes to do about it*, which is rarely the same sentence —
+ * "tidy the branches" is the instruction and `git push --force` is the action;
+ * which policy is in force, so a member who cannot answer knows who to go and
+ * find; and the two answers, offered only to somebody the policy admits.
+ *
+ * The action, its risk grade and the analyser's warnings are the part added in
+ * P8-04. Without them a member is being asked to approve a request they cannot
+ * see, and the only rational answers to that are "always yes" and "always no" —
+ * both of which make the approval gate decorative.
+ *
+ * Showing Approve to a viewer would be offering a button whose only outcome is
+ * a 403, and a shared thread stalled on a prompt nobody realises they must
+ * answer is exactly the failure the queue was built to make visible.
  */
 export function TurnApprovalCard({
   turn,
@@ -104,6 +114,9 @@ export function TurnApprovalCard({
 }: TurnApprovalCardProps) {
   const tone = threadStateTone('AWAITING_APPROVAL');
   const mayAnswer = canResolveApproval(policy, turn, viewer);
+  const pending = pendingApprovalOf(turn);
+  const risk = approvalRiskTone(pending?.riskLevel);
+  const warnings = pending?.warnings ?? [];
 
   const action = (decision: TeamApprovalDecision, text: string, accent: string) => (
     <button
@@ -155,6 +168,14 @@ export function TurnApprovalCard({
         <span style={{ ...chip, background: 'var(--color-surface-2)', color: tone.color }}>
           {approvalPolicyLabel(policy)}
         </span>
+        {risk && (
+          <span
+            aria-label={`Risk level: ${risk.label}`}
+            style={{ ...chip, background: risk.background, color: risk.color, fontWeight: 600 }}
+          >
+            {risk.label}
+          </span>
+        )}
         {turn.startedAt && (
           <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
             parked {formatRelativeTime(turn.startedAt, now)}
@@ -173,6 +194,76 @@ export function TurnApprovalCard({
       >
         {turn.instruction}
       </p>
+
+      {pending && (
+        // What the agent proposes to do, rather than what it was asked for.
+        // Labelled as its own region so a screen reader reaching this card
+        // announces the action and not only the request behind it.
+        <section
+          aria-label="Pending action"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            padding: 'var(--spacing-2)',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--color-surface-2)',
+            border: '1px solid var(--color-border-subtle)'
+          }}
+        >
+          {pending.description && (
+            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-primary)', lineHeight: 1.4 }}>
+              {pending.description}
+            </p>
+          )}
+          {pending.command && (
+            <code
+              style={{
+                display: 'block',
+                margin: 0,
+                padding: 'var(--spacing-2)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface-3)',
+                color: 'var(--color-text-primary)',
+                fontFamily: 'var(--font-family-mono)',
+                fontSize: '0.78rem',
+                lineHeight: 1.45,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere'
+              }}
+            >
+              {pending.command}
+            </code>
+          )}
+          {warnings.length > 0 && (
+            <ul
+              aria-label="Security warnings"
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '3px'
+              }}
+            >
+              {warnings.map(warning => (
+                <li
+                  key={warning}
+                  style={{
+                    fontSize: '0.76rem',
+                    color: risk?.color ?? 'var(--color-state-paused)',
+                    lineHeight: 1.4,
+                    overflowWrap: 'anywhere'
+                  }}
+                >
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
         {approvalPolicyRequirement(policy)}
