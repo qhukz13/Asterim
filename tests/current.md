@@ -1,4 +1,4 @@
-Task-ID: P9-03
+Task-ID: P10-01
 
 ## Verification Commands
 1. Run Typecheck:
@@ -9,17 +9,14 @@ Task-ID: P9-03
    `pnpm run lint`
    PASS: 0 ESLint errors across 7 workspace packages.
 
-3. Run Pipeline UI & Server Test Suites:
-   `pnpm --filter @asterim/web exec tsx src/components/pipelines/__tests__/PipelineUI.test.ts`
-   `pnpm --filter asterim exec tsx src/services/pipeline/__tests__/WorktreeFleet.test.ts`
-   `pnpm --filter asterim exec tsx src/services/pipeline/__tests__/PipelineEngine.test.ts`
-   PASS: All Pipeline UI, DAG layout, store, socket reducer, worktree fleet, and pipeline engine assertions pass with exit code 0.
+3. Run Fleet Governance & SIEM Audit Test Suite:
+   `pnpm --filter asterim exec tsx src/services/enterprise/__tests__/FleetGovernance.test.ts`
+   PASS: All fleet policy and SIEM audit assertions pass with exit code 0.
 
 4. Run Full Monorepo Test Battery:
    `pnpm run test`
-   PASS: All test suites pass with 0 failures across all workspaces.
+   PASS: All 46+ test suites pass with 0 failures across 5,300+ assertions.
 
 5. Run Production Build:
    `pnpm run build`
-   PASS: All 7 Turbo packages build successfully.
-
+   PASS: All 7 Turbo packages build successfully in under 10 seconds.

@@ -1,10 +1,10 @@
-Task-ID: P9-03
-Phase: 9
+Task-ID: P10-01
+Phase: 10
 
-# [P9-03] — Pipeline Execution Dashboard, Visual DAG Graph, Step Inspector & PR Synthesis UI
+# [P10-01] — Enterprise Fleet Policy Engine, Governance Rules & Structured SIEM Audit Exporter
 
-**Task ID:** P9-03  
-**Phase:** Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution  
+**Task ID:** P10-01  
+**Phase:** Phase 10 — Enterprise Fleet Deployment, Air-Gapped Sovereign Appliances & GA Packaging  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -14,148 +14,119 @@ Phase: 9
 
 ## 1. Objective
 
-Implement the complete Web UI surface for declarative multi-agent pipelines (Phase 9 Deliverable 4):
-1. A dedicated `Pipelines` view tab in the Web dashboard with store state management (`usePipelineStore.ts`).
-2. A Visual DAG execution graph (`PipelineDagGraph.tsx`) displaying multi-agent step dependencies, real-time node execution status, retry badges, agent role pills, and duration.
-3. A Step Inspector panel (`PipelineStepInspector.tsx`) showing step task briefs, live agent logs, worktree branch/diff artifacts, verification results, and retry attempt histories.
-4. A Conflict Analysis & PR Synthesis card (`PipelineSynthesisCard.tsx` / `PipelineSynthesisModal.tsx`) providing one-click Git branch consolidation into `asterim/pipeline/<runId>/pr` with commit summaries.
-5. Real-time WebSocket synchronization (`pipeline:*` events) and manual pipeline execution/editor modal.
-6. A worktree fleet retention/pruning routine (`pruneOldFleetWorktrees`) on server startup to prevent unbounded disk growth.
+Implement the Enterprise Fleet Policy Engine and Structured SIEM Audit Exporter in `apps/server`: add SQL migration `004_fleet_policies.sql`, author `FleetPolicyService.ts` for enforcing centralized model allowlists, banned command patterns, and mandatory approval thresholds, author `AuditLoggerService.ts` for structured event capture and RFC 5424 Syslog / JSON-Lines export with automatic secret redaction, expose authenticated REST endpoints under `/api/v1/enterprise`, and author a comprehensive automated test suite.
 
 ---
 
 ## 2. Why This Task Exists
 
-As specified in `blueprint/ROADMAP.md` (Phase 9 Deliverable 4), multi-agent engineering pipelines must not remain headless backend processes. Operators need a rich, visual control plane in the dashboard to:
-1. Inspect pipeline definitions and trigger manual or parameterized runs.
-2. Observe live DAG step transitions, fan-out parallelism, and agent execution across isolated worktrees in real time.
-3. Drill into individual step worktree branches (`asterim/pipeline/<runId>/step-<stepId>`), transcripts, and diffs.
-4. Verify merge conflict analyses between parallel branches before merging.
-5. Trigger one-click "Synthesize Pull Request" consolidating passing step branches into a clean PR branch (`asterim/pipeline/<runId>/pr`).
-6. Prevent `.asterim/worktrees/pipeline/` disk sprawl through automated retention pruning on boot.
+As established in `blueprint/ROADMAP.md` (Phase 10), enterprise organizations require centralized security governance, strict compliance boundaries, and tamper-evident audit trails when deploying AI agent platforms across developer fleets.
+
+The Fleet Policy Engine enables administrators to enforce organizational constraints (such as blocking high-risk models, forbidding destructive shell patterns like `rm -rf /` or `curl | sh`, and mandating Sovereign Mode), while the Structured Audit Exporter streams all security clearances, agent dispatches, and policy violations into enterprise SIEM / SOC pipelines.
 
 ---
 
-## 3. Context & Architectural Guidance
+## 3. Context & Architecture
 
-- **Store Hierarchy (`blueprint/STORE_ARCHITECTURE.md`)**:
-  - `usePipelineStore` manages project-scoped pipeline definitions, runs, active run state, conflict analysis, and synthesis outcomes.
-  - The inspector panel follows `InspectorStore` conventions: selection state only, with data sourced from `usePipelineStore`.
-  - The URL is the single source of truth: support `/workspace/project/:projectId/view/pipelines` in `Router.tsx`.
-- **Live Event Handling**:
-  - Socket events (`pipeline:started`, `pipeline:step_started`, `pipeline:step_completed`, `pipeline:completed`, `pipeline:failed`) update the store immutably, ensuring live UI animation and progress bar updates without polling.
-- **Visual Design System (`blueprint/DESIGN_SYSTEM.md`)**:
-  - Monochrome surfaces (`var(--color-surface-1)`, `var(--color-surface-2)`) with emerald accent (`var(--color-accent-primary)`).
-  - Status colors: `PASSED` (emerald), `RUNNING` (blue/working pulse), `PENDING` (muted slate), `FAILED` (rose/red), `SKIPPED` (amber/gray), `CANCELLED` (zinc).
-  - Clean DAG node layout: layered columns or topological rank with SVG connector lines/arrows.
-- **Fail-Closed PR Synthesis & Conflict Inspection**:
-  - Conflict analysis displays clean status or detailed list of conflicted file paths.
-  - Synthesis allows selecting step subsets (default: all passing steps) and customized commit messages.
-
----
-
-## 4. Repository Evidence
-
-- `packages/shared/src/types/pipeline.ts` — Core pipeline data models, events (`pipeline:*`), DAG algebra, and helper utilities.
-- `apps/server/src/routes/pipelines.ts` — REST API routes (`/api/v1/pipelines`, `/run`, `/pipeline-runs/:id`, `/conflicts`, `/synthesize`, `/cancel`).
-- `apps/server/src/services/pipeline/WorktreeFleetService.ts` — Fleet provisioning, conflict detection, PR synthesis, and teardown.
-- `apps/server/src/services/pipeline/PipelineEngine.ts` — Multi-step execution engine, run recovery, and lifecycle management.
-- `apps/web/src/stores/useViewStore.ts` & `apps/web/src/App.tsx` — Navigation tabs, view switching, and layout.
-- `apps/web/src/hooks/useSocket.ts` — Socket.IO event listener infrastructure.
-- `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts` — Reference standard for comprehensive Web UI unit & SSR tests.
+- **Fleet Policy Specification (`FleetPolicyService`)**:
+  - File-based policy support (`asterim.policy.json` in data directory) taking precedence over database policies for immutable IT configuration.
+  - Policy enforcement:
+    - Model allowlist / blocklist (`allowedModels`).
+    - Banned shell command patterns (`bannedCommandPatterns`).
+    - Forced Sovereign Mode (`enforceSovereignMode`).
+    - Approval threshold enforcement (`requireApprovalThreshold`).
+- **Structured Audit Logging (`AuditLoggerService`)**:
+  - Structured event schema tracking timestamp, event type, severity (`INFO`, `WARN`, `HIGH`, `CRITICAL`), user identity, thread ID, action, risk level, and metadata.
+  - Dual persistence: local SQLite `audit_events` table + append-only `audit.log` stream.
+  - Automated secret redaction (`SecretVaultService.redactSecrets`) ensuring no tokens or credentials leak into audit streams.
+  - Export formats: JSON-Lines (JSONL) and Syslog RFC 5424 for enterprise log collectors (Datadog, Splunk, Elastic).
 
 ---
 
-## 5. Implementation Scope
+## 4. Implementation Scope
 
-1. **Web Store (`apps/web/src/stores/usePipelineStore.ts`)**:
-   - State: `pipelines`, `activePipelineId`, `runs`, `activeRunId`, `selectedStepId`, `conflictAnalysisByRunId`, `synthesisByRunId`, `loading`, `error`.
-   - Actions:
-     - `fetchPipelines(projectId, workspaceId?, backendUrl?)`
-     - `fetchPipeline(pipelineId, backendUrl?)`
-     - `savePipeline({ id?, workspaceId?, yaml }, backendUrl?)`
-     - `runPipeline(pipelineId, runContext?, backendUrl?)`
-     - `fetchRun(runId, backendUrl?)`
-     - `cancelRun(runId, reason?, backendUrl?)`
-     - `checkConflicts(runId, backendUrl?)`
-     - `synthesizeRun(runId, { stepIds?, message? }, backendUrl?)`
-     - `selectStep(stepId)`
-     - `handlePipelineEvent(type, payload)` for real-time socket event updates.
+1. **SQL Migration (`packages/server/src/migrations/004_fleet_policies.sql`)**:
+   - `fleet_policies`: `id TEXT PRIMARY KEY`, `name TEXT NOT NULL`, `description TEXT`, `is_active INTEGER NOT NULL DEFAULT 1`, `allowed_models_json TEXT NOT NULL DEFAULT '["*"]'`, `banned_commands_json TEXT NOT NULL DEFAULT '[]'`, `enforce_sovereign_mode INTEGER NOT NULL DEFAULT 0`, `require_approval_risk_level TEXT NOT NULL DEFAULT 'HIGH'`, `created_at INTEGER NOT NULL`, `updated_at INTEGER NOT NULL`.
+   - `audit_events`: `id TEXT PRIMARY KEY`, `timestamp INTEGER NOT NULL`, `event_type TEXT NOT NULL`, `severity TEXT NOT NULL DEFAULT 'INFO'`, `user_id TEXT`, `user_name TEXT`, `thread_id TEXT`, `action TEXT NOT NULL`, `risk_level TEXT`, `metadata_json TEXT NOT NULL DEFAULT '{}'`, `ip_address TEXT`.
+   - Indexes: `idx_audit_events_timestamp`, `idx_audit_events_type_severity`.
 
-2. **View & Navigation Integration**:
-   - `apps/web/src/stores/useViewStore.ts`: Add `'pipelines'` to `ViewType` and `availableViews`.
-   - `apps/web/src/Router.tsx`: Support `pipelines` view in route synchronization.
-   - `apps/web/src/App.tsx`:
-     - Add `Pipelines` tab to navigation bar (with icon and keyboard access).
-     - Render `<PipelineDashboard />` when `activeTab === 'pipelines'`.
-     - Forward socket events in `useSocket.ts` to `handlePipelineEvent`.
+2. **Shared Types (`packages/shared/src/types/fleet.ts`)**:
+   - `FleetPolicy`, `FleetPolicyConfig`, `AuditEvent`, `AuditSeverity` (`INFO` | `WARN` | `HIGH` | `CRITICAL`), `AuditExportFormat` (`JSONL` | `SYSLOG_RFC5424` | `CSV`).
+   - Export from `packages/shared/src/index.ts`.
 
-3. **Dashboard Components (`apps/web/src/components/pipelines/`)**:
-   - `PipelineDashboard.tsx`: Master-detail layout with pipeline list, run history, active run view, and "New Pipeline" / "Run" actions.
-   - `PipelineDagGraph.tsx`: Visual DAG graph rendering steps as interactive nodes with role badges, status pills, retry counters (`Attempt X/Y`), and directed dependency edges.
-   - `PipelineRunView.tsx`: Active run overview with status header, execution duration, base commit, DAG graph, and action toolbar (Cancel, Check Conflicts, Synthesize PR).
-   - `PipelineStepInspector.tsx`: Side drawer / panel inspecting the selected step (task brief, worktree branch name, commit SHA, stdout/agent transcript, diff, verification results, retry history).
-   - `PipelineSynthesisModal.tsx` / `PipelineConflictCard.tsx`: Conflict detection review and PR branch synthesis dialog with commit message input.
-   - `PipelineEditorModal.tsx`: YAML pipeline editor with syntax validation and preset template selector.
+3. **`FleetPolicyService.ts` (`apps/server/src/services/enterprise/FleetPolicyService.ts`)**:
+   - Load policies from `asterim.policy.json` (if present) or SQLite table `fleet_policies`.
+   - `validateModel(model: string): { allowed: boolean; reason?: string }`
+   - `validateCommand(command: string): { allowed: boolean; violationReason?: string }`
+   - `isSovereignModeForced(): boolean`
+   - Integrated into `ApprovalManager.ts` and `AgentService.ts` (rejects unapproved models or banned commands before PTY spawn).
 
-4. **Fleet Worktree Retention Pruner (`apps/server`)**:
-   - Add `pruneOldFleetWorktrees(maxAgeMs?: number)` in `WorktreeFleetService.ts` / `PipelineEngine.ts`.
-   - Call during boot sequence in `apps/server/src/server.ts` alongside `pruneOrphanSandboxes()`.
+4. **`AuditLoggerService.ts` (`apps/server/src/services/enterprise/AuditLoggerService.ts`)**:
+   - `logEvent(event: Omit<AuditEvent, 'id' | 'timestamp'>): Promise<AuditEvent>`
+   - Appends to SQLite `audit_events` and writes JSON-lines to `<dataDir>/audit.log`.
+   - Integrates with `SecretVaultService` to scrub credentials before persisting.
+   - `exportLogs(options: { startTime?: number; endTime?: number; format: AuditExportFormat; minSeverity?: AuditSeverity }): string`
+   - Subscribes to `EventBus` events (`agent:approval_required`, `client:approval_response`, `agent:started`, `agent:stopped`, `policy:violation`).
 
-5. **Automated Unit & Integration Test Suite (`apps/web/src/components/pipelines/__tests__/PipelineUI.test.ts`)**:
-   - Pure DAG helper and layout computation assertions.
-   - Store actions against mocked HTTP fetch (list, get, run, cancel, conflicts, synthesize).
-   - Real-time socket event reducer tests (`pipeline:started`, `pipeline:step_started`, `pipeline:step_completed`, `pipeline:completed`, `pipeline:failed`).
-   - Static component rendering tests via `react-dom/server` across pending, running, passed, failed, and conflict states.
-   - Wire test suite into `apps/web/package.json` `"test"` script.
+5. **REST API Endpoints (`apps/server/src/routes/enterprise.ts`)**:
+   - `GET /api/v1/enterprise/policy` — Get active fleet policy.
+   - `PUT /api/v1/enterprise/policy` — Update fleet policy.
+   - `GET /api/v1/enterprise/audit-logs` — Query audit logs with pagination and filters.
+   - `GET /api/v1/enterprise/audit-logs/export` — Stream audit export in JSONL or Syslog RFC 5424 format.
+   - Register in `apps/server/src/server.ts`.
+
+6. **Automated Unit & Integration Test Suite (`apps/server/src/services/enterprise/__tests__/FleetGovernance.test.ts`)**:
+   - Test file-based `asterim.policy.json` loading and precedence over database settings.
+   - Test banned command detection and model allowlist enforcement.
+   - Test audit log capture and persistence on security events.
+   - Test Syslog RFC 5424 formatting and JSON-Lines export.
+   - Test secret redaction in audit payloads.
+   - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
-## 6. Explicitly Forbidden Changes
+## 5. Constraints & Forbidden Changes
 
-- Do NOT alter or break existing Phase 7 or Phase 8 functionality (Release channels, Team agents, Worktree delegations).
-- Do NOT introduce bulky 3rd-party graph libraries (e.g. `reactflow`); keep DAG layout lightweight, accessible, and native SVG/CSS based.
-- Do NOT perform unapproved git operations against the operator's primary branch during PR synthesis.
-
----
-
-## 7. Acceptance Criteria
-
-1. `usePipelineStore.ts` provides complete project-scoped pipeline and run state management with REST actions and immutable socket event handling.
-2. `ViewType` in `useViewStore.ts` and `Router.tsx` includes `'pipelines'`, and the navigation tab in `App.tsx` switches seamlessly to the Pipelines dashboard.
-3. `PipelineDagGraph.tsx` renders DAG steps with accurate dependency edges, role pills, status styling, and retry attempt counters.
-4. `PipelineStepInspector.tsx` enables full inspection of step briefs, output transcripts, diff artifacts, branch names, and verification outcomes.
-5. Conflict analysis and PR synthesis UI correctly displays merge conflict statuses and triggers `/api/v1/pipeline-runs/:id/synthesize` to create consolidated PR branches.
-6. `PipelineEditorModal.tsx` allows creating and editing valid YAML pipeline definitions with inline error reporting.
-7. Fleet worktree retention pruning runs cleanly on server startup to reclaim stale pipeline checkouts.
-8. `PipelineUI.test.ts` passes with comprehensive assertions covering stores, socket reducers, DAG layouts, and component rendering.
-9. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
+- Banned commands must fail closed with an immediate audit event and must never reach the PTY stream.
+- Audit logs must never contain unredacted secrets or passwords.
+- Maintain 100% test pass rate across all existing monorepo test suites.
 
 ---
 
-## 8. Definition of Done
+## 6. Acceptance Criteria
 
-- [ ] `usePipelineStore.ts` created and integrated with `useSocket.ts`
-- [ ] `ViewType` and navigation tabs updated for `'pipelines'`
-- [ ] `PipelineDashboard`, `PipelineDagGraph`, `PipelineStepInspector`, `PipelineSynthesisModal`, `PipelineEditorModal` created in `apps/web/src/components/pipelines/`
-- [ ] Fleet worktree retention cleanup hooked into `server.ts`
-- [ ] `PipelineUI.test.ts` created and added to `apps/web/package.json` `"test"` script
-- [ ] All monorepo verification commands pass cleanly (0 errors)
+1. Migration `004_fleet_policies.sql` applies cleanly via `MigrationEngine`.
+2. `FleetPolicyService` enforces model allowlists and blocks banned commands before execution.
+3. `AuditLoggerService` records structured audit events and writes to both SQLite and `<dataDir>/audit.log`.
+4. Sensitive credentials are automatically redacted in all audit log entries.
+5. Syslog RFC 5424 and JSONL exports generate valid, parseable log frames.
+6. Authenticated REST routes under `/api/v1/enterprise/` function correctly.
+7. `FleetGovernance.test.ts` passes with comprehensive policy and audit assertions.
+8. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
 
 ---
 
-## 9. Verification Commands
+## 7. Definition of Done
+
+- [ ] `004_fleet_policies.sql` created and verified
+- [ ] Shared fleet types in `@asterim/shared`
+- [ ] `FleetPolicyService.ts` implemented
+- [ ] `AuditLoggerService.ts` implemented
+- [ ] REST routes registered in `server.ts`
+- [ ] `FleetGovernance.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
+
+---
+
+## 8. Verification Commands
 
 ```bash
-# Run new Pipeline UI test suite
-pnpm --filter @asterim/web exec tsx src/components/pipelines/__tests__/PipelineUI.test.ts
+# Run new Fleet Governance & Audit test suite
+pnpm --filter asterim exec tsx src/services/enterprise/__tests__/FleetGovernance.test.ts
 
-# Run web workspace test battery
-pnpm --filter @asterim/web run test
-
-# Run server pipeline tests
-pnpm --filter asterim exec tsx src/services/pipeline/__tests__/WorktreeFleet.test.ts
+# Run pipeline, team agent & security test suites
 pnpm --filter asterim exec tsx src/services/pipeline/__tests__/PipelineEngine.test.ts
+pnpm --filter asterim exec tsx src/services/security/__tests__/SecretVaultService.test.ts
 
 # Run full monorepo CI validation
 pnpm run typecheck
@@ -166,15 +137,6 @@ pnpm run build
 
 ---
 
-## 10. Self-Review Requirements
-
-1. Review `git diff` against all acceptance criteria before authoring the report.
-2. Verify that DAG rendering handles single-step, sequential chain, parallel fan-out, and diamond dependency graphs cleanly.
-3. Verify that real-time socket events seamlessly transition node states from PENDING -> RUNNING -> PASSED/FAILED.
-
----
-
-## 11. Required Report
+## 9. Required Report
 
 Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
-
