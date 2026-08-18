@@ -3,6 +3,7 @@ import { teamAgentsMigration } from './002_team_agents';
 import { teamApprovalGovernanceMigration } from './003_team_approval_governance';
 import { pipelinesMigration } from './004_pipelines';
 import { pipelineFleetMigration } from './005_pipeline_fleet';
+import { fleetPoliciesMigration } from './006_fleet_policies';
 import type { MigrationDefinition } from './types';
 
 export type { MigrationDefinition, ColumnAddition } from './types';
@@ -27,7 +28,8 @@ export const migrations: MigrationDefinition[] = [
   teamAgentsMigration,
   teamApprovalGovernanceMigration,
   pipelinesMigration,
-  pipelineFleetMigration
+  pipelineFleetMigration,
+  fleetPoliciesMigration
 ];
 
 /** The version a database is expected to be on after this build has migrated it. */

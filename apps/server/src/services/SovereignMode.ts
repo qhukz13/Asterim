@@ -12,7 +12,40 @@
  * see it take effect.
  */
 export function isSovereignMode(): boolean {
-  return process.env.ASTERIM_SOVEREIGN_MODE === 'true' || process.argv.includes('--sovereign');
+  if (process.env.ASTERIM_SOVEREIGN_MODE === 'true' || process.argv.includes('--sovereign')) {
+    return true;
+  }
+  return policyHook ? safePolicyHook() : false;
+}
+
+/**
+ * A second way to switch the air gap on: an enterprise fleet policy that
+ * mandates it (P10-01).
+ *
+ * Inverted rather than imported, for the same reason the EventBus does not
+ * import the vault: this module is pulled in by `AiService`, `PushService` and
+ * `RelayClient`, and a direct dependency on the policy engine would drag the
+ * database open behind every one of them, in tests that have no database.
+ * Registered once at startup; unregistered by passing `null`.
+ */
+let policyHook: (() => boolean) | null = null;
+
+export function registerSovereignPolicyHook(fn: (() => boolean) | null): void {
+  policyHook = fn;
+}
+
+/**
+ * A hook that throws must not be able to decide the air gap is off — nor to
+ * take down the subsystem that asked. It is treated as no answer, which is what
+ * the switch meant before a policy existed.
+ */
+function safePolicyHook(): boolean {
+  try {
+    return policyHook?.() === true;
+  } catch (err) {
+    console.warn(`[SovereignMode] Fleet policy could not be consulted: ${(err as Error).message}`);
+    return false;
+  }
 }
 
 /**

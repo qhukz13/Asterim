@@ -2,9 +2,14 @@ import { eventBus } from './EventBus';
 import {
   IAgentAdapter,
   AsterimEvent,
+  AGENT_STARTED_EVENT,
+  AGENT_STOPPED_EVENT,
+  AUDIT_SUBJECT_MAX_CHARS,
+  POLICY_VIOLATION_EVENT,
   ClientCommandPayload,
   ClientApprovalResponsePayload
 } from '@asterim/shared';
+import type { PolicyViolationPayload } from '@asterim/shared';
 import { SessionManager, globalProviderRegistry } from '@asterim/adapters';
 import { WorkspaceMonitor } from './workspaceMonitor';
 import crypto from 'crypto';
@@ -20,6 +25,7 @@ import {
   filterToolsForProfile,
   profileService
 } from './ai/ProfileService';
+import { fleetPolicyService } from './enterprise/FleetPolicyService';
 import type { AgentProfile } from '@asterim/shared';
 
 export class AgentService {
@@ -78,9 +84,9 @@ export class AgentService {
             this.pendingStarts.delete(threadId);
           }
         } else if (command === 'stop') {
-          await this.stopAgent(threadId);
+          await this.stopAgent(threadId, 'stopped by user');
         } else if (command === 'restart') {
-          await this.stopAgent(threadId);
+          await this.stopAgent(threadId, 'restarted by user');
           await new Promise(resolve => setTimeout(resolve, 1000));
           const { projectManager } = await import('./ProjectManager');
           const project = projectManager.getProject(projectId);
@@ -94,6 +100,10 @@ export class AgentService {
             }
           }
         } else {
+          // A raw command is about to be written to a PTY. The fleet policy gate
+          // is here rather than in `sendCommand` so the refusal happens before
+          // anything is queued on the adapter (P10-01).
+          if (!this.enforceCommandPolicy(projectId, threadId, command)) return;
           await this.sendCommand(threadId, command);
         }
       } catch (err) {
@@ -128,6 +138,11 @@ export class AgentService {
       try {
         const { content, projectId, threadId } = event.payload;
         if (!projectId || !threadId || !content) return;
+
+        // Chat text reaches the same PTY stdin a command does — an agent asked
+        // in prose to run `curl … | sh` runs it — so the same gate applies, and
+        // it applies before the message is echoed back to the room.
+        if (!this.enforceCommandPolicy(projectId, threadId, content)) return;
 
         eventBus.publish({
           id: crypto.randomUUID(),
@@ -216,6 +231,31 @@ export class AgentService {
   ) {
     if (this.sessionManager.getSessionAdapter(threadId)) {
       console.log(`[AgentService] Agent already running for thread ${threadId}`);
+      return;
+    }
+
+    // The fleet allowlist is checked before a process is spawned, not after
+    // (P10-01). Every path into a session — start, restart, crash recovery, the
+    // auto-start behind a chat message — arrives here, so this is the one place
+    // that has to hold for the model gate to mean anything.
+    const modelVerdict = fleetPolicyService.validateModel(agentType);
+    if (!modelVerdict.allowed) {
+      const reason = modelVerdict.reason ?? `Model '${agentType}' is not permitted by fleet policy.`;
+      this.publishPolicyViolation({
+        projectId,
+        threadId,
+        kind: 'model',
+        subject: agentType,
+        reason
+      });
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: 'agent.status',
+        payload: { status: 'error', message: `Blocked by fleet policy: ${reason}`, projectId, threadId }
+      });
+      console.warn(`[AgentService] Refused to start '${agentType}' for thread ${threadId}: ${reason}`);
       return;
     }
 
@@ -407,7 +447,10 @@ export class AgentService {
             }
           }
 
-          this.stopAgent(threadId);
+          this.stopAgent(
+            threadId,
+            exitCode === 0 ? 'agent process exited' : `agent process exited with code ${exitCode}`
+          );
         },
         adapter => {
           // Wired before the child process exists, so a tool call in its very
@@ -490,6 +533,17 @@ export class AgentService {
         await monitor.start();
         this.workspaceMonitors.set(projectId, monitor);
       }
+
+      // The audit record of a session existing (P10-01). Published after the
+      // session row is written, so what the audit trail claims started is a
+      // session the database also knows about.
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: AGENT_STARTED_EVENT,
+        payload: { projectId, threadId, agentType }
+      });
 
       console.log(`[AgentService] Started ${agentType} for thread ${threadId}`);
     } catch (err: any) {
@@ -640,7 +694,7 @@ export class AgentService {
     }
   }
 
-  private async stopAgent(threadId: string) {
+  private async stopAgent(threadId: string, reason = 'session ended') {
     this.userStopped.add(threadId);
     this.crashCounts.delete(threadId);
 
@@ -700,7 +754,83 @@ export class AgentService {
       }
     });
 
+    // Only a thread that actually held a session (P10-01). `stopAgent` also runs
+    // on a thread that was already stopped, and an audit trail recording the end
+    // of sessions that never began is one an auditor cannot count.
+    if (config) {
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: AGENT_STOPPED_EVENT,
+        payload: {
+          projectId: config.projectId,
+          threadId,
+          agentType: config.agentType,
+          reason
+        }
+      });
+    }
+
     console.log(`[AgentService] Stopped agent for thread ${threadId}`);
+  }
+
+  /**
+   * The fleet command gate (P10-01).
+   *
+   * Returns `false` when the text must not reach the PTY. A refusal publishes
+   * two things and writes nothing to the adapter: a `policy.violation` the audit
+   * logger records at CRITICAL, and an `agent.status` error so the person who
+   * typed it is told why, rather than watching a command vanish.
+   *
+   * Fails closed by construction — `validateCommand` refuses when the policy
+   * itself could not be read — which is what "banned commands must never reach
+   * the PTY stream" requires of an unreadable policy file as much as of a match.
+   */
+  private enforceCommandPolicy(projectId: string, threadId: string, command: string): boolean {
+    const verdict = fleetPolicyService.validateCommand(command);
+    if (verdict.allowed) return true;
+
+    const reason = verdict.violationReason ?? 'The command is forbidden by fleet policy.';
+    this.publishPolicyViolation({
+      projectId,
+      threadId,
+      kind: 'command',
+      subject: command,
+      reason,
+      matchedPattern: verdict.matchedPattern
+    });
+
+    eventBus.publish({
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      source: 'server',
+      type: 'agent.status',
+      payload: { status: 'error', message: `Blocked by fleet policy: ${reason}`, projectId, threadId }
+    });
+
+    console.warn(`[AgentService] Fleet policy refused a command on thread ${threadId}: ${reason}`);
+    return false;
+  }
+
+  /** Publishes one violation, with the subject truncated before it leaves this method. */
+  private publishPolicyViolation(violation: PolicyViolationPayload): void {
+    const policy = fleetPolicyService.getActivePolicy();
+    eventBus.publish({
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      source: 'server',
+      type: POLICY_VIOLATION_EVENT,
+      payload: {
+        ...violation,
+        subject:
+          violation.subject.length > AUDIT_SUBJECT_MAX_CHARS
+            ? `${violation.subject.slice(0, AUDIT_SUBJECT_MAX_CHARS)}…`
+            : violation.subject,
+        policyId: policy.id,
+        policySource: policy.source
+      } satisfies PolicyViolationPayload
+    });
   }
 
   private async sendCommand(threadId: string, command: string) {

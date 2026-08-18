@@ -2,6 +2,7 @@ import { eventBus } from './EventBus';
 import { AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
+import { fleetPolicyService } from './enterprise/FleetPolicyService';
 
 interface PendingApproval {
   resolve: (value: boolean) => void;
@@ -179,6 +180,26 @@ export class ApprovalManager {
       if (cmdLower.includes('npm install') || cmdLower.includes('pnpm add') || cmdLower.includes('pip install') || cmdLower.includes('cargo add')) {
         riskLevel = 'medium';
       }
+    }
+
+    // 5. Fleet governance (P10-01).
+    //
+    // Two rules an organization may have stated override what the heuristics
+    // above concluded, and both only ever tighten: a command the fleet policy
+    // forbids is critical whatever it looked like, and a configured policy that
+    // mandates approval at or below this risk level takes the decision away from
+    // the heuristic. Neither can lower a risk level or clear a flag — a policy is
+    // there to add scrutiny, and one that could remove it would be a way to
+    // disable the security analysis by configuration.
+    const policyVerdict = fleetPolicyService.validateCommand(command);
+    if (!policyVerdict.allowed) {
+      riskLevel = 'critical';
+      requiresExplicitHumanApproval = true;
+      warnings.push(
+        policyVerdict.violationReason ?? 'The command is forbidden by the active fleet policy.'
+      );
+    } else if (fleetPolicyService.isManaged() && fleetPolicyService.requiresApproval(riskLevel)) {
+      requiresExplicitHumanApproval = true;
     }
 
     return {

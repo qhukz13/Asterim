@@ -1,11 +1,11 @@
-Task-ID: P9-03
+Task-ID: P10-01
 Status: COMPLETE
 
-# Execution Report: P9-03 — Pipeline Execution Dashboard, Visual DAG Graph, Step Inspector & PR Synthesis UI
+# Execution Report: P10-01 — Enterprise Fleet Policy Engine, Governance Rules & Structured SIEM Audit Exporter
 
-**Task ID:** P9-03
-**Phase:** Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution
-**Status:** IMPLEMENTED / VERIFIED
+**Task ID:** P10-01
+**Phase:** Phase 10 — Enterprise Fleet Deployment, Air-Gapped Sovereign Appliances & GA Packaging
+**Status:** VERIFIED
 **Date:** 2026-08-18
 **Author:** Claude Code
 
@@ -13,217 +13,277 @@ Status: COMPLETE
 
 ## 1. Summary
 
-The declarative pipeline subsystem built in P9-01/P9-02 now has a control plane in the
-dashboard. A `Pipelines` view sits beside Team in the workspace navigation and renders a
-master-detail surface: the project's definitions and their run history on the left, and on
-the right the open run drawn as a dependency graph whose nodes move `PENDING → RUNNING →
-PASSED/FAILED` from the `pipeline:*` socket events without polling. A node opens a step
-inspector carrying the four separate pieces of evidence the Core kept — the brief, the
-transcript, the diff, and the project's own verification report — and a finished run offers
-the conflict analysis and the one-click synthesis into `asterim/pipeline/<runId>/pr`.
+The Fleet Policy Engine and the structured SIEM audit exporter are implemented, wired into the
+enforcement seams, exposed over REST, and covered by a new 229-assertion suite that passes.
 
-On the server, `WorktreeFleetService.pruneOldFleetWorktrees` and
-`PipelineEngine.pruneOldFleetWorktrees` were added and wired into the boot sequence beside
-`pruneOrphanSandboxes`, so `.asterim/worktrees/pipeline/` no longer grows for the life of a
-repository.
+- A versioned migration adds `fleet_policies` and `audit_events` with the two required indexes.
+- `FleetPolicyService` resolves rules from `asterim.policy.json` in preference to the database and
+  answers three questions — may this model run, may this command reach a PTY, is the air gap
+  mandated — failing closed on any policy it cannot parse or compile.
+- `AuditLoggerService` records structured events to SQLite *and* an append-only `<dataDir>/audit.log`,
+  redacts every string through the vault redactor before either write, and renders JSONL,
+  RFC 5424 Syslog and CSV exports.
+- `AgentService` refuses a disallowed model before the PTY is spawned and a banned command before it
+  is queued on the adapter; `ApprovalManager` treats a banned command as `critical` and honours the
+  policy's approval threshold; `SovereignMode` gains a hook so `enforceSovereignMode` actually
+  switches the air gap on.
+- Four authenticated routes under `/api/v1/enterprise/`.
 
-All monorepo gates are green: typecheck, lint (0 errors), the whole server test battery, the
-whole web test battery including the new 252-assertion suite, and a full build.
+**Two deviations from the task text**, both forced by the repository as it actually stands, and
+neither changes the specified behaviour:
+
+1. **The migration is `apps/server/src/migrations/006_fleet_policies.ts`, not
+   `packages/server/src/migrations/004_fleet_policies.sql`.** There is no `packages/server` workspace;
+   migrations live in `apps/server/src/migrations/` as TypeScript modules, deliberately (see the
+   comment in `migrations/index.ts` — the Core ships as one bundled `dist/index.js`, so a runtime
+   `readdir` of loose `.sql` files would not survive `tsup`). Version 4 is already taken by
+   `004_pipelines`, and versions are immutable once applied, so this is version 6. The table, column
+   and index definitions are exactly those the task specified.
+2. **The EventBus subscriptions use the bus's real dotted event names**, not the colon spelling in
+   the task (`agent:approval_required` etc.). The bus publishes `agent.approval_request` and
+   `client.approval_response`; a subscription to a type nothing publishes would have produced a
+   silent, empty audit trail. `agent.started` / `agent.stopped` did not exist at all, so
+   `AgentService` now publishes them (constants in `@asterim/shared`) rather than the logger
+   inferring lifecycle from the continuous `agent.status` stream.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/web/src/stores/usePipelineStore.ts` | Created | Project-scoped pipeline/run state, REST actions, pure socket reducer, tones, DAG-independent helpers, draft validation and presets |
-| `apps/web/src/components/pipelines/PipelineDagGraph.tsx` | Created | Pure layout (`dagColumns`, `computeDagLayout`, `edgeIsActive`) and the native SVG/CSS graph |
-| `apps/web/src/components/pipelines/PipelineRunView.tsx` | Created | Run header (status, duration, base commit, PR branch), progress, action toolbar, graph + inspector slot |
-| `apps/web/src/components/pipelines/PipelineStepInspector.tsx` | Created | Step brief, transcript, diff, branch/commit, retry badge and verification report |
-| `apps/web/src/components/pipelines/PipelineConflictCard.tsx` | Created | Conflict analysis: clean status, conflicted pairs and their paths, missing branches |
-| `apps/web/src/components/pipelines/PipelineSynthesisModal.tsx` | Created | Step-subset selection, commit message, synthesis outcome |
-| `apps/web/src/components/pipelines/PipelineEditorModal.tsx` | Created | YAML editor with preset templates, inline draft problems and the Core's line-numbered refusal |
-| `apps/web/src/components/pipelines/PipelineDashboard.tsx` | Created | Master-detail dashboard and the store-connected container |
-| `apps/web/src/components/pipelines/__tests__/PipelineUI.test.ts` | Created | 252 assertions across layout, store, socket reducer and SSR rendering |
-| `apps/web/src/stores/useViewStore.ts` | Modified | `'pipelines'` added to `ViewType`/`availableViews`; `VIEW_TYPES` + `isViewType` guard |
-| `apps/web/src/Router.tsx` | Modified | Route sync validates the URL's view id instead of casting it |
-| `apps/web/src/App.tsx` | Modified | Pipelines nav tab and persistent panel wired to `PipelineDashboard` |
-| `apps/web/src/hooks/useSocket.ts` | Modified | Subscribes the five `pipeline:*` events and routes them before the thread filter |
-| `apps/web/package.json` | Modified | `PipelineUI.test.ts` added to the `test` script |
-| `apps/server/src/services/pipeline/WorktreeFleetService.ts` | Modified | `DEFAULT_FLEET_RETENTION_MS`, `pruneOldFleetWorktrees`, `fleetRunAges` |
-| `apps/server/src/services/pipeline/PipelineEngine.ts` | Modified | `pruneOldFleetWorktrees(maxAgeMs?)` over every project, keeping live runs |
-| `apps/server/src/server.ts` | Modified | Retention pass called at boot, after `recoverRuns()` |
-| `apps/server/src/services/pipeline/__tests__/WorktreeFleet.test.ts` | Modified | 21 new assertions covering retention at fleet and engine level |
+| `apps/server/src/migrations/006_fleet_policies.ts` | Created | `fleet_policies` + `audit_events` tables and the two audit indexes |
+| `apps/server/src/migrations/index.ts` | Modified | Registers the migration; `LATEST_SCHEMA_VERSION` becomes 6 |
+| `packages/shared/src/types/fleet.ts` | Created | `FleetPolicy`, `FleetPolicyConfig`, `AuditEvent`, `AuditSeverity`, `AuditExportFormat`, violation/lifecycle payloads and constants |
+| `packages/shared/src/index.ts` | Modified | Exports `./types/fleet` |
+| `apps/server/src/services/enterprise/FleetPolicyService.ts` | Created | Policy resolution (file over database), model allowlist, banned patterns, sovereign enforcement, approval threshold, `updatePolicy` |
+| `apps/server/src/services/enterprise/AuditLoggerService.ts` | Created | Dual persistence, redaction, query/count, JSONL + RFC 5424 + CSV export, EventBus subscriptions |
+| `apps/server/src/routes/enterprise.ts` | Created | `GET/PUT /policy`, `GET /audit-logs`, `GET /audit-logs/export` |
+| `apps/server/src/server.ts` | Modified | Registers the routes, subscribes the audit logger, installs the sovereign-policy hook |
+| `apps/server/src/services/AgentService.ts` | Modified | Model gate before session start, command gate before PTY write, violation publishing, lifecycle events |
+| `apps/server/src/services/ApprovalManager.ts` | Modified | Fleet rules tighten `evaluateCommandSecurity` |
+| `apps/server/src/services/SovereignMode.ts` | Modified | `registerSovereignPolicyHook`, so a policy can mandate the air gap |
+| `apps/server/src/services/enterprise/__tests__/FleetGovernance.test.ts` | Created | 229 assertions across migration, policy, audit, export, REST and enforcement |
+| `apps/server/package.json` | Modified | New suite appended to the `test` script |
 
 ## 3. Implementation Details
 
-**Store (`usePipelineStore`).** REST is the snapshot, the socket is the authority. Every
-action takes an optional `backendUrl` and goes through `resolveBackendUrl` +
-`getAuthHeaders({ backendUrl })`, which is what makes the panel work against a remote
-workstation. `reducePipelineEvent` is a pure exported function so the live path is testable
-without a socket:
+### Policy resolution and precedence
 
-- `pipeline:started` plants a skeleton run from `stepIds` when the run is unknown (its
-  payload carries no names or roles, so nodes are labelled by id until dispatched) and
-  leaves a fetched run alone.
-- `pipeline:step_started` is the first event that knows a step's name, role and attempt; it
-  is idempotent for a running step, because a retry publishes it again with a higher attempt
-  and clears the failure being retried.
-- `pipeline:step_completed` replaces the node with the whole `PipelineStepRun`.
-- `pipeline:completed` / `pipeline:failed` replace the run. A cancellation arrives on the
-  failure event with `status: 'CANCELLED'` (the engine publishes no sixth event) and stays a
-  cancellation.
+`FleetPolicyService.resolve()` stats `<dataDir>/asterim.policy.json` on every question and re-parses
+only when its mtime or size moved, so a policy pushed to a running workstation takes effect on the
+next command without paying a file read per keystroke. A file that exists wins over the
+`fleet_policies` row unconditionally — and a file appearing where there was none invalidates a cached
+database policy, which the cache key (`cachedFromFile`) encodes explicitly.
 
-A run that starts is adopted into the panel only when its pipeline is the one on screen, so
-a scheduled pipeline firing elsewhere cannot pull an operator off the run they are reading.
+**Fail-closed is the default on every uncertain path.** A file that will not parse, a field of the
+wrong type, or a banned pattern that will not compile produces a *locked-down* resolution: the failure
+is reported through `getPolicyFailure()`, `validateCommand` and `validateModel` refuse everything, and
+the approval threshold collapses to `low`. `isSovereignModeForced()` is the one exception and returns
+`false` on an unreadable policy — an unreadable file is not evidence the air gap was demanded, and the
+gates that can fail closed already have.
 
-**DAG layout.** A node's column is its *longest* path from a root, computed over
-`topologicalPipelineOrder` from `@asterim/shared`; a step that waits on a deep ancestor is
-therefore never drawn as if it ran in parallel with a shallow one. Unknown dependencies are
-not edges and a cycle falls back to declaration order, so a draft still draws. Edges are
-cubic-bezier SVG paths with an arrow marker; nodes are absolutely positioned real `<button>`s
-so the graph is keyboard-navigable. No graph library was added.
+An empty `allowedModels` list is a lockdown, not an absence of rules. `['*']` is the permissive
+default; a trailing `*` admits a family (`claude-*` → `claude-opus-5`); matching is case-insensitive.
 
-**Step inspector.** Verification results are read from the existing
-`GET /api/v1/threads/:id/worktree/verify` using the step's `threadId` — the report is written
-against the thread by `AgentDelegationService`, and `pipeline_step_runs` has no column for it,
-so no schema was invented. Selection is a step *id*; the step is read out of the run on every
-render, per `blueprint/STORE_ARCHITECTURE.md`, so an open inspector moves when its step does.
+`updatePolicy` compiles every pattern *before* storing it, because a pattern that does not compile
+would lock the whole fleet out of every command the moment it was saved and the request is the last
+moment anyone can be told why. It refuses outright (`POLICY_FILE_ENFORCED`) while a policy file is
+present, rather than writing a row nothing reads.
 
-**Synthesis and conflicts.** `GET …/conflicts` is a read and is presented as one; the card
-names the conflicting pair and every path. The synthesis dialog defaults to the run's passing
-steps and sends exactly what was selected, with the branch name it will build shown before
-the click. Nothing in the UI can reach the operator's branch — the only write is the
-`POST …/synthesize` the Core fail-closes.
+`isManaged()` distinguishes a governed installation from an unmanaged one. The approval threshold is
+only applied when a policy actually exists — otherwise a single-developer workstation that has never
+seen a policy would inherit the default threshold as though an administrator had chosen it and start
+demanding approvals nobody configured (DEC-028). Verified: the unmanaged behaviour of
+`evaluateCommandSecurity` is unchanged.
 
-**Editor.** A textarea over the YAML rather than a form over the schema, because the Core
-stores the text as written and a form would silently rewrite the operator's file on first
-save. `validatePipelineDraft` catches only the mistakes worth catching without a round trip
-(empty, over the character bound, tabs, missing `name:`/`steps:`/`id:`); the parser stays the
-gate and its `line` is prefixed onto the error the store reports.
+### Audit capture, redaction and export
 
-**Retention.** `pruneOldFleetWorktrees(repoPath, { maxAgeMs, keepRunIds, now })` dates each
-run by the *newest* of its fleet directory's mtime and its branches' commit dates, so a
-checkout an operator read yesterday is not old because its commits are a fortnight old, and a
-run whose directory was deleted by hand is still dated by the branches it left. Only ids that
-pass `isSafePipelineRefComponent` and only branches under `asterim/pipeline/` are touched;
-teardown failures are logged, never thrown. The engine's wrapper reads the projects itself,
-keeps every run that is not terminal plus everything this process is executing, skips projects
-that are not repositories or have no fleet directory, and is called `void`-style at boot after
-`recoverRuns()` — the same shape as `pruneOrphanSandboxes()`.
+Every event goes to `audit_events` **and** to `<dataDir>/audit.log`, appended one JSON line at a time
+with the file re-opened per write (a buffered stream loses its tail on a kill, exactly where the
+interesting event would have been) and restricted to `0600` via `enforceOwnerOnly` (DEC-028).
+
+Redaction happens at the sink, not at the call sites: `action`, identity fields, metadata **values and
+keys**, and nested structures are all passed through `secretVault.redactSecrets` before either write.
+An audit trail is the one stream deliberately copied off the machine, so a credential that leaks into
+it leaks furthest; doing it here means a new call site cannot forget. Nothing in the service throws at
+its caller — logging instruments paths that are themselves security decisions.
+
+Severity is filtered in TypeScript, not SQL: it is an ordered scale stored as text, and
+`severity >= 'HIGH'` in SQLite is a string comparison that would silently admit `INFO` and exclude
+`CRITICAL`.
+
+RFC 5424 frames are `<PRI>1 TIMESTAMP HOSTNAME APP-NAME PROCID MSGID SD BOM MSG` with facility 13
+(`log audit`), severities 6/4/3/2, identity and metadata as SD-PARAMs under the private-enterprise
+SD-ID `asterim@52773`, `"` `\` `]` escaped per § 6.3.3, header tokens stripped to PRINTUSASCII with
+per-field length caps, and newlines in the MSG escaped so one event cannot become two frames. CSV
+cells are quoted and formula-guarded (`=`, `+`, `-`, `@` prefixed with `'`) — audit text is
+attacker-influenced by definition and does not get to be a spreadsheet formula.
+
+### Enforcement seams
+
+- `AgentService.startAgent` validates the provider against the allowlist before anything is spawned.
+  Every path into a session (start, restart, crash recovery, chat auto-start) converges there.
+- `AgentService` gates both raw commands (`client.command`) and chat content (`client.chat_message`)
+  through `enforceCommandPolicy` before `sessionManager.sendCommand`, so a refused command is never
+  queued on the adapter. A refusal publishes `policy.violation` (recorded at `CRITICAL`) and an
+  `agent.status` error, so the operator is told why rather than watching a command vanish.
+- `ApprovalManager.evaluateCommandSecurity` applies the policy last and only ever tightens: a banned
+  command becomes `critical` + requires a human; a configured threshold at or below the computed risk
+  forces a human. A policy can never lower a risk level or clear a flag.
+- `SovereignMode` consults a registered hook, inverted rather than imported so `AiService`,
+  `PushService` and `RelayClient` keep not knowing the policy engine (or the database) exists. A hook
+  that throws is treated as no answer.
 
 ## 4. Verification
 
-Commands run in this session (root turbo scripts are refused by this session's sandbox, so
-each workspace was driven directly — the same tasks turbo would run):
+Everything below was run in this session. Root `turbo` scripts are blocked in this sandbox, so the CI
+gates were run per workspace with `pnpm --filter`, covering every workspace the root scripts would.
 
-```
-pnpm --filter @asterim/web  exec tsx src/components/pipelines/__tests__/PipelineUI.test.ts
-   → 252/252 assertions passed
+| Gate | Command | Result |
+| :--- | :--- | :--- |
+| New suite | `pnpm --filter asterim exec tsx src/services/enterprise/__tests__/FleetGovernance.test.ts` | **229 passed, 0 failed** |
+| Full server suite (31 suites incl. `PipelineEngine`, `SecretVaultService`, `MigrationEngine`, `SovereignMode`) | `pnpm --filter asterim test` | all pass; no `FAIL`, no `Failures:`, no `ERR_PNPM` |
+| Typecheck | `pnpm --filter` × `@asterim/shared`, `asterim`, `@asterim/web`, `@asterim/adapters`, `@asterim/marketing`, `@asterim/relay`, `@asterim/mcp-memory-server` | 0 errors |
+| Lint | `pnpm --filter asterim lint` | **0 errors**, 328 warnings (all pre-existing `no-explicit-any`) |
+| Lint | `pnpm --filter @asterim/shared lint`, `@asterim/web lint` | 0 errors |
+| Build | `pnpm --filter` × `@asterim/shared`, `@asterim/adapters`, `@asterim/web`, `asterim`, `@asterim/marketing`, `@asterim/relay` | all succeed (`dist/index.js 1.29 MB`) |
 
-pnpm --filter @asterim/web  run test        → 13 suites, all green
-   19/19, 151/151, 37/37, 134/134, 113/113, 104/104, 85/85, 134/134, 686/686,
-   203/203, 207/207, 395/395, 252/252 assertions passed
+Three lint errors were introduced and fixed during the cycle (`no-useless-assignment` ×2,
+`no-irregular-whitespace` on the U+FEFF in a test regex, replaced with `﻿`).
 
-pnpm --filter asterim run test              → whole server battery, exit 0, 0 FAIL
-   includes PipelineEngine.test.ts (199 passed, 0 failed) and
-   WorktreeFleet.test.ts (203 passed, 0 failed — 19 assertions added by this task)
+What the new suite actually asserts, by section:
 
-pnpm --filter <ws> run typecheck            → clean for @asterim/web, asterim,
-   @asterim/shared, @asterim/adapters, @asterim/marketing, @asterim/relay,
-   @asterim/mcp-memory-server
-
-eslint over apps/web and apps/server        → 0 errors
-   web: 324 problems (0 errors, 324 warnings); server: 319 problems (0 errors).
-   The pipelines directory itself contributes 3 react-refresh warnings, the same
-   kind the existing views produce for exporting helpers beside components.
-
-pnpm --filter <ws> run build                → shared, adapters, web, asterim,
-   marketing, relay, mcp-memory-server all built; web 1275 modules, server tsup OK
-```
-
-Two eslint errors were introduced and fixed during the pass: `now = Date.now()` as a default
-prop is `react-hooks/purity` ("Cannot call impure function during render"), so the three views
-take `now` undefaulted and the store helpers default it — which is the convention the team
-agent views already follow.
-
-**Not verified in this session:** a live boot of the packaged server to watch the retention
-pass run. The sandbox refuses `node apps/server/dist/index.js`, `bash -c` and `mkdir` outside
-the repo, so no end-to-end boot could be staged. The call itself is a one-line `void` beside
-the existing `pruneOrphanSandboxes()` call, and the exact method it invokes
-(`pipelineEngine.pruneOldFleetWorktrees()`) is covered by the fleet suite against a real git
-repository, including the default-retention path that reclaims nothing. No screenshots were
-captured for the same reason.
+- **Migration** — both tables exist, every specified column exists, both indexes exist, and the
+  declared column defaults (`["*"]`, `[]`, `0`, `'HIGH'`, `1`) are what a row written without them
+  lands on.
+- **Precedence** — a database policy is in force, a file appearing overrides it in the same service
+  instance and in a fresh one, and removing the file restores the stored policy.
+- **Banned commands** — 6 refused shapes (`rm -rf /`, two `curl|sh` variants, force push, a
+  case-inverted match), each naming the pattern that refused it; 4 similar-looking commands permitted.
+- **Model allowlist** — exact, case-insensitive and wildcard matches; an omitted model refused with an
+  explanatory reason; an empty allowlist admits nothing.
+- **Fail-closed** — malformed JSON, an uncompilable pattern and a wrong-typed field each refuse every
+  command *and* every model, and collapse the threshold.
+- **Audit capture** — a row in SQLite with each column populated, a parseable JSON line in `audit.log`,
+  the file appended (not rewritten) on the second event, and `0600` on disk.
+- **Redaction** — a secret in the action, in an identity field, in a nested metadata array *and used as
+  a metadata key* appears in none of: the returned event, the SQLite row, `audit.log`, or any of the
+  three export formats.
+- **Export** — every JSONL line parses, ordering is oldest-first; every Syslog frame matches the RFC
+  5424 header grammar, PRI is 106 for CRITICAL and 110 for INFO, SD-PARAMs carry identity and metadata,
+  quote/bracket/backslash escaping is asserted individually, the BOM precedes the MSG, and a newline in
+  an action cannot split a frame; CSV quotes an embedded comma and defuses `=HYPERLINK(...)`.
+- **EventBus** — six published events produce exactly six records (a second `subscribe()` is a no-op),
+  with the severities and metadata each type is supposed to carry.
+- **REST** — 401 on anonymous read and write; 200 read/write round trip; 400 + `INVALID_POLICY` on an
+  uncompilable pattern; 409 + `POLICY_FILE_ENFORCED` under a policy file; audit paging with a total;
+  severity filtering; JSONL and Syslog exports with correct content types and disposition; 400 +
+  `INVALID_FORMAT` on an unknown format.
+- **Enforcement** — an unmanaged install's approval behaviour is unchanged; a banned command becomes
+  `critical` and requires a human; a configured threshold gates a high-risk command; a low-risk command
+  still passes; a policy switches Sovereign Mode on and off and a throwing hook cannot break it.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1 — `usePipelineStore.ts` provides complete project-scoped state with REST actions and immutable socket handling.** All nine listed actions plus `fetchStepVerification`; every one asserted against a recording `fetch` for URL, verb, headers and body (`PipelineUI.test.ts` §3, e.g. "to the pipelines route, scoped by workspace", "carrying exactly the steps chosen"). `reducePipelineEvent` builds new arrays and objects throughout; "an unknown run is ignored rather than invented" asserts identity is preserved when nothing applies.
-- [x] **2 — `ViewType`, `Router.tsx` and the `App.tsx` tab include `'pipelines'`.** `ViewType`/`VIEW_TYPES`/`availableViews` updated (`useViewStore.ts:13,33,56`); `Router.tsx` now validates `viewId` with `isViewType` on both the full and project+view routes, so `/workspace/project/:id/view/pipelines` syncs and `/view/nonsense` no longer blanks the workspace; `App.tsx:714` renders the tab and `App.tsx:933` the panel.
-- [x] **3 — `PipelineDagGraph.tsx` renders dependency edges, role pills, status styling and retry counters.** 21 layout assertions across single-step, chain, fan-out, diamond and longest-path graphs; render assertions "every step is a node", "the edges are drawn", "with arrow heads", "the role is a pill on the node", "a retried node carries its attempt" (`Attempt 3/4`) and "a step that worked first time carries no badge".
-- [x] **4 — `PipelineStepInspector.tsx` inspects briefs, transcripts, diffs, branch names and verification outcomes.** Render assertions cover all of them plus the checkout path, short commit, duration and attempt badge; the empty states are distinct ("said nothing yet", "changed nothing", "Nothing was verified"), and `SKIPPED` is not shown as `CANCELLED`.
-- [x] **5 — Conflict and synthesis UI displays merge statuses and triggers `POST /api/v1/pipeline-runs/:id/synthesize`.** Store test asserts the exact URL and that the chosen step ids and message are sent, that the run adopts `synthesisBranch`, and that a 409 `SYNTHESIS_CONFLICT` records no branch while surfacing the conflicted path. Card render asserts clean, conflicted (pair + files) and missing-branch states.
-- [x] **6 — `PipelineEditorModal.tsx` creates and edits YAML with inline error reporting.** Presets for chain/fan-out/join (each asserted to pass the draft check), `Line 3` reported for a tab, save disabled while a draft is invalid, and the Core's `Line 7: Duplicate step id` shown on refusal.
-- [x] **7 — Fleet worktree retention pruning runs cleanly on server startup.** `server.ts:338` calls it after `recoverRuns()`. Fleet-level assertions: a fresh fleet survives the default week; a kept run survives while an aged one is reclaimed (checkout and branch); a second pass is a no-op; a non-repository is safe; `feature/keep` — a branch outside the fleet prefix — is untouched; the working tree stays clean. Engine-level: `engine.pruneOldFleetWorktrees()` reclaims nothing inside the window and reclaims outside it, leaving no fleet branch. *Caveat: the live boot itself was not exercised — see §4.*
-- [x] **8 — `PipelineUI.test.ts` passes with comprehensive assertions.** 252/252, covering pure helpers, store, socket reducer and SSR rendering, including "nothing rendered carries a credential".
-- [x] **9 — Monorepo CI gates pass with 0 errors.** typecheck, lint, test and build all clean per §4 (run per workspace because the sandbox refuses the root turbo scripts).
+- [x] **1. Migration applies cleanly via `MigrationEngine`** — `006_fleet_policies` (renumbered and
+  authored as a TypeScript migration; see § 1 deviation 1). The suite reads back both tables, all 21
+  columns, both indexes and every column default from a database the engine migrated; the existing
+  `MigrationEngine.test.ts` and `CliDatabaseTooling.test.ts` still pass against the new
+  `LATEST_SCHEMA_VERSION`.
+- [x] **2. `FleetPolicyService` enforces model allowlists and blocks banned commands before execution**
+  — `validateModel` is called in `startAgent` before `sessionManager.startSession`; `validateCommand`
+  is called in `enforceCommandPolicy` before `sessionManager.sendCommand` on both the command and the
+  chat path. Suite sections "validateCommand — banned patterns fail closed", "validateModel — the
+  allowlist" and "ApprovalManager — the policy tightens the analysis".
+- [x] **3. `AuditLoggerService` records structured events to SQLite and `<dataDir>/audit.log`** —
+  "AuditLoggerService — dual persistence": the SQLite row is read back column by column, `audit.log`
+  exists, holds one parseable JSON line per event, is appended to, and is `0600`.
+- [x] **4. Sensitive credentials are automatically redacted in all audit entries** —
+  "AuditLoggerService — secrets never reach the record": redaction is asserted on the returned event,
+  the persisted row, the log file and all three export formats, including a secret used as a metadata
+  key. Production uses `secretVault.redactSecrets`; the suite substitutes a known redactor so the
+  substitution is observable without deriving a vault key.
+- [x] **5. Syslog RFC 5424 and JSONL exports generate valid, parseable frames** — "exportLogs — JSON
+  Lines" and "exportLogs — Syslog RFC 5424", including header-grammar matching, PRI arithmetic,
+  SD-PARAM escaping and BOM placement. CSV is covered too.
+- [x] **6. Authenticated REST routes under `/api/v1/enterprise/` function correctly** —
+  "/api/v1/enterprise — the authenticated surface", 24 assertions over all four routes including the
+  401 and 409 paths. Registered in `server.ts` behind `authMiddleware`.
+- [x] **7. `FleetGovernance.test.ts` passes with comprehensive policy and audit assertions** — 229
+  passed, 0 failed; wired into `apps/server`'s `test` script.
+- [x] **8. Monorepo CI gates pass with 0 errors** — typecheck (7 workspaces), lint (0 errors), test
+  (31 suites, all pass), build (6 workspaces). See § 4 for the exact commands.
+- [x] **Constraint: banned commands fail closed with an immediate audit event and never reach the PTY**
+  — `enforceCommandPolicy` returns before `sendCommand`, publishing `policy.violation` (recorded at
+  `CRITICAL` with the matched pattern) and an `agent.status` error. An unreadable policy refuses too.
+- [x] **Constraint: audit logs never contain unredacted secrets** — criterion 4.
+- [x] **Constraint: 100% pass rate across existing suites** — all 30 pre-existing suites pass unchanged.
 
 ## 6. Git Diff Review
 
-Reviewed `git diff` and `git status` in full against every criterion.
+Reviewed `git diff` and `git status` file by file.
 
-- 9 files created (8 under `apps/web/src/components/pipelines/`, 1 store), 9 modified.
-- No Phase 7/8 surface changed: the delegation, team-agent, release-channel and worktree
-  paths are untouched. The only edits to shared files are additive — one import and one tab
-  block in `App.tsx`, one event loop and one router branch in `useSocket.ts`, one entry in
-  `ViewType`/`availableViews`, one test in the web `test` script.
-- The `Router.tsx` change is the one behavioural edit to existing code: an unknown view id in
-  the URL is now ignored rather than set. Every id that previously worked is in `VIEW_TYPES`
-  (including `mcp`, which was missing from `availableViews`).
-- No third-party graph library was added; `apps/web/package.json` dependencies are unchanged.
-- Nothing in the diff performs a git operation against the operator's branch: the UI's only
-  write path is the Core's existing synthesize route, and the new server code deletes only
-  paths under `.asterim/worktrees/pipeline/` and refs under `asterim/pipeline/`.
-- `tests/report.md` shows as modified in `git status`; that change predates this session and
-  was left alone and out of the commit.
+- 7 files created, 6 modified. No file outside the task's scope was touched.
+- The only behavioural changes to existing code are the three enforcement seams (§ 3) plus the
+  `stopAgent(threadId, reason)` signature, which gained a defaulted second parameter so
+  `agent.stopped` reports why a session ended rather than always claiming the user stopped it. All
+  three call sites updated.
+- `agent.stopped` is published only when the thread actually held a session config — `stopAgent` also
+  runs on a thread that was already stopped, and an audit trail recording sessions that never began is
+  one an auditor cannot count.
+- No credential handling, git subsystem, adapter or UI code was modified. No new dependency was added.
+- `tests/report.md` was already modified in the working tree when this task began and is **not** part of
+  this change; it is left untouched and uncommitted.
+- One throwaway helper (`scratch/fix-bom.js`) was written during the cycle. `scratch/` is gitignored, so
+  it is not in the commit; sandbox rules prevented deleting it afterwards.
 
 ## 7. Problems Discovered
 
-1. **`Date.now()` in a default prop is a lint error.** `react-hooks/purity` rejects it during
-   render. Fixed by leaving `now` undefaulted in the three views and defaulting it in the
-   store helpers, which is what the P8-02 views already do.
-2. **A step's verification report is not on `pipeline_step_runs`.** It is written against the
-   step's *thread* by `attachVerification`. Rather than add a column, the inspector reads the
-   existing `GET /api/v1/threads/:id/worktree/verify` by the step's `threadId`, once per
-   thread, since the report does not change after the step settles.
-3. **`pipeline:started` carries only step ids.** Names and roles arrive with each step's own
-   `step_started`. The skeleton run therefore labels nodes by id until they are dispatched,
-   which is honest about what is known rather than showing blanks.
-4. **A `POST /run` holds the request open until the run is terminal.** So the panel cannot
-   rely on it for liveness; the socket adoption rule (§3) is what puts the new run on screen
-   when Run is pressed.
-5. **`GET /api/v1/pipelines` is scoped by workspace, not by project.** `fetchPipelines` takes
-   the project id for store scoping (a project change resets rather than filters) and sends
-   the workspace id as the query, which is the only filter the route has.
+1. **The task's file paths do not exist in this repository.** `packages/server/` is not a workspace and
+   migrations are not `.sql`. Resolved by following the established migration convention (§ 1).
+2. **The task's EventBus event names do not exist.** `agent:approval_required`, `agent:started` and
+   `agent:stopped` are published by nothing. Resolved by subscribing to the real names and publishing
+   two new lifecycle events from `AgentService` (§ 1).
+3. **`apps/server` resolves `@asterim/shared` through `dist/index.d.ts`.** New shared types are
+   invisible to the server's `tsc` until `pnpm --filter @asterim/shared build` has run — the first
+   server typecheck reported 27 phantom "has no exported member" errors that were purely a stale
+   `dist`. Worth knowing for the next task that adds a shared type.
+4. **The approval threshold would have changed unmanaged behaviour.** Applying
+   `requireApprovalRiskLevel` unconditionally makes every `high`-risk command demand a human on a
+   workstation that has never seen a policy, because the column's default is `'HIGH'`. Gated behind
+   `isManaged()`.
+5. **`no-irregular-whitespace` fires on a U+FEFF inside a regex literal** (but not inside a string,
+   where `skipStrings` defaults to true). The RFC 5424 BOM in `AuditLoggerService` is a string constant
+   and lints clean; the test's regex was rewritten with `new RegExp('…\\uFEFF')`.
 
 ## 8. Architectural Concerns
 
-1. **`availableViews` and `VIEW_TYPES` are now two lists.** `availableViews` still omits
-   `mcp` (it did before this task); `VIEW_TYPES` is complete because the router guard has to
-   be. Worth collapsing to one list in a later task, which would be a behaviour change to
-   whatever reads `availableViews`.
-2. **Retention is time-based only.** A workstation that runs a pipeline hourly will still
-   hold a week of fleets. A count-based bound ("keep the last N runs per pipeline") would cap
-   disk regardless of frequency; it needs a decision about what an operator is entitled to
-   review, so it was not invented here.
-3. **`PipelineDashboard` is mounted persistently** like the other views, so it fetches the
-   project's pipelines on every workspace mount. That matches `TeamAgentExplorer`, but the
-   pipelines list is one more request per project open.
-4. **No route lists a project's runs.** Run history comes from `GET /pipelines/:id`, so a run
-   started by a trigger for a pipeline the operator has not opened is only visible once its
-   definition is selected (or once its `pipeline:started` arrives on the socket).
+1. **`AuditService` and `AuditLoggerService` now coexist.** The older one writes workspace-scoped
+   `audit_logs` rows for RBAC events; the new one writes installation-scoped `audit_events` for
+   security events. They are genuinely different scopes (a command refused before a PTY exists has a
+   thread but no workspace membership), but two audit tables is a seam that will confuse someone. A
+   later task could fold `audit_logs` into `audit_events` with a `workspace_id` column, behind a
+   Change Proposal.
+2. **No dashboard surface.** The engine and the exporter are headless — there is no Changes-style panel
+   for the policy or the audit stream. If Phase 10 wants operators to see this without `curl`, that is
+   a distinct vertical task against `blueprint/DESIGN_SYSTEM.md`.
+3. **Policy authorization is authentication-only.** A fleet policy is installation-wide, so there is no
+   `workspaceId` for `rbacGuard` to resolve a role against, and inventing one would invent a scope the
+   domain model does not have. The real control for a managed fleet is `asterim.policy.json`, which no
+   authenticated caller can edit. If an admin-only RBAC scope is wanted for the `PUT`, it needs a
+   domain decision first.
+4. **The banned-command gate on chat content is a judgment call.** Chat text reaches the same PTY
+   stdin, so gating only `client.command` would leave the obvious hole open; but a banned pattern will
+   also refuse a message that merely *discusses* the command. Defaults are empty, so only an
+   administrator's explicit pattern can trigger it. Flagging it as a product decision rather than a
+   technical one.
+5. **`blueprint/ROADMAP.md` Phase 10 was cited by the task but no Change Proposal was needed** — nothing
+   here contradicts an existing Blueprint domain document; the two deviations are conformance to
+   existing repository conventions, not to new architecture.
 
 ## 9. Recommended Next Step
 
-Phase 9 Deliverable 4 is complete. The natural next task is the Phase 9 verification gate —
-an integration pass driving a real multi-step pipeline end to end (three roles, isolated
-worktrees, verification gates, conflict analysis, synthesis) against the dashboard, which is
-also where the live boot of the retention pruner and the screenshot capture this session
-could not stage should be checked off.
+P10-02: the air-gapped sovereign appliance packaging — offline model/provider configuration and an
+installer profile that ships with `asterim.policy.json` pre-seeded, now that `enforceSovereignMode` is
+an enforceable rule rather than only an environment variable. A dashboard surface for the policy and
+the audit stream (concern 2) is the natural alternative if Phase 10 wants the governance visible before
+it ships.

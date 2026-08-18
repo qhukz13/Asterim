@@ -156,6 +156,7 @@ import internalRoutes from './routes/internal';
 import securityRoutes from './routes/security';
 import environmentSecretRoutes from './routes/environmentSecrets';
 import desktopRoutes from './routes/desktop';
+import enterpriseRoutes from './routes/enterprise';
 import { desktopNotificationService } from './services/desktop/DesktopNotificationService';
 import { secretVault } from './services/security/SecretVaultService';
 import { environmentSecretService } from './services/security/EnvironmentSecretService';
@@ -237,6 +238,8 @@ const start = async () => {
     await fastify.register(environmentSecretRoutes);
     console.log('[DEBUG] Registering desktopRoutes');
     await fastify.register(desktopRoutes);
+    console.log('[DEBUG] Registering enterpriseRoutes');
+    await fastify.register(enterpriseRoutes);
     await fastify.register(internalRoutes);
 
     // Supervised MCP servers are child processes of this one. Closing the
@@ -257,6 +260,19 @@ const start = async () => {
     // one notification that is silently missed. Each handler dispatches without
     // awaiting, and skips itself entirely on a headless host.
     desktopNotificationService.initEventBusListeners();
+
+    // The enterprise audit trail (P10-01). Subscribed before the first request
+    // for the same reason: an approval recovered at startup is exactly the kind
+    // of clearance a compliance export must not be missing.
+    const { auditLogger } = await import('./services/enterprise/AuditLoggerService');
+    auditLogger.subscribe();
+
+    // A fleet policy may mandate the air gap, which is a switch the subsystems
+    // read through `isSovereignMode()`. Registered as a hook so those
+    // subsystems keep not knowing the policy engine exists.
+    const { fleetPolicyService } = await import('./services/enterprise/FleetPolicyService');
+    const { registerSovereignPolicyHook } = await import('./services/SovereignMode');
+    registerSovereignPolicyHook(() => fleetPolicyService.isSovereignModeForced());
 
     // The six shipped agent profiles. Seeded before the first request so the
     // catalogue is never briefly empty on a fresh workstation.
