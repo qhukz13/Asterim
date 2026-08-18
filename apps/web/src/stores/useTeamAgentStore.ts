@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import {
+  DEFAULT_TEAM_APPROVAL_POLICY,
+  TEAM_TURN_APPROVAL_EVENT,
   TEAM_TURN_CANCELLED_EVENT,
   TEAM_TURN_COMPLETED_EVENT,
   TEAM_TURN_QUEUED_EVENT,
@@ -10,8 +12,11 @@ import type {
   CreateTeamAgentInput,
   TeamAgent,
   TeamAgentMessage,
+  TeamApprovalDecision,
+  TeamApprovalPolicy,
   TeamThread,
   TeamThreadTurnState,
+  TeamThreadViewer,
   TeamTurnEventPayload,
   TeamTurnQueueItem,
   TeamTurnQueueState,
@@ -56,12 +61,13 @@ import { getAuthHeaders } from '../utils/auth';
 const AGENTS_BASE = '/api/v1/team-agents';
 const THREADS_BASE = '/api/v1/team-threads';
 
-/** The four turn transitions the Core publishes, as the socket sees them. */
+/** The turn transitions the Core publishes, as the socket sees them. */
 export const TEAM_TURN_EVENT_TYPES: readonly string[] = [
   TEAM_TURN_QUEUED_EVENT,
   TEAM_TURN_STARTED_EVENT,
   TEAM_TURN_COMPLETED_EVENT,
-  TEAM_TURN_CANCELLED_EVENT
+  TEAM_TURN_CANCELLED_EVENT,
+  TEAM_TURN_APPROVAL_EVENT
 ];
 
 /** Whether an event belongs to the team turn subsystem. */
@@ -217,6 +223,77 @@ export function canCancelTurn(turn: TeamTurnQueueItem): boolean {
   return turn.status === 'QUEUED';
 }
 
+// --- Approval governance (DEC-031 § 3) ---
+
+/**
+ * The policy in force on a thread: its own override, then its agent's default.
+ *
+ * Unset on the thread means "whatever the agent says", not `ANY_MEMBER`, and
+ * resolving it the same way the Core does is what keeps the panel from
+ * promising an approval the Core will refuse.
+ */
+export function effectiveApprovalPolicy(
+  thread: TeamThread | null,
+  agent?: TeamAgent | null
+): TeamApprovalPolicy {
+  return thread?.approvalPolicy ?? agent?.approvalPolicy ?? DEFAULT_TEAM_APPROVAL_POLICY;
+}
+
+/** The policy as a short badge. */
+export function approvalPolicyLabel(policy: TeamApprovalPolicy): string {
+  switch (policy) {
+    case 'ADMIN_ONLY':
+      return 'Admins only';
+    case 'TURN_INITIATOR':
+      return 'Turn initiator';
+    default:
+      return 'Any member';
+  }
+}
+
+/** Who the policy says may answer, in a sentence a waiting member can act on. */
+export function approvalPolicyRequirement(policy: TeamApprovalPolicy): string {
+  switch (policy) {
+    case 'ADMIN_ONLY':
+      return 'A team admin or owner has to answer this.';
+    case 'TURN_INITIATOR':
+      return 'The member who submitted this turn, or a team admin, has to answer it.';
+    default:
+      return 'Any team member who can approve agent actions may answer this.';
+  }
+}
+
+/**
+ * Whether this viewer may answer this turn's prompt.
+ *
+ * The Core decides for real — this is refused there as well, and this copy has
+ * no authority. What it buys is that a viewer is not shown an Approve button
+ * whose only outcome is a 403, and that somebody who *cannot* answer is told
+ * who can instead of being left wondering why nothing happens.
+ */
+export function canResolveApproval(
+  policy: TeamApprovalPolicy,
+  turn: TeamTurnQueueItem | null | undefined,
+  viewer: TeamThreadViewer | null | undefined
+): boolean {
+  if (!turn || !viewer) return false;
+  if (turn.status !== 'AWAITING_APPROVAL') return false;
+  // A team with no memberships at all is a single-developer workstation; its
+  // one user is the owner in everything but the record.
+  if (!viewer.role) return viewer.unmanaged === true;
+
+  const admin = viewer.role === 'owner' || viewer.role === 'admin';
+  if (policy === 'ADMIN_ONLY') return admin;
+  if (policy === 'TURN_INITIATOR') return admin || viewer.userId === turn.userId;
+  return viewer.role !== 'viewer';
+}
+
+/** The turn parked on an approval, when the thread is parked on one. */
+export function awaitingApprovalTurn(queue: TeamTurnQueueState | null): TeamTurnQueueItem | null {
+  if (!queue || queue.state !== 'AWAITING_APPROVAL') return null;
+  return queue.activeTurn?.status === 'AWAITING_APPROVAL' ? queue.activeTurn : null;
+}
+
 /** Two initials for an author badge, from whatever name the Core recorded. */
 export function authorInitials(name: string | undefined): string {
   const trimmed = (name || '').trim();
@@ -282,6 +359,10 @@ function withoutTurn(queue: TeamTurnQueueItem[], turnId: string): TeamTurnQueueI
  *   - `completed` clears the active turn, but only when it names it: a release
  *     for a turn that has already been superseded must not free its successor.
  *   - `cancelled` only ever removes a waiting turn.
+ *   - `approval_resolved` says who decided. An approval puts the turn back in
+ *     flight, so it behaves like `started`; a rejection ends it, so it behaves
+ *     like `completed`. Which one it is is read from the turn's own status
+ *     rather than from the decision, because the turn is what the queue holds.
  */
 export function applyTurnEventToQueue(
   queue: TeamTurnQueueState | null,
@@ -306,6 +387,20 @@ export function applyTurnEventToQueue(
         queuedTurns: known ? base.queuedTurns : [...base.queuedTurns, turn]
       };
     }
+    case TEAM_TURN_APPROVAL_EVENT:
+      return isTerminalTurnStatus(turn.status)
+        ? {
+            ...base,
+            state: payload.state,
+            activeTurn: base.activeTurn?.id === turn.id ? null : base.activeTurn,
+            queuedTurns: withoutTurn(base.queuedTurns, turn.id)
+          }
+        : {
+            ...base,
+            state: payload.state,
+            activeTurn: turn,
+            queuedTurns: withoutTurn(base.queuedTurns, turn.id)
+          };
     case TEAM_TURN_STARTED_EVENT:
       return {
         ...base,
@@ -351,12 +446,22 @@ interface TeamAgentState {
   activeTranscript: TeamAgentMessage[];
   activeQueueState: TeamTurnQueueState | null;
   turnHistory: TeamTurnQueueItem[];
+  /**
+   * Who the Core says the reader is on the open thread, and what they may do.
+   *
+   * Answered by `GET /team-threads/:id` rather than assembled here: a dashboard
+   * that guessed its own role would either offer an approval the Core refuses
+   * or hide one the member is entitled to give.
+   */
+  viewer: TeamThreadViewer | null;
 
   isLoading: boolean;
   isSaving: boolean;
   isSubmitting: boolean;
   /** The turn whose withdrawal is in flight, so only its own row shows it. */
   cancellingTurnId: string | null;
+  /** The turn whose approval answer is in flight, for the same reason. */
+  resolvingApprovalTurnId: string | null;
   error: string | null;
   notice: string | null;
 
@@ -377,6 +482,13 @@ interface TeamAgentState {
     context?: unknown
   ) => Promise<TeamTurnQueueItem | null>;
   cancelTurn: (threadId: string, turnId: string) => Promise<boolean>;
+  /** Answers the prompt a parked turn is waiting on (DEC-031 § 3). */
+  resolveApproval: (
+    threadId: string,
+    turnId: string,
+    decision: TeamApprovalDecision,
+    comment?: string
+  ) => Promise<boolean>;
 
   setActiveAgent: (id: string | null) => void;
   closeThread: () => void;
@@ -425,10 +537,12 @@ function emptyState() {
     activeTranscript: [] as TeamAgentMessage[],
     activeQueueState: null,
     turnHistory: [] as TeamTurnQueueItem[],
+    viewer: null,
     isLoading: false,
     isSaving: false,
     isSubmitting: false,
     cancellingTurnId: null,
+    resolvingApprovalTurnId: null,
     error: null,
     notice: null
   };
@@ -557,6 +671,7 @@ export const useTeamAgentStore = create<TeamAgentState>((set, get) => ({
           activeTranscript: closing ? [] : state.activeTranscript,
           activeQueueState: closing ? null : state.activeQueueState,
           turnHistory: closing ? [] : state.turnHistory,
+          viewer: closing ? null : state.viewer,
           isSaving: false,
           notice: 'The team agent and its collaborative threads were removed.'
         };
@@ -586,6 +701,7 @@ export const useTeamAgentStore = create<TeamAgentState>((set, get) => ({
         if (silent && state.activeThread?.id !== id) return {};
         return {
           activeThread: thread,
+          viewer: (body.viewer as TeamThreadViewer | undefined) ?? state.viewer,
           activeTranscript: (body.messages as TeamAgentMessage[]) ?? [],
           // A silent refresh is a snapshot that may predate transitions the
           // socket has already applied, so it does not touch the live queue.
@@ -696,10 +812,57 @@ export const useTeamAgentStore = create<TeamAgentState>((set, get) => ({
     }
   },
 
+  resolveApproval: async (
+    threadId: string,
+    turnId: string,
+    decision: TeamApprovalDecision,
+    comment?: string
+  ) => {
+    set({ resolvingApprovalTurnId: turnId, error: null, notice: null });
+    try {
+      const res = await fetch(`${THREADS_BASE}/${threadId}/approvals`, {
+        method: 'POST',
+        headers: getAuthHeaders({ json: true }),
+        // The decider is deliberately not sent, for the same reason the author
+        // of a turn is not: the whole team reads who approved this.
+        body: JSON.stringify({ turnId, decision, comment })
+      });
+      const body = await readBody(res);
+      if (!res.ok) {
+        set({ error: failureOf(res, body), resolvingApprovalTurnId: null });
+        return false;
+      }
+      const turn = body.turn as TeamTurnQueueItem | undefined;
+      const queue = body.queue as TeamTurnQueueState | undefined;
+      set(state => ({
+        activeQueueState: queue ?? state.activeQueueState,
+        turnHistory: turn ? mergeHistory(state.turnHistory, turn) : state.turnHistory,
+        resolvingApprovalTurnId: null,
+        notice:
+          decision === 'APPROVED'
+            ? 'Approved. The agent is carrying on with that turn.'
+            : 'Rejected. The turn was cancelled and the queue moved on.'
+      }));
+      // The rejection line the Core wrote into the shared transcript is not
+      // carried by any event, so it is read back rather than reconstructed.
+      void get().fetchTeamThread(threadId, { silent: true });
+      return true;
+    } catch (err) {
+      set({ error: networkFailure(err), resolvingApprovalTurnId: null });
+      return false;
+    }
+  },
+
   setActiveAgent: (id: string | null) => set({ activeAgentId: id }),
 
   closeThread: () =>
-    set({ activeThread: null, activeTranscript: [], activeQueueState: null, turnHistory: [] }),
+    set({
+      activeThread: null,
+      activeTranscript: [],
+      activeQueueState: null,
+      turnHistory: [],
+      viewer: null
+    }),
 
   applyTurnEvent: (eventType: string, payload: TeamTurnEventPayload) => {
     if (!payload?.teamThreadId || !payload.turn) return;
@@ -747,8 +910,11 @@ export const useTeamAgentStore = create<TeamAgentState>((set, get) => ({
     // ends, and there is no message event to carry it, so the completion is
     // what prompts the read. Silent, so the transcript grows underneath the
     // reader rather than the panel flashing back to a loading state.
+    // An approval resolution is read back for the same reason: the Core writes
+    // who decided into the shared transcript, and every other member's
+    // dashboard learns it from the event rather than from having clicked.
     if (
-      eventType === TEAM_TURN_COMPLETED_EVENT &&
+      (eventType === TEAM_TURN_COMPLETED_EVENT || eventType === TEAM_TURN_APPROVAL_EVENT) &&
       get().activeThread?.id === payload.teamThreadId
     ) {
       void get().fetchTeamThread(payload.teamThreadId, { silent: true });

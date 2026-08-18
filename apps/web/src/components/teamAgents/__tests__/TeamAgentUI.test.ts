@@ -31,6 +31,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  TEAM_TURN_APPROVAL_EVENT,
   TEAM_TURN_CANCELLED_EVENT,
   TEAM_TURN_COMPLETED_EVENT,
   TEAM_TURN_QUEUED_EVENT,
@@ -39,12 +40,15 @@ import {
 import type {
   TeamAgent,
   TeamAgentMessage,
+  TeamApprovalPolicy,
   TeamThread,
   TeamThreadTurnState,
+  TeamThreadViewer,
   TeamTurnEventPayload,
   TeamTurnQueueItem,
   TeamTurnQueueState,
-  TeamTurnStatus
+  TeamTurnStatus,
+  WorkspaceRole
 } from '@asterim/shared';
 
 // --- Environment stubs, installed before the store loads ---
@@ -209,6 +213,21 @@ function queueFixture(overrides: Partial<TeamTurnQueueState> = {}): TeamTurnQueu
   };
 }
 
+function viewerFixture(
+  role: WorkspaceRole | null,
+  overrides: Partial<TeamThreadViewer> = {}
+): TeamThreadViewer {
+  return {
+    userId: 'user_ada',
+    role,
+    unmanaged: false,
+    approvalPolicy: 'ANY_MEMBER',
+    canApprove: role !== null && role !== 'viewer',
+    canAdminister: role === 'owner' || role === 'admin',
+    ...overrides
+  };
+}
+
 function eventFixture(
   turn: TeamTurnQueueItem,
   state: TeamThreadTurnState,
@@ -316,6 +335,11 @@ async function main(): Promise<void> {
     activeOperator,
     canSubmitTurn,
     canCancelTurn,
+    canResolveApproval,
+    approvalPolicyLabel,
+    approvalPolicyRequirement,
+    effectiveApprovalPolicy,
+    awaitingApprovalTurn,
     authorInitials,
     messageAuthorLabel,
     systemPromptPreview,
@@ -518,6 +542,115 @@ async function main(): Promise<void> {
       messageAuthorLabel(messageFixture({ role: 'system' })),
       'System'
     );
+  }
+
+  describe('the approval policy in force is resolved the way the Core resolves it');
+  {
+    equal(
+      'a thread with no policy of its own defers to its agent',
+      effectiveApprovalPolicy(threadFixture(), agentFixture({ approvalPolicy: 'ADMIN_ONLY' })),
+      'ADMIN_ONLY'
+    );
+    equal(
+      'a thread that names one overrides it',
+      effectiveApprovalPolicy(
+        threadFixture({ approvalPolicy: 'TURN_INITIATOR' }),
+        agentFixture({ approvalPolicy: 'ADMIN_ONLY' })
+      ),
+      'TURN_INITIATOR'
+    );
+    equal(
+      'and with neither, the permissive default stands',
+      effectiveApprovalPolicy(threadFixture(), agentFixture({ approvalPolicy: undefined })),
+      'ANY_MEMBER'
+    );
+    equal('with no thread at all there is still an answer', effectiveApprovalPolicy(null), 'ANY_MEMBER');
+
+    const policies: TeamApprovalPolicy[] = ['ANY_MEMBER', 'ADMIN_ONLY', 'TURN_INITIATOR'];
+    equal(
+      'each policy has its own badge',
+      new Set(policies.map(policy => approvalPolicyLabel(policy))).size,
+      3
+    );
+    check(
+      'and each says who is needed, in a sentence',
+      policies.every(policy => approvalPolicyRequirement(policy).length > 20)
+    );
+    check('ADMIN_ONLY names an admin', approvalPolicyRequirement('ADMIN_ONLY').includes('admin'));
+    check(
+      'TURN_INITIATOR names the submitter',
+      approvalPolicyRequirement('TURN_INITIATOR').includes('submitted')
+    );
+  }
+
+  describe('canResolveApproval offers the buttons the Core would honour');
+  {
+    const parked = turnFixture({ status: 'AWAITING_APPROVAL', userId: 'user_ada' });
+
+    check(
+      'a member may answer an ANY_MEMBER prompt',
+      canResolveApproval('ANY_MEMBER', parked, viewerFixture('member', { userId: 'user_grace' }))
+    );
+    check(
+      'a viewer may not',
+      !canResolveApproval('ANY_MEMBER', parked, viewerFixture('viewer', { userId: 'user_grace' }))
+    );
+    check(
+      'a member may not answer an ADMIN_ONLY prompt',
+      !canResolveApproval('ADMIN_ONLY', parked, viewerFixture('member', { userId: 'user_grace' }))
+    );
+    check(
+      'an admin may',
+      canResolveApproval('ADMIN_ONLY', parked, viewerFixture('admin', { userId: 'user_grace' }))
+    );
+    check(
+      'an owner may',
+      canResolveApproval('ADMIN_ONLY', parked, viewerFixture('owner', { userId: 'user_grace' }))
+    );
+    check(
+      'TURN_INITIATOR admits the member who submitted it',
+      canResolveApproval('TURN_INITIATOR', parked, viewerFixture('member', { userId: 'user_ada' }))
+    );
+    check(
+      'and refuses another member',
+      !canResolveApproval('TURN_INITIATOR', parked, viewerFixture('member', { userId: 'user_grace' }))
+    );
+    check(
+      'somebody outside a governed team is refused',
+      !canResolveApproval('ANY_MEMBER', parked, viewerFixture(null))
+    );
+    check(
+      'but a workstation with no memberships answers its own prompts',
+      canResolveApproval('ADMIN_ONLY', parked, viewerFixture(null, { unmanaged: true }))
+    );
+    check(
+      'a turn that is not parked has nothing to answer',
+      !canResolveApproval('ANY_MEMBER', turnFixture({ status: 'PROCESSING' }), viewerFixture('owner'))
+    );
+    check('and with no viewer nothing is offered', !canResolveApproval('ANY_MEMBER', parked, null));
+  }
+
+  describe('awaitingApprovalTurn finds the turn that is blocking everybody');
+  {
+    equal('an idle thread has none', awaitingApprovalTurn(queueFixture()), null);
+    equal(
+      'nor does one that is merely busy',
+      awaitingApprovalTurn(
+        queueFixture({ state: 'PROCESSING_TURN', activeTurn: turnFixture({ status: 'PROCESSING' }) })
+      ),
+      null
+    );
+    equal(
+      'a parked thread has the turn holding the lock',
+      awaitingApprovalTurn(
+        queueFixture({
+          state: 'AWAITING_APPROVAL',
+          activeTurn: turnFixture({ status: 'AWAITING_APPROVAL' })
+        })
+      )?.id,
+      'turn_1'
+    );
+    equal('and a queue that is not there at all has none', awaitingApprovalTurn(null), null);
   }
 
   describe('systemPromptPreview shows the role without cutting mid-word');
@@ -894,15 +1027,144 @@ async function main(): Promise<void> {
     );
   }
 
+  describe('resolveApproval answers the prompt on the thread, not on the turn');
+  {
+    resetStore();
+    nextResponse = {
+      status: 200,
+      body: {
+        teamThreadId: 'tthread_1',
+        turn: turnFixture({ status: 'PROCESSING' }),
+        approval: {
+          decision: 'APPROVED',
+          policy: 'ADMIN_ONLY',
+          resolvedBy: 'user_grace',
+          resolvedByName: 'Grace Hopper',
+          resolvedAt: NOW
+        },
+        state: 'PROCESSING_TURN',
+        queue: queueFixture({
+          state: 'PROCESSING_TURN',
+          activeTurn: turnFixture({ status: 'PROCESSING' })
+        })
+      }
+    };
+    const approved = await useTeamAgentStore
+      .getState()
+      .resolveApproval('tthread_1', 'turn_1', 'APPROVED', 'Staging only.');
+    equal('at the thread’s approvals collection', requests[0].url, '/api/v1/team-threads/tthread_1/approvals');
+    equal('as a POST', requests[0].method, 'POST');
+    equal('naming the turn being answered', (requests[0].body as { turnId: string }).turnId, 'turn_1');
+    equal('and the decision', (requests[0].body as { decision: string }).decision, 'APPROVED');
+    equal('with the comment, which the team reads', (requests[0].body as { comment: string }).comment, 'Staging only.');
+    check(
+      'but never a decider — the Core takes that from the session',
+      !('resolvedBy' in (requests[0].body as Record<string, unknown>)) &&
+        !('userId' in (requests[0].body as Record<string, unknown>))
+    );
+    check('it reports success', approved);
+    equal(
+      'the queue that came back is adopted',
+      useTeamAgentStore.getState().activeQueueState?.state,
+      'PROCESSING_TURN'
+    );
+    check(
+      'the member is told the agent is carrying on',
+      (useTeamAgentStore.getState().notice || '').includes('carrying on')
+    );
+    equal('no row is left showing a spinner', useTeamAgentStore.getState().resolvingApprovalTurnId, null);
+    equal(
+      'and the transcript is re-read, because the Core wrote who decided into it',
+      requests[1]?.url,
+      '/api/v1/team-threads/tthread_1'
+    );
+
+    resetStore();
+    responseQueue.push({
+      status: 200,
+      body: {
+        teamThreadId: 'tthread_1',
+        turn: turnFixture({ status: 'CANCELLED' }),
+        approval: { decision: 'REJECTED', policy: 'ADMIN_ONLY', resolvedBy: 'user_grace', resolvedAt: NOW },
+        state: 'IDLE',
+        queue: queueFixture()
+      }
+    });
+    responseQueue.push({ status: 200, body: { thread: threadFixture(), messages: [], queue: queueFixture(), history: [] } });
+    await useTeamAgentStore.getState().resolveApproval('tthread_1', 'turn_1', 'REJECTED');
+    check(
+      'a rejection says the queue moved on',
+      (useTeamAgentStore.getState().notice || '').includes('queue moved on')
+    );
+    equal(
+      'and the refused turn is kept in the record',
+      useTeamAgentStore.getState().turnHistory[0].status,
+      'CANCELLED'
+    );
+
+    resetStore();
+    nextResponse = { status: 403, body: { error: 'Only admins may answer this.', code: 'FORBIDDEN' } };
+    const refused = await useTeamAgentStore.getState().resolveApproval('tthread_1', 'turn_1', 'APPROVED');
+    check('a refusal reports failure', !refused);
+    equal(
+      'in the Core’s own words',
+      useTeamAgentStore.getState().error,
+      'Only admins may answer this.'
+    );
+    equal('and nothing is left in flight', useTeamAgentStore.getState().resolvingApprovalTurnId, null);
+
+    resetStore();
+    nextNetworkError = 'Failed to fetch';
+    const unreachable = await useTeamAgentStore.getState().resolveApproval('tthread_1', 'turn_1', 'APPROVED');
+    check('a Core that cannot be reached fails too', !unreachable);
+    equal('with the reason', useTeamAgentStore.getState().error, 'Failed to fetch');
+  }
+
+  describe('fetchTeamThread adopts who the Core says the reader is');
+  {
+    resetStore();
+    nextResponse = {
+      status: 200,
+      body: {
+        thread: threadFixture(),
+        agent: agentFixture(),
+        viewer: viewerFixture('viewer', { approvalPolicy: 'ADMIN_ONLY', canApprove: false }),
+        messages: [],
+        queue: queueFixture(),
+        history: []
+      }
+    };
+    await useTeamAgentStore.getState().fetchTeamThread('tthread_1');
+    equal('their role is kept', useTeamAgentStore.getState().viewer?.role, 'viewer');
+    equal('with what they may do', useTeamAgentStore.getState().viewer?.canApprove, false);
+    equal(
+      'and the policy the thread is governed by',
+      useTeamAgentStore.getState().viewer?.approvalPolicy,
+      'ADMIN_ONLY'
+    );
+
+    // A silent refresh that carries no viewer must not blank the one held.
+    nextResponse = {
+      status: 200,
+      body: { thread: threadFixture(), messages: [], queue: queueFixture(), history: [] }
+    };
+    await useTeamAgentStore.getState().fetchTeamThread('tthread_1', { silent: true });
+    equal('a response without one leaves it alone', useTeamAgentStore.getState().viewer?.role, 'viewer');
+
+    useTeamAgentStore.getState().closeThread();
+    equal('closing the thread forgets them', useTeamAgentStore.getState().viewer, null);
+  }
+
   // --- 4. Socket synchronization --------------------------------------------
 
-  describe('handleTeamTurnEvent claims exactly the four turn transitions');
+  describe('handleTeamTurnEvent claims exactly the turn transitions');
   {
-    equal('there are four', TEAM_TURN_EVENT_TYPES.length, 4);
+    equal('there are five', TEAM_TURN_EVENT_TYPES.length, 5);
     check('queued is one', isTeamTurnEvent({ type: TEAM_TURN_QUEUED_EVENT }));
     check('started is one', isTeamTurnEvent({ type: TEAM_TURN_STARTED_EVENT }));
     check('completed is one', isTeamTurnEvent({ type: TEAM_TURN_COMPLETED_EVENT }));
     check('cancelled is one', isTeamTurnEvent({ type: TEAM_TURN_CANCELLED_EVENT }));
+    check('and an approval resolution is one', isTeamTurnEvent({ type: TEAM_TURN_APPROVAL_EVENT }));
     check('a chat message is not', !isTeamTurnEvent({ type: 'chat.message' }));
     check('and neither is nothing at all', !isTeamTurnEvent(null));
 
@@ -1003,6 +1265,77 @@ async function main(): Promise<void> {
     equal(
       'and is kept in the record too',
       useTeamAgentStore.getState().turnHistory.find(t => t.id === 'turn_2')?.status,
+      'CANCELLED'
+    );
+  }
+
+  describe('an approval resolution moves the queue the way its answer did');
+  {
+    resetStore();
+    const parked = turnFixture({ status: 'AWAITING_APPROVAL' });
+    useTeamAgentStore.setState({
+      activeThread: threadFixture({ status: 'AWAITING_APPROVAL' }),
+      activeQueueState: queueFixture({ state: 'AWAITING_APPROVAL', activeTurn: parked }),
+      teamThreads: { tagent_1: [threadFixture()] }
+    });
+
+    requests.length = 0;
+    nextResponse = {
+      status: 200,
+      body: {
+        thread: threadFixture(),
+        messages: [messageFixture({ id: 'sys_1', role: 'system', content: 'Grace Hopper approved the pending action.' })],
+        queue: queueFixture(),
+        history: []
+      }
+    };
+    handleTeamTurnEvent(TEAM_TURN_APPROVAL_EVENT, {
+      ...eventFixture({ ...parked, status: 'PROCESSING' }, 'PROCESSING_TURN'),
+      approval: {
+        decision: 'APPROVED',
+        policy: 'ADMIN_ONLY',
+        resolvedBy: 'user_grace',
+        resolvedByName: 'Grace Hopper',
+        resolvedAt: NOW
+      }
+    } as TeamTurnEventPayload);
+    equal(
+      'an approval puts the turn back in flight',
+      useTeamAgentStore.getState().activeQueueState?.activeTurn?.status,
+      'PROCESSING'
+    );
+    equal(
+      'and the thread is processing again',
+      useTeamAgentStore.getState().activeQueueState?.state,
+      'PROCESSING_TURN'
+    );
+    equal(
+      'the transcript is re-read, because who decided is written into it',
+      requests[0]?.url,
+      '/api/v1/team-threads/tthread_1'
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    check(
+      'so every member sees who approved it',
+      useTeamAgentStore.getState().activeTranscript.some(m => m.content.includes('approved'))
+    );
+
+    requests.length = 0;
+    nextResponse = { status: 200, body: { thread: threadFixture(), messages: [], queue: queueFixture(), history: [] } };
+    handleTeamTurnEvent(TEAM_TURN_APPROVAL_EVENT, {
+      ...eventFixture({ ...parked, status: 'CANCELLED', completedAt: NOW }, 'IDLE', { queuePosition: -1 }),
+      approval: {
+        decision: 'REJECTED',
+        policy: 'ADMIN_ONLY',
+        resolvedBy: 'user_grace',
+        resolvedAt: NOW
+      }
+    } as TeamTurnEventPayload);
+    equal('a rejection frees the lock', useTeamAgentStore.getState().activeQueueState?.activeTurn, null);
+    equal('the thread is idle', useTeamAgentStore.getState().activeQueueState?.state, 'IDLE');
+    equal(
+      'and the refused turn belongs to the record',
+      useTeamAgentStore.getState().turnHistory[0].status,
       'CANCELLED'
     );
   }
@@ -1112,6 +1445,30 @@ async function main(): Promise<void> {
       draftFromTeamAgent(agentFixture({ enabledMcpServers: undefined, enabledSkills: undefined })).mcpMode,
       'all'
     );
+
+    // The approval policy is part of what the role is allowed to do, so it is
+    // composed with the rest of the persona rather than set per conversation.
+    equal('a blank draft takes the permissive default', blank.approvalPolicy, 'ANY_MEMBER');
+    equal(
+      'the create body carries the chosen policy',
+      buildCreateTeamAgentInput('team_1', { ...valid, approvalPolicy: 'ADMIN_ONLY' }).approvalPolicy,
+      'ADMIN_ONLY'
+    );
+    equal(
+      'the update body carries it too',
+      buildUpdateTeamAgentInput({ ...valid, approvalPolicy: 'TURN_INITIATOR' }).approvalPolicy,
+      'TURN_INITIATOR'
+    );
+    equal(
+      'and an existing role’s policy comes back into the form',
+      draftFromTeamAgent(agentFixture({ approvalPolicy: 'TURN_INITIATOR' })).approvalPolicy,
+      'TURN_INITIATOR'
+    );
+    equal(
+      'a role written before policies existed reads as the default',
+      draftFromTeamAgent(agentFixture({ approvalPolicy: undefined })).approvalPolicy,
+      'ANY_MEMBER'
+    );
   }
 
   // --- 6. Rendering ----------------------------------------------------------
@@ -1156,6 +1513,7 @@ async function main(): Promise<void> {
     });
     check('an approval-parked thread says so rather than "processing"', parked.includes('Awaiting approval'));
     check('and the badge is polite, not assertive', parked.includes('aria-live="polite"'));
+    check('the prompt itself is rendered', parked.includes('needs approval'));
 
     const cancelling = renderInspector({
       queue: queueFixture({
@@ -1174,6 +1532,94 @@ async function main(): Promise<void> {
     });
     check('an inspector with no handler offers no withdrawal', !readOnly.includes('Withdraw'));
     check('but still shows the queue', readOnly.includes('#1 in queue'));
+  }
+
+  describe('the approval card says who is blocked, under which policy, and by whom');
+  {
+    const parkedQueue = queueFixture({
+      state: 'AWAITING_APPROVAL',
+      activeTurn: turnFixture({
+        status: 'AWAITING_APPROVAL',
+        startedAt: NOW - 300_000,
+        instruction: 'drop the staging database'
+      })
+    });
+
+    const answerable = renderInspector({
+      queue: parkedQueue,
+      approvalPolicy: 'ADMIN_ONLY',
+      viewer: viewerFixture('owner', { userId: 'user_grace' }),
+      onResolveApproval: noop
+    });
+    check('the card is labelled for a screen reader', answerable.includes('aria-label="Approval required"'));
+    check('it names whose turn is blocked', answerable.includes('Ada Lovelace’s turn needs approval'));
+    check('with their initials', answerable.includes('AL'));
+    check('what the agent was asked to do', answerable.includes('drop the staging database'));
+    check('how long it has been parked', answerable.includes('parked 5m ago'));
+    check('which policy is in force', answerable.includes('Admins only'));
+    check('who that policy requires', answerable.includes('A team admin or owner has to answer this'));
+    check('and both answers are offered', answerable.includes('>Approve<') && answerable.includes('>Reject<'));
+    check(
+      'each labelled with the turn it decides',
+      answerable.includes('Approve the pending action on Ada Lovelace')
+    );
+
+    const unauthorized = renderInspector({
+      queue: parkedQueue,
+      approvalPolicy: 'ADMIN_ONLY',
+      viewer: viewerFixture('member', { userId: 'user_grace' }),
+      onResolveApproval: noop
+    });
+    check(
+      'a member under ADMIN_ONLY is offered no button whose only outcome is a 403',
+      !unauthorized.includes('>Approve<') && !unauthorized.includes('>Reject<')
+    );
+    check(
+      'and is told why nothing is offered',
+      unauthorized.includes('Your role cannot answer this one')
+    );
+    check('while still seeing who is blocked', unauthorized.includes('Ada Lovelace’s turn needs approval'));
+
+    const initiator = renderInspector({
+      queue: parkedQueue,
+      approvalPolicy: 'TURN_INITIATOR',
+      viewer: viewerFixture('member', { userId: 'user_ada' }),
+      onResolveApproval: noop
+    });
+    check('the member who submitted it may answer their own', initiator.includes('>Approve<'));
+
+    const inFlight = renderInspector({
+      queue: parkedQueue,
+      approvalPolicy: 'ANY_MEMBER',
+      viewer: viewerFixture('member', { userId: 'user_grace' }),
+      onResolveApproval: noop,
+      resolvingApprovalTurnId: 'turn_1'
+    });
+    check('an answer in flight shows on the buttons', inFlight.includes('Approve…'));
+    check('and they are disabled while it is', inFlight.includes('disabled'));
+
+    const readOnlyParked = renderInspector({
+      queue: parkedQueue,
+      approvalPolicy: 'ANY_MEMBER',
+      viewer: viewerFixture('owner')
+    });
+    check(
+      'a read-only inspector explains without offering',
+      !readOnlyParked.includes('>Approve<') && readOnlyParked.includes('needs approval')
+    );
+
+    const inChat = renderChat({
+      queue: parkedQueue,
+      approvalPolicy: 'ANY_MEMBER',
+      viewer: viewerFixture('member', { userId: 'user_grace' }),
+      onResolveApproval: noop
+    });
+    check('the transcript view carries the same prompt', inChat.includes('needs approval'));
+    check('with the same two answers', inChat.includes('>Approve<') && inChat.includes('>Reject<'));
+    check(
+      'and still says the thread is waiting on a person',
+      inChat.includes('Waiting on an approval for Ada Lovelace')
+    );
   }
 
   describe('TeamThreadChatView attributes every line to somebody');
@@ -1296,6 +1742,12 @@ async function main(): Promise<void> {
     check('a temperature field', blank.includes('aria-label="Team agent temperature"'));
     check('an MCP selector', blank.includes('aria-label="MCP Servers access"'));
     check('a skill selector', blank.includes('aria-label="Skills access"'));
+    check('an approval policy selector', blank.includes('aria-label="Approval policy"'));
+    check('offering all three policies', ['Any member', 'Admins only', 'Turn initiator'].every(policy => blank.includes(policy)));
+    check(
+      'and saying what the chosen one requires',
+      blank.includes('Any team member who can approve agent actions')
+    );
     check('the empty draft cannot be saved', blank.includes('A name is required.'));
     check('and the save button is disabled while it cannot', blank.includes('disabled'));
 

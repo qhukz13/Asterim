@@ -37,22 +37,42 @@
 
 import crypto from 'crypto';
 import {
+  ArchitecturalRule,
   CreateTeamAgentInput,
+  DEFAULT_TEAM_APPROVAL_POLICY,
+  ProjectDecision,
+  ProjectIntent,
   TeamAgent,
   TeamAgentMessage,
   TeamAgentMessageRole,
+  TeamApprovalDecision,
+  TeamApprovalPolicy,
   TeamThread,
   TeamThreadTurnState,
+  TeamTurnApprovalEventPayload,
+  TeamTurnApprovalRecord,
+  TeamTurnApprovalResult,
   TeamTurnQueueItem,
   TeamTurnQueueState,
   TeamTurnRequest,
   TeamTurnResult,
   TeamTurnStatus,
-  UpdateTeamAgentInput
+  TEAM_TURN_APPROVAL_EVENT,
+  UpdateTeamAgentInput,
+  WorkspaceRole,
+  isTeamApprovalPolicy
 } from '@asterim/shared';
 import { dbService } from '../DatabaseService';
 import { EventBus, eventBus } from '../EventBus';
-import { AgentTurnLock, TurnLockThreadContext, agentTurnLock } from './AgentTurnLock';
+import { projectMemoryService } from '../ProjectMemoryService';
+import { rbacService } from '../RbacService';
+import {
+  AgentTurnLock,
+  TurnBroadcaster,
+  TurnLockThreadContext,
+  agentTurnLock,
+  eventBusTurnBroadcaster
+} from './AgentTurnLock';
 
 /** How a team agent failure reads to a caller that has to answer over HTTP. */
 export type TeamAgentErrorCode =
@@ -61,7 +81,28 @@ export type TeamAgentErrorCode =
   | 'THREAD_NOT_FOUND'
   | 'TURN_NOT_FOUND'
   | 'TURN_NOT_CANCELLABLE'
-  | 'NO_PROJECT_BOUND';
+  | 'NO_PROJECT_BOUND'
+  // The caller is authenticated and the request is well-formed; they simply do
+  // not have the standing the thread's approval policy requires (DEC-031 § 3).
+  | 'FORBIDDEN'
+  // An approval was answered for a turn that is not waiting on one.
+  | 'TURN_NOT_AWAITING_APPROVAL';
+
+/**
+ * The signal a rejected approval sends into a turn that is still running.
+ *
+ * Not a `TeamAgentError`: nothing answers this over HTTP. It exists so that
+ * `runTurn` can tell "the team refused this action" — which settles the turn as
+ * CANCELLED — from "the agent broke", which settles it as FAILED. Reporting a
+ * refusal as a failure would put a defect in the transcript where a decision
+ * belongs.
+ */
+export class TeamTurnRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TeamTurnRejectedError';
+  }
+}
 
 export class TeamAgentError extends Error {
   constructor(
@@ -100,6 +141,7 @@ interface TeamAgentRow {
   temperature: number | null;
   enabled_mcp_servers: string | null;
   enabled_skills: string | null;
+  approval_policy: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -112,6 +154,7 @@ interface TeamThreadRow {
   title: string;
   status: string;
   active_turn_user_id: string | null;
+  approval_policy: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -128,6 +171,12 @@ interface TeamTurnRow {
   started_at: number | null;
   completed_at: number | null;
   error_message: string | null;
+  approval_decision: string | null;
+  approval_policy: string | null;
+  approval_resolved_by: string | null;
+  approval_resolved_by_name: string | null;
+  approval_comment: string | null;
+  approval_resolved_at: number | null;
 }
 
 interface TeamMessageRow {
@@ -258,6 +307,29 @@ function isTurnState(value: string): value is TeamThreadTurnState {
   return value === 'IDLE' || value === 'PROCESSING_TURN' || value === 'AWAITING_APPROVAL';
 }
 
+/**
+ * An approval policy from a request body.
+ *
+ * Refused rather than defaulted when it is not one of the three: a typo in a
+ * policy name would otherwise quietly widen who may approve a destructive tool
+ * call, which is the one mistake this field exists to prevent.
+ */
+function optionalApprovalPolicy(value: unknown, field: string): TeamApprovalPolicy | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!isTeamApprovalPolicy(value)) {
+    throw new TeamAgentError(
+      'INVALID_INPUT',
+      `${field} must be one of ANY_MEMBER, ADMIN_ONLY or TURN_INITIATOR.`
+    );
+  }
+  return value;
+}
+
+/** A stored policy column, tolerating a value written before this contract. */
+function parseApprovalPolicy(raw: string | null): TeamApprovalPolicy | undefined {
+  return isTeamApprovalPolicy(raw) ? raw : undefined;
+}
+
 function rowToAgent(row: TeamAgentRow): TeamAgent {
   return {
     id: row.id,
@@ -270,6 +342,7 @@ function rowToAgent(row: TeamAgentRow): TeamAgent {
     temperature: row.temperature ?? undefined,
     enabledMcpServers: parseList(row.enabled_mcp_servers),
     enabledSkills: parseList(row.enabled_skills),
+    approvalPolicy: parseApprovalPolicy(row.approval_policy) ?? DEFAULT_TEAM_APPROVAL_POLICY,
     createdBy: row.created_by ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -284,6 +357,9 @@ function rowToThread(row: TeamThreadRow): TeamThread {
     title: row.title,
     status: isTurnState(row.status) ? row.status : 'IDLE',
     activeTurnUserId: row.active_turn_user_id ?? undefined,
+    // Left undefined when the column is NULL: the thread defers to its agent,
+    // which is not the same as choosing the permissive default itself.
+    approvalPolicy: parseApprovalPolicy(row.approval_policy),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -301,7 +377,23 @@ function rowToTurn(row: TeamTurnRow): TeamTurnQueueItem {
     queuedAt: row.queued_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
-    errorMessage: row.error_message ?? undefined
+    errorMessage: row.error_message ?? undefined,
+    approval: rowToApproval(row)
+  };
+}
+
+/** The approval answer on a turn row, or undefined when it was never asked. */
+function rowToApproval(row: TeamTurnRow): TeamTurnApprovalRecord | undefined {
+  if (row.approval_decision !== 'APPROVED' && row.approval_decision !== 'REJECTED') {
+    return undefined;
+  }
+  return {
+    decision: row.approval_decision,
+    policy: parseApprovalPolicy(row.approval_policy) ?? DEFAULT_TEAM_APPROVAL_POLICY,
+    resolvedBy: row.approval_resolved_by ?? 'unknown',
+    resolvedByName: row.approval_resolved_by_name ?? undefined,
+    comment: row.approval_comment ?? undefined,
+    resolvedAt: row.approval_resolved_at ?? 0
   };
 }
 
@@ -350,6 +442,161 @@ export function formatTeamTurnInstruction(turn: TeamTurnQueueItem): string {
   return blocks.join('\n');
 }
 
+// --- Approval governance (DEC-031 § 3) ---
+
+/** The standing a caller brings to an approval prompt. */
+export interface TeamApprovalCaller {
+  userId: string;
+  userName?: string;
+  /** Their role in the team, or null when they hold none. */
+  role: WorkspaceRole | null;
+  /**
+   * True when the team has no membership rows at all.
+   *
+   * A workstation that predates RBAC has no memberships, and on a
+   * single-developer install that is the normal case rather than an
+   * unauthorized one. Refusing there would lock the only user out of their own
+   * agent, which is the failure `EnvironmentSecretService` already documents.
+   */
+  unmanaged?: boolean;
+}
+
+/** Whether a role administers a team: it may retire roles and always approve. */
+export function isTeamAdminRole(role: WorkspaceRole | null | undefined): boolean {
+  if (!role) return false;
+  return role === 'owner' || role === 'admin' || rbacService.hasPermission(role, 'workspace:admin');
+}
+
+/**
+ * Whether this caller may answer this turn's approval prompt.
+ *
+ * Pure: it is given the policy, the caller's standing and whose turn it is, and
+ * nothing else. The database lookup that produced the role belongs to the route,
+ * so the rule itself can be asserted directly for all three policies without a
+ * workspace, a membership row or an HTTP request.
+ */
+export function evaluateTeamApproval(params: {
+  policy: TeamApprovalPolicy;
+  caller: TeamApprovalCaller;
+  /** The user id that submitted the turn being decided. */
+  turnUserId: string;
+}): { allowed: boolean; reason?: string } {
+  const { policy, caller, turnUserId } = params;
+
+  // An unmanaged team is a workstation with no membership rows at all. Its
+  // single user is the owner in everything but the record.
+  if (caller.unmanaged && !caller.role) return { allowed: true };
+
+  if (!caller.role) {
+    return { allowed: false, reason: 'You are not a member of this team.' };
+  }
+
+  const admin = isTeamAdminRole(caller.role);
+
+  if (policy === 'ADMIN_ONLY') {
+    return admin
+      ? { allowed: true }
+      : {
+          allowed: false,
+          reason: 'This agent requires a team admin or owner to answer its approvals.'
+        };
+  }
+
+  if (policy === 'TURN_INITIATOR') {
+    if (caller.userId === turnUserId || admin) return { allowed: true };
+    return {
+      allowed: false,
+      reason: 'Only the member who submitted this turn, or a team admin, may answer it.'
+    };
+  }
+
+  // ANY_MEMBER: a member of the team who may approve agent actions at all,
+  // which excludes a viewer.
+  return rbacService.hasPermission(caller.role, 'agent:approve')
+    ? { allowed: true }
+    : { allowed: false, reason: 'Your role cannot approve agent actions.' };
+}
+
+// --- Team project memory (DEC-027, DEC-031) ---
+
+/** The standing context a bound project imposes on every turn of a thread. */
+export interface TeamMemorySnapshot {
+  rules: ArchitecturalRule[];
+  intent: ProjectIntent | null;
+  decisions: ProjectDecision[];
+}
+
+/** Where a thread's standing context comes from. Swapped in tests. */
+export interface TeamMemoryProvider {
+  load(projectId: string): TeamMemorySnapshot;
+}
+
+/** Most entries of each kind that are worth spending a shared session's context on. */
+export const MAX_TEAM_MEMORY_RULES = 20;
+export const MAX_TEAM_MEMORY_DECISIONS = 15;
+
+/** The Project Memory Core, read for a team thread's bound project. */
+export const projectMemoryTeamProvider: TeamMemoryProvider = {
+  load(projectId: string): TeamMemorySnapshot {
+    return {
+      rules: projectMemoryService.listRules(projectId),
+      intent: projectMemoryService.getActiveIntent(projectId),
+      decisions: projectMemoryService.listDecisions(projectId, { status: 'ACTIVE' })
+    };
+  }
+};
+
+/**
+ * The team's standing rules, current intent and settled decisions, as prose.
+ *
+ * Returns `undefined` when the project has none of the three, so a thread whose
+ * project memory is empty sends nothing rather than an empty heading — an agent
+ * told "the team has decided:" followed by silence will infer that the team has
+ * decided nothing, which is a different claim from "nobody has written any of
+ * this down yet".
+ *
+ * Ordering matters and is deliberate: rules first, because they are the ones an
+ * agent may not break; then what the team is currently trying to do; then what
+ * it has already settled, which is context rather than constraint.
+ */
+export function composeTeamMemoryBrief(memory: TeamMemorySnapshot): string | undefined {
+  const rules = memory.rules.slice(0, MAX_TEAM_MEMORY_RULES);
+  const decisions = memory.decisions.slice(0, MAX_TEAM_MEMORY_DECISIONS);
+  const intent = memory.intent;
+  if (rules.length === 0 && decisions.length === 0 && !intent) return undefined;
+
+  const blocks: string[] = ['This team has standing context for the project you are working in.'];
+
+  if (rules.length > 0) {
+    blocks.push('', 'Architectural rules in force — do not violate these:');
+    for (const rule of rules) {
+      blocks.push(`- [${rule.severity}] ${rule.title}: ${rule.statement} (scope: ${rule.scopePattern})`);
+    }
+  }
+
+  if (intent) {
+    blocks.push('', `Current intent: ${intent.goal}`);
+    for (const constraint of intent.constraints) blocks.push(`- constraint: ${constraint}`);
+    for (const nonGoal of intent.nonGoals) blocks.push(`- explicitly not a goal: ${nonGoal}`);
+  }
+
+  if (decisions.length > 0) {
+    blocks.push('', 'Decisions the team has already made:');
+    for (const decision of decisions) {
+      blocks.push(`- ${decision.title}: ${decision.summary}`);
+      for (const constraint of decision.constraints) blocks.push(`  - constraint: ${constraint}`);
+    }
+  }
+
+  blocks.push(
+    '',
+    'Work within all of the above. If an instruction would break one of these,',
+    'say which one before doing anything else.'
+  );
+
+  return truncate(blocks.join('\n'), MAX_TEAM_SYSTEM_PROMPT_CHARS);
+}
+
 // --- Turn execution ---
 
 /** What a turn is handed to, once it holds the lock. */
@@ -359,6 +606,11 @@ export interface TeamTurnExecutor {
     thread: TeamThread;
     turn: TeamTurnQueueItem;
     timeoutMs: number;
+    /**
+     * The team's standing rules, intent and decisions for the bound project.
+     * Absent when the thread has no project, or its project has no memory.
+     */
+    memoryBrief?: string;
   }): Promise<{ output: string; toolCalls?: unknown }>;
   /** Forgets whatever session state it holds for a thread that is going away. */
   reset?(threadId: string): void;
@@ -391,6 +643,18 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
    */
   private briefed = new Set<string>();
 
+  /**
+   * The standing context each thread's session has already been given.
+   *
+   * Team memory changes while a shared thread is open — someone records a
+   * decision, someone adds a rule — so it cannot simply ride along with the
+   * one-time persona. Nor may it be resent every turn: a session that is told
+   * the same twenty rules before every instruction spends its context on
+   * repetition. What is sent is the difference, which is why the last text is
+   * remembered rather than the fact that something was sent.
+   */
+  private memory = new Map<string, string>();
+
   constructor(private readonly bus: EventBus = eventBus) {}
 
   public async run(params: {
@@ -398,8 +662,9 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
     thread: TeamThread;
     turn: TeamTurnQueueItem;
     timeoutMs: number;
+    memoryBrief?: string;
   }): Promise<{ output: string; toolCalls?: unknown }> {
-    const { agent, thread, turn, timeoutMs } = params;
+    const { agent, thread, turn, timeoutMs, memoryBrief } = params;
     const projectId = thread.projectId;
     if (!projectId) {
       throw new TeamAgentError(
@@ -432,6 +697,18 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
       this.briefed.add(thread.id);
     }
 
+    // Published as its own message rather than folded into the instruction, so
+    // the team's standing rules are not attributed to the member who happened
+    // to be next in the queue.
+    if (memoryBrief && this.memory.get(thread.id) !== memoryBrief) {
+      this.publish('client.chat_message', {
+        projectId,
+        threadId: thread.id,
+        content: memoryBrief
+      });
+      this.memory.set(thread.id, memoryBrief);
+    }
+
     this.publish('client.chat_message', {
       projectId,
       threadId: thread.id,
@@ -446,6 +723,7 @@ export class EventBusTeamTurnExecutor implements TeamTurnExecutor {
   /** The thread is gone; its session is not going to be briefed again. */
   public reset(threadId: string): void {
     this.briefed.delete(threadId);
+    this.memory.delete(threadId);
   }
 
   private publish(type: string, payload: Record<string, unknown>): void {
@@ -541,15 +819,32 @@ export class TeamAgentService {
   private readonly lock: AgentTurnLock;
   private readonly executor: TeamTurnExecutor;
   private readonly turnTimeoutMs: number;
+  private readonly memory: TeamMemoryProvider;
+  private readonly broadcast: TurnBroadcaster;
+
+  /**
+   * Turns whose approval was rejected while they were still in the executor.
+   *
+   * A rejection releases the lock immediately — the team should not wait out an
+   * action nobody is going to allow — but the executor is still waiting on an
+   * agent that has not been told. This is how `runTurn` learns, so a turn that
+   * answers a moment later cannot overwrite the cancellation with an answer.
+   */
+  private rejections = new Map<string, (reason: Error) => void>();
 
   constructor(options?: {
     lock?: AgentTurnLock;
     executor?: TeamTurnExecutor;
     turnTimeoutMs?: number;
+    memory?: TeamMemoryProvider;
+    /** Where approval resolutions are announced. Defaults to the EventBus. */
+    broadcast?: TurnBroadcaster;
   }) {
     this.lock = options?.lock ?? agentTurnLock;
     this.executor = options?.executor ?? new EventBusTeamTurnExecutor();
     this.turnTimeoutMs = options?.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
+    this.memory = options?.memory ?? projectMemoryTeamProvider;
+    this.broadcast = options?.broadcast ?? eventBusTurnBroadcaster();
   }
 
   private db() {
@@ -572,6 +867,8 @@ export class TeamAgentService {
     const temperature = optionalTemperature(input?.temperature);
     const enabledMcpServers = optionalList(input?.enabledMcpServers, 'enabledMcpServers');
     const enabledSkills = optionalList(input?.enabledSkills, 'enabledSkills');
+    const approvalPolicy =
+      optionalApprovalPolicy(input?.approvalPolicy, 'approvalPolicy') ?? DEFAULT_TEAM_APPROVAL_POLICY;
     const createdBy = optionalText(input?.createdBy, 'createdBy', MAX_TEAM_NAME_CHARS);
 
     const now = Date.now();
@@ -586,6 +883,7 @@ export class TeamAgentService {
       temperature,
       enabledMcpServers,
       enabledSkills,
+      approvalPolicy,
       createdBy,
       createdAt: now,
       updatedAt: now
@@ -595,8 +893,8 @@ export class TeamAgentService {
       .prepare(
         `INSERT INTO team_agents (
            id, team_id, name, role, description, system_prompt, model, temperature,
-           enabled_mcp_servers, enabled_skills, created_by, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           enabled_mcp_servers, enabled_skills, approval_policy, created_by, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         agent.id,
@@ -609,6 +907,7 @@ export class TeamAgentService {
         agent.temperature ?? null,
         serializeList(agent.enabledMcpServers),
         serializeList(agent.enabledSkills),
+        agent.approvalPolicy ?? DEFAULT_TEAM_APPROVAL_POLICY,
         agent.createdBy ?? null,
         agent.createdAt,
         agent.updatedAt
@@ -667,6 +966,10 @@ export class TeamAgentService {
         input?.enabledSkills === undefined
           ? existing.enabledSkills
           : optionalList(input.enabledSkills, 'enabledSkills'),
+      approvalPolicy:
+        input?.approvalPolicy === undefined
+          ? existing.approvalPolicy
+          : optionalApprovalPolicy(input.approvalPolicy, 'approvalPolicy'),
       updatedAt: Date.now()
     };
 
@@ -674,7 +977,7 @@ export class TeamAgentService {
       .prepare(
         `UPDATE team_agents SET
            name = ?, role = ?, description = ?, system_prompt = ?, model = ?, temperature = ?,
-           enabled_mcp_servers = ?, enabled_skills = ?, updated_at = ?
+           enabled_mcp_servers = ?, enabled_skills = ?, approval_policy = ?, updated_at = ?
          WHERE id = ?`
       )
       .run(
@@ -686,6 +989,7 @@ export class TeamAgentService {
         next.temperature ?? null,
         serializeList(next.enabledMcpServers),
         serializeList(next.enabledSkills),
+        next.approvalPolicy ?? DEFAULT_TEAM_APPROVAL_POLICY,
         next.updatedAt,
         next.id
       );
@@ -715,12 +1019,15 @@ export class TeamAgentService {
     teamAgentId: string;
     title?: string;
     projectId?: string;
+    /** Overrides the agent's policy for this conversation only. */
+    approvalPolicy?: TeamApprovalPolicy;
   }): TeamThread {
     const agent = this.requireTeamAgent(
       requireText(input?.teamAgentId, 'teamAgentId', MAX_TEAM_NAME_CHARS)
     );
     const title = optionalText(input?.title, 'title', MAX_TEAM_NAME_CHARS) ?? `${agent.name} thread`;
     const projectId = optionalText(input?.projectId, 'projectId', MAX_TEAM_NAME_CHARS);
+    const approvalPolicy = optionalApprovalPolicy(input?.approvalPolicy, 'approvalPolicy');
 
     const now = Date.now();
     const thread: TeamThread = {
@@ -729,6 +1036,7 @@ export class TeamAgentService {
       projectId,
       title,
       status: 'IDLE',
+      approvalPolicy,
       createdAt: now,
       updatedAt: now
     };
@@ -736,8 +1044,9 @@ export class TeamAgentService {
     this.db()
       .prepare(
         `INSERT INTO team_threads (
-           id, team_agent_id, project_id, title, status, active_turn_user_id, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
+           id, team_agent_id, project_id, title, status, active_turn_user_id,
+           approval_policy, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`
       )
       .run(
         thread.id,
@@ -745,11 +1054,27 @@ export class TeamAgentService {
         thread.projectId ?? null,
         thread.title,
         thread.status,
+        thread.approvalPolicy ?? null,
         thread.createdAt,
         thread.updatedAt
       );
 
     return thread;
+  }
+
+  /**
+   * The policy actually in force on a thread.
+   *
+   * The thread's own override wins, then the agent's, then the permissive
+   * default. Resolved in one place because a UI that computed it differently
+   * from the Core would offer buttons the Core refuses.
+   */
+  public effectiveApprovalPolicy(thread: TeamThread, agent?: TeamAgent | null): TeamApprovalPolicy {
+    return (
+      thread.approvalPolicy ??
+      (agent ?? this.getTeamAgent(thread.teamAgentId))?.approvalPolicy ??
+      DEFAULT_TEAM_APPROVAL_POLICY
+    );
   }
 
   public getTeamThread(id: string): TeamThread | null {
@@ -938,14 +1263,21 @@ export class TeamAgentService {
       this.markTurnStarted(turn.id, startedAt);
       this.setThreadState(thread.id, 'PROCESSING_TURN', turn.userId);
 
-      const result = await this.executor.run({
-        agent,
-        // Re-read, so a turn that was queued before the thread was bound to a
-        // project runs against the binding it has when its turn comes.
-        thread: this.getTeamThread(thread.id) ?? thread,
-        turn,
-        timeoutMs: this.turnTimeoutMs
-      });
+      // Re-read, so a turn that was queued before the thread was bound to a
+      // project runs against the binding it has when its turn comes.
+      const live = this.getTeamThread(thread.id) ?? thread;
+      const result = await this.raceRejection(
+        turn.id,
+        this.executor.run({
+          agent,
+          thread: live,
+          turn,
+          timeoutMs: this.turnTimeoutMs,
+          // Read here rather than when the turn was queued: a rule recorded
+          // while this turn waited its place in line still governs it.
+          memoryBrief: this.memoryBriefFor(live)
+        })
+      );
       output = result.output;
 
       this.swallow(() =>
@@ -957,19 +1289,26 @@ export class TeamAgentService {
         })
       );
     } catch (err) {
-      status = 'FAILED';
+      // A turn the team refused is cancelled, not failed: nothing broke, a
+      // person said no. `resolveTurnApproval` has already written that answer
+      // into the transcript, so nothing is appended here.
+      const refused = err instanceof TeamTurnRejectedError;
+      status = refused ? 'CANCELLED' : 'FAILED';
       errorMessage = (err as Error).message || 'The shared agent turn failed.';
       // The failure belongs in the shared transcript too: the next member to
       // open the thread has to be able to see why their colleague's request
       // produced nothing, without reading the server log.
-      this.swallow(() =>
-        this.appendMessage({
-          teamThreadId: thread.id,
-          role: 'system',
-          content: `Turn failed: ${errorMessage}`
-        })
-      );
+      if (!refused) {
+        this.swallow(() =>
+          this.appendMessage({
+            teamThreadId: thread.id,
+            role: 'system',
+            content: `Turn failed: ${errorMessage}`
+          })
+        );
+      }
     } finally {
+      this.rejections.delete(turn.id);
       // Every write here is guarded, and the release sits between two guarded
       // blocks rather than behind one. A failed UPDATE is a lost record; a
       // skipped release is a shared thread that never moves again, with every
@@ -1005,10 +1344,7 @@ export class TeamAgentService {
   public cancelTurn(teamThreadId: string, turnId: string): TeamTurnQueueItem {
     this.requireTeamThread(teamThreadId);
 
-    const existing = this.getTurn(turnId);
-    if (!existing || existing.teamThreadId !== teamThreadId) {
-      throw new TeamAgentError('TURN_NOT_FOUND', `Turn ${turnId} was not found on this thread.`);
-    }
+    const existing = this.requireTurnOnThread(teamThreadId, turnId);
 
     if (this.lock.cancelTurn(teamThreadId, turnId)) {
       const completedAt = Date.now();
@@ -1029,6 +1365,146 @@ export class TeamAgentService {
       );
     }
     return existing;
+  }
+
+  // --- Approvals (DEC-031 § 3) ---
+
+  /**
+   * Parks the turn that is being served on a human decision.
+   *
+   * The lock is not released: an approval prompt is part of a turn, not a gap
+   * between turns, and letting the next member's instruction in while the agent
+   * sits on a half-executed tool call is the exact collision the queue exists
+   * to prevent. What changes is only that the thread can now say *why* nothing
+   * is moving.
+   */
+  public markTurnAwaitingApproval(teamThreadId: string, turnId: string): TeamTurnQueueItem {
+    this.requireTeamThread(teamThreadId);
+    const turn = this.requireTurnOnThread(teamThreadId, turnId);
+
+    if (!this.lock.markAwaitingApproval(teamThreadId, turnId)) {
+      throw new TeamAgentError(
+        'TURN_NOT_AWAITING_APPROVAL',
+        `Turn ${turnId} is not the turn being served, so it cannot be parked on an approval.`
+      );
+    }
+
+    this.db()
+      .prepare("UPDATE team_turn_queue SET status = 'AWAITING_APPROVAL' WHERE id = ?")
+      .run(turnId);
+    this.syncThreadState(teamThreadId);
+
+    return { ...turn, status: 'AWAITING_APPROVAL' };
+  }
+
+  /**
+   * Answers the prompt a parked turn is waiting on.
+   *
+   * Three things happen here and the order is deliberate. The caller is checked
+   * against the policy in force *first* — nothing is written for a request that
+   * is going to be refused. The answer is then recorded, on the turn and in the
+   * shared transcript, because a team that cannot see who let an agent run a
+   * destructive action has governance in name only. Only then is the lock told,
+   * and it is told through the same `resumeFromApproval` / `releaseTurn` pair
+   * every other path uses: the atomicity guarantee is not weakened for
+   * approvals, it is spent by them.
+   *
+   * A rejection cancels rather than fails. Nothing broke — a person said no —
+   * and it releases the lock immediately so the rest of the team is not made to
+   * wait out an action that has already been refused.
+   */
+  public resolveTurnApproval(
+    teamThreadId: string,
+    turnId: string,
+    caller: TeamApprovalCaller,
+    decision: TeamApprovalDecision,
+    comment?: string
+  ): TeamTurnApprovalResult {
+    const thread = this.requireTeamThread(teamThreadId);
+    const agent = this.requireTeamAgent(thread.teamAgentId);
+    const turn = this.requireTurnOnThread(teamThreadId, turnId);
+
+    if (decision !== 'APPROVED' && decision !== 'REJECTED') {
+      throw new TeamAgentError('INVALID_INPUT', 'decision must be APPROVED or REJECTED.');
+    }
+    const userId = requireText(caller?.userId, 'userId', MAX_TEAM_NAME_CHARS);
+    const userName = optionalText(caller?.userName, 'userName', MAX_TEAM_NAME_CHARS) ?? userId;
+    const note = optionalText(comment, 'comment', MAX_TEAM_DESCRIPTION_CHARS);
+
+    // The lock is the authority on what is being served, so it — not the
+    // durable row — decides whether there is a prompt to answer at all.
+    const live = this.lock.getQueueState(teamThreadId);
+    if (live.activeTurn?.id !== turnId || live.state !== 'AWAITING_APPROVAL') {
+      throw new TeamAgentError(
+        'TURN_NOT_AWAITING_APPROVAL',
+        `Turn ${turnId} is not waiting on an approval.`
+      );
+    }
+
+    const policy = this.effectiveApprovalPolicy(thread, agent);
+    const verdict = evaluateTeamApproval({ policy, caller: { ...caller, userId }, turnUserId: turn.userId });
+    if (!verdict.allowed) {
+      throw new TeamAgentError('FORBIDDEN', verdict.reason ?? 'You may not answer this approval.');
+    }
+
+    const approval: TeamTurnApprovalRecord = {
+      decision,
+      policy,
+      resolvedBy: userId,
+      resolvedByName: userName,
+      comment: note,
+      resolvedAt: Date.now()
+    };
+
+    this.recordApproval(turnId, approval);
+    this.appendMessage({
+      teamThreadId,
+      role: 'system',
+      content:
+        `${userName} ${decision === 'APPROVED' ? 'approved' : 'rejected'} the pending action on ` +
+        `${turn.userName}'s turn (policy: ${policy}).` + (note ? `\n${note}` : '')
+    });
+
+    const refusal = `Rejected by ${userName}.${note ? ` ${note}` : ''}`;
+
+    if (decision === 'APPROVED') {
+      this.lock.resumeFromApproval(teamThreadId, turnId);
+      this.db()
+        .prepare("UPDATE team_turn_queue SET status = 'PROCESSING' WHERE id = ?")
+        .run(turnId);
+    } else {
+      this.db()
+        .prepare(
+          `UPDATE team_turn_queue SET status = 'CANCELLED', completed_at = ?, error_message = ?
+           WHERE id = ?`
+        )
+        .run(approval.resolvedAt, refusal, turnId);
+      // Released before the runner is told, so the member behind this one
+      // starts immediately rather than waiting on an agent that is still
+      // finishing an action nobody is going to accept.
+      this.lock.releaseTurn(teamThreadId, turnId, { status: 'CANCELLED', errorMessage: refusal });
+      this.rejections.get(turnId)?.(new TeamTurnRejectedError(refusal));
+    }
+
+    this.syncThreadState(teamThreadId);
+
+    const after = this.lock.getQueueState(teamThreadId);
+    const resolved = this.getTurn(turnId) ?? { ...turn, approval };
+
+    this.announceApproval({
+      teamThreadId,
+      teamAgentId: agent.id,
+      teamId: agent.teamId,
+      workspaceId: agent.teamId,
+      projectId: thread.projectId,
+      turn: resolved,
+      state: after.state,
+      queuePosition: after.activeTurn?.id === turnId ? 0 : -1,
+      queueLength: after.queuedTurns.length,
+      approval
+    });
+
+    return { teamThreadId, turn: resolved, approval, state: after.state };
   }
 
   /** One queued turn, from the durable record. */
@@ -1116,6 +1592,69 @@ export class TeamAgentService {
 
   private contextFor(thread: TeamThread, agent: TeamAgent): TurnLockThreadContext {
     return { teamAgentId: agent.id, teamId: agent.teamId, projectId: thread.projectId };
+  }
+
+  /** One turn, refused unless it belongs to the thread the caller named. */
+  private requireTurnOnThread(teamThreadId: string, turnId: string): TeamTurnQueueItem {
+    const turn = this.getTurn(turnId);
+    if (!turn || turn.teamThreadId !== teamThreadId) {
+      throw new TeamAgentError('TURN_NOT_FOUND', `Turn ${turnId} was not found on this thread.`);
+    }
+    return turn;
+  }
+
+  /**
+   * Resolves when the turn finishes, or rejects the moment it is refused.
+   *
+   * `Promise.race` subscribes to both, so the executor's own rejection is never
+   * unhandled even when the refusal wins.
+   */
+  private raceRejection<T>(turnId: string, running: Promise<T>): Promise<T> {
+    const refused = new Promise<never>((_, reject) => {
+      this.rejections.set(turnId, reject);
+    });
+    return Promise.race([running, refused]);
+  }
+
+  /** The standing team context for a thread's project, if it has either. */
+  private memoryBriefFor(thread: TeamThread): string | undefined {
+    if (!thread.projectId) return undefined;
+    try {
+      return composeTeamMemoryBrief(this.memory.load(thread.projectId));
+    } catch (err) {
+      // Memory is context, not a precondition. A project whose memory cannot be
+      // read still gets its turn served, without it.
+      console.error('[TeamAgentService] Could not read project memory:', (err as Error).message);
+      return undefined;
+    }
+  }
+
+  private recordApproval(turnId: string, approval: TeamTurnApprovalRecord): void {
+    this.db()
+      .prepare(
+        `UPDATE team_turn_queue SET
+           approval_decision = ?, approval_policy = ?, approval_resolved_by = ?,
+           approval_resolved_by_name = ?, approval_comment = ?, approval_resolved_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        approval.decision,
+        approval.policy,
+        approval.resolvedBy,
+        approval.resolvedByName ?? null,
+        approval.comment ?? null,
+        approval.resolvedAt,
+        turnId
+      );
+  }
+
+  /** Tells the room who decided. A dashboard that cannot be told is not fatal. */
+  private announceApproval(payload: TeamTurnApprovalEventPayload): void {
+    try {
+      this.broadcast(TEAM_TURN_APPROVAL_EVENT, payload);
+    } catch (err) {
+      console.warn('[TeamAgentService] Could not announce an approval:', (err as Error).message);
+    }
   }
 
   private markTurnStarted(turnId: string, startedAt: number): void {

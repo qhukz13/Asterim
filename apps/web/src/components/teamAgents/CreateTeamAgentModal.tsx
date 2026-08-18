@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { CreateTeamAgentInput, TeamAgent, UpdateTeamAgentInput } from '@asterim/shared';
+import { DEFAULT_TEAM_APPROVAL_POLICY, TEAM_APPROVAL_POLICIES } from '@asterim/shared';
+import type {
+  CreateTeamAgentInput,
+  TeamAgent,
+  TeamApprovalPolicy,
+  UpdateTeamAgentInput
+} from '@asterim/shared';
+import { approvalPolicyLabel, approvalPolicyRequirement } from '../../stores/useTeamAgentStore';
 import { listModeOf, type ListMode } from '../profiles/ProfileManagerModal';
 import { useMcpStore } from '../../stores/useMcpStore';
 import { useSkillsStore } from '../../stores/useSkillsStore';
@@ -36,6 +43,8 @@ export interface TeamAgentDraft {
   mcpSelection: string[];
   skillMode: ListMode;
   skillSelection: string[];
+  /** Who may answer this role's approval prompts (DEC-031 § 3). */
+  approvalPolicy: TeamApprovalPolicy;
 }
 
 export function emptyTeamAgentDraft(): TeamAgentDraft {
@@ -49,7 +58,8 @@ export function emptyTeamAgentDraft(): TeamAgentDraft {
     mcpMode: 'all',
     mcpSelection: [],
     skillMode: 'all',
-    skillSelection: []
+    skillSelection: [],
+    approvalPolicy: DEFAULT_TEAM_APPROVAL_POLICY
   };
 }
 
@@ -67,7 +77,8 @@ export function draftFromTeamAgent(agent: TeamAgent): TeamAgentDraft {
     mcpMode,
     mcpSelection: mcpMode === 'list' ? [...(agent.enabledMcpServers || [])] : [],
     skillMode,
-    skillSelection: skillMode === 'list' ? [...(agent.enabledSkills || [])] : []
+    skillSelection: skillMode === 'list' ? [...(agent.enabledSkills || [])] : [],
+    approvalPolicy: agent.approvalPolicy ?? DEFAULT_TEAM_APPROVAL_POLICY
   };
 }
 
@@ -130,7 +141,8 @@ export function buildCreateTeamAgentInput(
     model: draft.model.trim() || undefined,
     temperature: draft.temperature.trim() ? Number(draft.temperature) : undefined,
     enabledMcpServers: capabilityListValue(draft.mcpMode, draft.mcpSelection),
-    enabledSkills: capabilityListValue(draft.skillMode, draft.skillSelection)
+    enabledSkills: capabilityListValue(draft.skillMode, draft.skillSelection),
+    approvalPolicy: draft.approvalPolicy
   };
 }
 
@@ -402,6 +414,44 @@ export function CreateTeamAgentModalView({
 
           {capabilityGroup('mcp', 'MCP Servers', mcpServers, draft.mcpMode, draft.mcpSelection)}
           {capabilityGroup('skill', 'Skills', skills, draft.skillMode, draft.skillSelection)}
+
+          {/*
+            Who may let this role go ahead with an action it has paused on. It
+            belongs on the role rather than on each conversation because it is a
+            property of what the role is allowed to do, and a team that set it
+            once should not have to set it again per thread.
+          */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={label}>Approvals</span>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }} role="group" aria-label="Approval policy">
+              {TEAM_APPROVAL_POLICIES.map(policy => (
+                <button
+                  key={policy}
+                  type="button"
+                  onClick={() => onDraftChange({ approvalPolicy: policy })}
+                  aria-pressed={draft.approvalPolicy === policy}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 'var(--font-size-xs)',
+                    background:
+                      draft.approvalPolicy === policy ? 'var(--color-surface-3)' : 'transparent',
+                    color:
+                      draft.approvalPolicy === policy
+                        ? 'var(--color-text-primary)'
+                        : 'var(--color-text-secondary)',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {approvalPolicyLabel(policy)}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+              {approvalPolicyRequirement(draft.approvalPolicy)}
+            </span>
+          </div>
 
           {(error || validation) && (
             <p role="alert" style={{ margin: 0, color: 'var(--color-state-error)', fontSize: '0.82rem' }}>

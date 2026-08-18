@@ -1,21 +1,27 @@
 import React, { useState } from 'react';
+import { DEFAULT_TEAM_APPROVAL_POLICY } from '@asterim/shared';
 import type {
   TeamAgent,
   TeamAgentMessage,
+  TeamApprovalDecision,
+  TeamApprovalPolicy,
   TeamThread,
+  TeamThreadViewer,
   TeamTurnQueueItem,
   TeamTurnQueueState
 } from '@asterim/shared';
 import {
   authorInitials,
+  awaitingApprovalTurn,
   canSubmitTurn,
+  effectiveApprovalPolicy,
   formatRelativeTime,
   messageAuthorLabel,
   queueWaitNotice,
   threadStateTone,
   useTeamAgentStore
 } from '../../stores/useTeamAgentStore';
-import { ActiveTurnQueueInspectorView } from './ActiveTurnQueueInspector';
+import { ActiveTurnQueueInspectorView, TurnApprovalCard } from './ActiveTurnQueueInspector';
 import { IconArrowLeft } from '../icons/Icons';
 
 /**
@@ -101,6 +107,13 @@ export interface TeamThreadChatViewProps {
   onInstructionChange: (instruction: string) => void;
   onSubmit: () => void;
   onCancelTurn?: (turn: TeamTurnQueueItem) => void;
+  /** Answer the prompt a parked turn is waiting on (DEC-031 § 3). */
+  onResolveApproval?: (turn: TeamTurnQueueItem, decision: TeamApprovalDecision) => void;
+  resolvingApprovalTurnId?: string | null;
+  /** The policy in force on this thread. */
+  approvalPolicy?: TeamApprovalPolicy;
+  /** Who is reading, as the Core reported them on this thread. */
+  viewer?: TeamThreadViewer | null;
   onBack?: () => void;
   isSubmitting?: boolean;
   cancellingTurnId?: string | null;
@@ -124,6 +137,10 @@ export function TeamThreadChatView({
   onInstructionChange,
   onSubmit,
   onCancelTurn,
+  onResolveApproval,
+  resolvingApprovalTurnId = null,
+  approvalPolicy = DEFAULT_TEAM_APPROVAL_POLICY,
+  viewer = null,
   onBack,
   isSubmitting = false,
   cancellingTurnId = null,
@@ -135,6 +152,7 @@ export function TeamThreadChatView({
   const tone = threadStateTone(state);
   const waitNotice = queueWaitNotice(queue);
   const canSubmit = canSubmitTurn(instruction, isSubmitting);
+  const parked = awaitingApprovalTurn(queue);
 
   return (
     <div
@@ -299,6 +317,22 @@ export function TeamThreadChatView({
             )}
           </div>
 
+          {/*
+            Beneath the transcript rather than beside it: a prompt that blocks
+            the whole team belongs where the conversation is being read, not
+            only in a side panel a narrow window may have wrapped away.
+          */}
+          {parked && (
+            <TurnApprovalCard
+              turn={parked}
+              policy={approvalPolicy}
+              viewer={viewer}
+              onResolve={onResolveApproval}
+              isResolving={resolvingApprovalTurnId === parked.id}
+              now={now}
+            />
+          )}
+
           {error && (
             <p role="alert" style={{ margin: 0, color: 'var(--color-state-error)', fontSize: '0.85rem' }}>
               {error}
@@ -367,6 +401,10 @@ export function TeamThreadChatView({
             queue={queue}
             onCancelTurn={onCancelTurn}
             cancellingTurnId={cancellingTurnId}
+            approvalPolicy={approvalPolicy}
+            viewer={viewer}
+            resolvingApprovalTurnId={resolvingApprovalTurnId}
+            onResolveApproval={onResolveApproval}
             now={now}
           />
         </div>
@@ -386,6 +424,9 @@ export function TeamThreadChat({ agent, onBack }: { agent?: TeamAgent | null; on
   const notice = useTeamAgentStore(state => state.notice);
   const submitTurn = useTeamAgentStore(state => state.submitTurn);
   const cancelTurn = useTeamAgentStore(state => state.cancelTurn);
+  const viewer = useTeamAgentStore(state => state.viewer);
+  const resolvingApprovalTurnId = useTeamAgentStore(state => state.resolvingApprovalTurnId);
+  const resolveApproval = useTeamAgentStore(state => state.resolveApproval);
 
   const [instruction, setInstruction] = useState('');
 
@@ -411,6 +452,12 @@ export function TeamThreadChat({ agent, onBack }: { agent?: TeamAgent | null; on
         });
       }}
       onCancelTurn={turn => void cancelTurn(thread.id, turn.id)}
+      onResolveApproval={(turn, decision) =>
+        void resolveApproval(thread.id, turn.id, decision)
+      }
+      resolvingApprovalTurnId={resolvingApprovalTurnId}
+      approvalPolicy={effectiveApprovalPolicy(thread, agent)}
+      viewer={viewer}
       onBack={onBack}
       isSubmitting={isSubmitting}
       cancellingTurnId={cancellingTurnId}

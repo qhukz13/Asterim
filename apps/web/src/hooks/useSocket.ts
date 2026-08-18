@@ -452,9 +452,9 @@ export function useSocket(
       newSocket.on(delegationType, handleInternalEvent);
     }
 
-    // The four team turn transitions (P8-02). They arrive through the workspace
-    // room joined above, and carry a projectId as well when the thread is bound
-    // to one.
+    // The team turn transitions (P8-02) and approval resolutions (P8-03). They
+    // arrive through the workspace room joined above, and carry a projectId as
+    // well when the thread is bound to one.
     for (const turnType of TEAM_TURN_EVENT_TYPES) {
       newSocket.on(turnType, handleInternalEvent);
     }

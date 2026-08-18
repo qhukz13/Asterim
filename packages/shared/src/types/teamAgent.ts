@@ -15,6 +15,8 @@
  * here rather than being restated in the server and the dashboard.
  */
 
+import type { WorkspaceRole } from './workspace';
+
 /**
  * Where one queued instruction is in its life.
  *
@@ -48,6 +50,46 @@ export type TeamThreadTurnState = 'IDLE' | 'PROCESSING_TURN' | 'AWAITING_APPROVA
 export type TeamAgentMessageRole = 'user' | 'assistant' | 'system';
 
 /**
+ * Who may answer the approval prompt a parked turn is waiting on (DEC-031 § 3).
+ *
+ * The policy is about the *answer*, never about the queue: whichever one is in
+ * force, the turn keeps the lock until somebody with the standing to decide has
+ * decided, because an unanswerable prompt and a thread that never moves again
+ * are the same outcome for the rest of the team.
+ *
+ *   - `ANY_MEMBER` — anyone on the team who may approve agent actions. The
+ *     default, because the common case is a room of colleagues and a prompt
+ *     that only its author can clear is a prompt that waits for them to come
+ *     back from lunch.
+ *   - `ADMIN_ONLY` — an admin or the owner of the team. For roles whose tool
+ *     calls are consequential enough that "somebody was around" is not the bar.
+ *   - `TURN_INITIATOR` — whoever submitted the turn, or an admin/owner. For work
+ *     where only the person who asked knows whether the action the agent
+ *     proposes is the one they meant.
+ */
+export type TeamApprovalPolicy = 'ANY_MEMBER' | 'ADMIN_ONLY' | 'TURN_INITIATOR';
+
+/** What a thread falls back to when neither it nor its agent names a policy. */
+export const DEFAULT_TEAM_APPROVAL_POLICY: TeamApprovalPolicy = 'ANY_MEMBER';
+
+/** Runtime companion to {@link TeamApprovalPolicy}, which erases at compile time. */
+export const TEAM_APPROVAL_POLICIES: readonly TeamApprovalPolicy[] = [
+  'ANY_MEMBER',
+  'ADMIN_ONLY',
+  'TURN_INITIATOR'
+];
+
+/** Whether a value is one of the three policies the contract defines. */
+export function isTeamApprovalPolicy(value: unknown): value is TeamApprovalPolicy {
+  return (
+    typeof value === 'string' && (TEAM_APPROVAL_POLICIES as readonly string[]).includes(value)
+  );
+}
+
+/** The two answers an approval prompt accepts. */
+export type TeamApprovalDecision = 'APPROVED' | 'REJECTED';
+
+/**
  * A persistent shared agent identity.
  *
  * The capability lists mirror `AgentProfile`: `undefined` means "unset, allow
@@ -67,6 +109,8 @@ export interface TeamAgent {
   temperature?: number;
   enabledMcpServers?: string[];
   enabledSkills?: string[];
+  /** Who may answer this role's approval prompts. Defaults to `ANY_MEMBER`. */
+  approvalPolicy?: TeamApprovalPolicy;
   /** The user id that created it, when one is known. */
   createdBy?: string;
   createdAt: number;
@@ -84,6 +128,7 @@ export interface CreateTeamAgentInput {
   temperature?: number;
   enabledMcpServers?: string[];
   enabledSkills?: string[];
+  approvalPolicy?: TeamApprovalPolicy;
   createdBy?: string;
 }
 
@@ -97,6 +142,7 @@ export interface UpdateTeamAgentInput {
   temperature?: number;
   enabledMcpServers?: string[];
   enabledSkills?: string[];
+  approvalPolicy?: TeamApprovalPolicy;
 }
 
 /**
@@ -116,6 +162,15 @@ export interface TeamThread {
   status: TeamThreadTurnState;
   /** Whose turn is being served right now, or `undefined` when the thread is idle. */
   activeTurnUserId?: string;
+  /**
+   * This conversation's approval policy, when it overrides its agent's.
+   *
+   * Unset is not `ANY_MEMBER`: it means "whatever the agent says", and the
+   * agent is what a team configured once for every thread it opens. Collapsing
+   * the two would silently loosen an `ADMIN_ONLY` role the moment somebody
+   * opened a new thread on it.
+   */
+  approvalPolicy?: TeamApprovalPolicy;
   createdAt: number;
   updatedAt: number;
 }
@@ -143,6 +198,26 @@ export interface TeamTurnQueueItem {
   startedAt?: number;
   completedAt?: number;
   errorMessage?: string;
+  /** How this turn's approval prompt was answered, once one was answered. */
+  approval?: TeamTurnApprovalRecord;
+}
+
+/**
+ * The answer a parked turn was released or cancelled on.
+ *
+ * Kept on the turn rather than only in the transcript because governance is a
+ * question asked after the fact — "who let the agent do that" — and a
+ * transcript line is prose, while this is the record.
+ */
+export interface TeamTurnApprovalRecord {
+  decision: TeamApprovalDecision;
+  /** The policy that was in force when it was answered. */
+  policy: TeamApprovalPolicy;
+  /** The user id that answered. */
+  resolvedBy: string;
+  resolvedByName?: string;
+  comment?: string;
+  resolvedAt: number;
 }
 
 /** One line of a shared transcript. */
@@ -186,6 +261,50 @@ export interface TeamTurnResult {
   durationMs?: number;
 }
 
+// --- Approval governance (DEC-031 § 3) ---
+
+/** What a member sends to answer the prompt a parked turn is waiting on. */
+export interface TeamTurnApprovalRequest {
+  turnId: string;
+  decision: TeamApprovalDecision;
+  /** Why, in the answerer's words. Written into the shared transcript. */
+  comment?: string;
+}
+
+/** What answering an approval prompt produced. */
+export interface TeamTurnApprovalResult {
+  teamThreadId: string;
+  turn: TeamTurnQueueItem;
+  approval: TeamTurnApprovalRecord;
+  /** The thread's turn state after the answer was applied. */
+  state: TeamThreadTurnState;
+}
+
+/**
+ * Who the Core says the caller is, on the thread they just read.
+ *
+ * Answered by the Core rather than assembled by the dashboard: a client cannot
+ * be trusted to know its own role, and a client that guessed would either offer
+ * a button that 403s or hide one the member is entitled to.
+ */
+export interface TeamThreadViewer {
+  userId: string;
+  /**
+   * The caller's role in the team, or `null` when the team has no membership
+   * rows at all — a workstation that predates RBAC, which is the normal shape
+   * of a single-developer install (DEC-028).
+   */
+  role: WorkspaceRole | null;
+  /** True when the team is unmanaged, so local single-developer use still works. */
+  unmanaged: boolean;
+  /** The policy in force on this thread, agent default included. */
+  approvalPolicy: TeamApprovalPolicy;
+  /** Whether this caller may answer an approval prompt on this thread. */
+  canApprove: boolean;
+  /** Whether this caller may retire or reconfigure the shared agent. */
+  canAdminister: boolean;
+}
+
 // --- Socket.IO turn synchronization (DEC-031 § 2) ---
 
 /** An instruction has joined the queue; its position is `queuePosition`. */
@@ -196,6 +315,14 @@ export const TEAM_TURN_STARTED_EVENT = 'team_turn:started';
 export const TEAM_TURN_COMPLETED_EVENT = 'team_turn:completed';
 /** A queued turn was withdrawn before it ever ran. */
 export const TEAM_TURN_CANCELLED_EVENT = 'team_turn:cancelled';
+/**
+ * Somebody answered the approval prompt a turn was parked on.
+ *
+ * Distinct from `started`/`completed`, which say what the *queue* did: this one
+ * says who decided and what they decided, which is what the rest of the team is
+ * owed when an agent is let loose on a destructive action in their repository.
+ */
+export const TEAM_TURN_APPROVAL_EVENT = 'team_turn:approval_resolved';
 
 /**
  * What every turn transition carries to connected clients.
@@ -224,4 +351,15 @@ export interface TeamTurnEventPayload {
   queuePosition: number;
   /** How many turns are still waiting behind the active one. */
   queueLength: number;
+}
+
+/**
+ * What {@link TEAM_TURN_APPROVAL_EVENT} carries on top of a turn transition.
+ *
+ * A superset of the ordinary payload, so a client that only understands the
+ * queue can treat it as one more transition, while a client that understands
+ * governance can also say who decided.
+ */
+export interface TeamTurnApprovalEventPayload extends TeamTurnEventPayload {
+  approval: TeamTurnApprovalRecord;
 }

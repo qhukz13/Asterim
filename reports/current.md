@@ -1,9 +1,9 @@
-Task-ID: P8-02
+Task-ID: P8-03
 Status: COMPLETE
 
-# Execution Report: P8-02 — Collaborative Multi-User Web UI & Team Turn Queue Inspector
+# Execution Report: P8-03 — Multi-User Governance, Role-Based Turn Approvals & Team Project Memory Integration
 
-**Task ID:** P8-02
+**Task ID:** P8-03
 **Phase:** Phase 8 — Collaborative Team Agents & Multi-User Governance
 **Status:** IMPLEMENTED
 **Date:** 2026-08-18
@@ -13,235 +13,105 @@ Status: COMPLETE
 
 ## 1. Summary
 
-The dashboard side of the Shared Team Agent primitive (DEC-031) is implemented: a zustand store,
-four components, navigation and socket integration, and a 282-assertion test suite.
+Shared team agents are now governed. Every mutating route on the team agent surface is authorized against the caller's membership of the team that owns the thing being touched — never against a `teamId` the request supplied — and the three gaps the task named are closed:
 
-The design decision everything else follows from is that a collaborative thread is a **queue**, not
-a chat. The store therefore treats REST as a snapshot and the socket as the live authority: the
-queue is rebuilt from `team_turn:*` transitions rather than re-fetched, so a member watching their
-position move from #3 to #1 sees it move. The one place the two meet — the agent's answer, which
-the Core writes to the transcript with no message event of its own — is handled by a *silent*
-refresh on completion that adopts the transcript and history but deliberately leaves the live queue
-alone, because it is a snapshot that may predate transitions already applied.
+1. **RBAC.** `POST/PATCH/DELETE /api/v1/team-agents`, thread creation, turn submission and turn withdrawal all check membership and role. Retiring a shared role (which cascades away every thread and transcript on it) requires admin/owner; withdrawing a queued turn requires being its submitter or an admin. Reads are scoped too, so one team cannot list another's agents.
+2. **Approvals.** A turn parked in `AWAITING_APPROVAL` is now answerable: `POST /api/v1/team-threads/:id/approvals` evaluates the caller against the policy in force (`ANY_MEMBER` / `ADMIN_ONLY` / `TURN_INITIATOR`), then either resumes the turn through `AgentTurnLock.resumeFromApproval` or cancels it through `releaseTurn(..., { status: 'CANCELLED' })`. The answer is written to the turn row, to the shared transcript, and broadcast as `team_turn:approval_resolved`.
+3. **Team project memory.** A turn on a project-bound thread is handed the project's active architectural rules, current intent and active decisions from `ProjectMemoryCore`, published into the shared session ahead of the instruction they govern.
 
-One gap in P8-01 had to be closed to make the specified store real: `tasks/current.md` § 3 requires
-`updateTeamAgent` (`PATCH /api/v1/team-agents/:id`) and `deleteTeamAgent`
-(`DELETE /api/v1/team-agents/:id`), and P8-01 shipped seven routes with neither, although
-`TeamAgentService.updateTeamAgent` / `.deleteTeamAgent` already existed and were tested. Two thin
-routes over those methods were added rather than shipping store actions that would 404. See § 7.
+The dashboard follows: the store gained `resolveApproval` and a Core-supplied `viewer`, and both the queue inspector and the collaborative transcript render an approval card with submitter attribution, the policy requirement, and Approve / Reject controls that are offered only to somebody the policy admits.
 
-All four CI gates are green across every workspace.
+The single-developer path is preserved throughout: a team with **no** `workspace_memberships` rows at all (what a workstation that has never had accounts on it looks like) is treated as unmanaged and its user retains full standing, exactly as `EnvironmentSecretService` already does.
 
 ## 2. Files Changed
 
 | File | Change Type | Purpose |
 | :--- | :---: | :--- |
-| `apps/web/src/stores/useTeamAgentStore.ts` | Created | Team agents, threads, transcripts, queue state; 8 REST actions; the turn-event reducer; pure helpers |
-| `apps/web/src/components/teamAgents/TeamAgentExplorer.tsx` | Created | Agent card grid, role badges, capability pills, thread entry points; hosts the open thread |
-| `apps/web/src/components/teamAgents/CreateTeamAgentModal.tsx` | Created | Create/edit form: persona prompt, model, temperature, MCP + skill selectors, validation |
-| `apps/web/src/components/teamAgents/ActiveTurnQueueInspector.tsx` | Created | Thread state badge, active operator, FIFO queue with position badges and withdrawal |
-| `apps/web/src/components/teamAgents/TeamThreadChatView.tsx` | Created | Multi-user transcript with author attribution, generation indicator, queueing composer |
-| `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts` | Created | 282 assertions across helpers, store REST, socket transitions and rendering |
-| `apps/web/src/hooks/useSocket.ts` | Modified | Joins `workspace:<teamId>`, re-joins on team change, routes the four `team_turn:*` events |
-| `apps/web/src/App.tsx` | Modified | `Team` tab and persistent view, scoped to the active environment |
-| `apps/web/src/stores/useViewStore.ts` | Modified | `'team'` added to `ViewType` and `availableViews` |
-| `apps/web/src/components/icons/Icons.tsx` | Modified | `IconUsers`, in the existing 24×24 stroke style |
-| `apps/web/package.json` | Modified | New suite wired into the `test` script |
-| `apps/server/src/routes/teamAgents.ts` | Modified | `PATCH` and `DELETE /api/v1/team-agents/:id` (see § 7) |
-| `apps/server/src/services/ai/__tests__/TeamAgentService.test.ts` | Modified | 12 assertions covering the two new routes (162 → 174) |
+| `packages/shared/src/types/teamAgent.ts` | Modified | `TeamApprovalPolicy`, `TeamApprovalDecision`, `TeamTurnApprovalRecord`, `TeamTurnApprovalRequest/Result`, `TeamThreadViewer`, `TEAM_TURN_APPROVAL_EVENT`, `TeamTurnApprovalEventPayload`; `approvalPolicy` on `TeamAgent`, `TeamThread`, and both agent inputs |
+| `apps/server/src/migrations/003_team_approval_governance.ts` | Created | Migration 3: `approval_policy` on `team_agents` (defaulted) and `team_threads` (nullable = defer to the agent), plus the six approval-answer columns on `team_turn_queue` |
+| `apps/server/src/migrations/index.ts` | Modified | Registers migration 3; `LATEST_SCHEMA_VERSION` becomes 3 |
+| `apps/server/src/services/ai/TeamAgentService.ts` | Modified | Policy persistence and resolution, `evaluateTeamApproval`, `isTeamAdminRole`, `markTurnAwaitingApproval`, `resolveTurnApproval`, `TeamTurnRejectedError`, project-memory provider + `composeTeamMemoryBrief`, memory injection into `runTurn`, approval broadcast |
+| `apps/server/src/routes/teamAgents.ts` | Modified | Team-scoped RBAC guards on every route, the `POST /team-threads/:id/approvals` endpoint, and the `viewer` block on the thread read |
+| `apps/server/src/services/ai/__tests__/TeamAgentService.test.ts` | Modified | Sections 13–17: policy configuration, the three policies, parking/approving/rejecting, memory injection, and team-scoped RBAC over HTTP |
+| `apps/web/src/stores/useTeamAgentStore.ts` | Modified | `resolveApproval`, `viewer`, `resolvingApprovalTurnId`, approval-event reduction, and the four pure approval helpers |
+| `apps/web/src/components/teamAgents/ActiveTurnQueueInspector.tsx` | Modified | `TurnApprovalCard` (shared) and the parked-turn branch of the inspector |
+| `apps/web/src/components/teamAgents/TeamThreadChatView.tsx` | Modified | Renders the approval card beneath the transcript and threads the props to the inspector |
+| `apps/web/src/components/teamAgents/CreateTeamAgentModal.tsx` | Modified | Approval policy selector on the role form |
+| `apps/web/src/hooks/useSocket.ts` | Modified | Comment only — the new event is picked up through `TEAM_TURN_EVENT_TYPES` |
+| `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts` | Modified | Helper, store, socket, modal and render coverage for approvals |
 
 ## 3. Implementation Details
 
-### `useTeamAgentStore`
+**Schema (DEC-030).** Migration 3 is additive only, using the engine's `columns` form (`PRAGMA table_info` presence check rather than a swallowed `ALTER TABLE` error). `team_agents.approval_policy` defaults to `'ANY_MEMBER'` so every existing shared role acquires the policy it has been operating under; `team_threads.approval_policy` is nullable because NULL means "whatever the agent says", which is a different answer from `ANY_MEMBER` and must not decay into it. `team_turn_queue` gains `approval_decision`, `approval_policy`, `approval_resolved_by`, `approval_resolved_by_name`, `approval_comment`, `approval_resolved_at`.
 
-State: `teamAgents`, `teamThreads` (by agent id), `activeAgentId`, `activeThread`,
-`activeTranscript`, `activeQueueState`, `turnHistory`, plus separated in-flight flags
-(`isLoading` / `isSaving` / `isSubmitting` / `cancellingTurnId`) so one row's spinner is not every
-row's, and `error` / `notice` kept apart — a queue position is news, not a failure.
+**Policy evaluation** lives in `evaluateTeamApproval`, a pure function taking the policy, the caller's standing and whose turn it is. The database lookup that produces the role stays in the route, so all three policies are asserted directly without a workspace, a membership row or an HTTP request. `ADMIN_ONLY` requires admin/owner; `TURN_INITIATOR` admits the submitter or an admin; `ANY_MEMBER` requires `agent:approve`, which excludes a viewer.
 
-REST, all through `getAuthHeaders` so a remote workstation gets its own token:
+**Answering a prompt** (`resolveTurnApproval`) checks the policy *before* writing anything, then records the answer on the turn and in the transcript, then tells the lock. Approval calls `resumeFromApproval` and puts the row back to `PROCESSING`. Rejection writes `CANCELLED`, calls `releaseTurn(..., { status: 'CANCELLED', errorMessage })` so the queue advances immediately, and signals the still-running turn.
 
-| Action | Call |
-| :--- | :--- |
-| `fetchTeamAgents(teamId)` | `GET /api/v1/team-agents?teamId=` (encoded) |
-| `fetchTeamAgent(id)` | `GET /api/v1/team-agents/:id` — the threads the list endpoint does not carry |
-| `createTeamAgent(input)` | `POST /api/v1/team-agents` |
-| `updateTeamAgent(id, input)` | `PATCH /api/v1/team-agents/:id` |
-| `deleteTeamAgent(id)` | `DELETE /api/v1/team-agents/:id` |
-| `fetchTeamThread(id, {silent})` | `GET /api/v1/team-threads/:id` |
-| `createTeamThread(agentId, …)` | `POST /api/v1/team-agents/:id/threads` |
-| `submitTurn(threadId, …)` | `POST /api/v1/team-threads/:id/turns` — 202 adopted as success |
-| `cancelTurn(threadId, turnId)` | `DELETE /api/v1/team-threads/:id/turns/:turnId` |
+That signal is the one non-obvious piece. A rejection releases the lock while the executor is still waiting on an agent that has not been told, so `runTurn` races the executor against a rejection promise (`raceRejection`). `Promise.race` subscribes to both, so the executor's later rejection is never unhandled, and a `TeamTurnRejectedError` settles the turn as `CANCELLED` rather than `FAILED` — nothing broke, a person said no. A late answer from the abandoned executor cannot overwrite the cancellation or reach the transcript; this is asserted directly.
 
-`submitTurn` sends the instruction and its context and **no author**: in a shared thread the name on
-a turn is what the whole team reads, so the Core takes it from the session (routes § "Who is
-asking"). The 202's `queuePosition` becomes the member's notice — position 0 reads "being served
-now" rather than "#0 in queue".
+**Project memory** is read per turn (not per queueing), so a rule recorded while a turn waited its place in line still governs it. `composeTeamMemoryBrief` orders rules first (what may not be broken), then intent, then settled decisions, and returns `undefined` when the project has none of the three — an agent told "the team has decided:" followed by silence would infer that the team has decided nothing. `EventBusTeamTurnExecutor` publishes the brief only when it differs from what that thread's session was last given, so twenty rules are not re-sent before every instruction. Memory that cannot be read is logged and skipped: it is context, not a precondition, and the turn is still served.
 
-`applyTurnEventToQueue` is exported and pure, and follows `AgentTurnLock`'s own rules: `queued`
-appends unless the turn is already known (a submitter has adopted the 202's queue); `started`
-promotes and is idempotent, since it fires again when a turn parks on an approval and again when it
-resumes; `completed` clears the active turn **only when it names it**, so a late release cannot free
-its successor's lock; `cancelled` removes a waiting turn. Terminal turns move into `turnHistory`.
-Transitions for other threads still update that thread's status in `teamThreads`, so the explorer
-shows which shared threads are busy without opening them.
+**The `viewer` block** on `GET /team-threads/:id` is answered by the Core (role, unmanaged flag, effective policy, `canApprove`, `canAdminister`). The dashboard mirrors the rule in `canResolveApproval` purely to avoid offering a button whose only outcome is a 403 — the Core refuses independently.
 
-### Components
-
-Each is a props-only `*View` plus a thin store-connected wrapper — the convention the MCP, skills
-and desktop panels established, because zustand v5 serves initial state as the server snapshot and a
-store-reading component renders empty under `react-dom/server`.
-
-- **`ActiveTurnQueueInspector`** — state badge (`aria-live="polite"`), active operator with initials,
-  status and elapsed time, then the FIFO list with `#N in queue` badges, submission times and a
-  `Withdraw` button offered **only for `QUEUED`** turns, since the Core answers 409 for anything else.
-- **`TeamThreadChatView`** — every line attributed (initials, name, relative time); the agent's lines
-  carry the role name and the accent, people's do not. The composer is never disabled on a busy
-  thread — queueing behind a running turn is the designed path — and shows the wait before typing.
-  It clears optimistically on submit and restores the text if the Core refuses.
-- **`TeamAgentExplorer`** — name, role badge, description, system prompt preview, capability pills
-  reusing `capabilitySummary` from `useProfileStore`, and per-agent thread lists with their own turn
-  state. Deleting confirms first and names how many transcripts the cascade takes.
-- **`CreateTeamAgentModal`** — the persona fields plus All / None / Selected capability controls over
-  the servers and skills the Core actually found, preserving the contract's `undefined` ≠ `[]`
-  distinction (`capabilityListValue`). Validation runs client-side to save the round trip; the Core's
-  copy remains authoritative.
-
-Styling is tokens only (`--color-surface-*`, `--color-accent-*`, `--color-state-*`, `--font-family-*`,
-`--radius-*`, `--spacing-*`) — asserted in the suite: no tone resolves to a hex value.
-
-### Integration
-
-`'team'` added to `ViewType`; a `Team` tab in the workspace nav and a persistent view mounted like
-the other explorers, given `teamId={activeEnvironmentId}` (an environment is the team) and the open
-project so a new thread has a checkout. `useSocket` joins `workspace:<teamId>` from its own effect —
-keyed on the team, not only on the project, since the socket is otherwise rebuilt only on a project
-change — and routes the four turn events ahead of the thread filter, as delegation events are: a
-member watching the queue is by definition watching somebody else's turn.
+**Local-first (DEC-028 / DEC-032).** Nothing new leaves the workstation: the approval answer is a row and a transcript line, the broadcast goes through the existing EventBus → workspace room bridge, and no memory, transcript or decision text crosses a relay boundary that did not already carry it.
 
 ## 4. Verification
 
-Every workspace, run directly (`pnpm --filter "*" run <script>`; the root aggregate scripts require
-interactive approval in this sandbox and fan out to exactly these same per-workspace scripts):
+All commands run from the repository root. The two root aggregate scripts (`pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`) are not permitted to run in this non-interactive session, so each workspace was run individually — which is exactly what `turbo run <task>` fans out to.
 
-| Gate | Result |
-| :--- | :--- |
-| `typecheck` | shared, adapters, web, server, relay, marketing, mcp-memory-server — **0 errors** |
-| `lint` | **0 errors** in every workspace (warnings unchanged from baseline: web 321, server 294) |
-| `test` | every suite passed; web **2155** assertions over 12 suites, server **3473** over 28 suites, mcp-memory-server **348** over 7 |
-| `build` | all 7 workspaces built; `apps/server/dist/web` populated by the web-copy step |
+| Gate | Command | Result |
+| :--- | :--- | :--- |
+| Team agent backend | `pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts` | **299/299 assertions passed** (was 174 before this task) |
+| Team agent UI | `pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts` | **364/364 assertions passed** (was 282) |
+| Typecheck | `tsc --noEmit` in `@asterim/shared`, `@asterim/adapters`, `@asterim/mcp-memory-server`, `@asterim/relay`, `@asterim/marketing`, `@asterim/web`, `asterim` | 0 errors in all seven |
+| Lint | `eslint` in `asterim`, `@asterim/web`, `@asterim/shared` | **0 errors** (warnings only, all pre-existing `no-explicit-any` / `react-refresh` noise; the files added by this task contribute 3 `any` warnings in the test harness only) |
+| Server suite | `pnpm --filter asterim test` (28 suites) | all pass, no FAIL lines |
+| Web suite | `pnpm --filter @asterim/web test` (12 suites) | all pass |
+| Adapters / Relay / MCP suites | `pnpm --filter @asterim/adapters test`, `@asterim/relay`, `@asterim/mcp-memory-server` | 30/30, 71/71, and 7 suites all passing |
+| Build | `build` in `@asterim/shared`, `@asterim/adapters`, `@asterim/mcp-memory-server`, `@asterim/web`, `asterim`, `@asterim/relay`, `@asterim/marketing` | all succeed |
 
-New suite: `pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts`
-→ **282/282 assertions passed**, covering:
+One verification trap worth recording: `@asterim/mcp-memory-server`'s suite initially failed after migration 3 was added, because it spawns its **prebuilt** `dist/index.js`, and a build that predates a migration correctly refuses to open a database that has it (DEC-030's downgrade guard). Rebuilding that package fixed it — and `turbo.json` already encodes the dependency (`@asterim/mcp-memory-server#test` dependsOn `build`), so `pnpm run test` at the root would not have hit it. It was an artefact of running the filtered test directly, not a defect.
 
-- pure helpers — error mapping by code and status, filtering, tones, status labels, position labels,
-  wait notices, initials, attribution, prompt preview, relative time;
-- the queue reducer across the full lifecycle, including the two cases that are silently wrong if
-  unasserted: a repeated `queued` event must not duplicate a turn, and a `completed` naming a
-  non-active turn must not free the lock;
-- the store against a recording `fetch` — exact URLs, verbs, `Content-Type`, bodies, the 202 path,
-  the two 409 codes, a 401, and an unreachable Core;
-- the four transitions through `handleTeamTurnEvent` (what the socket layer calls), including the
-  silent transcript re-read on completion and the fact that a transition for another thread updates
-  only that thread and triggers no read;
-- static rendering of all four views across idle / processing / awaiting-approval, populated and
-  empty, loading, error and no-team states, plus an assertion that no markup carries a token.
-
-Server suite `TeamAgentService.test.ts`: **174/174** (was 162), the 12 new assertions covering the
-two added routes — including that a `PATCH` body naming `teamId` or `createdBy` moves neither, and
-that a second `DELETE` is 404 rather than 500.
-
-No browser/screenshot verification was run: this task's acceptance criteria are covered by the
-static-render suite, and the repo's puppeteer flow needs a running Core with a paired session.
+No screenshot/browser QA was run: this task's Definition of Done names typecheck/lint/test/build only, and the UI is covered by real `react-dom/server` renders in the web suite.
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `useTeamAgentStore` manages agents, threads, transcripts and queue state with complete REST
-  and Socket.IO synchronization** — all nine calls asserted against a recording `fetch` (§ 4 layer 3);
-  all four transitions asserted through `handleTeamTurnEvent` (layer 4); `applyTurnEventToQueue`
-  asserted independently across the full turn lifecycle.
-- [x] **2. `TeamAgentExplorer` renders agent cards, role badges, capability pills and thread entry
-  points** — `TeamAgentExplorerView shows what distinguishes one role from another`: name, role badge,
-  description, prompt preview, model, `MCP: github`, `Skills: No skills`, expanded thread list with
-  per-thread state, `aria-expanded`, collapsed count, empty and no-team states.
-- [x] **3. `CreateTeamAgentModal` validates inputs and configures persona prompts, models, MCP tools
-  and skills** — `the team agent draft round-trips through the form` (validation order, temperature
-  range and boundary, Selected-with-nothing-selected, `undefined` vs `[]`, trimming, PATCH body
-  carries no `teamId`) and `CreateTeamAgentModalView offers the whole persona` (every field by
-  aria-label, both selectors, disabled save, edit mode).
-- [x] **4. `ActiveTurnQueueInspector` displays turn state, active operator and FIFO queued items with
-  position badges and cancellation** — `ActiveTurnQueueInspectorView across the three thread states`:
-  all three badges distinct, operator named with start time, `#1`/`#2` in service order, one
-  withdraw button per *waiting* turn and none for the running one, in-flight and read-only variants.
-- [x] **5. `TeamThreadChatView` displays multi-user transcripts with author tags, assistant responses
-  and turn queue status** — `TeamThreadChatView attributes every line to somebody`: two members named
-  on their own lines, the agent's answer attributed to the role, timestamps, state badge, polite
-  generation indicator, the wait spelled out before typing, and the queue inspector embedded.
-- [x] **6. `TeamAgentUI.test.ts` passes with comprehensive coverage** — 282/282, wired into
-  `apps/web/package.json`'s `test` script and run as part of the web suite (§ 4).
-- [x] **7. Monorepo CI gates pass with 0 errors** — typecheck, lint, test and build green in all seven
-  workspaces (§ 4).
-
-Definition of Done: store ✔ · explorer + modal ✔ · inspector + chat view ✔ · navigation ✔ · test file ✔ ·
-`package.json` ✔ · CI gates ✔.
+- [x] **1. RBAC authorization** — `POST/PATCH/DELETE /api/v1/team-agents` and `DELETE /team-threads/:id/turns/:turnId` enforce membership and role, returning 403 with `code: FORBIDDEN`. Asserted in test § 17: viewer create 403, outsider create 403, member create 201, viewer patch 403 (and the prompt verified untouched), outsider patch 403, member delete 403, owner delete 200, another member's withdrawal 403 (turn verified still QUEUED), submitter's own 200, admin's override 200. Thread creation and turn submission are guarded on the same basis (viewer 403 for both).
+- [x] **2. Approval policy configuration** — `approvalPolicy` on `TeamAgent`, `TeamThread`, `CreateTeamAgentInput` and `UpdateTeamAgentInput`, persisted by migration 3. Test § 13: default is `ANY_MEMBER`, a policy given at creation survives, an unrecognised value is `INVALID_INPUT` (never silently defaulted), a patch that does not name it does not reset it, a thread override wins over its agent, and an unset thread policy resolves to the agent's.
+- [x] **3. Approval resolution** — `POST /api/v1/team-threads/:id/approvals` evaluates the caller against the policy, resumes or cancels the turn through the lock, appends the resolution to the transcript, and broadcasts `team_turn:approval_resolved`. Test § 15 (service) and § 17 (HTTP): a member is refused under `ADMIN_ONLY` with nothing written; an owner's approval returns the turn to `PROCESSING` with the answer on the row and in the transcript; a rejection cancels the turn, releases the lock to the next member, and survives a late answer from the abandoned executor; answering twice is 409; anonymous is 401; a body naming no turn is 400.
+- [x] **4. Project memory integration** — active rules, current intent and active decisions are composed into a brief and handed to the executor for project-bound threads. Test § 16: the brief orders rules before intent, carries severities, scopes, constraints and non-goals; a bound turn receives it; an unbound thread receives none; unreadable memory does not fail the turn. § 16b asserts the production executor publishes it once, does not repeat it into a session that already has it, sends it again when it changes, and always ahead of the instruction it governs.
+- [x] **5. UI approval controls** — `TurnApprovalCard` renders in both `ActiveTurnQueueInspector` and `TeamThreadChatView`. Render assertions: `aria-label="Approval required"`, whose turn is blocked with initials, the instruction, how long it has been parked, the policy badge, the policy requirement sentence, and both actions with per-turn accessible labels; a member under `ADMIN_ONLY` is offered no buttons and told why; the submitter may answer their own under `TURN_INITIATOR`; an in-flight answer disables both buttons.
+- [x] **6. Automated tests pass** — `TeamAgentService.test.ts` 299/299 and `TeamAgentUI.test.ts` 364/364, both 100%, including the new RBAC, approval and memory coverage.
+- [x] **7. Monorepo CI gates** — typecheck, lint, test and build are green across every workspace (see § 4 for the per-workspace commands used in place of the blocked root scripts).
 
 ## 6. Git Diff Review
 
-`git diff` reviewed file by file against the criteria above.
+Reviewed file by file against the criteria and the forbidden-changes list:
 
-- Seven new files under `apps/web/src/components/teamAgents/` and `apps/web/src/stores/`; no stray
-  scratch files, no `test-*.js` at any root.
-- Every type crossing the boundary is imported from `@asterim/shared` — no domain type is redeclared
-  in the dashboard.
-- No existing single-developer flow is altered: the changes to `App.tsx` are one import, one store
-  read, one tab and one mounted view; `useSocket` gains listeners and a room join and changes no
-  existing branch; `useViewStore` gains one union member.
-- `Icons.tsx` gains `IconUsers` only, in the file's existing style.
-- The two server routes are additive and sit beside the seven from P8-01, reusing that file's
-  `requireUser` / `requireObjectBody` / `sendTeamAgentError` guards.
-- `tests/report.md` was already modified in the working tree when this task began (the P8-01
-  verification gate report from the preceding session) and is **not** part of this commit.
+- **No duplicated types.** Every approval type is declared once in `@asterim/shared` and imported by both runtimes; the server and web each hold only their own presentation helpers.
+- **No weakened lock atomicity.** Approvals go through `markAwaitingApproval` / `resumeFromApproval` / `releaseTurn`; `AgentTurnLock` itself is unchanged in this diff. The parked turn keeps the lock, verified by asserting the turn behind it never reaches the executor while parked.
+- **No data-sovereignty regression.** No new network calls, no new payload leaving the host; the approval event rides the existing workspace-room bridge.
+- **No permission bypass introduced.** Guards read the owning team from the stored record, never from the request body; `PATCH` re-reads the agent before authorizing so a body naming another `teamId` cannot be used to pick the team the check runs against.
+- **Local fallback intact.** The unmanaged-team path is the only way past a guard, it requires zero membership rows in the team, and it is asserted both as a unit (`evaluateTeamApproval`) and through the pre-existing REST section, which runs entirely on unmanaged teams and still passes unchanged.
+- Two review findings were fixed before reporting: an unused exported `describeApprovalPolicy` on the server (removed — the web has its own wording) and an unused field on the route helper `teamOfThread`.
+
+`tests/report.md` is also modified in the working tree. That change was present before this task started (it is the orchestrator's P8-02 verification report) and is deliberately **not** included in this commit.
 
 ## 7. Problems Discovered
 
-1. **Two required routes did not exist.** The task specifies `PATCH` and `DELETE
-   /api/v1/team-agents/:id` for the store; P8-01 shipped seven routes and neither of these, though
-   `TeamAgentService.updateTeamAgent` / `.deleteTeamAgent` existed and were covered. Shipping the
-   store actions against absent endpoints would have meant an Edit button whose only outcome is a
-   404, so the two routes were added over the existing service methods — no new service behaviour —
-   with 12 route assertions. Flagged for review since it is outside the task's literal UI scope.
-2. **Completion carries no transcript event.** The Core appends the agent's answer to
-   `team_agent_messages` as the turn ends, and the only signal a client gets is `team_turn:completed`.
-   Handled with the silent refresh described in § 1; the alternative — a message event — is a Core
-   change and therefore a Change Proposal, not something to do quietly here.
-3. **The dashboard never joined a workspace room.** `socketManager` has handled `join_workspace`
-   since before this task, but nothing in the web app emitted it, so `workspaceId`-roomed events
-   reached no one. Now joined from its own effect, keyed on the team so switching teams re-joins.
-4. **`Date.now()` in a render body is a lint error** (`Cannot call impure function during render`).
-   The `now` prop is left undefined in the app and defaulted inside `formatRelativeTime`, a plain
-   module function, which keeps the clock read out of the render and keeps the rendered wording
-   assertable.
-5. **No display name exists in the dashboard.** There is no "current user" object in the web app, so
-   `submitTurn` sends no `userName` and the Core falls back to the session's user id. Attribution is
-   correct but reads as an id until a member profile exists. Noted for Antigravity.
+1. **A rejection races the executor.** Releasing the lock on rejection while the agent is still working meant a late `COMPLETED` could overwrite the cancellation. Solved with the rejection promise raced against the executor inside `runTurn`, plus a dedicated `TeamTurnRejectedError` so a refusal is not reported as a failure. Covered by an explicit "a late answer does not overwrite the rejection" assertion.
+2. **Nothing parked turns.** `AgentTurnLock.markAwaitingApproval` existed from P8-01 but had no caller, so `AWAITING_APPROVAL` was unreachable in the team path and untestable end to end. `TeamAgentService.markTurnAwaitingApproval` is now the seam that parks a turn (lock + durable row + thread row). The tool-call interception that will *call* it lives in the ordinary session path and is out of this task's scope.
+3. **`admin` does not hold `workspace:admin`.** In `RbacService` only `owner` has that permission, so "workspace:admin or owner" from the task would have excluded admins. `isTeamAdminRole` treats owner, admin, or any role holding `workspace:admin` as administering, which is what the task's prose intends.
+4. **A stale build fails a downstream suite** — see § 4; not a defect, and already handled by `turbo.json` for the root test run.
 
 ## 8. Architectural Concerns
 
-- **Where the team view lives.** `TeamAgentExplorer` is mounted inside `ProjectWorkspace`, so shared
-  agents are only reachable once a project is open. A team agent belongs to the team, not to a
-  project — a workspace-level route (`/workspace/team/...`) would match the domain better. Left as-is
-  because adding a top-level route is a navigation-architecture change, which belongs in a proposal.
-- **The socket bridge is `projectId`/`workspaceId`-driven.** Turn events for a thread bound to a
-  project are persisted into `events` and replayed on `session.history`. `applyHistory` does not
-  route them, so no stale queue is reconstructed on reload — but the rows accumulate. Worth
-  considering whether `team_turn:*` should be treated like `agent.log` and buffered rather than
-  persisted (ADR-008 territory).
-- **`recoverTurns` has no client counterpart.** On restart the Core fails turns that were mid-flight,
-  but a dashboard left open sees nothing until it refetches. A `team_turn:completed` broadcast during
-  recovery would close that gap.
+- **`TURN_INITIATOR` in the `viewer` block is answered against the caller when no turn is parked.** With nothing parked there is no initiator to compare against, so `canApprove` is computed as "could you approve your own turn". Clients should — and the shipped ones do — re-evaluate per parked turn via `canResolveApproval`; the Core is authoritative either way. Worth a look if the `viewer` block is ever used for anything but enabling a button.
+- **The approval rule is stated twice** (server `evaluateTeamApproval`, web `canResolveApproval`). Deliberate — the web copy only decides whether to render a control, and cannot grant anything — but it is a divergence risk if a fourth policy is ever added. If Antigravity would rather not carry it, the alternative is a per-turn `canApprove` on the queue payload.
+- **The memory brief goes into the shared session as a chat message**, so an adapter will answer it the way it answers the persona brief today. That is pre-existing behaviour for briefs, not new, but if it proves noisy the honest fix is an adapter-level "system context" channel rather than suppressing the brief.
+- **DEC-031 § 3 is now implemented but not yet triggered end to end**: no destructive-tool interception in the team path calls `markTurnAwaitingApproval`. Wiring the existing approval interception through to it is the natural next task.
 
 ## 9. Recommended Next Step
 
-Phase 8 Deliverable 4 — multi-user governance over the shared surface now that it is visible: RBAC on
-the team agent routes (who may edit a shared role or withdraw a colleague's turn), and the approval
-path for `AWAITING_APPROVAL` turns, which the inspector currently reports but offers no way to answer.
+**P8-04 — wire the existing destructive-tool approval interception into shared team threads**, so a team turn actually parks itself on `markTurnAwaitingApproval` when the adapter raises an approval prompt, and the prompt's own text (the command being approved) reaches the approval card instead of only the instruction. Everything downstream of that — policy, endpoint, transcript, broadcast, UI — is in place and tested.

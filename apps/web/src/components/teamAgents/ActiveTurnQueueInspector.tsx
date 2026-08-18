@@ -1,9 +1,21 @@
 import React from 'react';
-import type { TeamTurnQueueItem, TeamTurnQueueState } from '@asterim/shared';
+import { DEFAULT_TEAM_APPROVAL_POLICY } from '@asterim/shared';
+import type {
+  TeamApprovalDecision,
+  TeamApprovalPolicy,
+  TeamThreadViewer,
+  TeamTurnQueueItem,
+  TeamTurnQueueState
+} from '@asterim/shared';
 import {
   activeOperator,
+  approvalPolicyLabel,
+  approvalPolicyRequirement,
   authorInitials,
+  awaitingApprovalTurn,
   canCancelTurn,
+  canResolveApproval,
+  effectiveApprovalPolicy,
   formatRelativeTime,
   pendingTurnCount,
   queuePositionLabel,
@@ -60,12 +72,140 @@ const avatar: React.CSSProperties = {
   justifyContent: 'center'
 };
 
+export interface TurnApprovalCardProps {
+  /** The turn parked on a prompt. */
+  turn: TeamTurnQueueItem;
+  policy: TeamApprovalPolicy;
+  viewer?: TeamThreadViewer | null;
+  /** Absent for a read-only surface; then the card explains without offering. */
+  onResolve?: (turn: TeamTurnQueueItem, decision: TeamApprovalDecision) => void;
+  isResolving?: boolean;
+  now?: number;
+}
+
+/**
+ * The prompt a parked turn is waiting on, and who may answer it (DEC-031 § 3).
+ *
+ * Three things, and all three are needed for the card to be actionable rather
+ * than merely informative: whose turn is blocked and what it asked for; which
+ * policy is in force, so a member who cannot answer knows who to go and find;
+ * and the two answers, offered only to somebody the policy admits. Showing
+ * Approve to a viewer would be offering a button whose only outcome is a 403,
+ * and a shared thread stalled on a prompt nobody realises they must answer is
+ * exactly the failure the queue was built to make visible.
+ */
+export function TurnApprovalCard({
+  turn,
+  policy,
+  viewer = null,
+  onResolve,
+  isResolving = false,
+  now
+}: TurnApprovalCardProps) {
+  const tone = threadStateTone('AWAITING_APPROVAL');
+  const mayAnswer = canResolveApproval(policy, turn, viewer);
+
+  const action = (decision: TeamApprovalDecision, text: string, accent: string) => (
+    <button
+      onClick={() => onResolve?.(turn, decision)}
+      disabled={isResolving}
+      aria-label={`${text} the pending action on ${turn.userName}'s turn`}
+      style={{
+        padding: '5px 12px',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${accent}`,
+        background: 'transparent',
+        color: accent,
+        fontSize: 'var(--font-size-sm)',
+        fontWeight: 'var(--font-weight-semibold)',
+        cursor: isResolving ? 'default' : 'pointer',
+        opacity: isResolving ? 0.5 : 1
+      }}
+    >
+      {isResolving ? `${text}…` : text}
+    </button>
+  );
+
+  return (
+    <section
+      aria-label="Approval required"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        padding: 'var(--spacing-3)',
+        borderRadius: 'var(--radius-md)',
+        background: tone.background,
+        border: `1px solid ${tone.color}`
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ ...avatar, color: tone.color }} aria-hidden="true">
+          {authorInitials(turn.userName)}
+        </span>
+        <span
+          style={{
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 'var(--font-weight-semibold)',
+            color: tone.color
+          }}
+        >
+          {turn.userName}’s turn needs approval
+        </span>
+        <span style={{ ...chip, background: 'var(--color-surface-2)', color: tone.color }}>
+          {approvalPolicyLabel(policy)}
+        </span>
+        {turn.startedAt && (
+          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            parked {formatRelativeTime(turn.startedAt, now)}
+          </span>
+        )}
+      </div>
+
+      <p
+        style={{
+          margin: 0,
+          fontSize: '0.82rem',
+          color: 'var(--color-text-secondary)',
+          lineHeight: 1.4,
+          overflowWrap: 'anywhere'
+        }}
+      >
+        {turn.instruction}
+      </p>
+
+      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+        {approvalPolicyRequirement(policy)}
+      </p>
+
+      {onResolve && mayAnswer ? (
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {action('APPROVED', 'Approve', 'var(--color-accent-primary)')}
+          {action('REJECTED', 'Reject', 'var(--color-state-error)')}
+        </div>
+      ) : (
+        <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+          Your role cannot answer this one — the thread stays parked until somebody who can does.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export interface ActiveTurnQueueInspectorViewProps {
   queue: TeamTurnQueueState | null;
   /** Withdraw a queued turn. Absent for a read-only inspector. */
   onCancelTurn?: (turn: TeamTurnQueueItem) => void;
   /** Which withdrawal is in flight, so only its own row shows it. */
   cancellingTurnId?: string | null;
+  /** Answer the prompt a parked turn is waiting on. Absent when read-only. */
+  onResolveApproval?: (turn: TeamTurnQueueItem, decision: TeamApprovalDecision) => void;
+  /** Which approval answer is in flight. */
+  resolvingApprovalTurnId?: string | null;
+  /** The policy in force on this thread, which decides who may answer. */
+  approvalPolicy?: TeamApprovalPolicy;
+  /** Who is reading, as the Core reported them on this thread. */
+  viewer?: TeamThreadViewer | null;
   /**
    * Fixed clock, so the rendered wording can be asserted. Left undefined in the
    * app, where `formatRelativeTime` reads the clock — the read stays outside
@@ -86,12 +226,17 @@ export function ActiveTurnQueueInspectorView({
   queue,
   onCancelTurn,
   cancellingTurnId = null,
+  onResolveApproval,
+  resolvingApprovalTurnId = null,
+  approvalPolicy = DEFAULT_TEAM_APPROVAL_POLICY,
+  viewer = null,
   now
 }: ActiveTurnQueueInspectorViewProps) {
   const state = queue?.state ?? 'IDLE';
   const tone = threadStateTone(state);
   const operator = activeOperator(queue);
   const waiting = queue?.queuedTurns ?? [];
+  const parked = awaitingApprovalTurn(queue);
 
   return (
     <section
@@ -168,18 +313,31 @@ export function ActiveTurnQueueInspectorView({
         </p>
       )}
 
-      {queue?.activeTurn && (
-        <p
-          style={{
-            margin: 0,
-            fontSize: '0.82rem',
-            color: 'var(--color-text-secondary)',
-            lineHeight: 1.4,
-            overflowWrap: 'anywhere'
-          }}
-        >
-          {queue.activeTurn.instruction}
-        </p>
+      {parked ? (
+        // The instruction is inside the card in this case, so it is not also
+        // repeated above it.
+        <TurnApprovalCard
+          turn={parked}
+          policy={approvalPolicy}
+          viewer={viewer}
+          onResolve={onResolveApproval}
+          isResolving={resolvingApprovalTurnId === parked.id}
+          now={now}
+        />
+      ) : (
+        queue?.activeTurn && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: '0.82rem',
+              color: 'var(--color-text-secondary)',
+              lineHeight: 1.4,
+              overflowWrap: 'anywhere'
+            }}
+          >
+            {queue.activeTurn.instruction}
+          </p>
+        )
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
@@ -278,6 +436,14 @@ export function ActiveTurnQueueInspector() {
   const activeThread = useTeamAgentStore(state => state.activeThread);
   const cancellingTurnId = useTeamAgentStore(state => state.cancellingTurnId);
   const cancelTurn = useTeamAgentStore(state => state.cancelTurn);
+  const viewer = useTeamAgentStore(state => state.viewer);
+  const resolvingApprovalTurnId = useTeamAgentStore(state => state.resolvingApprovalTurnId);
+  const resolveApproval = useTeamAgentStore(state => state.resolveApproval);
+  const agents = useTeamAgentStore(state => state.teamAgents);
+
+  const agent = activeThread
+    ? agents.find(entry => entry.id === activeThread.teamAgentId) ?? null
+    : null;
 
   return (
     <ActiveTurnQueueInspectorView
@@ -285,6 +451,14 @@ export function ActiveTurnQueueInspector() {
       cancellingTurnId={cancellingTurnId}
       onCancelTurn={
         activeThread ? turn => void cancelTurn(activeThread.id, turn.id) : undefined
+      }
+      approvalPolicy={effectiveApprovalPolicy(activeThread, agent)}
+      viewer={viewer}
+      resolvingApprovalTurnId={resolvingApprovalTurnId}
+      onResolveApproval={
+        activeThread
+          ? (turn, decision) => void resolveApproval(activeThread.id, turn.id, decision)
+          : undefined
       }
     />
   );
