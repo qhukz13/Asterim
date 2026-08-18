@@ -22,7 +22,7 @@
  *      A turn that is already being served refuses.
  *   6. **The broadcast.** Every transition reaches the room, in order, with the
  *      queue position a dashboard would render.
- *   7. **The REST surface.** All seven routes, their status codes, and the two
+ *   7. **The REST surface.** All nine routes, their status codes, and the two
  *      guards that matter: anonymous requests are refused, and the author of a
  *      turn comes from the session rather than the body.
  *
@@ -1199,6 +1199,44 @@ async function main(): Promise<void> {
     equal('reading a missing one is 404', missing.statusCode, 404);
     equal('with a NOT_FOUND code', missing.json().code, 'AGENT_NOT_FOUND');
 
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/team-agents/${restAgent.id}`,
+      payload: {
+        name: 'REST Lead II',
+        // Ignored: neither may be moved by a body. The agent belongs to the
+        // team it was created in, and was authored by whoever created it.
+        teamId: 'team-someone-else',
+        createdBy: 'user-impostor'
+      }
+    });
+    equal('patching a team agent is 200', patched.statusCode, 200);
+    equal('and the change is applied', patched.json().agent.name, 'REST Lead II');
+    equal('without moving it between teams', patched.json().agent.teamId, 'team-rest');
+    equal('or rewriting who authored it', patched.json().agent.createdBy, 'user-rest');
+
+    const badPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/team-agents/${restAgent.id}`,
+      payload: { name: '' }
+    });
+    equal('a malformed patch is 400', badPatch.statusCode, 400);
+
+    const missingPatch = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/team-agents/tagent_nope',
+      payload: { name: 'x' }
+    });
+    equal('patching a missing agent is 404', missingPatch.statusCode, 404);
+
+    const anonymousPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/team-agents/${restAgent.id}`,
+      payload: { name: 'x' },
+      headers: { 'x-anonymous': 'yes' }
+    });
+    equal('and an anonymous one is 401', anonymousPatch.statusCode, 401);
+
     const threadCreated = await app.inject({
       method: 'POST',
       url: `/api/v1/team-agents/${restAgent.id}/threads`,
@@ -1315,6 +1353,31 @@ async function main(): Promise<void> {
     });
     equal('withdrawing a turn that already finished is 200', settledCancel.statusCode, 200);
     equal('and reports what it settled as', settledCancel.json().turn.status, 'FAILED');
+
+    const anonymousDelete = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/team-agents/${restAgent.id}`,
+      headers: { 'x-anonymous': 'yes' }
+    });
+    equal('an anonymous delete is 401', anonymousDelete.statusCode, 401);
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/team-agents/${restAgent.id}`
+    });
+    equal('deleting a team agent is 200', deleted.statusCode, 200);
+    equal('the agent is gone', teamAgentService.getTeamAgent(restAgent.id), null);
+    equal(
+      'and its collaborative threads went with it',
+      teamAgentService.getTeamThread(restThread.id),
+      null
+    );
+
+    const deletedAgain = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/team-agents/${restAgent.id}`
+    });
+    equal('deleting it twice is 404, not 500', deletedAgain.statusCode, 404);
 
     await app.close();
   }

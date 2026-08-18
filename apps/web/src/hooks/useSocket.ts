@@ -25,6 +25,12 @@ import {
   handleDelegationEvent,
   isDelegationEvent
 } from '../stores/useProjectStore';
+import {
+  TEAM_TURN_EVENT_TYPES,
+  handleTeamTurnEvent,
+  isTeamTurnEvent
+} from '../stores/useTeamAgentStore';
+import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 export interface ChatMessage {
   id: string;
@@ -206,6 +212,9 @@ export function useSocket(
         newSocket.emit('join_tunnel', projectId);
       } else {
         newSocket.emit('join_project', projectId);
+        // The team room is joined by the effect below rather than here: it has
+        // to be re-joined when the active team changes as well as when the
+        // socket is rebuilt, and one place deciding it is one place to be wrong.
       }
     });
 
@@ -326,6 +335,15 @@ export function useSocket(
         return;
       }
 
+      // Team turns are scoped to a collaborative thread rather than to the
+      // thread open in this tab, so like delegation they are routed before the
+      // thread filter below — a member watching the queue move is watching
+      // somebody else's turn, by definition.
+      if (isTeamTurnEvent(event)) {
+        handleTeamTurnEvent(event.type, event.payload);
+        return;
+      }
+
       // Thread-specific filtering
       if (
         threadIdRef.current &&
@@ -434,6 +452,13 @@ export function useSocket(
       newSocket.on(delegationType, handleInternalEvent);
     }
 
+    // The four team turn transitions (P8-02). They arrive through the workspace
+    // room joined above, and carry a projectId as well when the thread is bound
+    // to one.
+    for (const turnType of TEAM_TURN_EVENT_TYPES) {
+      newSocket.on(turnType, handleInternalEvent);
+    }
+
     newSocket.on('memory.decision_created', handleInternalEvent);
     newSocket.on('memory.decision_superseded', handleInternalEvent);
     newSocket.on('memory.decision_updated', handleInternalEvent);
@@ -450,6 +475,18 @@ export function useSocket(
       setIsE2EReady(false);
     };
   }, [projectId]); // Don't reconnect on threadId change!
+
+  // Switching team without switching project would otherwise leave the socket
+  // in the old team's room, so a shared thread's queue would stop moving on
+  // screen while it kept moving on the Core (P8-02). The socket itself is only
+  // rebuilt on a project change, which is why this is its own effect.
+  const activeTeamId = useWorkspaceStore(s => s.activeEnvironmentId);
+  useEffect(() => {
+    const sock = socketRef.current;
+    if (!sock || !connected || !activeTeamId) return;
+    if (projectId && projectId.length === 6) return; // relay tunnels have no rooms
+    sock.emit('join_workspace', activeTeamId);
+  }, [activeTeamId, connected, projectId]);
 
   const sendInternalEvent = async (type: string, payload: any) => {
     const sock = socketRef.current;

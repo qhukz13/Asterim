@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
-import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode } from './components/icons/Icons';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode, IconUsers } from './components/icons/Icons';
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { SessionSidebar } from './components/SessionSidebar';
@@ -23,6 +23,7 @@ import { ChangesView } from './components/git/ChangesView';
 import { DecisionExplorer } from './components/memory/DecisionExplorer';
 import { McpServerExplorer } from './components/mcp/McpServerExplorer';
 import { SkillsExplorer } from './components/skills/SkillsExplorer';
+import { TeamAgentExplorer } from './components/teamAgents/TeamAgentExplorer';
 import { ContextView } from './components/workspace/ContextView';
 import { DelegationStatus, ThreadSandboxStatus } from './components/delegation/DelegationStatus';
 import { DelegateModal } from './components/delegation/DelegateModal';
@@ -357,6 +358,10 @@ function ProjectWorkspace({
     systemStatus && systemStatus.binaries && !systemStatus.binaries[agentType];
 
   const activeTab = useViewStore(s => s.activeView);
+  // The team a shared agent belongs to is the active environment (P8-02): an
+  // environment is a workspace, and a workspace is what the Core rooms team
+  // turn events by.
+  const activeEnvironmentId = useWorkspaceStore(s => s.activeEnvironmentId);
   useDebugLifecycle('ProjectWorkspace', { project: project?.id, activeBackendUrl, activeTab, activeThreadId });
 
   useEffect(() => {
@@ -666,6 +671,27 @@ function ProjectWorkspace({
             <IconFileCode size={15} /> Skills
           </button>
           <button
+            className={`nav-btn ${activeTab === 'team' ? 'active' : ''}`}
+            style={{
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'team' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'team' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderBottom: activeTab === 'team' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onClick={() => setActiveTab('team')}
+          >
+            <IconUsers size={15} /> Team
+          </button>
+          <button
             className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
             style={{
               padding: '8px 18px',
@@ -870,6 +896,12 @@ function ProjectWorkspace({
       </div>
       <div style={{ display: activeTab === 'skills' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <SkillsExplorer workspacePath={project.path} />
+      </div>
+      {/* Shared team agents (P8-02). Scoped to the active environment, which is
+          the team: a shared role belongs to the group, not to this project, and
+          the project is passed only so a new thread has a checkout to run in. */}
+      <div style={{ display: activeTab === 'team' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+        <TeamAgentExplorer teamId={activeEnvironmentId} projectId={project.id} />
       </div>
       <div style={{ display: activeTab === 'workspace' || activeTab === 'environment' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <EnvironmentSettingsView />

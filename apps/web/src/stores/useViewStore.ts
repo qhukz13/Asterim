@@ -7,6 +7,8 @@ export type ViewType =
   | 'memory'
   | 'mcp'
   | 'skills'
+  /** Shared team agents and their collaborative threads (P8-02). */
+  | 'team'
   | 'settings'
   | 'workspace'
   | 'environment';
@@ -23,7 +25,7 @@ interface ViewState {
 
 export const useViewStore = create<ViewState>((set) => ({
   activeView: 'chat',
-  availableViews: ['chat', 'terminal', 'changes', 'memory', 'skills', 'settings', 'workspace', 'environment'],
+  availableViews: ['chat', 'terminal', 'changes', 'memory', 'skills', 'team', 'settings', 'workspace', 'environment'],
   viewHistory: [],
   perThreadViewState: {},
   

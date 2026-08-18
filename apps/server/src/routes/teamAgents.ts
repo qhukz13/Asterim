@@ -1,9 +1,10 @@
 /**
  * The Shared Team Agent REST surface (P8-01, DEC-031).
  *
- * Seven routes over `TeamAgentService`: create and read the shared roles, open
- * a collaborative thread on one, read that thread's transcript and queue, put
- * an instruction into the queue, and take one back out.
+ * Nine routes over `TeamAgentService`: create, read, change and retire the
+ * shared roles, open a collaborative thread on one, read that thread's
+ * transcript and queue, put an instruction into the queue, and take one back
+ * out.
  *
  * Two things are decided here rather than in the service.
  *
@@ -118,6 +119,51 @@ export default async function teamAgentRoutes(fastify: FastifyInstance) {
     try {
       const agent = teamAgentService.requireTeamAgent(id);
       return reply.send({ agent, threads: teamAgentService.listTeamThreads(agent.id) });
+    } catch (err) {
+      return sendTeamAgentError(reply, err);
+    }
+  });
+
+  // PATCH /api/v1/team-agents/:id — change a shared role
+  //
+  // Editing is a team-visible act: the system prompt here is what every
+  // member's next turn runs under, so it goes through the same authenticated
+  // surface as creating one rather than being a client-side preference.
+  fastify.patch('/api/v1/team-agents/:id', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    const body = (request.body as Record<string, unknown> | null) ?? null;
+    if (!requireObjectBody(body, reply, 'team agent')) return reply;
+
+    try {
+      // Passed through field by field rather than spread, so a body naming
+      // `teamId` or `createdBy` cannot move an agent between teams or rewrite
+      // who authored it.
+      const agent = teamAgentService.updateTeamAgent(id, {
+        name: body!.name as string | undefined,
+        role: body!.role as string | undefined,
+        description: body!.description as string | undefined,
+        systemPrompt: body!.systemPrompt as string | undefined,
+        model: body!.model as string | undefined,
+        temperature: body!.temperature as number | undefined,
+        enabledMcpServers: body!.enabledMcpServers as string[] | undefined,
+        enabledSkills: body!.enabledSkills as string[] | undefined
+      });
+      return reply.send({ agent });
+    } catch (err) {
+      return sendTeamAgentError(reply, err);
+    }
+  });
+
+  // DELETE /api/v1/team-agents/:id — retire a shared role
+  fastify.delete('/api/v1/team-agents/:id', async (request, reply) => {
+    if (!requireUser(request, reply)) return reply;
+
+    const { id } = request.params as { id: string };
+    try {
+      teamAgentService.deleteTeamAgent(id);
+      return reply.send({ deleted: true, id });
     } catch (err) {
       return sendTeamAgentError(reply, err);
     }
