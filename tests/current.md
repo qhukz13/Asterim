@@ -1,22 +1,27 @@
-Task-ID: P8-02
+Task-ID: P8-03
 
 ## Verification Commands
 1. Run Typecheck:
    `pnpm run typecheck`
-   PASS: 0 TypeScript errors across 11 Turbo tasks.
+   PASS: 0 TypeScript errors across all workspace packages.
 
 2. Run Lint:
    `pnpm run lint`
    PASS: 0 ESLint errors across 7 workspace packages.
 
-3. Run Team Agent UI Unit & Integration Tests:
+3. Run Team Agent Backend Integration Tests:
+   `pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts`
+   PASS: All team agent RBAC, approval policy, and memory integration assertions pass.
+
+4. Run Team Agent UI Integration Tests:
    `pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts`
-   PASS: All team agent UI, store, and turn queue inspector assertions pass with exit code 0.
+   PASS: All frontend approval and store assertions pass.
 
-4. Run Full Monorepo Test Battery:
+5. Run Full Monorepo Test Battery:
    `pnpm run test`
-   PASS: All 49+ test suites pass with 0 failures across 5,800+ assertions.
+   PASS: All test suites pass with 0 failures.
 
-5. Run Production Build:
+6. Run Production Build:
    `pnpm run build`
-   PASS: All 7 Turbo packages build successfully.
+   PASS: All Turbo packages build successfully.
+

@@ -1,9 +1,9 @@
-Task-ID: P8-02
+Task-ID: P8-03
 Phase: 8
 
-# [P8-02] — Collaborative Multi-User Web UI & Team Turn Queue Inspector
+# [P8-03] — Multi-User Governance, Role-Based Turn Approvals & Team Project Memory Integration
 
-**Task ID:** P8-02  
+**Task ID:** P8-03  
 **Phase:** Phase 8 — Collaborative Team Agents & Multi-User Governance  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
@@ -14,115 +14,128 @@ Phase: 8
 
 ## 1. Objective
 
-Build the Web UI for Shared Team Agents and Collaborative Threads (`DEC-031` / `blueprint/ROADMAP.md` Phase 8 Deliverable 3): author `useTeamAgentStore.ts` in `apps/web/src/stores/` to manage team agents, collaborative threads, transcripts, and real-time Socket.IO turn events (`team_turn:queued`, `team_turn:started`, `team_turn:completed`, `team_turn:cancelled`); build the Team Agent Explorer (`TeamAgentExplorer.tsx`), Collaborative Thread Chat (`TeamThreadChatView.tsx`), and the Active Turn Queue Inspector (`ActiveTurnQueueInspector.tsx`); integrate into Asterim navigation and session views; and author a comprehensive frontend unit/integration test suite in `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts`.
+Implement multi-user governance and team approval mechanics for Shared Team Agents (`DEC-031` / `blueprint/ROADMAP.md` Phase 8 Deliverable 4): author team-scoped RBAC authorization across all team agent REST routes (`POST/PATCH/DELETE /api/v1/team-agents`, turn withdrawals); implement role-based approval governance (`ANY_MEMBER`, `ADMIN_ONLY`, `TURN_INITIATOR`) for turns parked in `AWAITING_APPROVAL` with dedicated resolution endpoint (`POST /api/v1/team-threads/:id/approvals`) and Socket.IO state synchronization; integrate Team Project Memory (standing architectural rules, active intents, and decisions from `ProjectMemoryCore`) into team turn execution context; update `useTeamAgentStore.ts` and `ActiveTurnQueueInspector.tsx` / `TeamThreadChatView.tsx` with approval actions; and expand automated test suites in `TeamAgentService.test.ts` and `TeamAgentUI.test.ts`.
 
 ---
 
 ## 2. Why This Task Exists
 
-In P8-01, the Shared Team Agent primitive, database schema (v2), the Turn Concurrency Engine (`AgentTurnLock.ts`), and `TeamAgentService.ts` REST routes were implemented and verified with 100% test coverage.
+In P8-01 and P8-02, the Shared Team Agent primitive, database schema, Turn Concurrency Engine (`AgentTurnLock.ts`), REST routes, and collaborative dashboard UI were implemented. However, two critical governance requirements from `blueprint/ROADMAP.md` and `decisions.md` (DEC-031 § 3) remain incomplete:
 
-Engineering teams now require the visual interface to create, discover, and interact with these persistent shared agent roles (e.g. "Tech Lead", "Security Reviewer", "Database Architect"). The UI must provide real-time visibility into the shared transcript, show which team member authored each prompt, display the active turn state (`PROCESSING_TURN`, `AWAITING_APPROVAL`, `IDLE`), and visualize the FIFO turn queue so team members understand their place in line without prompt collisions.
-
----
-
-## 3. Context & Architecture (DEC-031, DEC-032 & STORE_ARCHITECTURE.md)
-
-- **State Management (`useTeamAgentStore.ts`)**:
-  - Scoped to the active workspace/team and selected collaborative thread.
-  - Manages `teamAgents: TeamAgent[]`, `teamThreads: Record<string, TeamThread[]>`, `activeThread: TeamThread | null`, `activeTranscript: TeamAgentMessage[]`, `activeQueueState: TeamTurnQueueState | null`, `turnHistory: TeamTurnQueueItem[]`.
-  - REST Integration:
-    - `fetchTeamAgents(teamId: string)` (`GET /api/v1/team-agents?teamId=`)
-    - `createTeamAgent(input: CreateTeamAgentInput)` (`POST /api/v1/team-agents`)
-    - `updateTeamAgent(id: string, input: UpdateTeamAgentInput)` (`PATCH /api/v1/team-agents/:id`)
-    - `deleteTeamAgent(id: string)` (`DELETE /api/v1/team-agents/:id`)
-    - `fetchTeamThread(id: string)` (`GET /api/v1/team-threads/:id`)
-    - `createTeamThread(agentId: string, input: { title: string; projectId?: string })` (`POST /api/v1/team-agents/:id/threads`)
-    - `submitTurn(threadId: string, instruction: string, context?: unknown)` (`POST /api/v1/team-threads/:id/turns`) — handles `202 Accepted` response
-    - `cancelTurn(threadId: string, turnId: string)` (`DELETE /api/v1/team-threads/:id/turns/:turnId`)
-  - Real-Time Socket.IO Synchronization:
-    - Listens for `team_turn:queued`, `team_turn:started`, `team_turn:completed`, `team_turn:cancelled` events from `@asterim/shared`.
-    - Updates `activeQueueState`, thread turn status, active turn item, and queue positions in real time.
-- **Component Architecture (`apps/web/src/components/teamAgents/`)**:
-  - `TeamAgentExplorer.tsx`: Card grid / list of team agents in the active workspace. Displays name, role badge, description, system prompt preview, capability indicators (MCP servers, skills), model, and attached collaborative threads.
-  - `CreateTeamAgentModal.tsx`: Modal for creating and editing team agents with role prompt editing, MCP tool selector, and skill selector.
-  - `TeamThreadChatView.tsx`: Collaborative multi-user chat view. Renders transcript messages (`TeamAgentMessage`) with distinct user badges (`userName`), agent responses, and active generation indicators. Includes input area for queueing instructions.
-  - `ActiveTurnQueueInspector.tsx`: Live turn queue drawer/panel displaying:
-    - Thread status badge (`IDLE`, `PROCESSING_TURN`, `AWAITING_APPROVAL`).
-    - Active operator indicator (avatar, name, started timestamp).
-    - Ordered FIFO pending turns list with queue position badges (`#1 in queue`, `#2 in queue`), submission timestamps, and operator cancel button (`DELETE /turns/:id`).
-- **Design System & Styling (`tokens.css`)**:
-  - Adhere to `blueprint/DESIGN_SYSTEM.md`: monochrome surfaces (`--color-surface-*`), surgical emerald accent (`--color-accent-*`), status tokens (`--color-state-*`), typography tokens (`--font-family-mono`, `--font-family-sans`), keyboard accessibility, and ARIA attributes (`aria-expanded`, `aria-live="polite"`).
+1. **Unchecked Team Agent Modification & Deletion**: As noted in previous verification reports, `PATCH /api/v1/team-agents/:id`, `DELETE /api/v1/team-agents/:id`, and turn withdrawals currently only verify authentication (`requireUser`), without asserting workspace team membership or RBAC permissions (`RbacService`). Any authenticated user could modify shared team prompts or delete colleagues' queued instructions.
+2. **Unresolvable `AWAITING_APPROVAL` State**: When a destructive tool call or security checkpoint transitions a turn to `AWAITING_APPROVAL`, there is no endpoint or UI action to approve or reject the action based on configured approval policies (`ANY_MEMBER`, `ADMIN_ONLY`, `TURN_INITIATOR`).
+3. **Missing Team Memory Ingestion**: Shared team agents currently execute turns with static system prompts without injecting team-wide standing architectural rules, active project intents, and confirmed architectural decisions from `ProjectMemoryCore`.
 
 ---
 
-## 4. Implementation Scope
+## 3. Context & Architecture (DEC-031, DEC-028 & ARCHITECTURE.md)
 
-1. **`useTeamAgentStore.ts` (`apps/web/src/stores/useTeamAgentStore.ts`)**:
-   - Complete Zustand store with all agent CRUD, thread management, turn submission (202 handling), turn cancellation, and Socket.IO turn transition event listeners.
-   - Clean hydration and error handling states.
-
-2. **UI Components (`apps/web/src/components/teamAgents/`)**:
-   - `TeamAgentExplorer.tsx` — Team agent discovery and listing.
-   - `CreateTeamAgentModal.tsx` — Team agent creation and editing modal.
-   - `TeamThreadChatView.tsx` — Collaborative transcript and multi-user chat view.
-   - `ActiveTurnQueueInspector.tsx` — Live turn queue and concurrency inspector.
-
-3. **Navigation & View Integration**:
-   - Integrate Team Agent Explorer and Collaborative Thread views into navigation sidebar / workspace shell / router as appropriate.
-
-4. **Automated Unit & Integration Test Suite (`apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts`)**:
-   - Pure helper assertions (filtering, queue position calculations, status badge resolution).
-   - `useTeamAgentStore` assertions against recording `fetch` (verifying exact REST URLs, HTTP verbs, payload serialization, 202 Accepted handling, and error codes).
-   - Socket.IO event handler assertions (`team_turn:queued`, `team_turn:started`, `team_turn:completed`, `team_turn:cancelled` updating store state).
-   - Component static markup rendering assertions (`react-dom/server`) across all views and queue states.
-   - Wire into `apps/web/package.json` `"test"` script.
-
----
-
-## 5. Constraints & Forbidden Changes
-
-- Import all team agent types, queue states, and event constants from `@asterim/shared` — do NOT duplicate types.
-- Follow `blueprint/DESIGN_SYSTEM.md` and `blueprint/STORE_ARCHITECTURE.md` strictly.
-- Do NOT alter existing single-developer chat or delegation UI workflows.
-- Maintain 100% test pass rate across all existing monorepo test suites.
+- **Role-Based Approval Governance (`DEC-031` § 3)**:
+  - Add `approvalPolicy?: 'ANY_MEMBER' | 'ADMIN_ONLY' | 'TURN_INITIATOR'` (default `'ANY_MEMBER'`) to `TeamAgent` and `TeamThread`.
+  - When an active turn requires tool confirmation, it enters `AWAITING_APPROVAL` via `AgentTurnLock.markAwaitingApproval`.
+  - Authorize approval resolution against the configured policy:
+    - `'ADMIN_ONLY'`: Caller must hold `admin` or `owner` role in the workspace team.
+    - `'TURN_INITIATOR'`: Caller must be the `userId` who submitted the turn (or an `admin`/`owner`).
+    - `'ANY_MEMBER'`: Caller must be an authenticated member of the workspace team with `agent:approve` permission.
+  - Answering approvals (`POST /api/v1/team-threads/:id/approvals`):
+    - Payload: `{ turnId: string; decision: 'APPROVED' | 'REJECTED'; comment?: string }`.
+    - If `APPROVED`: resume turn execution via `AgentTurnLock.resumeFromApproval` and record approval in transcript.
+    - If `REJECTED`: fail/cancel turn via `AgentTurnLock.releaseTurn(threadId, turnId, { status: 'CANCELLED', errorMessage })`, record rejection in transcript, and advance the queue.
+- **Team-Scoped RBAC Enforcement (`RbacService.ts`)**:
+  - `POST /api/v1/team-agents`: User must be a member of `teamId` with `workspace:write` or `workspace:admin`.
+  - `PATCH /api/v1/team-agents/:id`: User must be a member of the agent's `teamId` with `workspace:write` or `workspace:admin`.
+  - `DELETE /api/v1/team-agents/:id`: User must be a member of the agent's `teamId` with `workspace:admin` or `owner`.
+  - `DELETE /api/v1/team-threads/:id/turns/:turnId`: User must be either the turn submitter (`userId === request.user.sub`) or hold `admin`/`owner` in the workspace team.
+  - Return standard HTTP 403 Forbidden with `AuthErrorCode.FORBIDDEN` / `INSUFFICIENT_PERMISSIONS` on unauthorized operations.
+- **Team Project Memory Integration (`ProjectMemoryCore` / `TeamAgentService`)**:
+  - In `TeamAgentService.runTurn`, if `thread.projectId` is set, query active architectural rules, active intents, and relevant confirmed decisions.
+  - Inject these constraints into the turn context / execution prompt alongside the agent's `systemPrompt` so the shared agent enforces team standards.
+- **Web UI & Store Integration**:
+  - Update `useTeamAgentStore.ts` with `resolveApproval(threadId, turnId, decision, comment)`.
+  - In `ActiveTurnQueueInspector.tsx` and `TeamThreadChatView.tsx`, render interactive approval cards when `state === 'AWAITING_APPROVAL'` showing policy requirements, submitter attribution, and Approve / Reject action buttons.
 
 ---
 
-## 6. Acceptance Criteria
+## 4. Repository Evidence
 
-1. `useTeamAgentStore` manages team agents, threads, transcripts, and queue state, with complete REST API and Socket.IO event synchronization.
-2. `TeamAgentExplorer` renders agent cards, role badges, capability pills, and collaborative thread entry points.
-3. `CreateTeamAgentModal` validates inputs and supports configuring persona system prompts, models, MCP tools, and skills.
-4. `ActiveTurnQueueInspector` displays active turn state (`IDLE` / `PROCESSING_TURN` / `AWAITING_APPROVAL`), active operator, and FIFO queued items with position badges and cancellation buttons.
-5. `TeamThreadChatView` displays collaborative multi-user transcripts with user author tags, assistant responses, and turn queue status.
-6. `TeamAgentUI.test.ts` passes with comprehensive coverage across helpers, store actions, Socket.IO updates, and component rendering.
-7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
-
----
-
-## 7. Definition of Done
-
-- [ ] `useTeamAgentStore.ts` implemented and exported
-- [ ] `TeamAgentExplorer.tsx` & `CreateTeamAgentModal.tsx` created
-- [ ] `ActiveTurnQueueInspector.tsx` & `TeamThreadChatView.tsx` created
-- [ ] Views integrated into dashboard navigation
-- [ ] `TeamAgentUI.test.ts` created and passing
-- [ ] `apps/web/package.json` test script updated
-- [ ] Monorepo CI gates pass cleanly
+- `apps/server/src/services/ai/TeamAgentService.ts` — Core service owning agent CRUD, transcripts, queue execution, and turn lifecycle.
+- `apps/server/src/services/ai/AgentTurnLock.ts` — Concurrency engine managing `markAwaitingApproval`, `resumeFromApproval`, and turn releases.
+- `apps/server/src/routes/teamAgents.ts` — Fastify REST endpoints for team agents, collaborative threads, turns, and approvals.
+- `apps/server/src/services/RbacService.ts` — Workspace membership and role permission verifier.
+- `packages/shared/src/types/teamAgent.ts` — Shared domain types, event constants, and approval policy interfaces.
+- `apps/web/src/stores/useTeamAgentStore.ts` — Zustand store for team agent state and socket subscriptions.
+- `apps/web/src/components/teamAgents/ActiveTurnQueueInspector.tsx` — Live queue drawer and turn status display.
+- `apps/web/src/components/teamAgents/TeamThreadChatView.tsx` — Collaborative transcript and chat view.
 
 ---
 
-## 8. Verification Commands
+## 5. Implementation Scope
+
+1. **Shared Types (`packages/shared/src/types/teamAgent.ts`)**:
+   - Add `TeamApprovalPolicy` (`'ANY_MEMBER' | 'ADMIN_ONLY' | 'TURN_INITIATOR'`), `TeamTurnApprovalRequest`, `TeamTurnApprovalResult`, and `TEAM_TURN_APPROVAL_EVENT` constants.
+   - Update `TeamAgent`, `CreateTeamAgentInput`, and `UpdateTeamAgentInput` to optionally specify `approvalPolicy`.
+
+2. **Server RBAC & Approval Enforcement (`apps/server/src/services/ai/TeamAgentService.ts` & `apps/server/src/routes/teamAgents.ts`)**:
+   - Add `resolveTurnApproval(threadId: string, turnId: string, userId: string, decision: 'APPROVED' | 'REJECTED', comment?: string)` in `TeamAgentService`.
+   - Register route `POST /api/v1/team-threads/:id/approvals` enforcing workspace membership and policy rules.
+   - Apply workspace membership and role authorization guards (`rbacService`) to `POST /api/v1/team-agents`, `PATCH /api/v1/team-agents/:id`, `DELETE /api/v1/team-agents/:id`, and `DELETE /api/v1/team-threads/:id/turns/:turnId`.
+
+3. **Team Project Memory Context Injection (`TeamAgentService.ts`)**:
+   - Integrate team architectural rules, active intents, and decisions into the execution payload during `runTurn`.
+
+4. **Web UI Approval Actions & Store (`apps/web/src/stores/useTeamAgentStore.ts` & `apps/web/src/components/teamAgents/`)**:
+   - Add `resolveApproval` action to `useTeamAgentStore`.
+   - Render Approve and Reject action buttons in `ActiveTurnQueueInspector` and `TeamThreadChatView` when a turn is awaiting approval.
+
+5. **Automated Unit & Integration Tests**:
+   - Expand `apps/server/src/services/ai/__tests__/TeamAgentService.test.ts` to assert RBAC permissions, approval policies (`ADMIN_ONLY`, `TURN_INITIATOR`, `ANY_MEMBER`), approval resolutions, and memory context injection.
+   - Expand `apps/web/src/components/teamAgents/__tests__/TeamAgentUI.test.ts` with assertions for approval store actions, disabled states for unauthorized roles, and approval card rendering.
+
+---
+
+## 6. Explicitly Forbidden Changes
+
+- Do NOT weaken data sovereignty (`DEC-028` / `DEC-032`); all agent transcripts, memory, and code must stay on the host workstation.
+- Do NOT bypass `AgentTurnLock` atomicity guarantees when resolving or rejecting approvals.
+- Do NOT duplicate shared types between server and web packages; import exclusively from `@asterim/shared`.
+- Do NOT break existing single-developer sessions or unauthenticated local fallback modes.
+
+---
+
+## 7. Acceptance Criteria
+
+1. **RBAC Authorization**: `POST/PATCH/DELETE /api/v1/team-agents` and `DELETE /api/v1/team-threads/:id/turns/:turnId` enforce workspace team membership and role permissions, returning 403 when forbidden.
+2. **Approval Policy Configuration**: Team agents and threads support `approvalPolicy` (`'ANY_MEMBER' | 'ADMIN_ONLY' | 'TURN_INITIATOR'`).
+3. **Approval Resolution**: `POST /api/v1/team-threads/:id/approvals` correctly evaluates caller permissions against the approval policy, resumes or cancels the turn, appends the resolution to the transcript, and broadcasts the transition.
+4. **Project Memory Integration**: Active team architectural rules and project decisions are injected into the team turn execution prompt for bound projects.
+5. **UI Approval Controls**: `ActiveTurnQueueInspector` and `TeamThreadChatView` render approval prompts with author attribution and Approve / Reject controls.
+6. **Automated Tests Pass**: `TeamAgentService.test.ts` and `TeamAgentUI.test.ts` pass 100% with new coverage for RBAC, approvals, and memory integration.
+7. **Monorepo CI Gates Pass**: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, and `pnpm run build` exit with 0 errors across all workspaces.
+
+---
+
+## 8. Definition of Done
+
+- [ ] Shared approval types and constants exported in `@asterim/shared`
+- [ ] Team agent routes and turn cancellation protected with RBAC checks
+- [ ] Approval resolution endpoint and service methods implemented and verified
+- [ ] Team project memory injected into turn execution context
+- [ ] Dashboard store and UI updated with approval handling
+- [ ] Server and Web test suites updated with comprehensive assertions
+- [ ] All monorepo CI gates green
+
+---
+
+## 9. Verification Commands
 
 ```bash
-# Run new Team Agent UI test suite
+# 1. Run Team Agent Backend Integration Tests
+pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts
+
+# 2. Run Team Agent UI Integration Tests
 pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts
 
-# Run all web test suites
-pnpm --filter @asterim/web run test
-
-# Run full monorepo CI validation
+# 3. Monorepo Quality Gates
 pnpm run typecheck
 pnpm run lint
 pnpm run test
@@ -131,12 +144,13 @@ pnpm run build
 
 ---
 
-## 9. Self-Review Requirements
+## 10. Self-Review Requirements
 
-Review git diff against all acceptance criteria and design system tokens before submitting report.
+Verify git diff file-by-file against all acceptance criteria, ensuring no security regressions, permission bypasses, or duplicate types before writing `reports/current.md`.
 
 ---
 
-## 10. Required Report
+## 11. Required Report
 
-Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
+Write execution report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
+
