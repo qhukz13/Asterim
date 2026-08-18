@@ -1,11 +1,11 @@
-Task-ID: P7-01
+Task-ID: P7-02
 Status: COMPLETE
 
-# Execution Report: P7-01 — Release Channels (Stable vs Development) & Runtime Data Isolation
+# Execution Report: P7-02 — Versioned SQL Migration Engine (DEC-030) & Database Snapshotting
 
-**Task ID:** P7-01
+**Task ID:** P7-02
 **Phase:** Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation
-**Status:** IMPLEMENTED & VERIFIED
+**Status:** VERIFIED
 **Date:** 2026-08-18
 **Author:** Claude Code
 
@@ -13,275 +13,325 @@ Status: COMPLETE
 
 ## 1. Summary
 
-Channel Runtime Isolation is implemented per `DEC-029`. A single resolver
-(`apps/server/src/utils/channel.ts`) decides the channel, the data directory and
-the default port, and every runtime path that lands on disk now goes through it:
-`asterim.db`, `server.json`, `server.log`, `crash.log`, the vault salt and the
-workstation skills directory. `ASTERIM_CHANNEL=dev` (or `NODE_ENV=development`)
-moves all of them to `~/.asterim-dev` and port 3001; stable keeps `~/.asterim`
-and 3000. `ASTERIM_DATA_DIR` still outranks both, so every existing temp-directory
-test suite is unaffected.
+The ad-hoc schema bootstrap in `DatabaseService.init()` — ~600 lines of
+`CREATE TABLE IF NOT EXISTS` followed by 20 `ALTER TABLE ... try/catch (ignore
+if exists)` blocks — has been replaced by a versioned, checksummed,
+transactional migration engine as specified by `DEC-030`.
 
-`GET /api/v1/system/channel` publishes the resolved `ChannelInfo`, and the
-dashboard header renders an amber `[DEV-CHANNEL]` pill when the Core it is talking
-to answers `dev`.
+The consolidated Phase 1–6 schema is now migration `001_baseline`
+(`apps/server/src/migrations/001_baseline.ts`). `MigrationEngine` tracks applied
+versions and their SHA-256 checksums in `schema_migrations`, applies each
+pending migration inside `BEGIN IMMEDIATE` / `COMMIT` with a full `ROLLBACK` on
+any failure, takes an owner-only `asterim.db.bak.<timestamp>` snapshot before
+the first pending migration touches a database that holds data, and adopts
+pre-DEC-030 databases onto the versioned history rather than refusing or
+rebuilding them.
 
-Two isolation gaps found during self-review were closed beyond the literal file
-list in the task:
-
-* **`initLogger` and the crash handler** wrote to `~/.asterim` unconditionally. A
-  development run therefore truncated the stable Core's `server.log` on every
-  start and filed its crashes among the stable ones — a direct violation of the
-  task's "do NOT modify user files in `~/.asterim` under `ASTERIM_CHANNEL=dev`"
-  constraint. Both now resolve through the channel.
-* **`sanitizeAgentEnv`** allow-listed only `ASTERIM_DATA_DIR` for child
-  processes. A dev-channel Core with no `ASTERIM_DATA_DIR` set would therefore
-  spawn MCP memory servers that resolved `~/.asterim` and wrote to the operator's
-  stable database. `ASTERIM_CHANNEL` was added to the allow-list.
+The single most important property was verified directly rather than argued:
+the schema produced by the baseline migration on a fresh database is
+**byte-identical** to the schema the old `init()` produced (all 58 tables and
+indexes, every column type, nullability, default, primary key, foreign key and
+`ON DELETE` action). Evidence in §4.
 
 ---
 
 ## 2. Files Changed
 
-### Created
+| File | Status | Purpose |
+| :--- | :--- | :--- |
+| `apps/server/src/migrations/types.ts` | Created | `MigrationDefinition` / `ColumnAddition` — a migration as data (`sql`, `columns`, `postSql`) so a checksum over it is meaningful. |
+| `apps/server/src/migrations/001_baseline.ts` | Created | The consolidated Phase 1–6 schema: 32 tables, 26 indexes, the 20 additive columns the old `ALTER` wall applied, and the legacy `agent_profiles` reconciliation. |
+| `apps/server/src/migrations/index.ts` | Created | Ordered migration list + `LATEST_SCHEMA_VERSION`. |
+| `apps/server/src/services/MigrationEngine.ts` | Created | The engine: `initMigrationsTable`, `getAppliedMigrations`, `computeChecksum`, `canonicalContent`, `verifyChecksums`, `createSnapshot`, `runMigrations`, `getStatus`. |
+| `apps/server/src/utils/permissions.ts` | Created | `enforceOwnerOnly`, extracted verbatim from `DatabaseService` so the engine can apply `0600` to the snapshots it writes without a circular import. |
+| `apps/server/src/services/__tests__/MigrationEngine.test.ts` | Created | 55 assertions over fresh install, idempotency, rollback, checksum rejection, snapshots, legacy adoption, engine invariants. |
+| `apps/server/src/services/DatabaseService.ts` | Modified | −645 lines. `init()` now sets the two PRAGMAs and delegates to `MigrationEngine.runMigrations()`. Adds `getMigrationStatus()`. `getDb()` / `compact()` / `close()` / `dbPath` / the `resolveDataDir` re-export are unchanged. |
+| `apps/server/package.json` | Modified | `MigrationEngine.test.ts` wired into the `test` script, after `ChannelIsolation.test.ts`. |
 
-| File | Purpose |
-| :--- | :--- |
-| `packages/shared/src/types/channels.ts` | `AsterimChannel`, `ChannelInfo` — the contract the dashboard renders |
-| `packages/shared/src/constants/channels.ts` | Ports, directory names, `parseAsterimChannel`, `dataDirNameForChannel`, `defaultPortForChannel` |
-| `apps/server/src/utils/channel.ts` | `getAsterimChannel`, `isDevChannel`, `resolveDataDir`, `resolvePort`, `resolveServerVersion`, `describeChannel` |
-| `apps/server/src/services/__tests__/ChannelIsolation.test.ts` | 90 assertions across resolution, precedence, the real consumers, and the REST route |
-| `apps/web/src/components/ChannelBadge.tsx` | The `[DEV-CHANNEL]` pill plus `shouldShowChannelBadge` / `channelBadgeTitle` |
-| `apps/web/src/hooks/useChannel.ts` | One same-origin read of `/api/v1/system/channel` |
-| `apps/web/src/components/__tests__/ChannelBadge.test.ts` | 19 assertions, including a real `TopBar` render |
-
-### Modified
-
-| File | Change |
-| :--- | :--- |
-| `packages/shared/src/index.ts` | Exports the new types and constants |
-| `apps/server/src/services/DatabaseService.ts` | `resolveDataDir` re-exported from `utils/channel`; startup log names the channel |
-| `apps/server/src/services/skills/SkillService.ts` | Dropped its duplicate resolver; imports the shared one |
-| `apps/server/src/services/desktop/DesktopDaemonService.ts` | `logFilePath()` fallback and `webUrl()` follow the channel |
-| `apps/server/src/utils/logger.ts` | `server.log` goes to the channel's directory, created `0700` |
-| `apps/server/src/index.ts` | `crash.log` follows the channel; port from `resolvePort()`; startup logs channel/dir/port |
-| `apps/server/src/routes/system.ts` | `GET /api/v1/system/channel` |
-| `apps/web/src/components/TopBar.tsx` | Renders `<ChannelBadge />` in the header |
-| `apps/web/src/App.tsx` | Feeds the badge from `useChannel()` |
-| `apps/web/vite.config.ts` | Dev-server proxy targets the channel's port |
-| `packages/adapters/src/sdk/ProcessManager.ts` | `ASTERIM_CHANNEL` added to `INHERITABLE_ASTERIM_ENV` |
-| `packages/adapters/src/sdk/__tests__/ProcessManager.test.ts` | Updated allow-list assertion + new channel-inheritance assertion |
-| `apps/server/src/services/mcp/__tests__/McpProcessSupervisor.test.ts` | Asserts `ASTERIM_CHANNEL` survives `sanitizeMcpEnv` |
-| `apps/server/package.json`, `apps/web/package.json` | New suites wired into `test` |
-
-`ServerRegistry.ts` and `SecretVaultService.ts` needed no edit: both already
-consume `resolveDataDir` from `DatabaseService`, so they became channel-aware
-when that function did. This is asserted rather than assumed — the suite checks
-`serverRegistry.filePath` for both channels.
+Nothing was deleted outright: everything removed from `DatabaseService` moved —
+the DDL into `001_baseline`, `reconcileLegacyAgentProfiles` into that
+migration's `prepare` hook, `enforceOwnerOnly` into `utils/permissions.ts`.
+Verified by filtering the removal side of the diff (§6).
 
 ---
 
 ## 3. Implementation Details
 
-**Channel determination.** An explicit `ASTERIM_CHANNEL` wins; otherwise
-`NODE_ENV === 'development'` means `dev`, and everything else means `stable`.
-`parseAsterimChannel` accepts `dev`/`development` and `stable`/`production`/`prod`,
-case- and whitespace-insensitive. A value it does not recognise returns `null`
-and the caller falls through to the `NODE_ENV` rule — guessing what a typo meant
-is precisely how a development run ends up pointed at `~/.asterim`.
+**Migration shape.** A migration is `{ version, name, sql, columns?, postSql?,
+prepare? }`. `sql` and `postSql` are executed verbatim; `columns` are
+`ALTER TABLE ... ADD COLUMN` applied only where `PRAGMA table_info` shows the
+column absent. That presence check is the point: SQLite has no
+`ADD COLUMN IF NOT EXISTS`, and the try/catch that used to stand in for one is
+exactly what DEC-030 removes — inside a transaction, a swallowed error is
+indistinguishable from a real failure. `postSql` exists because
+`idx_threads_parent` indexes `threads.parent_thread_id`, a column the same
+migration may have just added on a legacy database.
 
-**Precedence.** `ASTERIM_DATA_DIR` > channel default, and `PORT` > channel
-default. Both resolvers read `process.env` on every call rather than capturing at
-import, because the service singletons are module-level and every test suite in
-the repository sets `ASTERIM_DATA_DIR` before requiring them. A non-numeric or
-empty `PORT` falls back to the channel default rather than producing `NaN`.
+**Migrations are TypeScript modules, not loose `.sql` files.** DEC-030 and the
+roadmap both phrase them as sequential `.sql` files. The Core ships as a single
+bundled `dist/index.js` from `tsup`, so a runtime `readdir` of a migrations
+directory would need the files to survive bundling as assets and to resolve
+against a path that differs between `tsx watch` and the packaged binary. A
+migration that cannot be found is a database that cannot be opened. The task's
+own §3 anticipates this and authorises it ("TypeScript definitions with embedded
+SQL strings ... so that packaging with `tsup` bundles cleanly without runtime
+asset path fragility"), so no Change Proposal was raised. Verified: the built
+bundle contains `schema_migrations` (7 occurrences) and `001_baseline` (3), and
+the packaged binary applies the migration at boot (§4).
 
-**Version.** `resolveServerVersion()` walks up from `__dirname` for a
-`package.json`, so it works both under `tsx watch` (`src/utils/`) and in the
-packaged `dist/` build, and falls back to `0.0.0` rather than throwing.
+**Checksums.** `canonicalContent()` joins `sql`, the rendered `ALTER` statements
+and `postSql`, collapses runs of whitespace, and SHA-256s the result. Whitespace
+is normalised deliberately: the checksum exists to catch a changed *schema*, and
+re-indenting a SQL template literal — which Prettier does unasked — changes no
+schema. Hashing raw text would turn every reformat into a false tampering report
+that bricks every existing database on the next boot. `prepare` is excluded from
+the checksum because it is a function whose source text a bundler may legally
+rewrite; this is documented at the definition site.
 
-**Permissions.** Directories created by the logger and the crash handler now use
-`mode: 0o700`, matching what `DatabaseService` already enforced under `DEC-028`.
+**Ordering inside `runMigrations()`.** History is read and verified *first*, so
+a tampered or newer-than-this-build database is rejected before a snapshot is
+taken or a statement runs. The snapshot is taken second, so it captures the
+state the first migration is about to change. Migrations apply last, one
+transaction each, with the `schema_migrations` row inserted inside the same
+transaction as the statements it describes — recording it outside would let a
+database claim a version it does not have.
 
-**Vite proxy.** The dev-server proxy follows `ASTERIM_CHANNEL`/`PORT` only, and
-deliberately does *not* read `NODE_ENV`: Vite sets `NODE_ENV=development` for its
-own dev server, so reading it would retarget the proxy to 3001 for every existing
-`pnpm dev` while the Core — which is not started with `NODE_ENV` set — is still
-on 3000.
+**Rejecting unknown versions.** An applied version this build has no definition
+for throws ("written by a newer version — upgrade Asterim rather than
+downgrading the database"), satisfying the roadmap's "rejects forward migrations
+against an unrecognized or higher-versioned database file".
 
-**`useChannel` is same-origin.** It does not use `resolveBackendUrl()`, which
-hardcodes port 3000. Asking that URL which channel it is would answer about the
-stable Core rather than the process serving the page, and a development
-dashboard would never badge itself.
+**Snapshots.** `createSnapshot()` checkpoints the WAL (`wal_checkpoint(TRUNCATE)`)
+before copying, because in WAL mode recent commits live in the `-wal` sidecar
+and a plain copy would be a copy of an earlier moment. The target is
+`path.join(path.dirname(dbPath), \`${basename}.bak.${Date.now()}\`)` — derived
+from the database path, therefore always inside the channel's resolved data
+directory (DEC-029), never elsewhere. `enforceOwnerOnly(target, 0o600)` follows.
+A same-millisecond collision appends a counter rather than overwriting an
+existing backup. Nothing is snapshotted when the file is `:memory:`, absent,
+zero-length, or contains no user tables — the last check keeps a first boot from
+littering the data directory with a backup of an empty database.
+
+**Legacy adoption.** `001_baseline` is written to *converge*: every statement is
+`IF NOT EXISTS` or presence-checked, so it reaches the same schema from an empty
+file or from a pre-DEC-030 database. When no migrations are recorded but
+`projects` / `events` / `users` exist, the engine logs that it is adopting the
+existing database and runs the baseline, which creates nothing that exists and
+adds only the columns an older Asterim never got around to adding. That is
+strictly safer than marking version 1 applied without executing it, which would
+leave a genuinely old file permanently missing columns the code expects.
+
+**One deliberate behaviour change.** `reconcileLegacyAgentProfiles` used to
+swallow its own exceptions and log. It now runs inside the migration transaction,
+so a failure rolls back and halts startup instead of being logged past. That is
+the DEC-030 semantics ("no silent failures"), and is flagged here rather than
+buried. Its log prefix changed from `[Database]` to `[Migration]`; the
+`[Database] Using database at:` line the MCP stdio-guard suites assert on is
+untouched.
 
 ---
 
 ## 4. Verification
 
-Everything below was run in this session. The root scripts (`pnpm run test` etc.)
-were blocked by the sandbox, so each workspace was invoked directly via
-`pnpm --filter` — the same commands turbo would run.
+Everything below was run in this session. `pnpm run <script>` at the repo root
+was unavailable in this sandbox (permission-denied), so each workspace's own
+script/binary was invoked directly via `pnpm --filter <pkg> ...` — the same
+commands `turbo` would run, minus the scheduler.
 
-**New suites**
+**New suite (task §9):**
 
 ```
-pnpm --filter asterim exec tsx src/services/__tests__/ChannelIsolation.test.ts
-  → 90/90 assertions passed
-
-pnpm --filter @asterim/web exec tsx src/components/__tests__/ChannelBadge.test.ts
-  → 19/19 assertions passed
+pnpm --filter asterim exec tsx src/services/__tests__/MigrationEngine.test.ts
+  → 55/55 assertions passed
 ```
 
-**Full test gate — 0 failed assertions in every workspace**
+**Channel isolation suite (task §9):** passes inside the full server battery
+below (`90/90`).
+
+**Full test battery — 46 suites, 0 failures:**
 
 | Workspace | Suites | Result |
-| :--- | :--- | :--- |
-| `asterim` | 25 | 0 FAIL |
-| `@asterim/web` | 11 | 0 FAIL |
-| `@asterim/adapters` | 1 | 0 FAIL (30/30) |
-| `@asterim/mcp-memory-server` | 7 | 0 FAIL |
+| :--- | ---: | :--- |
+| `asterim` | 26 | all pass (`63,60,140,52,51,64,89,111,90,55,21,231,52,102,116,89,43,67,160,169,138,461,196,133,181,208`) |
+| `@asterim/web` | 11 | all pass |
+| `@asterim/mcp-memory-server` | 7 | all pass (42, 82, 87, 62, 28, 23, 24) |
+| `@asterim/relay` | 1 | 71/71 |
+| `@asterim/adapters` | 1 | 30/30 |
 
-**Typecheck — clean in all 7 workspaces**
+The 45 pre-existing suites all pass; `MigrationEngine.test.ts` is the 46th.
+`grep "FAIL |Failed assertions|ELIFECYCLE"` over every captured run returns
+nothing.
 
-`@asterim/shared`, `@asterim/adapters`, `asterim`, `@asterim/web`,
-`@asterim/mcp-memory-server`, `@asterim/relay`, `@asterim/marketing` — all
-`tsc --noEmit` (or `tsc -b`) with no output.
+**Typecheck — 7 workspaces, 0 errors:** `tsc --noEmit` for `asterim`,
+`@asterim/web`, `@asterim/shared`, `@asterim/adapters`, `@asterim/relay`,
+`@asterim/mcp-memory-server`; `tsc -b` for `@asterim/marketing` (its own
+`typecheck` script).
 
-**Lint — 0 errors everywhere**
+**Lint — 0 errors across all workspaces.** One error was introduced and fixed
+during the cycle: `preserve-caught-error` on the post-rollback rethrow in
+`MigrationEngine.ts`, resolved by attaching `{ cause: err }`. Pre-existing
+`no-explicit-any` / `no-unused-vars` **warnings** are unchanged in count and
+location; `eslint .` exits 0.
 
-| Workspace | Result |
-| :--- | :--- |
-| `asterim` | 312 problems (0 errors) |
-| `@asterim/web` | 311 problems (0 errors) |
-| `@asterim/shared` | 3 problems (0 errors) |
-| `@asterim/adapters` | 28 problems (0 errors) |
-| `@asterim/mcp-memory-server` | 12 problems (0 errors) |
-| `@asterim/marketing` | 18 problems (0 errors) |
-| `@asterim/relay` | clean |
+**Build — all 7 workspaces:** `@asterim/shared`, `@asterim/adapters`,
+`@asterim/web`, `asterim` (tsup + web copy), `@asterim/relay`,
+`@asterim/marketing`, `@asterim/mcp-memory-server`. All succeed.
 
-The two `react-refresh/only-export-components` warnings on `ChannelBadge.tsx`
-join 82 pre-existing instances of the same warning in the dashboard.
+**Schema-equivalence proof (the load-bearing check).** A database was built with
+the pre-P7-02 `DatabaseService` and its schema dumped in normalised form
+(`sqlite_master` object list + `PRAGMA table_info` + `PRAGMA foreign_key_list` +
+`PRAGMA index_list` per table). The same dump was taken from a fresh database
+built by the migration engine. `cmp` reports the two files identical — 58
+objects, every column type/notnull/default/pk, every FK and `ON DELETE` action,
+every index and its uniqueness/origin.
 
-**Build — every workspace built**
+**Real legacy-upgrade rehearsal.** The pre-P7-02 database from that first dump
+was then opened with the new code:
 
-`@asterim/shared`, `@asterim/adapters`, `@asterim/web` (vite + PWA precache),
-`asterim` (tsup, 990 KB, web copied into `dist/web`), `@asterim/relay`,
-`@asterim/marketing`, `@asterim/mcp-memory-server`. The built server bundle
-contains both the `.asterim-dev` path and the `system/channel` route.
+```
+[MigrationEngine] Existing pre-migration database detected; adopting it onto the versioned schema history.
+[MigrationEngine] Pre-migration snapshot written to <dataDir>/asterim.db.bak.1787012195002
+[MigrationEngine] Applied 1 (001_baseline).
+getMigrationStatus() → { currentVersion: 1, latestVersion: 1, applied: [001_baseline, sha256 e280e64e…], pending: [] }
+snapshots: [ 'asterim.db.bak.1787012195002' ]
+SCHEMA_MATCHES_PRE_P7_02: true
+```
 
-**Not run:** a live browser/puppeteer capture of the badge against a running
-dev-channel Core. The sandbox denied launching `node dist/index.js`, so the Core
-could not be started on 3001 in this session. `scratch/p7-01-channel-smoke.sh`
-was left in place to perform exactly that check (start the built Core on the dev
-channel against a throwaway `HOME`, curl the endpoint, confirm `~/.asterim` was
-never created) when it can be executed. In its place, the same three properties
-are asserted in-process by `ChannelIsolation.test.ts`, which constructs real
-`DatabaseService` instances against a fake `HOME`.
+**Packaged-binary boot (production mode).** `node apps/server/dist/index.js`
+against a clean data directory on port 3999:
+
+```
+[Database] Using database at: /tmp/ast-boot/asterim.db (channel: stable)
+[MigrationEngine] Applied 1 (001_baseline).
+[MigrationEngine] Applied 1 migration(s); schema is at version 1.
+... WELCOME TO ASTERIM v0.1 / Local URL: http://localhost:3999
+```
+
+Data dir afterwards: `asterim.db` at `0600`, `vault.salt` at `0600`, directory
+at `0700`, and **no** stray `.bak` file — a fresh install does not snapshot.
+The process was killed by `timeout`; exit 124 is expected.
+
+**Dev-mode `DatabaseService`.** Exercised throughout — the 26-suite server
+battery and the 7-suite MCP battery each construct `DatabaseService` under
+`tsx`, and the MCP suites run the *bundled* `dist/index.js` of
+`@asterim/mcp-memory-server`, which logs `[MigrationEngine] Applied 1
+(001_baseline)` before every handshake. Its `dogfood_scenario` suite additionally
+opens the operator's real `~/.asterim/asterim.db` read-only and asserts its size
+and SHA-256 are unchanged after the probe.
 
 ---
 
 ## 5. Acceptance Criteria Review
 
-- [x] **1. `getAsterimChannel()` correctly identifies `stable` vs `dev` from the environment** — 11 assertions in `ChannelIsolation.test.ts` § *"getAsterimChannel: an explicit channel wins, NODE_ENV decides otherwise"*: explicit `stable`/`dev`, explicit beating `NODE_ENV` in both directions, `NODE_ENV=development` → dev, `NODE_ENV=production` → stable, nothing set → stable, and two misspelling cases that must fall through rather than be guessed at.
-- [x] **2. `resolveDataDir()` resolves `~/.asterim` for Stable and `~/.asterim-dev` for Development by default** — 6 assertions against a fake `HOME` (`stable resolves to ~/.asterim`, `dev resolves to ~/.asterim-dev`, the two never coincide, dev is not nested inside stable, explicit channel argument, `NODE_ENV` alone moves it), plus 4 more proving `ASTERIM_DATA_DIR` still outranks the channel.
-- [x] **3. `GET /api/v1/system/channel` returns accurate channel and data directory metadata** — 13 assertions through `fastify.inject()` against the real `systemRoutes`: 200 on both channels, `channel`/`isDev`/`dataDir`/`port`/`version` correct for each, the `ASTERIM_DATA_DIR` override reflected, and a request carrying attacker-supplied `channel`/`dataDir` query and header values proving nothing the caller sends changes the answer.
-- [x] **4. Web UI displays the `[DEV-CHANNEL]` badge when connected to a development backend** — `ChannelBadge.test.ts`: the predicate (dev badged, stable not, null not), the tooltip naming the data directory/port/version, real `react-dom/server` markup containing `[DEV-CHANNEL]` and using `var(--color-state-paused)` rather than a hardcoded hex, and — layer 3 — the real `TopBar` rendered with a dev `ChannelInfo`, asserting the badge appears *inside* the `<header>` and is absent for stable and for a Core that has not answered.
-- [x] **5. `ChannelIsolation.test.ts` passes with comprehensive assertions** — 90/90. Beyond resolution and precedence it covers the real consumers (`ServerRegistry.filePath`, `globalSkillsDir`, `DesktopDaemonService.webUrl`/`logFilePath` on both channels) and physical isolation: a dev-channel `DatabaseService` creates `~/.asterim-dev` at `0700` with the database at `0600`, and `~/.asterim` is asserted **not to exist** afterwards.
-- [x] **6. Monorepo CI gates pass with 0 errors** — typecheck clean in all 7 workspaces; lint 0 errors in all 7; 0 failed assertions across all 44 test suites; every workspace builds. Command-by-command results in § 4. (Root `pnpm run …` wrappers were sandbox-blocked; each workspace was run directly with the identical underlying command.)
+- [x] **1 — `schema_migrations` tracks version, name, SHA-256 checksum, applied timestamp.** Table created by `initMigrationsTable()` with exactly the DEC-030 columns. Test: *"schema_migrations exists"*, *"one row per applied migration"*, *"the baseline is version 1"*, *"named 001_baseline"*, *"with a 64-character SHA-256 checksum"*, *"and an applied_at timestamp"*, *"the checksum is the hash of the migration content"*. Live confirmation in the adoption rehearsal (§4): checksum `e280e64e…`.
+- [x] **2 — All consolidated Phase 1–6 tables and indexes captured in the baseline.** All 32 tables and 26 indexes named in the task's §5.1 are asserted present (*"every consolidated Phase 1–6 table is present"* → `[]` missing; *"and every declared index"* → `[]` missing). Stronger evidence: the normalised schema dump of a migration-built database is `cmp`-identical to one built by the old `init()` (§4).
+- [x] **3 — Atomic transaction, complete rollback on any statement error.** `applyMigration()` wraps `prepare` → `sql` → `columns` → `postSql` → the `schema_migrations` insert in `BEGIN IMMEDIATE`/`COMMIT`, with `ROLLBACK` and a rethrow carrying `{ cause }` on failure. Tests: a syntax error in the third statement leaves neither of the two tables the first two statements created and records no version; a **constraint violation** (duplicate PK insert) rolls back identically; the connection is left usable, not stuck mid-transaction; and when migration 2 fails, migration 1 stays committed and only version 1 is recorded.
+- [x] **4 — Checksum verification detects modified historical migrations and throws before any forward migration executes.** `verifyChecksums()` runs before pending migrations are selected. Tests: *"the engine reports a checksum mismatch"* and *"and refuses before running the pending migration behind it"* (the version-2 table is absent afterwards). Also covered: a database carrying a version this build does not define is refused (*"a database from a newer Asterim is refused rather than downgraded"*), and re-indenting an applied migration is correctly **not** a mismatch.
+- [x] **5 — Owner-only (`0600`) `asterim.db.bak.<timestamp>` before applying pending migrations.** Tests: *"a pending migration produces exactly one snapshot"*, *"named asterim.db.bak.<timestamp>"* (regex `^asterim\.db\.bak\.\d+$`), *"the snapshot is inside the channel data directory"*, *"and is owner-only (0600)"* (POSIX), *"the snapshot holds the rows the database held"* (reopened and queried), *"and predates the migration it was taken for"*. Confirmed live in the legacy rehearsal.
+- [x] **6 — Existing databases with pre-existing tables baseline seamlessly without error.** Two independent proofs. Synthetic: a narrow pre-`ALTER`-era database with rows is adopted — rows survive, `projects` gains `workspace_id`/`visibility`, `threads` gains all six later columns, `events` gains `thread_id`, the 28 missing tables are created, `idx_threads_parent` exists, a snapshot was taken first, and a second boot changes nothing. Real: the actual pre-P7-02 `DatabaseService` output adopts to version 1 with `SCHEMA_MATCHES_PRE_P7_02: true`.
+- [x] **7 — `MigrationEngine.test.ts` passes, covering fresh install, idempotency, rollback, checksum mismatch, snapshots, legacy migration.** 55/55, all six areas plus engine invariants (duplicate versions rejected at construction; out-of-order definitions applied lowest-version-first). Wired into `apps/server` `test`.
+- [x] **8 — Monorepo CI gates pass with 0 errors.** Typecheck 7/7 clean, lint 0 errors, 46/46 test suites pass, all 7 builds succeed. See §4 for the per-workspace invocation note.
 
 ### Definition of Done
 
-- [x] Shared channel types and constants added to `@asterim/shared`
-- [x] `getAsterimChannel()` and channel-aware `resolveDataDir()` implemented
-- [x] Core services updated — `DatabaseService` (direct), `ServerRegistry` / `SecretVaultService` / `DesktopDaemonService` (via the shared resolver, asserted), `SkillService` (duplicate resolver removed), plus `logger` and the crash handler
-- [x] `GET /api/v1/system/channel` endpoint registered
-- [x] Web UI `[DEV-CHANNEL]` badge rendered
-- [x] `ChannelIsolation.test.ts` created and passing, wired into `apps/server` `test`
-- [x] Monorepo CI gates pass cleanly
+- [x] `schema_migrations` tracking table with SHA-256 checksums
+- [x] Baseline schema migration `001_baseline` created
+- [x] `MigrationEngine` with transactional execution and rollback
+- [x] Pre-migration snapshotting, permission-guarded (`0600`)
+- [x] `DatabaseService` refactored to delegate schema lifecycle
+- [x] `MigrationEngine.test.ts` authored and passing
+- [x] All 45+ monorepo test suites passing (46 now)
+- [x] Production build and typecheck pass across all 7 workspace packages
 
 ---
 
 ## 6. Git Diff Review
 
-`git diff` was read in full against every criterion. Three issues were found by
-that review and fixed before this report:
+`git diff` reviewed against every criterion before writing this report.
 
-1. **`useChannel` asked the wrong Core.** It initially routed through
-   `resolveBackendUrl()`, which hardcodes port 3000. A dashboard served by a
-   development Core on 3001 would have queried the *stable* Core and never
-   badged itself — silently failing criterion 4 in exactly the situation it
-   exists for. Now same-origin unless an explicit workstation URL is given.
-2. **Child processes lost the channel.** `sanitizeAgentEnv`'s allow-list held
-   only `ASTERIM_DATA_DIR`, so a dev-channel Core would spawn MCP memory servers
-   that opened `~/.asterim`. Fixed in `ProcessManager.ts`, with assertions added
-   in both the adapters and MCP supervisor suites.
-3. **A reworded log line broke another package.** Changing the
-   `[Database] Using database at:` prefix broke four assertions in
-   `@asterim/mcp-memory-server`, which depend on that exact string to prove the
-   stdio guard routes it to stderr. The prefix is restored verbatim and the
-   channel appended as a suffix. Worth recording: those suites run the *built*
-   `dist/index.js`, so a stale build masked the breakage on the first run — the
-   package must be rebuilt before its tests are trusted.
-
-No forbidden changes: `ASTERIM_DATA_DIR` precedence is preserved and directly
-asserted (5 assertions); nothing under `~/.asterim` is written on the dev
-channel, asserted by absence; no migration framework, no schema change, no
-credential handling touched; no new dependencies. `.env.example` was left alone
-(it is documented as stale and was out of scope).
+- `DatabaseService.ts`: −645/+23. The addition side is only the two imports, the
+  `migrations` field, its construction, the delegating call with its comment,
+  and `getMigrationStatus()`. Confirmed no accidental loss by filtering the
+  removal side down to non-SQL, non-comment lines: what remains is exactly
+  `enforceOwnerOnly` (moved to `utils/permissions.ts`) and
+  `reconcileLegacyAgentProfiles` (moved to the baseline's `prepare` hook).
+  `getDb()`, `compact()`, `close()`, `dbPath`, `closed` and the `resolveDataDir`
+  re-export are byte-identical to before.
+- `package.json`: one line, the new suite inserted in phase order.
+- No table, column, foreign key or index was renamed, retyped, reordered or
+  dropped — proven by `cmp` on the normalised schema dumps, not by inspection.
+- No writes outside the resolved data directory: the snapshot path is derived
+  from `dbPath` via `path.dirname`, asserted by the test.
+- No new dependencies; `node:sqlite` `DatabaseSync` only. `package.json`
+  `dependencies` untouched.
+- No debug scripts or artifacts added to the repo. Scratch scripts used for the
+  schema-equivalence proof were written to `/tmp`, outside the working tree.
+- `tests/report.md` was already modified in the working tree before this task
+  began (last committed in `38887b3`). It is unrelated to P7-02 and was
+  deliberately **left out of the commit** for the orchestrator to handle.
 
 ---
 
 ## 7. Problems Discovered
 
-* **`CLAUDE.md` § Commands is wrong about testing.** It states there is "no test
-  runner or test script anywhere in the repo" and that CI runs only lint and
-  build. In fact `asterim`, `@asterim/web`, `@asterim/adapters` and
-  `@asterim/mcp-memory-server` all have substantial `test` scripts (44 suites,
-  several thousand assertions) driven by `tsx`, and `turbo.json` defines a `test`
-  task. Worth correcting so future tasks do not skip the gate.
-* **Stale build artefacts are load-bearing.** `@asterim/mcp-memory-server`'s
-  suites spawn `dist/index.js`, so they silently test old code until the package
-  is rebuilt. This produced a false pass and then a confusing false failure
-  during this task.
-* **The dashboard's `resolveBackendUrl()` hardcodes port 3000.** It is correct
-  today only because the stable Core is the only one that has ever existed. Any
-  future store or hook that uses it against a non-3000 Core will address the
-  wrong process. Left as-is here — changing it is outside this task's scope.
+1. **`ALTER TABLE ADD COLUMN` cannot live inside a plain SQL migration.** SQLite
+   has no `IF NOT EXISTS` form, and the old try/catch is unusable inside a
+   transaction — the whole point is that failures must not be swallowed. Solved
+   with a declarative `columns` list checked against `PRAGMA table_info`.
+2. **Index/column ordering on legacy databases.** `idx_threads_parent` indexes a
+   column the same migration adds, so a legacy database would fail if all SQL
+   ran in one block. Hence the `postSql` stage.
+3. **Snapshot-on-fresh-install.** The first implementation snapshotted every
+   first boot: `new DatabaseSync(path)` plus `PRAGMA journal_mode = WAL` writes a
+   4 KB header, so the "file is non-empty" test passed on an empty database.
+   Tightened to "has at least one user table besides `schema_migrations`", and
+   pinned by a test.
+4. **WAL and file copies.** A naive `copyFileSync` in WAL mode can miss recent
+   commits still in the `-wal` sidecar. The snapshot checkpoints first.
+5. **Checksum fragility vs. formatters.** Hashing raw SQL text would let a
+   Prettier pass brick every deployed database. Whitespace is normalised before
+   hashing, and a test asserts re-indenting an applied migration is not treated
+   as tampering.
+6. **Environment note:** root-level `pnpm run typecheck|lint|test|build` were
+   permission-denied in this sandbox. Every gate was run per-workspace instead
+   (§4); no gate was skipped.
 
 ---
 
 ## 8. Architectural Concerns
 
-1. **`ASTERIM_CHANNEL` should probably be set by `pnpm dev`.** `DEC-029` says the
-   development channel is "activated via `ASTERIM_CHANNEL=dev` **or `pnpm dev`**".
-   Today `pnpm dev` sets neither `ASTERIM_CHANNEL` nor `NODE_ENV`, so it still
-   resolves to `stable` — the fallback rule is in place, but the trigger the
-   decision names is not wired. Adding `ASTERIM_CHANNEL=dev` to the `dev` scripts
-   in `apps/server` and `apps/web` would complete it, and would move every
-   developer's daily `pnpm dev` onto `~/.asterim-dev` and port 3001. That is a
-   deliberate behaviour change for every contributor and it contradicts the ports
-   documented in `CLAUDE.md`, so it is left for Antigravity to approve rather than
-   done silently here.
-2. **`resolveDataDir` is now re-exported from `DatabaseService`** for backward
-   compatibility with ~6 importers. A follow-up could repoint those imports at
-   `utils/channel` and drop the re-export, so the database module is not the
-   apparent owner of a path decision it no longer makes.
-3. **`DEC-030` (migration engine) will interact with this.** Pre-migration
-   snapshots (`asterim.db.bak.<timestamp>`) must be written to the *channel's*
-   data directory. Since they will be joined onto `resolveDataDir()`, that comes
-   for free — worth stating explicitly in the P7-02 task so it is not
-   re-derived.
+1. **`CLAUDE.md` is stale on testing.** It states "There is **no test runner or
+   test script anywhere in the repo**" and that CI runs only `lint` and `build`.
+   Both are now false: there are 46 suites across 5 workspaces behind
+   `turbo run test`, and `.github/workflows/ci.yml` runs `typecheck`, `lint`,
+   `test` and `build` (verified). The gate is real; only the guidance file is
+   wrong, and it is the file a fresh agent reads first.
+2. **DEC-030 and the roadmap say `.sql` files in `packages/server/src/migrations/`.**
+   Two mismatches with reality: the path is `apps/server/`, not `packages/`, and
+   `.sql` assets do not survive `tsup` bundling without extra machinery. The task
+   brief already authorised TypeScript modules; DEC-030's wording may be worth
+   amending so the next reader is not sent looking for `.sql` files.
+3. **Phase 7 deliverables not in this task's scope, still open:** the CLI
+   utilities `asterim db:migrate` / `db:status` / `db:snapshot`,
+   `asterim data:clone|backup|restore`, and the worktree boot-time orphan
+   sweeper. `getMigrationStatus()` on `DatabaseService` is the read side
+   `db:status` will need; nothing else exists yet.
+4. **Snapshot retention is unbounded.** Every future migration leaves another
+   `asterim.db.bak.*` beside the database, and each is a full copy. A retention
+   policy (keep N most recent) belongs with the `db:snapshot` CLI work.
+5. **Migration 1 is a large baseline.** Unavoidable for the first cut, but the
+   next schema change must be `002_*` — editing `001_baseline` now trips the
+   checksum guard on every existing installation. This is stated in the header
+   comment of `migrations/index.ts`.
 
 ---
 
 ## 9. Recommended Next Step
 
-Proceed to the Phase 7 migration-engine task (`DEC-030`): the versioned forward
-migration engine with `schema_migrations`, SHA-256 checksums, transactional
-rollback and pre-migration snapshots, replacing the ad-hoc
-`ALTER TABLE … try/catch` blocks in `DatabaseService.init()`. Channel isolation
-is a prerequisite that is now in place — migrations can be exercised on
-`~/.asterim-dev` without any risk to the operator's stable database.
-
-Separately, a decision is requested on § 8.1 (whether `pnpm dev` should export
-`ASTERIM_CHANNEL=dev`).
+**P7-03 — Migration & Snapshot CLI (`asterim db:migrate`, `db:status`,
+`db:snapshot`) plus data promotion (`data:clone --from stable --to dev`,
+`data:backup`, `data:restore`).** The engine now exposes exactly the primitives
+these commands need (`runMigrations`, `getStatus`, `createSnapshot`), and
+`data:clone` is the piece that makes the P7-01 dev channel genuinely usable —
+seeding `~/.asterim-dev` from a stable snapshot without touching production.
+Snapshot retention (concern 4) folds naturally into the same task.
