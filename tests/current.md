@@ -1,4 +1,4 @@
-Task-ID: P8-03
+Task-ID: P8-04
 
 ## Verification Commands
 1. Run Typecheck:
@@ -11,11 +11,11 @@ Task-ID: P8-03
 
 3. Run Team Agent Backend Integration Tests:
    `pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts`
-   PASS: All team agent RBAC, approval policy, and memory integration assertions pass.
+   PASS: All tool approval interception, EventBus response dispatch, and cancellation assertions pass.
 
 4. Run Team Agent UI Integration Tests:
    `pnpm --filter @asterim/web exec tsx src/components/teamAgents/__tests__/TeamAgentUI.test.ts`
-   PASS: All frontend approval and store assertions pass.
+   PASS: All frontend tool command snippets, risk badges, and security warning assertions pass.
 
 5. Run Full Monorepo Test Battery:
    `pnpm run test`
