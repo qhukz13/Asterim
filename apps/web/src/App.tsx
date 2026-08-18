@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
-import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode, IconUsers } from './components/icons/Icons';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode, IconUsers, IconActivity } from './components/icons/Icons';
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { SessionSidebar } from './components/SessionSidebar';
@@ -24,6 +24,7 @@ import { DecisionExplorer } from './components/memory/DecisionExplorer';
 import { McpServerExplorer } from './components/mcp/McpServerExplorer';
 import { SkillsExplorer } from './components/skills/SkillsExplorer';
 import { TeamAgentExplorer } from './components/teamAgents/TeamAgentExplorer';
+import { PipelineDashboard } from './components/pipelines/PipelineDashboard';
 import { ContextView } from './components/workspace/ContextView';
 import { DelegationStatus, ThreadSandboxStatus } from './components/delegation/DelegationStatus';
 import { DelegateModal } from './components/delegation/DelegateModal';
@@ -692,6 +693,27 @@ function ProjectWorkspace({
             <IconUsers size={15} /> Team
           </button>
           <button
+            className={`nav-btn ${activeTab === 'pipelines' ? 'active' : ''}`}
+            style={{
+              padding: '8px 18px',
+              height: '40px',
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 'var(--font-weight-semibold)',
+              background: activeTab === 'pipelines' ? 'var(--color-surface-2)' : 'transparent',
+              color: activeTab === 'pipelines' ? '#ffffff' : 'var(--color-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderBottom: activeTab === 'pipelines' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onClick={() => setActiveTab('pipelines')}
+          >
+            <IconActivity size={15} /> Pipelines
+          </button>
+          <button
             className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
             style={{
               padding: '8px 18px',
@@ -902,6 +924,18 @@ function ProjectWorkspace({
           the project is passed only so a new thread has a checkout to run in. */}
       <div style={{ display: activeTab === 'team' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <TeamAgentExplorer teamId={activeEnvironmentId} projectId={project.id} />
+      </div>
+      {/* Declarative multi-agent pipelines (P9-03). Scoped to this project —
+          every step of a run is a delegated session against this checkout — and
+          to the active environment, which is the workspace the definitions are
+          authorized against. */}
+      <div style={{ display: activeTab === 'pipelines' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+        <PipelineDashboard
+          projectId={project.id}
+          workspaceId={activeEnvironmentId}
+          activeBackendUrl={activeBackendUrl}
+          onOpenThread={openThread}
+        />
       </div>
       <div style={{ display: activeTab === 'workspace' || activeTab === 'environment' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
         <EnvironmentSettingsView />

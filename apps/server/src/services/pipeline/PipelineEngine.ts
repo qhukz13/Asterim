@@ -54,6 +54,7 @@ import {
   PIPELINE_STARTED_EVENT,
   PIPELINE_STEP_COMPLETED_EVENT,
   PIPELINE_STEP_STARTED_EVENT,
+  PIPELINE_WORKTREE_DIR,
   Pipeline,
   PipelineConflictAnalysis,
   PipelineDefinition,
@@ -76,6 +77,7 @@ import { ProfileService, profileService } from '../ai/ProfileService';
 import { AgentDelegationService, agentDelegationService } from '../ai/AgentDelegationService';
 import { PipelineParser, pipelineParser } from './PipelineParser';
 import {
+  DEFAULT_FLEET_RETENTION_MS,
   WorktreeFleetError,
   WorktreeFleetService,
   worktreeFleetService
@@ -1134,6 +1136,73 @@ export class PipelineEngine {
       console.log(`[Pipeline] Settled ${rows.length} run(s) the previous process left running.`);
     }
     return rows.length;
+  }
+
+  /**
+   * Reclaims the worktree fleets of runs old enough that nobody will read them
+   * (P9-03).
+   *
+   * Called once at startup, after `recoverRuns` has settled the runs the
+   * previous process stopped in the middle of — that pass is what decides which
+   * runs are over, and pruning before it could take the checkouts of a run this
+   * process is about to mark cancelled while its rows still claim it is live.
+   *
+   * The engine is what knows which runs must survive: a run this process is
+   * executing right now, and any run whose row is not terminal. Everything else
+   * is dated from the disk and the branches by the fleet itself, so a run whose
+   * database row was deleted still has its checkouts reclaimed.
+   *
+   * Never throws, and answers with how many checkouts and branches were
+   * reclaimed: reclaiming disk is not something a workstation should fail to
+   * boot over.
+   */
+  public async pruneOldFleetWorktrees(
+    maxAgeMs: number = DEFAULT_FLEET_RETENTION_MS
+  ): Promise<number> {
+    let projects: Array<{ id: string; path: string | null }>;
+    let live: Array<{ id: string }>;
+    try {
+      projects = this.db()
+        .prepare('SELECT id, path FROM projects')
+        .all() as unknown as Array<{ id: string; path: string | null }>;
+      live = this.db()
+        .prepare("SELECT id FROM pipeline_runs WHERE status IN ('PENDING', 'RUNNING')")
+        .all() as unknown as Array<{ id: string }>;
+    } catch (err) {
+      console.warn(`[Pipeline] Could not scan for stale fleets: ${(err as Error).message}`);
+      return 0;
+    }
+
+    const keepRunIds = [...new Set([...live.map(row => row.id), ...this.active.keys()])];
+
+    let reclaimed = 0;
+    for (const project of projects) {
+      const repoPath = project.path;
+      if (!repoPath) continue;
+      // Nothing to reclaim in a project that is not a repository, and nothing to
+      // look for in one that has never run a pipeline — which is most of them,
+      // and answering that from the filesystem keeps startup free of a `git`
+      // subprocess per project.
+      if (!fs.existsSync(path.join(repoPath, '.git'))) continue;
+      if (!fs.existsSync(path.join(repoPath, ...PIPELINE_WORKTREE_DIR.split('/')))) continue;
+
+      try {
+        const result = await this.fleet.pruneOldFleetWorktrees(repoPath, {
+          maxAgeMs,
+          keepRunIds
+        });
+        reclaimed += result.removed;
+      } catch (err) {
+        console.warn(
+          `[Pipeline] Could not prune fleets in ${repoPath}: ${(err as Error).message}`
+        );
+      }
+    }
+
+    if (reclaimed > 0) {
+      console.log(`[Pipeline] Reclaimed ${reclaimed} stale pipeline checkout(s) and branch(es).`);
+    }
+    return reclaimed;
   }
 
   /** One run with every step it planned, or null. */

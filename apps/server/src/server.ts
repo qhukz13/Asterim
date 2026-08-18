@@ -330,6 +330,13 @@ const start = async () => {
     const { pipelineEngine } = await import('./services/pipeline/PipelineEngine');
     pipelineEngine.recoverRuns();
 
+    // And the worktree fleets old runs left behind (P9-03). After the recovery
+    // pass, because that is what decides which runs are over, and deliberately
+    // not awaited: a pipeline keeps a whole checkout per step so that its work
+    // stays reviewable, which means nothing else ever deletes one — but a
+    // workstation should not wait on `git worktree remove` to finish booting.
+    void pipelineEngine.pruneOldFleetWorktrees();
+
     // Automated triggers (P9-02). Started after recovery, so a commit or a file
     // change that arrives in the first second cannot start a run while rows the
     // previous process left behind still claim to be running.

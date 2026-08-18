@@ -82,6 +82,19 @@ export class WorktreeFleetError extends Error {
 /** The commit message a step's leftover work is settled onto its branch with. */
 export const FLEET_STEP_COMMIT_MESSAGE = 'Asterim: pipeline step changes';
 
+/**
+ * How long a run's fleet is kept before it is reclaimed (P9-03).
+ *
+ * Seven days, because a step's checkout is evidence: it is where a person looks
+ * to see what an agent actually did, and throwing it away when the run ends
+ * would make a failed pipeline unreviewable. But it is a full checkout of the
+ * repository per step, so a workstation that runs a five-step pipeline nightly
+ * accumulates thirty-five of them a week and nothing else ever deletes one.
+ * A week is long enough that a run nobody has looked at is a run nobody is going
+ * to look at.
+ */
+export const DEFAULT_FLEET_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** How many changed paths one comparison reports before it is cut short. */
 export const MAX_FLEET_CHANGED_FILES = 500;
 
@@ -636,6 +649,105 @@ export class WorktreeFleetService {
       if ((await this.tryExec(`git branch -D ${quoteGitArg(branch)}`, repoPath)) !== null) removed++;
     }
     return removed;
+  }
+
+  /**
+   * Reclaims the fleets of runs nothing is going to look at again (P9-03).
+   *
+   * The disk cost of a pipeline is a whole checkout per step, kept on purpose so
+   * that the work a step did stays reviewable after the run — which means
+   * nothing in the normal course of events ever deletes one, and
+   * `.asterim/worktrees/pipeline/` grows for the life of the repository. This is
+   * the only thing that shrinks it.
+   *
+   * Age is taken as the *newest* of what is known about a run: its directory's
+   * mtime and its branches' commit dates. A run whose checkout an operator was
+   * reading yesterday is not old because its commits are a fortnight old, and a
+   * run whose directory was removed by hand is still dated by the branches it
+   * left behind.
+   *
+   * `keepRunIds` is the caller's list of runs that must survive whatever their
+   * age says — the ones this process is still executing. Nothing outside
+   * `asterim/pipeline/` is touched, and a run that cannot be torn down is
+   * counted as not torn down rather than thrown for: this runs at startup, and a
+   * workstation must not fail to boot over a directory it could not delete.
+   */
+  public async pruneOldFleetWorktrees(
+    repoPath: string,
+    options: { maxAgeMs?: number; keepRunIds?: readonly string[]; now?: number } = {}
+  ): Promise<{ removed: number; runIds: string[] }> {
+    const maxAgeMs = Math.max(0, options.maxAgeMs ?? DEFAULT_FLEET_RETENTION_MS);
+    const now = options.now ?? Date.now();
+    const keep = new Set(options.keepRunIds ?? []);
+
+    if (!(await this.worktrees.isRepository(repoPath))) return { removed: 0, runIds: [] };
+
+    const seen = await this.fleetRunAges(repoPath);
+    const runIds: string[] = [];
+    let removed = 0;
+
+    for (const [runId, lastTouched] of seen) {
+      if (keep.has(runId)) continue;
+      if (!isSafePipelineRefComponent(runId)) continue;
+      if (now - lastTouched <= maxAgeMs) continue;
+
+      try {
+        removed += await this.teardownRun(repoPath, runId);
+        runIds.push(runId);
+      } catch (err) {
+        console.warn(
+          `[Fleet] Could not reclaim the fleet of run ${runId} in ${repoPath}: ${(err as Error).message}`
+        );
+      }
+    }
+
+    // A fleet directory left holding nothing is the last thing to go, so a
+    // repository that has run pipelines and had them all reclaimed looks like
+    // one that never ran any.
+    const root = path.join(repoPath, ...PIPELINE_WORKTREE_DIR.split('/'));
+    try {
+      if (fs.existsSync(root) && fs.readdirSync(root).length === 0) fs.rmdirSync(root);
+    } catch {
+      /* best effort: an empty directory left behind costs nothing */
+    }
+
+    return { removed, runIds };
+  }
+
+  /** Every run the fleet knows about, and when it was last touched. */
+  private async fleetRunAges(repoPath: string): Promise<Map<string, number>> {
+    const ages = new Map<string, number>();
+    const record = (runId: string, at: number): void => {
+      if (!runId) return;
+      ages.set(runId, Math.max(ages.get(runId) ?? 0, at));
+    };
+
+    const root = path.join(repoPath, ...PIPELINE_WORKTREE_DIR.split('/'));
+    if (fs.existsSync(root)) {
+      for (const entry of fs.readdirSync(root)) {
+        try {
+          record(entry, fs.statSync(path.join(root, entry)).mtimeMs);
+        } catch {
+          /* an entry that vanished between the listing and the stat */
+        }
+      }
+    }
+
+    for (const line of lines(
+      await this.tryExec(
+        `git for-each-ref --format="%(refname:short) %(committerdate:unix)" ${quoteGitArg(`refs/heads/${PIPELINE_BRANCH_PREFIX}`)}`,
+        repoPath
+      )
+    )) {
+      const [branch, stamp] = line.split(/\s+/);
+      if (!isPipelineBranch(branch)) continue;
+      // `asterim/pipeline/<runId>/step-<stepId>` and `…/<runId>/pr`.
+      const runId = branch.slice(PIPELINE_BRANCH_PREFIX.length).split('/')[0];
+      const seconds = Number(stamp);
+      record(runId, Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0);
+    }
+
+    return ages;
   }
 
   /** Removes a run's synthesis branch and the checkout it is assembled in. */

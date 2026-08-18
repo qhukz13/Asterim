@@ -9,9 +9,37 @@ export type ViewType =
   | 'skills'
   /** Shared team agents and their collaborative threads (P8-02). */
   | 'team'
+  /** Declarative multi-agent pipelines and their runs (P9-03). */
+  | 'pipelines'
   | 'settings'
   | 'workspace'
   | 'environment';
+
+/**
+ * Every view the URL may name.
+ *
+ * The URL is the single source of truth for navigation, which means a view id
+ * arriving from it is user input: `/view/nonsense` would otherwise be set as the
+ * active view and leave the workspace showing nothing at all.
+ */
+export const VIEW_TYPES: readonly ViewType[] = [
+  'chat',
+  'terminal',
+  'changes',
+  'memory',
+  'mcp',
+  'skills',
+  'team',
+  'pipelines',
+  'settings',
+  'workspace',
+  'environment'
+];
+
+/** Whether a string from the URL names a view this dashboard has. */
+export function isViewType(value: string | undefined | null): value is ViewType {
+  return !!value && (VIEW_TYPES as readonly string[]).includes(value);
+}
 
 interface ViewState {
   activeView: ViewType;
@@ -25,7 +53,7 @@ interface ViewState {
 
 export const useViewStore = create<ViewState>((set) => ({
   activeView: 'chat',
-  availableViews: ['chat', 'terminal', 'changes', 'memory', 'skills', 'team', 'settings', 'workspace', 'environment'],
+  availableViews: ['chat', 'terminal', 'changes', 'memory', 'skills', 'team', 'pipelines', 'settings', 'workspace', 'environment'],
   viewHistory: [],
   perThreadViewState: {},
   

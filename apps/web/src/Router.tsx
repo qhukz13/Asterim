@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { useProjectStore } from './stores/useProjectStore';
 import { useThreadStore } from './stores/useThreadStore';
-import { useViewStore, ViewType } from './stores/useViewStore';
+import { isViewType, useViewStore } from './stores/useViewStore';
 import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import { useDebugLifecycle, Debug } from './utils/debug';
 
@@ -52,12 +52,19 @@ export function RouterSync() {
     if (matchFull && paramsFull) {
       if (activeProjectId !== paramsFull.projectId) setActiveProject(paramsFull.projectId);
       if (activeThreadId !== paramsFull.threadId) setActiveThread(paramsFull.threadId);
-      if (activeView !== paramsFull.viewId) setActiveView(paramsFull.viewId as ViewType);
-    } 
+      // A view id from the URL is user input: an unknown one is ignored rather
+      // than set, which leaves the workspace on the view it was already showing
+      // instead of on nothing at all.
+      if (isViewType(paramsFull.viewId) && activeView !== paramsFull.viewId) {
+        setActiveView(paramsFull.viewId);
+      }
+    }
     // If we have a project + view match without explicit thread
     else if (matchView && paramsView) {
       if (activeProjectId !== paramsView.projectId) setActiveProject(paramsView.projectId);
-      if (activeView !== paramsView.viewId) setActiveView(paramsView.viewId as ViewType);
+      if (isViewType(paramsView.viewId) && activeView !== paramsView.viewId) {
+        setActiveView(paramsView.viewId);
+      }
     }
     // If we only have a project match, clear thread state
     else if (matchProject && paramsProject) {

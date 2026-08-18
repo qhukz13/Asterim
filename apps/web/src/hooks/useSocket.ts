@@ -30,6 +30,11 @@ import {
   handleTeamTurnEvent,
   isTeamTurnEvent
 } from '../stores/useTeamAgentStore';
+import {
+  PIPELINE_EVENT_TYPES,
+  handlePipelineEvent,
+  isPipelineEvent
+} from '../stores/usePipelineStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 export interface ChatMessage {
@@ -344,6 +349,15 @@ export function useSocket(
         return;
       }
 
+      // A pipeline run's transitions are about the run's root thread and its
+      // delegated children, never about the thread open in this tab, so like
+      // delegation they are routed before the thread filter below — filtering
+      // them out would leave the DAG frozen on whatever it was last fetched as.
+      if (isPipelineEvent(event)) {
+        handlePipelineEvent(event.type, event.payload);
+        return;
+      }
+
       // Thread-specific filtering
       if (
         threadIdRef.current &&
@@ -457,6 +471,12 @@ export function useSocket(
     // well when the thread is bound to one.
     for (const turnType of TEAM_TURN_EVENT_TYPES) {
       newSocket.on(turnType, handleInternalEvent);
+    }
+
+    // The five pipeline run transitions (P9-01, P9-02). They carry a projectId,
+    // so they arrive through the project room like delegation's do.
+    for (const pipelineType of PIPELINE_EVENT_TYPES) {
+      newSocket.on(pipelineType, handleInternalEvent);
     }
 
     newSocket.on('memory.decision_created', handleInternalEvent);

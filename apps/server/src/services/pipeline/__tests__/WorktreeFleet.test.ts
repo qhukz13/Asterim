@@ -71,6 +71,7 @@ const { AgentDelegationService } = require('../../ai/AgentDelegationService');
 const { PipelineEngine, PipelineError } = require('../PipelineEngine');
 const { PipelineParser, PipelineParseError } = require('../PipelineParser');
 const {
+  DEFAULT_FLEET_RETENTION_MS,
   WorktreeFleetService,
   WorktreeFleetError,
   worktreeFleetService
@@ -1234,6 +1235,99 @@ async function main(): Promise<void> {
     }
     check('the shipped trigger singleton exists', !!pipelineTriggerService);
     check('as does the fleet singleton the engine defaults to', !!worktreeFleetService);
+  }
+
+  // --- Retention (P9-03) ------------------------------------------------------
+  describe('old fleets are reclaimed, and only old ones');
+  {
+    const retained = makeRepo('asterim-fleet-retention-');
+    // A branch that is not Asterim's, to prove pruning cannot reach it.
+    git('git branch feature/keep', retained);
+
+    const base = await fleet.resolveRunBase(retained);
+    for (const runId of ['prun_stale', 'prun_fresh']) {
+      const worktree = await fleet.provisionStep({ repoPath: retained, runId, stepId: 'implement', baseCommit: base });
+      fs.writeFileSync(path.join(worktree.path, `${runId}.txt`), 'work\n');
+      await fleet.settleStep(worktree);
+    }
+
+    equal(
+      'a week-old retention finds nothing to reclaim in a fleet made just now',
+      (await fleet.pruneOldFleetWorktrees(retained)).removed,
+      0
+    );
+    equal('so both fleets are still there', fs.readdirSync(path.join(retained, '.asterim', 'worktrees', 'pipeline')).sort(), [
+      'prun_fresh',
+      'prun_stale'
+    ]);
+    check('with a week being the default', DEFAULT_FLEET_RETENTION_MS === 7 * 24 * 60 * 60 * 1000);
+
+    // Old enough to reclaim, except for the run the caller says is still live.
+    const aged = await fleet.pruneOldFleetWorktrees(retained, {
+      maxAgeMs: 0,
+      now: Date.now() + 60_000,
+      keepRunIds: ['prun_fresh']
+    });
+    equal('the run the caller kept is not reclaimed', aged.runIds, ['prun_stale']);
+    check('its checkout is gone', !fs.existsSync(path.join(retained, '.asterim', 'worktrees', 'pipeline', 'prun_stale')));
+    check(
+      'as is its branch',
+      !fleetBranches(retained).includes('asterim/pipeline/prun_stale/step-implement'),
+      JSON.stringify(fleetBranches(retained))
+    );
+    check(
+      'while the kept run still has its checkout',
+      fs.existsSync(path.join(retained, '.asterim', 'worktrees', 'pipeline', 'prun_fresh'))
+    );
+    check(
+      'and its branch',
+      fleetBranches(retained).includes('asterim/pipeline/prun_fresh/step-implement')
+    );
+    check(
+      'and the operator’s own branch was never a candidate',
+      git('git branch --list feature/keep', retained).includes('feature/keep')
+    );
+
+    const rest = await fleet.pruneOldFleetWorktrees(retained, { maxAgeMs: 0, now: Date.now() + 60_000 });
+    equal('with nothing kept the rest goes too', rest.runIds, ['prun_fresh']);
+    equal('no fleet branch is left', fleetBranches(retained), []);
+    equal('no checkout is left registered', registeredWorktrees(retained), []);
+    check(
+      'and the empty fleet directory is removed as well',
+      !fs.existsSync(path.join(retained, '.asterim', 'worktrees', 'pipeline'))
+    );
+    equal(
+      'a second pass has nothing left to do',
+      (await fleet.pruneOldFleetWorktrees(retained, { maxAgeMs: 0, now: Date.now() + 60_000 })).removed,
+      0
+    );
+    equal('the working tree is untouched throughout', git('git status --porcelain', retained), '');
+
+    const notARepo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'asterim-fleet-plain-')));
+    tempDirs.push(notARepo);
+    equal(
+      'pruning is safe over a project that is not a repository',
+      (await fleet.pruneOldFleetWorktrees(notARepo, { maxAgeMs: 0 })).removed,
+      0
+    );
+
+    // The engine's own pass, which is what the server calls at startup: it
+    // reads the projects itself and keeps every run that has not settled.
+    const engineRun = await fleet.provisionStep({
+      repoPath: repo,
+      runId: 'prun_engine',
+      stepId: 'implement',
+      baseCommit: await fleet.resolveRunBase(repo)
+    });
+    fs.writeFileSync(path.join(engineRun.path, 'engine.txt'), 'work\n');
+    await fleet.settleStep(engineRun);
+    check(
+      'a fleet inside the retention window survives the engine pass',
+      (await engine.pruneOldFleetWorktrees()) === 0 &&
+        fleetBranches(repo).includes('asterim/pipeline/prun_engine/step-implement')
+    );
+    check('and one outside it does not', (await engine.pruneOldFleetWorktrees(0)) > 0);
+    equal('leaving no fleet branch behind', fleetBranches(repo), []);
   }
 
   // --- Nothing left behind ----------------------------------------------------
