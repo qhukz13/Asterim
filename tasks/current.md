@@ -1,10 +1,10 @@
-Task-ID: P7-03
-Phase: 7
+Task-ID: P8-01
+Phase: 8
 
-# [P7-03] — Database Migration & Snapshot CLI Tooling and Cross-Channel Data Promotion (DEC-029, DEC-030)
+# [P8-01] — Shared Team Agent Primitive, Schema & Turn Concurrency Engine
 
-**Task ID:** P7-03  
-**Phase:** Phase 7 — Release Channels, Database Migration Engine & Runtime Isolation  
+**Task ID:** P8-01  
+**Phase:** Phase 8 — Collaborative Team Agents & Multi-User Governance  
 **Assigned Agent:** Claude Code  
 **Orchestrator:** Antigravity  
 **Status:** ASSIGNED  
@@ -14,166 +14,130 @@ Phase: 7
 
 ## 1. Objective
 
-Implement the command-line interface (CLI) utilities for database migration inspection (`asterim db:status`), explicit forward migration execution (`asterim db:migrate`), manual snapshot creation and retention pruning (`asterim db:snapshot`), and cross-channel data cloning, backup, and restoration (`asterim data:clone`, `asterim data:backup`, `asterim data:restore`), providing full developer control over database lifecycle across Stable and Development channels governed by `DEC-029` and `DEC-030`.
+Implement the Shared Team Agent primitive and Turn Concurrency Engine governed by `DEC-031`: add migration `002_team_agents.sql` defining team agent schemas in SQLite, author `AgentTurnLock.ts` to manage FIFO turn queueing and prevent simultaneous prompt collisions, author `TeamAgentService.ts` for multi-user collaborative session orchestration, expose authenticated REST endpoints, and author a comprehensive automated test suite.
 
 ---
 
 ## 2. Why This Task Exists
 
-With Task P7-01 establishing dual-channel runtime isolation (`~/.asterim` vs `~/.asterim-dev`) and Task P7-02 delivering the transactional SQL `MigrationEngine`, developers now require user-facing CLI utilities to:
-1. Inspect migration status and checksum integrity from the command line (`db:status`).
-2. Run migrations explicitly during deployment or CI without booting the full HTTP server (`db:migrate`).
-3. Take on-demand snapshots before risky maintenance and automatically enforce snapshot retention limits (`db:snapshot`).
-4. Safely seed the Development channel (`~/.asterim-dev`) from a Stable channel snapshot without risking production data (`data:clone --from stable --to dev`).
-5. Perform instantaneous disaster recovery backups and restorations (`data:backup`, `data:restore`).
+As established in `DEC-031` and the authoritative roadmap (`blueprint/ROADMAP.md`), AI agents have historically been confined to single-developer sessions. When multiple engineers collaborate on a codebase, they need persistent shared agent roles (e.g. "Tech Lead", "Security Reviewer", "Database Architect") that maintain continuous team context.
+
+However, when multiple team members interact with one shared agent simultaneously, uncoordinated dispatches cause prompt collisions, interleaved transcripts, and race conditions. The Turn Concurrency Engine (`AgentTurnLock`) provides deterministic FIFO message queueing, turn atomicity, and real-time state synchronization across all connected team members.
 
 ---
 
-## 3. Context & Architecture (DEC-029, DEC-030)
+## 3. Context & Architecture (DEC-031 & DEC-032)
 
-- **CLI Command Invocation Structure**:
-  - The `asterim` binary (`apps/server/src/index.ts` / entrypoint) must detect when it is invoked with CLI subcommands (e.g. `process.argv.slice(2)` containing `db:*` or `data:*` or `--help`).
-  - When a CLI subcommand is provided, the CLI dispatcher executes the requested operation, prints formatted stdout output, and exits cleanly (`process.exit(0)` on success or `process.exit(1)` on error) without initializing the Fastify HTTP listener, socket manager, or background services.
-  - When no subcommand is provided (e.g. `asterim` or `pnpm dev`), the standard server boot sequence runs unchanged.
-- **Channel Resolution**:
-  - All CLI subcommands respect the active channel (`--channel <stable|dev>` flag or `ASTERIM_CHANNEL` env var) via `resolveDataDir(channel)`.
-- **CLI Commands Specification**:
-  1. **`db:status`**:
-     - Queries `MigrationEngine.getStatus()`.
-     - Displays formatted summary: active release channel, database file path, current schema version, latest defined version, status of each migration (version, name, checksum prefix, applied timestamp, or `[PENDING]`), and existing snapshots list.
-  2. **`db:migrate [--dry-run]`**:
-     - Executes pending migrations on the target channel database.
-     - Supports `--dry-run` to report pending migrations without applying changes or creating snapshots.
-     - On execution, creates pre-migration snapshot (owner-only `0600`), executes migrations in atomic transactions, and logs results.
-  3. **`db:snapshot [--keep <count>]`**:
-     - Manually checkpoints WAL and creates `asterim.db.bak.<timestamp>` with `0600` permissions.
-     - Enforces snapshot retention policy: prunes oldest `.bak` files exceeding `--keep <count>` (default keep: 10).
-  4. **`data:clone --from <source> --to <target> [--force]`**:
-     - Clones database from source channel (e.g. `stable`) to destination channel (e.g. `dev`).
-     - Refuses if source and target channels are identical.
-     - Refuses if source database does not exist.
-     - Checkpoints WAL on source, copies database safely to destination `asterim.db` with `0600` permissions and directory `0700`.
-     - If destination database already exists and has data, creates a safety backup at destination before overwriting (or requires `--force` if specified).
-  5. **`data:backup [--out <path>]`**:
-     - Creates a standalone backup of active channel database to specified path or default timestamped backup location with `0600` permissions.
-  6. **`data:restore --file <path> [--force]`**:
-     - Restores target database from specified backup file with `0600` permissions.
-     - Takes a safety backup of existing database before restoring.
-- **Snapshot Retention Pruner**:
-  - `pruneSnapshots(dataDir: string, maxKeep: number = 10): string[]` helper that scans `asterim.db.bak.*`, sorts by timestamp, deletes older backups exceeding `maxKeep`, and returns list of pruned file names.
+- **Team Agent Primitive**:
+  - Persistent entity (`team_agents`) belonging to a Team/Workspace, configured with role prompts, allowed MCP servers, and access permissions.
+  - Maintains collaborative threads (`team_threads`) with shared transcript history (`team_agent_messages`).
+- **Turn Concurrency Engine (`AgentTurnLock`)**:
+  - Each collaborative thread has an active turn state: `IDLE`, `PROCESSING_TURN`, or `AWAITING_APPROVAL`.
+  - Incoming user instructions enter a FIFO queue (`team_turn_queue`).
+  - When the agent finishes generating output and executing tool calls, `AgentTurnLock` automatically advances to the next queued request and updates connected clients over Socket.IO.
+- **Local-First Data Sovereignty (`DEC-028` & `DEC-032`)**:
+  - The shared agent executes locally on the host machine.
+  - All transcripts and queue states remain in local SQLite.
 
 ---
 
-## 4. Repository Evidence & Key Files
+## 4. Implementation Scope
 
-- `apps/server/src/index.ts` — Server entrypoint and CLI argument dispatch point.
-- `apps/server/src/services/MigrationEngine.ts` — Engine methods `getStatus()`, `runMigrations()`, `createSnapshot()`.
-- `apps/server/src/services/DatabaseService.ts` — Database connection owner and migration status bridge.
-- `apps/server/src/utils/channel.ts` — `resolveDataDir()`, `getAsterimChannel()`, `describeChannel()`.
-- `apps/server/src/utils/permissions.ts` — `enforceOwnerOnly()` helper.
-- `blueprint/ROADMAP.md` (Section 4 Initiative A & Section 5 Phase 7 Deliverable 3).
-- `decisions.md` (`DEC-029`, `DEC-030`).
+1. **SQL Migration (`packages/server/src/migrations/002_team_agents.sql`)**:
+   - `team_agents`: `id`, `team_id`, `name`, `role`, `description`, `system_prompt`, `model`, `temperature`, `enabled_mcp_servers`, `enabled_skills`, `created_by`, `created_at`, `updated_at`.
+   - `team_threads`: `id`, `team_agent_id`, `title`, `status`, `active_turn_user_id`, `created_at`, `updated_at`.
+   - `team_turn_queue`: `id`, `team_thread_id`, `user_id`, `user_name`, `instruction`, `context_json`, `status` (`QUEUED` | `PROCESSING` | `AWAITING_APPROVAL` | `COMPLETED` | `FAILED` | `CANCELLED`), `queued_at`, `started_at`, `completed_at`, `error_message`.
+   - `team_agent_messages`: `id`, `team_thread_id`, `user_id`, `user_name`, `role`, `content`, `tool_calls_json`, `created_at`.
+   - Indexes: `idx_team_agents_team`, `idx_team_threads_agent`, `idx_team_queue_thread_status`, `idx_team_messages_thread`.
 
----
+2. **Shared Types (`packages/shared/src/types/teamAgent.ts`)**:
+   - `TeamAgent`, `TeamThread`, `TeamTurnRequest`, `TeamTurnQueueItem`, `TeamAgentMessage`, `TeamTurnStatus`.
+   - Export from `packages/shared/src/index.ts`.
 
-## 5. Implementation Scope
+3. **`AgentTurnLock.ts` (`apps/server/src/services/ai/AgentTurnLock.ts`)**:
+   - Per-thread in-memory FIFO queue and atomic turn lock manager.
+   - `acquireTurn(threadId: string, turnId: string): Promise<boolean>`
+   - `releaseTurn(threadId: string, turnId: string): void`
+   - `cancelTurn(threadId: string, turnId: string): boolean`
+   - `getQueueState(threadId: string): { activeTurn: TeamTurnQueueItem | null; queuedTurns: TeamTurnQueueItem[] }`
+   - Socket.IO broadcast hooks on turn transitions (`team_turn:queued`, `team_turn:started`, `team_turn:completed`, `team_turn:cancelled`).
 
-1. **CLI Engine & Command Handlers (`apps/server/src/cli/`)**:
-   - Create `apps/server/src/cli/index.ts` (or modular command handlers `apps/server/src/cli/db.ts`, `apps/server/src/cli/data.ts`, `apps/server/src/cli/snapshots.ts`).
-   - Implement command parsers and formatted console formatters for:
-     - `asterim db:status`
-     - `asterim db:migrate [--dry-run]`
-     - `asterim db:snapshot [--keep <count>]`
-     - `asterim data:clone --from <channel> --to <channel> [--force]`
-     - `asterim data:backup [--out <path>]`
-     - `asterim data:restore --file <path> [--force]`
-     - `asterim --help` / `asterim help`
-   - Implement `pruneSnapshots(dataDir, keepCount)` in `apps/server/src/cli/snapshots.ts` (or `MigrationEngine.ts`).
+4. **`TeamAgentService.ts` (`apps/server/src/services/ai/TeamAgentService.ts`)**:
+   - Agent CRUD: `createTeamAgent`, `getTeamAgent`, `listTeamAgents(teamId)`, `updateTeamAgent`, `deleteTeamAgent`.
+   - Thread Management: `createTeamThread`, `getTeamThread`, `listTeamThreads(agentId)`.
+   - Turn Dispatcher: `enqueueTurn(request: TeamTurnRequest)`: Persists queue item to SQLite, enqueues in `AgentTurnLock`, and executes turn through `AgentService` with the team agent persona.
+   - Transcript Logger: Appends user and agent assistant turns to `team_agent_messages`.
 
-2. **Hook CLI Dispatcher into `apps/server/src/index.ts`**:
-   - Add early CLI argument check before starting Fastify HTTP server.
-   - If CLI command is provided, run CLI handler and exit immediately; otherwise continue server startup.
+5. **REST API Endpoints (`apps/server/src/routes/teamAgents.ts`)**:
+   - `POST /api/v1/team-agents` — Create team agent.
+   - `GET /api/v1/team-agents` — List team agents for active workspace/team.
+   - `GET /api/v1/team-agents/:id` — Get team agent details.
+   - `POST /api/v1/team-agents/:id/threads` — Create collaborative thread.
+   - `GET /api/v1/team-threads/:id` — Get thread transcript and queue state.
+   - `POST /api/v1/team-threads/:id/turns` — Enqueue instruction (`{ instruction, context? }`).
+   - `DELETE /api/v1/team-threads/:id/turns/:turnId` — Cancel queued turn.
+   - Register in `apps/server/src/server.ts`.
 
-3. **Automated Unit & Integration Test Suite (`apps/server/src/services/__tests__/CliDatabaseTooling.test.ts`)**:
-   - Test `db:status` formatting and output across clean, migrated, and pending states.
-   - Test `db:migrate` with normal execution and `--dry-run`.
-   - Test `db:snapshot` and snapshot retention pruning (e.g. keeping N latest, pruning older).
-   - Test `data:clone --from stable --to dev` verifying file copy, permissions (`0600`), and source preservation.
-   - Test `data:backup` and `data:restore` with integrity checks.
-   - Test error handling (invalid channels, non-existent files, identical source/dest clone).
+6. **Automated Unit & Integration Test Suite (`apps/server/src/services/ai/__tests__/TeamAgentService.test.ts`)**:
+   - Test TeamAgent CRUD operations and SQLite persistence.
+   - Test `AgentTurnLock` FIFO queue ordering under concurrent multi-user submissions.
+   - Test atomic turn acquisition, generation, message persistence, and queue advancement.
+   - Test turn cancellation while queued.
    - Wire into `apps/server/package.json` `"test"` script.
 
 ---
 
-## 6. Constraints & Explicitly Forbidden Changes
+## 5. Constraints & Forbidden Changes
 
-- Do NOT break or slow down the standard server boot path when no CLI command is given.
-- Do NOT modify production database files without taking a safety snapshot first.
-- Do NOT write backup or cloned files outside the target channel directory unless an explicit `--out` path was passed to `data:backup`.
-- Enforce strict owner-only permissions (`0600` files, `0700` directories) on all snapshot, clone, and backup targets.
-- Do NOT add heavy external CLI frameworks (use lightweight argument parsing / node built-ins).
-- Maintain 100% test pass rate across all 46 existing monorepo test suites.
+- Do NOT allow race conditions or interleaved agent generation on the same `team_thread_id`.
+- Do NOT transmit source code or transcripts to unapproved external cloud endpoints (`DEC-028` compliance).
+- Maintain 100% test pass rate across all existing monorepo test suites.
 
 ---
 
-## 7. Acceptance Criteria
+## 6. Acceptance Criteria
 
-1. `asterim db:status` displays human-readable diagnostic status including current version, latest version, applied migrations with SHA-256 checksums, pending migrations, and existing snapshot list.
-2. `asterim db:migrate` applies pending migrations transactionally with automatic pre-migration snapshotting, and `--dry-run` reports pending migrations without modifying disk.
-3. `asterim db:snapshot` creates an owner-only (`0600`) timestamped snapshot `asterim.db.bak.<timestamp>` and prunes older snapshots beyond the retention threshold (`--keep <count>`, default 10).
-4. `asterim data:clone --from <source> --to <target>` safely clones source database to destination channel directory with `0600` permissions without modifying source data.
-5. `asterim data:backup` and `asterim data:restore` enable full database export and safe restoration with automatic pre-restore safety snapshots.
-6. Invoking CLI commands exits cleanly without starting the HTTP server or listening on network ports.
-7. `CliDatabaseTooling.test.ts` passes with 100% assertions covering status, migrate, snapshot, retention pruning, clone, backup, restore, and error guards.
-8. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
-
----
-
-## 8. Definition of Done
-
-- [ ] CLI dispatcher and command handlers implemented (`apps/server/src/cli/`)
-- [ ] `db:status`, `db:migrate`, `db:snapshot` implemented and verified
-- [ ] `data:clone`, `data:backup`, `data:restore` implemented and verified
-- [ ] Snapshot retention pruning implemented (`pruneSnapshots`)
-- [ ] `apps/server/src/index.ts` wired to dispatch CLI subcommands before server boot
-- [ ] `CliDatabaseTooling.test.ts` authored and passing
-- [ ] All 46+ monorepo test suites passing cleanly
-- [ ] Monorepo typecheck, lint, and build pass across all 7 workspace packages
+1. Migration `002_team_agents.sql` applies cleanly via `MigrationEngine`.
+2. `TeamAgentService` supports full CRUD for team agents and collaborative threads.
+3. `AgentTurnLock` maintains deterministic FIFO queue ordering when multiple users queue tasks concurrently.
+4. Concurrent turns do not collide or interleave; each turn completes before the next begins.
+5. Authenticated REST endpoints under `/api/v1/team-agents` and `/api/v1/team-threads` return accurate responses.
+6. `TeamAgentService.test.ts` passes with comprehensive concurrency assertions.
+7. Monorepo CI gates pass with 0 errors: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`.
 
 ---
 
-## 9. Verification Commands
+## 7. Definition of Done
+
+- [ ] `002_team_agents.sql` created and verified
+- [ ] Shared team agent types in `@asterim/shared`
+- [ ] `AgentTurnLock.ts` implemented
+- [ ] `TeamAgentService.ts` implemented
+- [ ] REST endpoints registered in `server.ts`
+- [ ] `TeamAgentService.test.ts` created and passing
+- [ ] Monorepo CI gates pass cleanly
+
+---
+
+## 8. Verification Commands
 
 ```bash
-# Run new CLI Database Tooling test suite
-pnpm --filter asterim exec tsx src/services/__tests__/CliDatabaseTooling.test.ts
+# Run new Team Agent & Concurrency test suite
+pnpm --filter asterim exec tsx src/services/ai/__tests__/TeamAgentService.test.ts
 
-# Run Migration Engine and Channel Isolation test suites
-pnpm --filter asterim exec tsx src/services/__tests__/MigrationEngine.test.ts
-pnpm --filter asterim exec tsx src/services/__tests__/ChannelIsolation.test.ts
+# Run all AI & delegation test suites
+pnpm --filter asterim exec tsx src/services/ai/__tests__/AgentDelegationService.test.ts
+pnpm --filter asterim exec tsx src/services/ai/__tests__/ProfileService.test.ts
 
-# Run full monorepo test battery
-pnpm run test
-
-# Run monorepo typecheck, lint, and build
+# Run full monorepo CI validation
 pnpm run typecheck
 pnpm run lint
+pnpm run test
 pnpm run build
 ```
 
 ---
 
-## 10. Self-Review Requirements
+## 9. Required Report
 
-Before submitting `reports/current.md`, Claude Code must execute the full self-review protocol:
-1. Run `pnpm --filter asterim exec tsx src/services/__tests__/CliDatabaseTooling.test.ts`.
-2. Inspect `git diff` to verify clean changes, proper permission enforcement (`0600`), and zero regressions to standard server startup.
-3. Test direct CLI invocations (`db:status`, `db:snapshot`, `data:clone`) to confirm clean process exit without starting the HTTP listener.
-4. Verify that all monorepo test suites pass with 0 failures.
-5. Check every numbered acceptance criterion in Section 7.
-
----
-
-## 11. Required Report
-
-Write the execution report to `reports/current.md` matching the standard schema defined in `AGENTS.md` and `CLAUDE.md`.
+Write report to `reports/current.md` matching `.agents/templates/REPORT_TEMPLATE.md`.
