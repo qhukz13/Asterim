@@ -1,4 +1,5 @@
 import { baselineMigration } from './001_baseline';
+import { teamAgentsMigration } from './002_team_agents';
 import type { MigrationDefinition } from './types';
 
 export type { MigrationDefinition, ColumnAddition } from './types';
@@ -18,7 +19,7 @@ export type { MigrationDefinition, ColumnAddition } from './types';
  * and the engine refuses to run against a database whose history no longer
  * matches the code.
  */
-export const migrations: MigrationDefinition[] = [baselineMigration];
+export const migrations: MigrationDefinition[] = [baselineMigration, teamAgentsMigration];
 
 /** The version a database is expected to be on after this build has migrated it. */
 export const LATEST_SCHEMA_VERSION = migrations.reduce(

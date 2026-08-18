@@ -18,6 +18,9 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "@asterim/mcp-memory-server#test": {
+      "dependsOn": ["^build", "build"]
+    },
     "format": {
       "dependsOn": ["^format"]
     },

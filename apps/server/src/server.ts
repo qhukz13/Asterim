@@ -144,6 +144,7 @@ import mcpRoutes from './routes/mcp';
 import skillRoutes from './routes/skills';
 import profileRoutes from './routes/profiles';
 import delegationRoutes from './routes/delegation';
+import teamAgentRoutes from './routes/teamAgents';
 import worktreeRoutes from './routes/worktrees';
 import workspaceRoutes from './routes/workspaces';
 import aiRoutes from './routes/ai';
@@ -209,6 +210,8 @@ const start = async () => {
     await fastify.register(profileRoutes);
     console.log('[DEBUG] Registering delegationRoutes');
     await fastify.register(delegationRoutes);
+    console.log('[DEBUG] Registering teamAgentRoutes');
+    await fastify.register(teamAgentRoutes);
     console.log('[DEBUG] Registering worktreeRoutes');
     await fastify.register(worktreeRoutes);
     console.log('[DEBUG] Registering workspaceRoutes');
@@ -309,6 +312,13 @@ const start = async () => {
     // should wait to finish booting for. It removes nothing that still exists on
     // disk, so a delegation whose diff has not been reviewed yet survives.
     void agentDelegationService.pruneOrphanSandboxes();
+
+    // Shared team turns the previous run stopped on top of (P8-01). No turn
+    // lock survives a restart, so a queue row still claiming PROCESSING is a
+    // turn nothing is generating for — and a shared thread left showing itself
+    // busy is one the whole team is blocked behind.
+    const { teamAgentService } = await import('./services/ai/TeamAgentService');
+    teamAgentService.recoverTurns();
 
     // Start event log pruning (runs immediately then every hour)
     pruningService.start();
