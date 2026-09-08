@@ -1,3 +1,10 @@
+# Blueprint (historical)
+
+> **Superseded on 2026-09-08.** This directory is the specification the project was built against between June and August 2026. The audit in `docs/audit/current-state-audit.md` found that it no longer describes the code (for example, it treats Claude Code and Aider adapters as complete when both were stubs, and it plans phases 7 to 10 that were built by an unattended loop on top of that). It is kept for history and is **not** a source of truth.
+>
+> Current sources of truth: `PROJECT_CONTEXT.md` (root) and `docs/` (index in `docs/README.md`). Do not implement from these files. Do not update them; write in `docs/` instead.
+
+Original contents follow unchanged.
 # Asterim Product Specification
 
 ## Level 1: Product Principles

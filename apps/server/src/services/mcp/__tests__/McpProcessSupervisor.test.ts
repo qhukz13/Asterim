@@ -1,3 +1,6 @@
+// The suite exercises routes through fastify.inject() as the local developer user; the middleware only grants that on loopback with this explicit opt-in (docs/audit/security-audit.md, S1).
+process.env.ASTERIM_DEV_AUTH_BYPASS = process.env.ASTERIM_DEV_AUTH_BYPASS ?? 'true';
+
 /**
  * Tests for the MCP Server Manager (P6-01).
  *
@@ -472,10 +475,17 @@ async function main(): Promise<void> {
 
     equal('it still ends up STOPPED', stopped.status, 'STOPPED');
     check('the process is gone', await until(() => !alive(pid)));
-    check(
-      `SIGKILL followed the grace period (took ${elapsed}ms)`,
-      elapsed >= 2500 && elapsed < 8000
-    );
+    // Windows has no SIGTERM to ignore: `kill()` is TerminateProcess(), so the
+    // grace period never starts and the process is gone at once. The
+    // escalation timing is only observable where signals exist.
+    if (process.platform === 'win32') {
+      check(`the process ended without a grace period on Windows (took ${elapsed}ms)`, elapsed < 8000);
+    } else {
+      check(
+        `SIGKILL followed the grace period (took ${elapsed}ms)`,
+        elapsed >= 2500 && elapsed < 8000
+      );
+    }
   }
 
   describe('a disabled server');

@@ -8,8 +8,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/auth/login', (req, reply) => authController.login(req, reply));
   fastify.post('/api/v1/auth/refresh', (req, reply) => authController.refresh(req, reply));
   fastify.post('/api/v1/auth/logout', (req, reply) => authController.logout(req, reply));
-  fastify.post('/api/v1/auth/oauth/token', (req, reply) => authController.oauthTokenExchange(req, reply));
   fastify.get('/api/v1/auth/me', (req, reply) => authController.me(req, reply));
+  // The former `/api/v1/auth/oauth/token` exchange accepted any code and signed
+  // the caller in as the oldest user. It was removed in the 2026-09 audit
+  // (docs/audit/security-audit.md, S2). Desktop deep-link login, if it returns,
+  // must verify a stored PKCE challenge before issuing anything.
 
 
   // Legacy local PIN pairing endpoint (retained for backward compatibility during transition)

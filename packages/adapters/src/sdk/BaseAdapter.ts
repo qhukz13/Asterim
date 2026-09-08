@@ -66,6 +66,14 @@ export abstract class BaseAdapter implements IAgentProvider {
   public abstract readonly id: string;
   public abstract readonly capabilities: AdapterCapabilities;
 
+  /**
+   * True when the provider raises permission requests through its own protocol
+   * (Claude Code's hooks) and the Core answers them out of band. For such an
+   * adapter the Core must not write `y`/`n` into stdin when a human decides;
+   * the decision travels back through the hook response instead.
+   */
+  public readonly handlesApprovalsNatively: boolean = false;
+
   protected processManager: ProcessManager;
   protected eventBus: SessionEventBus;
   protected parser!: IParser;

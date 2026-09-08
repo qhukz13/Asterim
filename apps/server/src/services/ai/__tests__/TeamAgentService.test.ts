@@ -1,3 +1,6 @@
+// The suite exercises routes through fastify.inject() as the local developer user; the middleware only grants that on loopback with this explicit opt-in (docs/audit/security-audit.md, S1).
+process.env.ASTERIM_DEV_AUTH_BYPASS = process.env.ASTERIM_DEV_AUTH_BYPASS ?? 'true';
+
 /**
  * Tests for Shared Team Agents and the Turn Concurrency Engine (P8-01, DEC-031).
  *

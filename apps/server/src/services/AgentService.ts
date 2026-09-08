@@ -27,6 +27,65 @@ import {
 } from './ai/ProfileService';
 import { fleetPolicyService } from './enterprise/FleetPolicyService';
 import type { AgentProfile } from '@asterim/shared';
+import type { NativePermissionAsk } from '@asterim/adapters';
+import type { CommandSecurityAnalysis } from './ApprovalManager';
+
+/** A permission request raised by an agent through its own protocol. */
+export interface NativePermissionRequest {
+  projectId: string;
+  threadId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  toolUseId?: string;
+  agentDescription?: string;
+  reason?: string;
+  /** Aborted when the agent withdraws the request before it is answered. */
+  signal?: AbortSignal;
+}
+
+/** The settings key under which a thread's provider session id is kept. */
+function providerSessionKey(threadId: string): string {
+  return `provider_session:${threadId}`;
+}
+
+/**
+ * What to show a person for one tool call. The command field is what the
+ * security heuristics look at, so for shell tools it is the command itself and
+ * for file tools it is the path.
+ */
+export function describePermission(
+  toolName: string,
+  input: Record<string, unknown>
+): { description: string; command: string } {
+  const str = (key: string) => (typeof input[key] === 'string' ? (input[key] as string) : '');
+  switch (toolName) {
+    case 'Bash':
+    case 'PowerShell':
+      return {
+        description: str('description') || `Run a ${toolName === 'Bash' ? 'shell' : 'PowerShell'} command`,
+        command: str('command') || '(empty command)'
+      };
+    case 'Edit':
+    case 'MultiEdit':
+      return { description: `Edit file ${str('file_path')}`.trim(), command: str('file_path') };
+    case 'Write':
+      return { description: `Write file ${str('file_path')}`.trim(), command: str('file_path') };
+    case 'NotebookEdit':
+      return { description: `Edit notebook ${str('notebook_path')}`.trim(), command: str('notebook_path') };
+    case 'WebFetch':
+      return { description: 'Fetch a web page', command: str('url') };
+    default: {
+      let serialised: string;
+      try {
+        serialised = JSON.stringify(input);
+      } catch {
+        serialised = '';
+      }
+      if (serialised.length > 400) serialised = `${serialised.slice(0, 400)}…`;
+      return { description: `Use tool ${toolName}`, command: serialised || toolName };
+    }
+  }
+}
 
 export class AgentService {
   private sessionManager = new SessionManager();
@@ -125,12 +184,32 @@ export class AgentService {
       try {
         const { approved, threadId } = event.payload as any;
         const targetThreadId = threadId || Array.from(this.activeSessions.keys())[0];
-        if (targetThreadId) {
-          console.log(`[AgentService] Sending approval response '${approved ? 'y' : 'n'}' for thread ${targetThreadId}`);
-          await this.sessionManager.sendCommand(targetThreadId, approved ? 'y' : 'n');
-        }
+        if (!targetThreadId) return;
+        // An adapter that raised the request through its own protocol gets the
+        // answer through that protocol (the hook response). Writing `y` into
+        // its stdin would send the letter to the model as a message.
+        const adapter = this.sessionManager.getSessionAdapter(targetThreadId);
+        if (adapter?.handlesApprovalsNatively) return;
+        console.log(`[AgentService] Sending approval response '${approved ? 'y' : 'n'}' for thread ${targetThreadId}`);
+        await this.sessionManager.sendCommand(targetThreadId, approved ? 'y' : 'n');
       } catch (err) {
         console.error('[AgentService] Error processing approval response:', err);
+      }
+    });
+
+    // A provider that keeps its own conversation (Claude Code) announces its
+    // session id once; remembering it is what lets the thread be resumed after
+    // the Core restarts instead of starting the conversation over.
+    eventBus.subscribe<any>('agent.session', event => {
+      try {
+        const { threadId, providerSessionId } = event.payload || {};
+        if (!threadId || typeof providerSessionId !== 'string' || !providerSessionId) return;
+        dbService
+          .getDb()
+          .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+          .run(providerSessionKey(threadId), providerSessionId);
+      } catch (err) {
+        console.error('[AgentService] Failed to persist provider session id:', err);
       }
     });
 
@@ -204,8 +283,19 @@ export class AgentService {
         getSocketManager()?.clearRecentLogs(projectId);
 
         if (threadId) {
+          // Clearing the chat means a fresh conversation. A provider that
+          // resumes its own session would otherwise carry the old one along, so
+          // the remembered session id goes and the process is stopped; the next
+          // message starts it again without `--resume`.
+          try {
+            db.prepare('DELETE FROM settings WHERE key = ?').run(providerSessionKey(threadId));
+          } catch (err) {
+            console.error('[AgentService] Failed to forget provider session id:', err);
+          }
           const adapter = this.sessionManager.getSessionAdapter(threadId);
-          if (adapter) {
+          if (adapter?.handlesApprovalsNatively) {
+            await this.stopAgent(threadId, 'chat cleared');
+          } else if (adapter) {
             this.sessionManager.sendCommand(threadId, '/clear');
             eventBus.publish({
               id: crypto.randomUUID(),
@@ -347,15 +437,40 @@ export class AgentService {
         );
       }
 
+      // Providers with a native permission protocol hand each request to the
+      // Core instead of using the PTY text protocol. The resolver closes over
+      // this thread, so a request can only ever ask about the thread it came from.
+      const nativePermissions = agentType === 'claude';
+      const permissionResolver = nativePermissions
+        ? (ask: NativePermissionAsk) =>
+            this.requestNativePermission({
+              projectId,
+              threadId,
+              toolName: ask.toolName,
+              toolInput: ask.input,
+              toolUseId: ask.toolUseId,
+              agentDescription: ask.description,
+              reason: ask.reason,
+              signal: ask.signal
+            })
+        : undefined;
+      const resumeSessionId = nativePermissions ? this.readProviderSessionId(threadId) : undefined;
+      const systemPromptAppendix = nativePermissions
+        ? composeSessionInstructions(profile, '').trim() || undefined
+        : undefined;
+
       await this.sessionManager.startSession(
         agentType,
         threadId,
         {
           workspace,
           hasHistory,
-          mcpTools: toolDescriptors,
-          mcpToolInstructions,
-          env: environmentEnv
+          mcpTools: nativePermissions ? [] : toolDescriptors,
+          mcpToolInstructions: nativePermissions ? undefined : mcpToolInstructions,
+          env: environmentEnv,
+          permissionResolver,
+          resumeSessionId,
+          systemPromptAppendix
         },
         (event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId, threadId };
@@ -548,19 +663,121 @@ export class AgentService {
       console.log(`[AgentService] Started ${agentType} for thread ${threadId}`);
     } catch (err: any) {
       console.error(`[AgentService] Failed to start agent for thread ${threadId}:`, err);
+      this.adapterConfigs.delete(threadId);
+      // `error`, not `idle`: an idle status paints a green "ready" pill over a
+      // session that never started, which is what hid the stub adapter for
+      // months. The message reaches the chat as a system line.
       eventBus.publish({
         id: crypto.randomUUID(),
         timestamp: Date.now(),
         source: 'server',
         type: 'agent.status',
         payload: {
-          status: 'idle',
-          message: `Error starting agent: ${err.message || String(err)}. Is the agent installed?`,
+          status: 'error',
+          message: `Could not start ${agentType}: ${err.message || String(err)}`,
           projectId,
           threadId
         }
       });
     }
+  }
+
+  private readProviderSessionId(threadId: string): string | undefined {
+    try {
+      const row = dbService
+        .getDb()
+        .prepare('SELECT value FROM settings WHERE key = ?')
+        .get(providerSessionKey(threadId)) as { value?: string } | undefined;
+      return row?.value || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Answers one permission request from a native-protocol agent.
+   *
+   * Runs the same heuristics the PTY path runs (so the card shows the same
+   * risk labels), raises the same approval, and translates the person's answer
+   * for the hook. The status events around it keep the dashboard's header in
+   * step with the overlay.
+   */
+  public async requestNativePermission(
+    request: NativePermissionRequest
+  ): Promise<{ approved: boolean; message: string }> {
+    const { approvalManager } = await import('./ApprovalManager');
+    const { projectManager } = await import('./ProjectManager');
+    const project = projectManager.getProject(request.projectId);
+    const described = describePermission(request.toolName, request.toolInput);
+    const command = described.command;
+    // The agent's own description of the call is the most honest label; the
+    // derived one is the fallback. The escalation reason, when the CLI gives
+    // one, is the thing a person most wants to know before saying yes.
+    const description = [request.agentDescription || described.description, request.reason]
+      .filter(Boolean)
+      .join(' — ');
+    const analysis: CommandSecurityAnalysis = approvalManager.evaluateCommandSecurity(
+      command,
+      project?.path
+    );
+
+    const publishStatus = (status: 'waiting_approval' | 'working', message: string) =>
+      eventBus.publish({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'server',
+        type: 'agent.status',
+        payload: { status, message, projectId: request.projectId, threadId: request.threadId }
+      });
+
+    publishStatus('waiting_approval', `${request.toolName} needs your approval`);
+
+    // If the agent withdraws the request (something in its own settings
+    // decided first), the card must go with it: an approval nobody can act on
+    // would otherwise sit on screen until it expired.
+    let actionId: string | undefined;
+    const withdraw = () => {
+      if (actionId) {
+        approvalManager.cancelApproval(
+          actionId,
+          'Claude Code resolved this permission itself before you answered.'
+        );
+      }
+    };
+    request.signal?.addEventListener('abort', withdraw, { once: true });
+
+    let approved = false;
+    try {
+      approved = await approvalManager.requestApproval(
+        request.projectId,
+        `${request.toolName}: ${description}`,
+        command,
+        300000,
+        {
+          threadId: request.threadId,
+          securityAnalysis: analysis,
+          onActionId: id => {
+            actionId = id;
+            if (request.signal?.aborted) withdraw();
+          }
+        }
+      );
+    } finally {
+      request.signal?.removeEventListener('abort', withdraw);
+      const outcome = request.signal?.aborted
+        ? 'Decided by Claude Code itself, continuing…'
+        : approved
+          ? 'Approved, continuing…'
+          : 'Denied, continuing…';
+      publishStatus('working', outcome);
+    }
+
+    return {
+      approved,
+      message: approved
+        ? 'Approved by the user in Asterim.'
+        : 'The user denied this action in Asterim. Do not retry it; explain what you would have done and ask how to proceed.'
+    };
   }
 
   /**

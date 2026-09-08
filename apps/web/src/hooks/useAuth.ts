@@ -31,7 +31,7 @@ export function useAuth(activeBackendUrl?: string) {
     try {
       const protocol = window.location.protocol;
       const hostname = window.location.hostname;
-      const url = hostUrl || `${protocol}//${hostname}:3000`;
+      const url = hostUrl || window.location.origin;
 
       const res = await fetch(`${url}/api/v1/auth/oauth/token`, {
         method: 'POST',
@@ -69,7 +69,7 @@ export function useAuth(activeBackendUrl?: string) {
     try {
       const protocol = window.location.protocol;
       const hostname = window.location.hostname;
-      const url = hostUrl || `${protocol}//${hostname}:3000`;
+      const url = hostUrl || window.location.origin;
 
       const res = await fetch(`${url}/api/v1/auth/pair`, {
         method: 'POST',

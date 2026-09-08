@@ -38,7 +38,7 @@ interface UseThreadContextReturn {
 }
 
 function getBaseUrl(activeBackendUrl?: string): string {
-  return activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+  return activeBackendUrl || window.location.origin;
 }
 
 function getAuthHeaders(activeBackendUrl?: string): Record<string, string> {

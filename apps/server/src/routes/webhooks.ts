@@ -156,10 +156,15 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         console.warn(`[Billing Webhook] Rejected unverified payload: ${verification.reason}`);
         return reply.status(400).send({ error: 'Invalid webhook signature' });
       }
-    } else {
+    } else if (process.env.ASTERIM_ALLOW_UNSIGNED_STRIPE_WEBHOOKS === 'true') {
       console.warn(
-        '[Billing Webhook] STRIPE_WEBHOOK_SECRET is not set — accepting this payload unverified. Set it before exposing this endpoint.'
+        '[Billing Webhook] STRIPE_WEBHOOK_SECRET is not set — accepting this payload unverified because ASTERIM_ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true. Never run this way where the port is reachable.'
       );
+    } else {
+      // An unsigned webhook would let anyone on the network upgrade any
+      // account. Refusing is the only safe default; local testing opts in.
+      console.warn('[Billing Webhook] Rejected delivery: STRIPE_WEBHOOK_SECRET is not configured.');
+      return reply.status(503).send({ error: 'Webhook signing is not configured on this server' });
     }
 
     const payload = request.body as StripeEvent | undefined;

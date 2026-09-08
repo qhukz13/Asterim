@@ -50,7 +50,7 @@ export function resolveBackendUrl(explicit?: string | null): string | null {
   }
 
   const hostname = typeof window !== 'undefined' ? window.location?.hostname : undefined;
-  return hostname ? `http://${hostname}:3000` : null;
+  return typeof window !== 'undefined' && window.location?.origin ? window.location.origin : null;
 }
 
 /** Where the token for a given backend is kept. */

@@ -13,11 +13,11 @@ Our core philosophies are:
 
 ## The Blueprint (Source of Truth)
 
-The `blueprint/` directory contains the definitive requirements, architecture, and design specifications for Asterim. It is the **ultimate source of truth**.
+`PROJECT_CONTEXT.md` and `docs/` are the sources of truth. `blueprint/` is historical and must not be implemented from.
 
 Before starting any work, you **MUST**:
-1. Read `blueprint/AI_CONTEXT.md` to understand the documentation map.
-2. Ensure your proposed changes align with the Product Specification (`blueprint/PRODUCT.md`) and Architecture (`blueprint/ARCHITECTURE.md`).
+1. Read `PROJECT_CONTEXT.md`, then `docs/README.md`.
+2. Check the architecture page for the area in `docs/architecture/` (its CONTRACT and DO NOT sections) and the task spec in `docs/tasks/` if one exists.
 3. If your implementation requires deviating from the Blueprint, you must first propose a change to the Blueprint itself. **Documentation must remain synchronized with the codebase at all times.**
 
 ## Development Workflow
@@ -65,6 +65,6 @@ We use a simple Feature Branch workflow.
 
 - **TypeScript Everywhere**: We rely on strict typing to prevent runtime errors. Avoid `any` unless absolutely necessary.
 - **Monorepo Boundaries**: Respect the boundaries between `apps/web`, `apps/server`, and `packages/*`. Do not create circular dependencies.
-- **Documentation**: If you write a complex function, add a JSDoc comment. If you build a new system, document its design in the `blueprint/`.
+- **Documentation**: If you write a complex function, add a JSDoc comment. If you change a contract, update the page in `docs/architecture/`.
 
 Thank you for helping us build Asterim!

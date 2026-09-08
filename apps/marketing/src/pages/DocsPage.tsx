@@ -1,328 +1,224 @@
-import React, { useState } from 'react';
-import { BookOpen, Terminal, Layers, ShieldCheck, Cpu, Server, FileCode2, Lock, FileText, ChevronRight, Search } from 'lucide-react';
+import React from 'react';
+import { GITHUB_URL, INSTALL_COMMAND, ISSUES_URL, LICENSE, RUN_COMMAND } from '../site';
 
-interface DocsPageProps {
-  navigate: (path: string) => void;
-}
+const SECTIONS = [
+  { id: 'install', label: 'Install' },
+  { id: 'first-run', label: 'First run' },
+  { id: 'security-model', label: 'Security model' },
+  { id: 'adapters', label: 'Adapters' },
+  { id: 'configuration', label: 'Configuration' },
+  { id: 'troubleshooting', label: 'Troubleshooting' },
+  { id: 'privacy', label: 'Privacy' },
+  { id: 'licence', label: 'Licence' }
+];
 
-export const DocsPage: React.FC<DocsPageProps> = ({ navigate }) => {
-  // The topic is taken from the URL on the first render rather than synced in
-  // an effect afterwards, so the requested topic is the one that renders first.
-  const [activeTopic, setActiveTopic] = useState(
-    () => new URLSearchParams(window.location.search).get('topic') || 'quickstart'
-  );
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const selectTopic = (id: string) => {
-    setActiveTopic(id);
-    navigate(`/docs?topic=${id}`);
-  };
-
-  const topics = [
-    { id: 'quickstart', label: 'Quickstart Guide', icon: Terminal, group: 'Getting Started' },
-    { id: 'what-is-asterim', label: 'What is Asterim?', icon: BookOpen, group: 'Getting Started' },
-    { id: 'environments', label: 'Environments & Isolation', icon: Layers, group: 'Core Concepts' },
-    { id: 'agents', label: 'AI Agent Subprocesses', icon: Cpu, group: 'Core Concepts' },
-    { id: 'security', label: 'AST Command Security', icon: ShieldCheck, group: 'Core Concepts' },
-    { id: 'mcp-skills', label: 'MCP Tools & Skills', icon: Server, group: 'Core Concepts' },
-    { id: 'architecture', label: 'System Architecture', icon: FileCode2, group: 'Technical Reference' },
-    { id: 'cli', label: 'CLI Reference Guide', icon: Terminal, group: 'Technical Reference' },
-    { id: 'privacy', label: 'Privacy Policy', icon: Lock, group: 'Legal & Compliance' },
-    { id: 'terms', label: 'Terms of Service', icon: FileText, group: 'Legal & Compliance' },
-    { id: 'license', label: 'Open Source MIT License', icon: FileCode2, group: 'Legal & Compliance' },
-  ];
-
-  const filteredTopics = topics.filter((t) =>
-    t.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.group.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+/**
+ * Hand-written from the repository docs (docs/development/setup.md,
+ * docs/architecture/agents.md, docs/audit/security-audit.md). Generating this
+ * page from those files is task P1-09.
+ */
+export const DocsPage: React.FC = () => {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        /* Grow to fill the shell rather than forcing a fixed viewport height —
-           keeps the footer at the bottom without padding the page out. */
-        flex: 1,
-        maxWidth: '1280px',
-        margin: '0 auto',
-        width: '100%',
-        padding: '32px 24px 64px',
-      }}
-    >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(260px, 300px) 1fr',
-          gap: '36px',
-          alignItems: 'flex-start',
-        }}
-      >
-        {/* Docs Sidebar */}
-        <aside
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '20px',
-            position: 'sticky',
-            top: '100px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-          }}
-        >
-          {/* Search Box */}
-          <div style={{ position: 'relative' }}>
-            <Search
-              size={16}
-              style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search documentation..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                borderRadius: 'var(--radius-sm)',
-                background: '#04070d',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '0.85rem',
-                outline: 'none',
-              }}
-            />
+    <main className="page">
+      <div className="container docs-layout">
+        <nav className="docs-nav" aria-label="Documentation sections">
+          {SECTIONS.map(s => (
+            <a key={s.id} href={`#${s.id}`}>
+              {s.label}
+            </a>
+          ))}
+        </nav>
+
+        <article className="doc">
+          <h1>Documentation</h1>
+          <p>
+            Everything below describes the current release. The full engineering documentation lives in
+            the repository under <code>docs/</code>.
+          </p>
+
+          <h2 id="install">Install</h2>
+          <p>Requirements: Node 22 or newer, Claude Code installed and logged in, Windows 10/11, macOS or Linux.</p>
+          <pre>
+            <code>{`${INSTALL_COMMAND}\n${RUN_COMMAND}`}</code>
+          </pre>
+          <p>
+            The Core starts on port 3000, prints a local URL, a LAN URL and a six-digit pairing PIN. Open
+            the URL in a browser and enter the PIN. To run from source instead, clone the repository and
+            follow <code>docs/development/setup.md</code>.
+          </p>
+          <div className="callout">
+            If <code>{INSTALL_COMMAND}</code> reports that the package does not exist, the first public
+            release has not been published yet. Run from source, or check the Releases page on GitHub.
           </div>
 
-          {/* Navigation List */}
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {['Getting Started', 'Core Concepts', 'Technical Reference', 'Legal & Compliance'].map((group) => {
-              const groupTopics = filteredTopics.filter((t) => t.group === group);
-              if (groupTopics.length === 0) return null;
-              return (
-                <div key={group}>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', paddingLeft: '8px' }}>
-                    {group}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {groupTopics.map((t) => {
-                      const Icon = t.icon;
-                      const isActive = activeTopic === t.id;
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => selectTopic(t.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '8px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            background: isActive ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
-                            border: isActive ? '1px solid var(--border-accent)' : '1px solid transparent',
-                            color: isActive ? 'var(--accent-emerald-hover)' : 'var(--text-secondary)',
-                            fontSize: '0.88rem',
-                            fontWeight: isActive ? 600 : 500,
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                          }}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Icon size={16} style={{ color: isActive ? 'var(--accent-emerald)' : 'var(--text-muted)' }} />
-                            {t.label}
-                          </span>
-                          {isActive && <ChevronRight size={14} style={{ color: 'var(--accent-emerald)' }} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </nav>
-        </aside>
+          <h2 id="first-run">First run</h2>
+          <ol>
+            <li>Pair: enter the PIN. The wizard shows which agent CLIs were detected on the machine.</li>
+            <li>Add a project: type the absolute path of an existing folder. Asterim refuses paths that do not exist.</li>
+            <li>Send a task. Claude Code starts in that folder. The transcript shows its messages, tool calls and results.</li>
+            <li>
+              Approve or deny. Every command and file write that Claude Code would ask about appears as a card
+              with the exact command or path. The card expires after five minutes, which counts as a denial.
+            </li>
+            <li>Review the diff in Changes and commit yourself. The agent never commits.</li>
+          </ol>
+          <p>
+            Closing and reopening the Core resumes each thread's Claude Code session. Clear chat starts a fresh one.
+          </p>
 
-        {/* Content Viewer Main Body */}
-        <main
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '40px',
-            color: '#cbd5e1',
-            lineHeight: 1.7,
-            minHeight: '500px',
-            height: 'auto',
-          }}
-        >
-          {activeTopic === 'quickstart' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Quickstart Guide
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Get Asterim installed and start your first autonomous AI agent session in under 2 minutes.
-              </p>
+          <h2 id="security-model">Security model</h2>
+          <ul>
+            <li>The Core runs as your user. The agent runs as your user, in the project folder, with your shell environment.</li>
+            <li>Asterim adds a gate, not a sandbox. It never passes <code>--dangerously-skip-permissions</code>.</li>
+            <li>
+              The gate shows what Claude Code asks about in its <em>default</em> permission mode. Read-only tools
+              are allowed by Claude Code itself; commands and file writes are asked.
+            </li>
+            <li>
+              A <code>PreToolUse</code> hook or a permission rule in your own Claude Code settings decides before
+              Asterim is asked. When that happens the card is withdrawn and the thread log says so. Set{' '}
+              <code>ASTERIM_CLAUDE_DISABLE_HOOKS=true</code> to make Asterim's card the only decider for the
+              sessions it runs.
+            </li>
+            <li>
+              The dashboard is served over plain HTTP on your LAN and protected by the PIN and a 30-day token.
+              Five wrong PINs lock the address out for fifteen minutes. Do not expose the port to the internet.
+              Use <code>HOST=127.0.0.1</code> on shared networks.
+            </li>
+            <li>Every API route requires a token, on every interface.</li>
+          </ul>
 
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>1. Global Installation</h2>
-              <p>Install the Asterim CLI globally via NPM:</p>
-              <pre style={codeStyle}>npm install -g asterim</pre>
+          <h2 id="adapters">Adapters</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Status</th>
+                  <th>How</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Claude Code</td>
+                  <td>Working</td>
+                  <td>
+                    Headless stream-json protocol; permission prompts answered through the CLI's own control
+                    protocol; sessions resumed by id.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Antigravity (Google)</td>
+                  <td>Best effort</td>
+                  <td>Terminal interface scraped with a state machine; breaks when the TUI changes.</td>
+                </tr>
+                <tr>
+                  <td>Aider, Codex</td>
+                  <td>Not supported</td>
+                  <td>No adapter. Codex is revisited when its CLI exposes a permission protocol.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The adapter interface is documented in <code>docs/architecture/agents.md</code>; the Claude Code adapter is{' '}
+            <a href={`${GITHUB_URL}/blob/main/packages/adapters/src/providers/claude/ClaudeAdapter.ts`}>one file</a>.
+          </p>
 
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>2. Initialize Workstation</h2>
-              <p>Start the local workstation daemon on default port 3000:</p>
-              <pre style={codeStyle}>asterim start</pre>
+          <h2 id="configuration">Configuration</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Default</th>
+                  <th>Effect</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>PORT</code></td>
+                  <td>3000</td>
+                  <td>HTTP and Socket.IO port.</td>
+                </tr>
+                <tr>
+                  <td><code>HOST</code></td>
+                  <td><code>::</code></td>
+                  <td>Listen on every interface (phone pairing) or <code>127.0.0.1</code> for this machine only.</td>
+                </tr>
+                <tr>
+                  <td><code>ASTERIM_DATA_DIR</code></td>
+                  <td><code>~/.asterim</code></td>
+                  <td>Database, logs, vault.</td>
+                </tr>
+                <tr>
+                  <td><code>ASTERIM_SOVEREIGN_MODE</code></td>
+                  <td>unset</td>
+                  <td><code>true</code> disables every outbound connection Asterim could make.</td>
+                </tr>
+                <tr>
+                  <td><code>ASTERIM_CLAUDE_BIN</code></td>
+                  <td>auto</td>
+                  <td>Path to the Claude Code binary when it is not on PATH.</td>
+                </tr>
+                <tr>
+                  <td><code>ASTERIM_CLAUDE_DISABLE_HOOKS</code></td>
+                  <td>unset</td>
+                  <td><code>true</code> makes Asterim's card the only permission decider for its sessions.</td>
+                </tr>
+                <tr>
+                  <td><code>MOCK_AGENT</code></td>
+                  <td>unset</td>
+                  <td><code>true</code> replaces the Antigravity adapter with a scripted mock, for demos.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '32px 0 16px' }}>3. Launch Desktop or Web UI</h2>
-              <p>Open your browser at <code>http://localhost:3000</code> or launch the Asterim Desktop App shell.</p>
-            </div>
-          )}
+          <h2 id="troubleshooting">Troubleshooting</h2>
+          <h3>The wizard says Claude Code was not found</h3>
+          <p>
+            Install it (<code>npm install -g @anthropic-ai/claude-code</code>), make sure <code>claude</code> runs in a
+            new terminal, or set <code>ASTERIM_CLAUDE_BIN</code>. Restart Asterim.
+          </p>
+          <h3>Sending a message shows "Could not start claude"</h3>
+          <p>
+            The error text is the CLI's own. "Not logged in" means run <code>claude</code> once interactively and
+            sign in. A missing binary means the step above.
+          </p>
+          <h3>A card disappeared before I answered</h3>
+          <p>
+            Something in your Claude Code settings decided first. The thread log names it. See the security
+            model section for the switch that prevents it.
+          </p>
+          <h3>"disk I/O error" on start</h3>
+          <p>
+            A previous Core was force-killed and left <code>asterim.db-wal</code> and <code>asterim.db-shm</code> next
+            to the database while another process held them. Make sure no other Asterim process is running,
+            then start again. <code>asterim db:status</code> reports the state.
+          </p>
+          <h3>Reporting a problem</h3>
+          <p>
+            Open an issue at <a href={ISSUES_URL}>GitHub Issues</a> with your OS, the versions of Node and Claude
+            Code, and the last lines of <code>~/.asterim/server.log</code>. Remove anything private first.
+          </p>
 
-          {activeTopic === 'what-is-asterim' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                What is Asterim?
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Asterim is a local-first AI engineering operating system and control plane designed specifically for developers who direct autonomous AI coding agents.
-              </p>
+          <h2 id="privacy">Privacy</h2>
+          <p>
+            Asterim makes no outbound network connections of its own. It does not collect analytics, crash
+            reports or usage data. Your agent (Claude Code) talks to its vendor exactly as it does without
+            Asterim; Asterim neither proxies nor inspects that traffic. All data Asterim keeps is in{' '}
+            <code>~/.asterim</code> on your machine; delete the directory and it is gone. If an opt-in usage
+            ping is ever added, it will be off by default, documented here, and its source will be one file.
+          </p>
 
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '24px 0 16px' }}>Core Philosophy</h2>
-              <p>
-                Unlike traditional IDE extensions that rely on inline code suggestions, Asterim manages the complete subprocess lifecycle, terminal backpressure, real-time command security, and environment credential isolation.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'environments' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Environments & Workspace Isolation
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Prevent credential leaks and isolate agent profiles across different projects.
-              </p>
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: '24px 0 16px' }}>Presets Overview</h2>
-              <ul>
-                <li><strong>Personal (Local):</strong> Streamlined UX for single-developer side projects.</li>
-                <li><strong>Company (Enterprise):</strong> Attached team MCP servers, RBAC governance, and audit streams.</li>
-                <li><strong>Client (Sandbox):</strong> Isolated client credentials and restricted execution rights.</li>
-              </ul>
-            </div>
-          )}
-
-          {activeTopic === 'agents' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                AI Agent Subprocesses
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Process tree management, PTY output backpressure throttling, and exponential backoff crash recovery.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'security' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                AST Command Security Guard
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Real-time shell AST syntax scanning and sandbox path traversal protection.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'mcp-skills' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                MCP Tools & Skills
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Model Context Protocol configuration and reusable task skill definitions.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'architecture' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                System Architecture
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Decoupled Core Engine, Agent Adapters, Client Shell, and Cloud Identity boundaries.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'cli' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                CLI Command Reference
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '32px' }}>
-                Complete reference guide for the <code>asterim</code> command-line utility.
-              </p>
-              <pre style={codeStyle}>asterim start --port 3000</pre>
-            </div>
-          )}
-
-          {activeTopic === 'privacy' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Privacy Policy
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                Asterim is designed with strict local-first data boundaries.
-              </p>
-              <p>Your source code, AST indexes, terminal outputs, and prompt logs remain 100% local to your machine unless routed through explicit user-configured relay tunnels.</p>
-            </div>
-          )}
-
-          {activeTopic === 'terms' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Terms of Service
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                Terms governing public usage of asterim.dev identity services and software downloads.
-              </p>
-            </div>
-          )}
-
-          {activeTopic === 'license' && (
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Open Source MIT License
-              </h1>
-              <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                Copyright (c) 2026 Asterim Authors.
-              </p>
-              <pre style={codeStyle}>
-                {`Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software.`}
-              </pre>
-            </div>
-          )}
-        </main>
+          <h2 id="licence">Licence</h2>
+          <p>
+            Asterim is released under the {LICENSE} licence. The full text is in the repository's{' '}
+            <a href={`${GITHUB_URL}/blob/main/LICENSE`}>LICENSE</a> file.
+          </p>
+        </article>
       </div>
-    </div>
+    </main>
   );
-};
-
-const codeStyle: React.CSSProperties = {
-  background: '#04070d',
-  border: '1px solid var(--border-subtle)',
-  borderRadius: 'var(--radius-sm)',
-  padding: '16px 20px',
-  fontFamily: 'var(--font-mono)',
-  color: 'var(--accent-emerald-hover)',
-  fontSize: '0.9rem',
-  overflowX: 'auto',
-  margin: '16px 0 24px',
 };

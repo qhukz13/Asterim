@@ -3,7 +3,28 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
-import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode, IconUsers, IconActivity } from './components/icons/Icons';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar } from './components/icons/Icons';
+import type { ViewType } from './stores/useViewStore';
+
+/**
+ * The views a thread opens with. Five, on purpose: everything a first session
+ * needs is here, and the rest lives under "More" so the strip never overflows
+ * at laptop widths. Team and pipeline views are frozen prototypes and are not
+ * offered at all; their routes still resolve for anyone who has a URL.
+ */
+const PRIMARY_VIEWS: { id: ViewType; label: string; icon: typeof IconMessage }[] = [
+  { id: 'chat', label: 'Chat', icon: IconMessage },
+  { id: 'terminal', label: 'Terminal', icon: IconTerminal },
+  { id: 'changes', label: 'Changes', icon: IconGitBranch },
+  { id: 'memory', label: 'Memory', icon: IconStar },
+  { id: 'settings', label: 'Settings', icon: IconSettings }
+];
+
+const MORE_VIEWS: { id: ViewType; label: string }[] = [
+  { id: 'mcp', label: 'MCP servers' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'environment', label: 'Environment' }
+];
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { SessionSidebar } from './components/SessionSidebar';
@@ -225,7 +246,7 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
     <div className="dialog-overlay">
       <div className="dialog-box glass-panel" style={{ maxWidth: '600px', width: '90%' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, color: 'var(--color-accent-hover)' }}>❓ Question from Agent</h3>
+          <h3 style={{ margin: 0, color: 'var(--color-accent-hover)' }}>Question from the agent</h3>
         </div>
 
         <p style={{ fontSize: '1.05rem', fontWeight: 500, marginTop: 0, marginBottom: '20px' }}>
@@ -432,9 +453,6 @@ function ProjectWorkspace({
         sendChatMessage(text);
       }
 
-      if (agentType === 'claude' || agentType === 'aider') {
-        setActiveTab('terminal');
-      }
     }
   };
 
@@ -480,9 +498,9 @@ function ProjectWorkspace({
               color: agentStatus.status === 'working' ? '#60a5fa' : agentStatus.status === 'waiting_approval' ? '#fbbf24' : 'var(--color-text-secondary)',
               border: `1px solid ${agentStatus.status === 'working' ? 'rgba(59, 130, 246, 0.3)' : agentStatus.status === 'waiting_approval' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255,255,255,0.1)'}`
             }}>
-              {agentStatus.status === 'working' ? '● Executing' : 
-               agentStatus.status === 'waiting_approval' ? '⏸ Paused for Review' :
-               agentStatus.status === 'error' ? '✖ Error' : '○ Idle'}
+              {agentStatus.status === 'working' ? 'Executing' :
+               agentStatus.status === 'waiting_approval' ? 'Paused for review' :
+               agentStatus.status === 'error' ? 'Error' : 'Idle'}
             </div>
           )}
         </div>
@@ -493,8 +511,7 @@ function ProjectWorkspace({
               value={agentType}
               onChange={(val: any) => setAgentType(val)}
               options={[
-                { value: 'claude', label: 'Claude (Anthropic)' },
-                { value: 'aider', label: 'Aider (Python)' },
+                { value: 'claude', label: 'Claude Code' },
                 { value: 'antigravity', label: 'Antigravity (Google)' }
               ]}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
@@ -541,220 +558,28 @@ function ProjectWorkspace({
         }}
       >
         <div className="view-navigation-tabs">
-          {/* Future Thread Timeline (Execution History) Placeholder */}
-          {/* <ThreadTimeline threadId={activeThreadId} /> */}
-          <button
-            className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'chat' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'chat' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'chat' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('chat')}
-          >
-            <IconMessage size={15} /> Chat
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'terminal' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'terminal' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'terminal' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('terminal')}
-          >
-            <IconTerminal size={15} /> Terminal
-          </button>
-
-          <button
-            className={`nav-btn ${activeTab === 'changes' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'changes' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'changes' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'changes' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('changes')}
-          >
-            <IconGitBranch size={15} /> Changes
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'memory' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'memory' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'memory' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'memory' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('memory')}
-          >
-            <IconStar size={15} /> Memory
-          </button>
-
-          <button
-            className={`nav-btn ${activeTab === 'mcp' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'mcp' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'mcp' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'mcp' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('mcp')}
-          >
-            <IconCommand size={15} /> MCP
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'skills' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'skills' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'skills' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'skills' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('skills')}
-          >
-            <IconFileCode size={15} /> Skills
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'team' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'team' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'team' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'team' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('team')}
-          >
-            <IconUsers size={15} /> Team
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'pipelines' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'pipelines' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'pipelines' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'pipelines' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('pipelines')}
-          >
-            <IconActivity size={15} /> Pipelines
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'settings' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'settings' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'settings' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('settings')}
-          >
-            <IconSettings size={15} /> Settings
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'environment' || activeTab === 'workspace' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'environment' || activeTab === 'workspace' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'environment' || activeTab === 'workspace' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'environment' || activeTab === 'workspace' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('environment')}
-          >
-            ⚙ Environment
-          </button>
+          {PRIMARY_VIEWS.map(view => {
+            const Icon = view.icon;
+            return (
+              <button
+                key={view.id}
+                className={`view-tab ${activeTab === view.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(view.id)}
+              >
+                <Icon size={15} />
+                <span>{view.label}</span>
+              </button>
+            );
+          })}
+          <div className="view-tab-more">
+            <CustomDropdown
+              value={MORE_VIEWS.some(v => v.id === activeTab) ? activeTab : '__more'}
+              onChange={(val: string) => {
+                if (val !== '__more') setActiveTab(val);
+              }}
+              options={[{ value: '__more', label: 'More' }, ...MORE_VIEWS.map(v => ({ value: v.id, label: v.label }))]}
+            />
+          </div>
         </div>
 
         <div className="view-navigation-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -786,7 +611,7 @@ function ProjectWorkspace({
           )}
           {activeTab === 'chat' && messages.length > 0 && (
             <button className="clear-chat-btn" onClick={clearMessages} title="Clear Chat History">
-              🧹 Clear Chat
+              Clear chat
             </button>
           )}
         </div>
@@ -834,8 +659,7 @@ function ProjectWorkspace({
               }}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             >
-              <option value="claude">Claude Code (Anthropic)</option>
-              <option value="aider">Aider (Python)</option>
+              <option value="claude">Claude Code</option>
               <option value="antigravity">Antigravity (Google)</option>
             </select>
             {isBinaryMissing && (
@@ -1113,12 +937,13 @@ export function App() {
 
   const [serverRelayUrl, setServerRelayUrl] = useState<string | undefined>(undefined);
   const [isFirstRun, setIsFirstRun] = useState(false);
+  const [detectedBinaries, setDetectedBinaries] = useState<{ claude?: boolean; antigravity?: boolean } | null>(null);
 
   useEffect(() => {
     // Fetch system info to get relay url
     const baseUrl =
       workstations.activeBackendUrl ||
-      `${window.location.protocol}//${window.location.hostname}:3000`;
+      window.location.origin;
     const tokenKey = workstations.activeBackendUrl
       ? `asterim_token_${workstations.activeBackendUrl}`
       : 'asterim_token';
@@ -1128,6 +953,7 @@ export function App() {
       .then(data => {
         if (data.relayUrl) setServerRelayUrl(data.relayUrl);
         if (data.isFirstRun) setIsFirstRun(true);
+        if (data.binaries) setDetectedBinaries(data.binaries);
       })
       .catch(console.error);
   }, [workstations.activeBackendUrl]);
@@ -1151,6 +977,7 @@ export function App() {
       {isFirstRun && (
         <FirstRunWizard
           activeBackendUrl={workstations.activeBackendUrl}
+          binaries={detectedBinaries}
           onComplete={() => setIsFirstRun(false)}
         />
       )}

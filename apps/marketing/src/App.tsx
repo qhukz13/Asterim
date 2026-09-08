@@ -1,233 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { MobileNavDrawer } from './components/MobileNavDrawer';
-import { Act1Hero } from './components/home/Act1Hero';
-import { Act2ControlPlane } from './components/home/Act2ControlPlane';
-import { Act3SandboxSection } from './components/home/Act3SandboxSection';
-import { Act4SwarmSection } from './components/home/Act4SwarmSection';
-import { Act5EnvironmentSection } from './components/home/Act5EnvironmentSection';
-import { Act6SecurityGuardSection } from './components/home/Act6SecurityGuardSection';
-import { Act7RemoteRelaySection } from './components/home/Act7RemoteRelaySection';
-import { Act8CTAQuickstart } from './components/home/Act8CTAQuickstart';
-import { Login } from './pages/Login';
-import { Register } from './pages/Register';
-import { AccountLayout } from './components/AccountLayout';
+import { Home } from './pages/Home';
 import { PricingPage } from './pages/PricingPage';
-import { DownloadPage } from './pages/DownloadPage';
 import { DocsPage } from './pages/DocsPage';
 
+/**
+ * Three pages, no router library. `navigate` pushes history and scrolls to a
+ * hash when one is given, so `/docs#install` and `/#how-it-works` work from
+ * the nav and from external links alike.
+ */
 function App() {
-  const [currentPath, setCurrentPath] = useState(window.location.pathname + window.location.search);
-  const [user, setUser] = useState<any | null>(null);
-  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [location, setLocation] = useState(window.location.pathname + window.location.hash);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
-    const handlePopState = () => {
-      setCurrentPath(window.location.pathname + window.location.search);
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    const onPop = () => setLocation(window.location.pathname + window.location.hash);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   useEffect(() => {
-    // Check current session
-    fetch('/api/v1/auth/me')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.user) {
-          setUser(data.user);
-        }
-      })
-      .catch(() => {});
-  }, []);
+    const hash = window.location.hash.slice(1);
+    if (!hash) {
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    // The target renders on the next frame after a route change.
+    requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ block: 'start' }));
+  }, [location]);
 
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
-    setCurrentPath(path);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setLocation(path);
   };
 
-  const handleLoginSuccess = (userData: any) => {
-    setUser(userData);
-  };
+  const pathname = location.split('#')[0];
+  const page = pathname === '/pricing' ? <PricingPage navigate={navigate} /> : pathname === '/docs' ? <DocsPage /> : <Home navigate={navigate} />;
 
-  const handleLogout = async () => {
-    await fetch('/api/v1/auth/logout', { method: 'POST' });
-    setUser(null);
-    navigate('/');
-  };
-
-  const pathname = currentPath.split('?')[0];
-
-  // Route: Sign In
-  if (pathname === '/account/login') {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <Login navigate={navigate} onLoginSuccess={handleLoginSuccess} />
-      </div>
-    );
-  }
-
-  // Route: Register
-  if (pathname === '/account/register') {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <Register navigate={navigate} onLoginSuccess={handleLoginSuccess} />
-      </div>
-    );
-  }
-
-  // Route: Account Portal Subpages
-  if (pathname.startsWith('/account')) {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <AccountLayout
-          user={user}
-          currentSubPath={pathname}
-          navigate={navigate}
-          onLogout={handleLogout}
-        />
-      </div>
-    );
-  }
-
-  // Dedicated Public Pages
-  if (pathname === '/pricing') {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <PricingPage navigate={navigate} />
-        <Footer navigate={navigate} />
-      </div>
-    );
-  }
-
-  if (pathname === '/docs') {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <DocsPage navigate={navigate} />
-        <Footer navigate={navigate} />
-      </div>
-    );
-  }
-
-  if (pathname === '/download') {
-    return (
-      <div className="marketing-container">
-        <Navbar
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        />
-        <MobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          currentPath={pathname}
-          navigate={navigate}
-          user={user}
-        />
-        <DownloadPage />
-        <Footer navigate={navigate} />
-      </div>
-    );
-  }
-
-  // Route: Default Landing Page (Home)
   return (
-    <div className="marketing-container">
-      <Navbar
-        currentPath={pathname}
-        navigate={navigate}
-        user={user}
-        onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-      />
-      <MobileNavDrawer
-        isOpen={isMobileDrawerOpen}
-        onClose={() => setIsMobileDrawerOpen(false)}
-        currentPath={pathname}
-        navigate={navigate}
-        user={user}
-      />
-
-      {/* 8-Act Scroll Narrative Architecture */}
-      <Act1Hero user={user} />
-      <Act2ControlPlane />
-      <Act3SandboxSection />
-      <Act4SwarmSection />
-      <Act5EnvironmentSection />
-      <Act6SecurityGuardSection />
-      <Act7RemoteRelaySection />
-      <Act8CTAQuickstart />
-
+    <>
+      <Navbar currentPath={pathname} navigate={navigate} onOpenMobileDrawer={() => setDrawerOpen(true)} />
+      <MobileNavDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} navigate={navigate} />
+      {page}
       <Footer navigate={navigate} />
-    </div>
+    </>
   );
 }
 

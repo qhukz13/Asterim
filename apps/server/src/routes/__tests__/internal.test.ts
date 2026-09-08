@@ -1,3 +1,6 @@
+// The suite exercises routes through fastify.inject() as the local developer user; the middleware only grants that on loopback with this explicit opt-in (docs/audit/security-audit.md, S1).
+process.env.ASTERIM_DEV_AUTH_BYPASS = process.env.ASTERIM_DEV_AUTH_BYPASS ?? 'true';
+
 /**
  * HTTP tests for the loopback relay endpoint (P5.4-01).
  *

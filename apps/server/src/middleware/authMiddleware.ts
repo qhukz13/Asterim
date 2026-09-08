@@ -4,6 +4,13 @@ import { pairingService } from '../services/PairingService';
 import { tokenService } from '../services/TokenService';
 import { AccessTokenPayload } from '@asterim/shared';
 
+/** True for addresses that can only originate on this machine. */
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.startsWith('::ffff:') ? address.slice(7) : address;
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized.startsWith('127.');
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     user?: AccessTokenPayload;
@@ -20,8 +27,7 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       request.url.startsWith('/api/v1/auth/pair') ||
       request.url.startsWith('/api/v1/auth/register') ||
       request.url.startsWith('/api/v1/auth/login') ||
-      request.url.startsWith('/api/v1/auth/refresh') ||
-      request.url.startsWith('/api/v1/auth/oauth')
+      request.url.startsWith('/api/v1/auth/refresh')
     ) {
       return;
     }
@@ -72,8 +78,17 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       }
     }
 
-    // In local development or desktop mode, fallback to defaultDevUser
-    if (process.env.NODE_ENV !== 'production') {
+    // Development convenience, and nothing more. Before the 2026-09 audit this
+    // fallback applied to every request whenever NODE_ENV was not `production`,
+    // which is every way the Core is normally started — so anyone on the LAN
+    // could call any route without a token (docs/audit/security-audit.md, S1).
+    // It now needs an explicit opt-in *and* a loopback source address, so it
+    // can never be reached from another machine.
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      process.env.ASTERIM_DEV_AUTH_BYPASS === 'true' &&
+      isLoopbackAddress(request.ip)
+    ) {
       request.user = defaultDevUser;
       return;
     }

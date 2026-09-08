@@ -22,7 +22,7 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const baseUrl =
-    activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+    activeBackendUrl || window.location.origin;
 
   const envName = activeEnvironment?.name || 'Personal Environment';
 

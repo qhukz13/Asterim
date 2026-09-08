@@ -93,6 +93,15 @@ fastify.register(cors, {
 // Register authentication middleware
 fastify.register(authMiddleware);
 
+// The dashboard and the API share an origin and the Core is reachable on the
+// LAN, so a paired browser tab must not be framable by another site and the
+// browser must not sniff types. Kept minimal; there is no inline-script CSP yet.
+fastify.addHook('onSend', async (_request, reply) => {
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('Referrer-Policy', 'no-referrer');
+});
+
 // Setup Static File Serving for Production (Phase 6)
 let webDistPath = path.join(__dirname, 'web');
 if (!fs.existsSync(webDistPath)) {

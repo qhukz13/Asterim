@@ -204,7 +204,7 @@ export function useSocket(
       const url = relayUrl || 'http://localhost:4000';
       newSocket = io(url);
     } else {
-      newSocket = io(activeBackendUrl || `http://localhost:3000`, {
+      newSocket = io(activeBackendUrl || window.location.origin, {
         auth: { token }
       });
     }

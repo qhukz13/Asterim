@@ -78,7 +78,7 @@ export function SessionSidebar({
 
   useEffect(() => {
     const baseUrl =
-      activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      activeBackendUrl || window.location.origin;
     const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
     const token = localStorage.getItem(tokenKey) || '';
 
@@ -105,7 +105,7 @@ export function SessionSidebar({
     setShowNewAgentModal(false);
     try {
       const baseUrl =
-        activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+        activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 

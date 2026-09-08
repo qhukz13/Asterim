@@ -1,256 +1,214 @@
 import React, { useState } from 'react';
-import { IconBot, IconTerminal, IconSparkles, IconShield } from '../icons/Icons';
+import { IconBot, IconTerminal, IconShield, IconCheck, IconAlertTriangle } from '../icons/Icons';
+import { getAuthHeaders } from '../../utils/auth';
+
+type EngineId = 'claude' | 'antigravity';
 
 interface FirstRunWizardProps {
   activeBackendUrl?: string;
+  /** Which agent CLIs the Core found on this machine, from `/api/v1/system`. */
+  binaries?: { claude?: boolean; antigravity?: boolean } | null;
   onComplete: () => void;
 }
 
-export function FirstRunWizard({ activeBackendUrl, onComplete }: FirstRunWizardProps) {
-  const [wizardStep, setWizardStep] = useState(1);
-  const [selectedDefaultAgent, setSelectedDefaultAgent] = useState<
-    'aider' | 'claude' | 'antigravity'
-  >('claude');
+const ENGINES: { id: EngineId; name: string; detail: string; install: string }[] = [
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    detail: "Anthropic's CLI agent. Asterim drives it headlessly and answers its permission prompts.",
+    install: 'npm install -g @anthropic-ai/claude-code'
+  },
+  {
+    id: 'antigravity',
+    name: 'Antigravity',
+    detail: "Google's CLI agent, driven through its terminal interface. Best effort.",
+    install: 'Install the Antigravity CLI (agy) from Google.'
+  }
+];
+
+/**
+ * Three screens: what this is, which agent to use, what will happen next.
+ * The engine list is honest about what is installed: a missing CLI is shown
+ * with its install command instead of being offered as if it worked.
+ */
+export function FirstRunWizard({ activeBackendUrl, binaries, onComplete }: FirstRunWizardProps) {
+  const detected = (id: EngineId) => Boolean(binaries?.[id]);
+  const firstDetected = ENGINES.find(e => detected(e.id))?.id ?? 'claude';
+
+  const [step, setStep] = useState(1);
+  const [engine, setEngine] = useState<EngineId>(firstDetected);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleWizardComplete = async () => {
+  const finish = async () => {
     try {
-      setIsSaving(true);
+      setSaving(true);
       setError(null);
-      const baseUrl =
-        activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
-      const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
-      const token = localStorage.getItem(tokenKey) || '';
-
+      const baseUrl = activeBackendUrl || window.location.origin;
       const res = await fetch(`${baseUrl}/api/v1/system/first-run-complete`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders({ backendUrl: activeBackendUrl })
       });
-      if (res.ok) {
-        localStorage.setItem('asterim_default_agent', selectedDefaultAgent);
-        onComplete();
-      } else {
-        setError('Failed to record wizard completion. Please try again.');
-      }
+      if (!res.ok) throw new Error(`Server answered ${res.status}`);
+      localStorage.setItem('asterim_default_agent', engine);
+      onComplete();
     } catch (err) {
-      console.error('Wizard complete error', err);
-      setError('Failed to save settings. Connection error.');
+      setError(`Could not save your choice: ${(err as Error).message}`);
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
   return (
     <div className="dialog-overlay">
-      <div
-        className="dialog-box glass-panel"
-        style={{ maxWidth: '600px', width: '100%', padding: '32px' }}
-      >
-        {wizardStep === 1 && (
-          <div style={{ textAlign: 'center' }}>
+      <div className="dialog-box glass-panel" style={{ maxWidth: '560px', width: '100%', padding: '32px' }}>
+        {step === 1 && (
+          <div>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-              <IconBot size={48} color="var(--color-accent-primary)" />
+              <IconBot size={40} color="var(--color-accent-primary)" />
             </div>
-            <h1
-              style={{
-                marginBottom: '16px',
-                fontSize: '1.75rem',
-                color: 'var(--color-text-primary)',
-                fontWeight: 600
-              }}
-            >
-              Welcome to Asterim
+            <h1 style={{ margin: '0 0 12px', fontSize: '1.5rem', fontWeight: 600, textAlign: 'center' }}>
+              Asterim is running on this machine
             </h1>
-            <p
-              style={{
-                color: 'var(--color-text-secondary)',
-                marginBottom: '28px',
-                fontSize: '0.95rem',
-                lineHeight: '1.6'
-              }}
-            >
-              Asterim is a professional Mission Control for Autonomous AI Coding Agents. Let&apos;s configure your workspace defaults in 2 simple steps.
+            <p style={{ color: 'var(--color-text-secondary)', margin: '0 0 24px', lineHeight: 1.6, textAlign: 'center' }}>
+              It runs a coding agent inside a project folder you choose, shows you what the agent
+              is doing, and stops it every time it wants to run a command or change a file until
+              you say yes. Nothing leaves this machine except the agent's own API calls.
             </p>
-            <button
-              onClick={() => setWizardStep(2)}
-              className="btn-primary"
-              style={{ padding: '14px 28px', width: '100%' }}
-            >
-              Get Started
+            <button onClick={() => setStep(2)} className="btn-primary" style={{ width: '100%', padding: '12px' }}>
+              Choose an agent
             </button>
           </div>
         )}
 
-        {wizardStep === 2 && (
+        {step === 2 && (
           <div>
-            <h2 style={{ marginBottom: '8px', fontSize: '1.25rem', fontWeight: 600 }}>Choose Default Agent Engine</h2>
-            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '24px', fontSize: '0.875rem' }}>
-              Select which CLI agent driver will start by default for new sessions.
+            <h2 style={{ margin: '0 0 6px', fontSize: '1.2rem', fontWeight: 600 }}>Which agent should new threads use?</h2>
+            <p style={{ color: 'var(--color-text-secondary)', margin: '0 0 20px', fontSize: '0.9rem' }}>
+              Asterim looked for each CLI on this machine. You can change this per thread later.
             </p>
 
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-              <div
-                onClick={() => setSelectedDefaultAgent('claude')}
-                style={{
-                  flex: 1,
-                  padding: '16px 8px',
-                  background:
-                    selectedDefaultAgent === 'claude'
-                      ? 'var(--color-surface-2)'
-                      : 'var(--color-surface-1)',
-                  border:
-                    selectedDefaultAgent === 'claude'
-                      ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-subtle)',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  textAlign: 'center'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-                  <IconBot size={28} color={selectedDefaultAgent === 'claude' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
-                </div>
-                <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
-                  Claude Code
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
-                  Anthropic CLI agent
-                </div>
-              </div>
-
-              <div
-                onClick={() => setSelectedDefaultAgent('aider')}
-                style={{
-                  flex: 1,
-                  padding: '16px 8px',
-                  background:
-                    selectedDefaultAgent === 'aider'
-                      ? 'var(--color-surface-2)'
-                      : 'var(--color-surface-1)',
-                  border:
-                    selectedDefaultAgent === 'aider'
-                      ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-subtle)',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  textAlign: 'center'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-                  <IconTerminal size={28} color={selectedDefaultAgent === 'aider' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
-                </div>
-                <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
-                  Aider
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
-                  Python Git agent
-                </div>
-              </div>
-
-              <div
-                onClick={() => setSelectedDefaultAgent('antigravity')}
-                style={{
-                  flex: 1,
-                  padding: '16px 8px',
-                  background:
-                    selectedDefaultAgent === 'antigravity'
-                      ? 'var(--color-surface-2)'
-                      : 'var(--color-surface-1)',
-                  border:
-                    selectedDefaultAgent === 'antigravity'
-                      ? '2px solid var(--color-accent-primary)'
-                      : '1px solid var(--color-border-subtle)',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  textAlign: 'center'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-                  <IconSparkles size={28} color={selectedDefaultAgent === 'antigravity' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)'} />
-                </div>
-                <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '0.9rem' }}>
-                  Antigravity
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
-                  Google AI agent
-                </div>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+              {ENGINES.map(option => {
+                const found = detected(option.id);
+                const selected = engine === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setEngine(option.id)}
+                    style={{
+                      textAlign: 'left',
+                      padding: '14px 16px',
+                      background: selected ? 'var(--color-surface-2)' : 'var(--color-surface-1)',
+                      border: selected
+                        ? '1px solid var(--color-accent-primary)'
+                        : '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                      color: 'var(--color-text-primary)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ fontWeight: 600 }}>{option.name}</span>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontSize: '0.75rem',
+                          color: found ? 'var(--color-accent-primary)' : 'var(--color-text-muted)'
+                        }}
+                      >
+                        {found ? <IconCheck size={13} /> : <IconAlertTriangle size={13} />}
+                        {found ? 'Detected' : 'Not found'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                      {option.detail}
+                    </div>
+                    {!found && (
+                      <code
+                        style={{
+                          display: 'block',
+                          marginTop: '8px',
+                          fontSize: '0.78rem',
+                          color: 'var(--color-text-secondary)',
+                          fontFamily: 'var(--font-family-mono)'
+                        }}
+                      >
+                        {option.install}
+                      </code>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            <button
-              onClick={() => setWizardStep(3)}
-              className="btn-primary"
-              style={{ padding: '14px 28px', width: '100%' }}
-            >
-              Next Step
+            {!detected(engine) && (
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-state-paused, #f59e0b)', margin: '0 0 16px' }}>
+                {ENGINES.find(e => e.id === engine)?.name} was not found. Install it, then restart
+                Asterim, or pick an engine that was detected.
+              </p>
+            )}
+
+            <button onClick={() => setStep(3)} className="btn-primary" style={{ width: '100%', padding: '12px' }}>
+              Continue
             </button>
           </div>
         )}
 
-        {wizardStep === 3 && (
+        {step === 3 && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-              <IconSparkles size={40} color="var(--color-accent-primary)" />
-            </div>
-            <h2 style={{ marginBottom: '16px', textAlign: 'center', fontSize: '1.25rem', fontWeight: 600 }}>Ready to Launch</h2>
+            <h2 style={{ margin: '0 0 16px', fontSize: '1.2rem', fontWeight: 600, textAlign: 'center' }}>
+              What happens next
+            </h2>
             <div
               style={{
-                color: 'var(--color-text-secondary)',
-                fontSize: '0.9rem',
-                lineHeight: '1.6',
-                marginBottom: '28px',
-                textAlign: 'left',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
                 background: 'var(--color-surface-2)',
-                padding: '20px',
-                borderRadius: '12px',
-                border: '1px solid var(--color-border-subtle)'
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '18px',
+                marginBottom: '20px',
+                fontSize: '0.9rem',
+                color: 'var(--color-text-secondary)',
+                lineHeight: 1.5
               }}
             >
-              <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px' }}>Workspace Tips:</div>
-              
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
-                <IconTerminal size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
-                <span><strong>Real-time Telemetry</strong>: Monitor live execution streams and ANSI output in the terminal panel.</span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <IconTerminal size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>Add a project.</strong> Point Asterim at
+                  a folder on this machine. The agent works there and only there.
+                </span>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
-                <IconShield size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
-                <span><strong>Interactive Approvals</strong>: Review file edits, system commands, and git diffs before execution.</span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <IconShield size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>Approve or deny.</strong> Every command
+                  and file write the agent proposes appears as a card. Nothing runs until you decide.
+                </span>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <IconBot size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px' }} />
-                <span><strong>Multi-Device Control</strong>: Connect remote workstations and monitor session progress from any device.</span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <IconBot size={16} color="var(--color-accent-primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>Review the diff.</strong> The Changes
+                  view shows what the agent touched. You commit; the agent never does.
+                </span>
               </div>
             </div>
 
             {error && (
-              <div
-                style={{
-                  color: 'var(--color-state-error)',
-                  marginBottom: '16px',
-                  textAlign: 'center',
-                  fontSize: '0.85rem'
-                }}
-              >
+              <div style={{ color: 'var(--color-state-error)', marginBottom: '12px', fontSize: '0.85rem', textAlign: 'center' }}>
                 {error}
               </div>
             )}
 
-            <button
-              onClick={handleWizardComplete}
-              disabled={isSaving}
-              className="btn-primary"
-              style={{
-                padding: '14px 28px',
-                width: '100%'
-              }}
-            >
-              {isSaving ? 'Saving...' : 'Go to Dashboard'}
+            <button onClick={finish} disabled={saving} className="btn-primary" style={{ width: '100%', padding: '12px' }}>
+              {saving ? 'Saving…' : 'Open the workspace'}
             </button>
           </div>
         )}

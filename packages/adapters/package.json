@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/sdk/__tests__/ProcessManager.test.ts",
+    "test": "tsx src/sdk/__tests__/ProcessManager.test.ts && tsx src/providers/claude/__tests__/ClaudeAdapter.test.ts",
     "lint": "eslint src/",
     "clean": "rm -rf dist"
   },

@@ -1,3 +1,6 @@
+// The suite exercises routes through fastify.inject() as the local developer user; the middleware only grants that on loopback with this explicit opt-in (docs/audit/security-audit.md, S1).
+process.env.ASTERIM_DEV_AUTH_BYPASS = process.env.ASTERIM_DEV_AUTH_BYPASS ?? 'true';
+
 /**
  * Tests for Stripe checkout, the customer portal and webhook security (P5.6-04).
  *
@@ -570,22 +573,37 @@ async function main(): Promise<void> {
     await app.close();
   }
 
-  describe('POST /api/v1/webhooks/stripe — development mode');
+  describe('POST /api/v1/webhooks/stripe — no signing secret configured');
   {
+    // An unsigned webhook would let anyone on the network upgrade any account
+    // (docs/audit/security-audit.md, S4). Without the secret the endpoint
+    // refuses; only the explicit local-testing flag lets it process unsigned.
     delete process.env.STRIPE_WEBHOOK_SECRET;
+    delete process.env.ASTERIM_ALLOW_UNSIGNED_STRIPE_WEBHOOKS;
     const app = Fastify();
     await app.register(webhookRoutes);
     await app.ready();
 
     seedAccount(ACCOUNT, 'free', null);
-    const res = await app.inject({
+    const refused = await app.inject({
       method: 'POST',
       url: '/api/v1/webhooks/stripe',
       payload: JSON.stringify(subscriptionEvent('customer.subscription.created')),
       headers: { 'content-type': 'application/json' }
     });
-    equal('an unsigned delivery is processed when no secret is set', res.statusCode, 200);
+    equal('an unsigned delivery is refused when no secret is set', refused.statusCode, 503);
+    equal('and the plan is untouched', accountRow(ACCOUNT).current_plan_id, 'free');
+
+    process.env.ASTERIM_ALLOW_UNSIGNED_STRIPE_WEBHOOKS = 'true';
+    const allowed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/stripe',
+      payload: JSON.stringify(subscriptionEvent('customer.subscription.created')),
+      headers: { 'content-type': 'application/json' }
+    });
+    equal('with the local-testing flag an unsigned delivery is processed', allowed.statusCode, 200);
     equal('and the plan is applied', accountRow(ACCOUNT).current_plan_id, 'pro');
+    delete process.env.ASTERIM_ALLOW_UNSIGNED_STRIPE_WEBHOOKS;
 
     await app.close();
   }

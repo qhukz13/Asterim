@@ -2,6 +2,7 @@ import { IAIProvider } from '../IAIProvider';
 import { dbService } from '../../DatabaseService';
 import { projectManager } from '../../ProjectManager';
 import { execFile } from 'child_process';
+import { resolveClaudeLaunch } from '@asterim/adapters';
 import util from 'util';
 import { promises as fs } from 'fs';
 import os from 'os';
@@ -53,18 +54,25 @@ export class ActiveAgentProvider implements IAIProvider {
         cmd = isWin ? 'aider.cmd' : 'aider';
         args = ['--message-file', tempFile, '--no-auto-commits', '--yes'];
         break;
-      case 'claude':
-        cmd = isWin ? 'npx.cmd' : 'npx';
-        args = ['@anthropic-ai/claude-code', '--print', prompt];
-        break;
       case 'antigravity':
         cmd = isWin ? 'agy.cmd' : 'agy';
         args = ['-p', prompt];
         break;
-      default:
-        cmd = isWin ? 'npx.cmd' : 'npx';
-        args = ['@anthropic-ai/claude-code', '--print', prompt];
+      case 'claude':
+      default: {
+        // The same resolution the session adapter uses, so "works in chat but
+        // not for commit messages" cannot happen. `--bare` keeps the one-shot
+        // call from loading the project's hooks and MCP servers.
+        const launch = resolveClaudeLaunch();
+        if (launch) {
+          cmd = launch.cmd;
+          args = [...launch.prefixArgs, '--print', '--bare', prompt];
+        } else {
+          cmd = isWin ? 'npx.cmd' : 'npx';
+          args = ['@anthropic-ai/claude-code', '--print', prompt];
+        }
         break;
+      }
     }
 
     try {

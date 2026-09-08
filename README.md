@@ -1,144 +1,69 @@
-<div align="center">
-  <h1>Asterim</h1>
-  <p><strong>The AI-native workspace for orchestrating autonomous software engineering agents.</strong></p>
-  <p>Asterim is a premium, local-first control plane that brings production-grade multi-agent orchestration directly to your development environment. By keeping data secure on your machine and keeping humans firmly in the loop, Asterim empowers you to coordinate specialized AI agents to solve complex engineering challenges.</p>
-</div>
+# Asterim
 
----
+**Run your coding agent. Approve every risky step. Keep the record.**
 
-## Features
+Asterim runs Claude Code on your machine, shows you what it says and does in a browser, and stops it before every command or file write until you say yes. Approvals, denials, tool calls and diffs are stored in a SQLite file you own. Nothing leaves the machine except the agent's own API calls.
 
-### AI Workspace
+Open source, MIT. No account, no telemetry. Windows, macOS, Linux. Node 22+.
 
-A beautifully designed, premium workspace to house all your projects and manage intelligent agents.
+![The approval card](docs/screenshots/e2e/02-approval-card.png)
 
-### Multi-agent Orchestration
-
-Coordinate multiple specialized AI agents, allowing them to collaborate seamlessly on complex tasks.
-
-### Local-first Architecture
-
-Your code, your data, your machine. Asterim is built to operate locally, ensuring maximum privacy and speed.
-
-### Human Approvals
-
-Engineers maintain ultimate control. Autonomous actions can be gated by human-in-the-loop approvals, ensuring nothing executes without your say-so.
-
-### Cloud Relay
-
-Connect your local Workstations to external or cloud resources securely via the Cloud Relay service.
-
-### Development Workstations
-
-Dedicated, isolated environments where your agents operate, preserving your host system's integrity.
-
-### Real-time Dashboard
-
-Monitor your agents, view logs, and intervene at any time through our responsive, intuitive real-time dashboard.
-
----
-
-## Screenshots
-
-> _Coming soon._
->
-> ![Dashboard Placeholder](./assets/asterim_dashboard_mockup.png)
-
----
-
-## Installation
+## Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/asterim.git
-cd asterim
-
-# Install dependencies (requires pnpm)
-pnpm install
+npm install -g asterim
+asterim
 ```
 
----
+Asterim prints a local URL, a LAN URL and a six-digit PIN. Open the URL in any browser on the same network and enter the PIN.
 
-## Quick Start
-
-To spin up the local development environment:
+If the package is not on npm yet (see `docs/product/roadmap.md`, P0-06), run from source:
 
 ```bash
-# Start the web client and backend services
-pnpm run dev
+git clone https://github.com/qhukz13/Asterim.git && cd Asterim
+pnpm install && pnpm run build
+node apps/server/dist/index.js
 ```
 
-Visit `http://localhost:5173` to access your Asterim dashboard.
+## What happens next
 
----
+1. **Add a project.** The absolute path of a folder on this machine. Claude Code runs there and only there.
+2. **Give it a task.** The transcript shows the agent's messages, tool calls and results.
+3. **Approve or deny.** Every command and file write the agent proposes appears as a card with the exact command or path. Nothing runs until you decide.
+4. **Review the diff.** The Changes view shows what changed. You commit; the agent never does.
 
-## Architecture Overview
+Threads remember their Claude Code session and resume after a restart.
 
-Asterim is composed of three primary components:
+## Agents
 
-1. **Web Client**: A modern, responsive React UI.
-2. **Server (Control Plane)**: A Fastify-based backend that manages orchestration, event buses, and mDNS discovery.
-3. **Adapters**: Connectors that interface with different AI models (e.g., Claude, Antigravity) to act as specialized agents.
+| Agent | Status | How |
+| --- | --- | --- |
+| Claude Code | Working | Headless stream protocol; permission prompts answered through the approval card; sessions resumed by id. |
+| Antigravity (Google) | Best effort | Terminal interface scraped by a state machine. |
+| Aider, Codex | Not supported | |
 
-All components communicate asynchronously via an internal EventBus.
+## Security model
 
----
+Asterim runs as you; the agent runs as you. Asterim adds a gate, not a sandbox, and never passes the flag that skips permissions. The dashboard is served over plain HTTP on your LAN behind a PIN; do not expose it to the internet (`HOST=127.0.0.1` keeps it on this machine). Details: `docs/architecture/authentication.md`, `docs/audit/security-audit.md`.
 
-## Monorepo Structure
+## Configuration
 
-```text
-asterim/
-├── apps/
-│   ├── web/        # The React frontend workspace
-│   ├── server/     # The Fastify backend service
-│   └── relay/      # The Cloud Relay service
-├── packages/
-│   ├── shared/     # Shared types and utilities
-│   └── adapters/   # Agent adapters (Claude, Aider, etc.)
-└── blueprint/      # Comprehensive project documentation
-```
-
----
+`PORT`, `HOST`, `ASTERIM_DATA_DIR`, `ASTERIM_SOVEREIGN_MODE`, `ASTERIM_CLAUDE_BIN`, `ASTERIM_CLAUDE_DISABLE_HOOKS`, `MOCK_AGENT`. See `.env.example`.
 
 ## Development
 
-We use `turbo` to manage our monorepo tasks.
+```bash
+pnpm install
+pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build
+pnpm --filter asterim dev            # Core from source on :3001 (dev channel)
+```
 
-- `pnpm run build`: Build all packages and applications.
-- `pnpm run lint`: Run ESLint across the repository.
-- `pnpm run clean`: Clean build artifacts.
+Start with `PROJECT_CONTEXT.md`, then `docs/README.md`. Contributors and coding agents: `AGENTS.md`.
 
----
+## Status
 
-## Roadmap
+Audited and re-scoped on 2026-09-08. The core loop is verified end to end (`tools/e2e/core-loop.mjs`). Everything beyond it in the repository (team agents, pipelines, enterprise policy, accounts, billing, relay) is frozen and hidden until the core loop has users. Roadmap: `docs/product/roadmap.md`.
 
-To see what we're working on next, check out our [Roadmap](./blueprint/ROADMAP.md).
+## Licence
 
----
-
-## Documentation
-
-The definitive requirements and documentation for Asterim live in the `blueprint/` directory.
-
-- **[Product Specification](./blueprint/PRODUCT.md)**: Why we are building this.
-- **[Architecture Details](./blueprint/ARCHITECTURE.md)**: How the system works.
-- **[Brand Guidelines](./blueprint/BRAND.md)**: Voice, tone, and brand rules.
-- **[AI Context](./blueprint/AI_CONTEXT.md)**: Context tailored specifically for AI agents.
-
-## Community & Support
-
-- **[Support](./SUPPORT.md)**: Need help? Find out where to ask questions and report issues.
-- **[Security](./SECURITY.md)**: Review our security model and report vulnerabilities securely.
-- **[Code of Conduct](./CODE_OF_CONDUCT.md)**: We expect all community members to adhere to our code of conduct.
-
----
-
-## Contributing
-
-We welcome contributions! Please review our [Contributing Guide](./CONTRIBUTING.md) and development guides before submitting a pull request. Asterim is an Architecture-First project; please refer to the `blueprint/` for the ultimate source of truth.
-
----
-
-## License
-
-MIT
+MIT. See `LICENSE`.
