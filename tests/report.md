@@ -1,258 +1,198 @@
-Task-ID: P10-03
+Task-ID: P9-03
 Result: PASS
 
-# Verification Report: P10-03 — Phase 10 Comprehensive Production Gate & Desktop Release Readiness Audit
+# Verification Gate Report — P9-03
 
-**Task ID:** P10-03
-**Phase:** Phase 10 — Desktop Distribution, Native Shell & Release Readiness
+**Task ID:** P9-03
+**Phase:** Phase 9 — Multi-Agent Automated Pipelines & Worktree Fleet Execution
 **Gate:** `tests/current.md` (5 verification commands)
-**Date:** 2026-08-17
+**Date:** 2026-08-18
 **Author:** Claude Code (Test Runner)
-**Commit under test:** `8e89347` — `pipeline: dispatch task P10-03`
-**Working tree at test time:** ` M reports/current.md`, ` M tests/report.md`, `?? docs/phase10-production-gate.md`
-**Toolchain:** Node v24.13.1, turbo 2.9.18
+**Result:** PASS
+**Production code modified:** none (`git status` shows only `tests/report.md`, this file)
 
 ---
 
-## 1. Result Summary
+## 0. Execution Note — how the commands were run
 
-All five verification commands defined in `tests/current.md` were executed and every one met its
-stated PASS condition. No production code was modified during this session.
+The root turbo scripts (`pnpm run typecheck`, `pnpm run lint`, `pnpm run test`,
+`pnpm run build`) are refused by this session's sandbox. Every gate was therefore driven
+per workspace with `pnpm --filter <workspace> run <script>` — the same underlying tasks
+turbo would fan out to, over all 7 script-bearing workspaces (`@asterim/shared`,
+`@asterim/adapters`, `asterim`, `@asterim/web`, `@asterim/marketing`, `@asterim/relay`,
+`@asterim/mcp-memory-server`; `@asterim/config-eslint` defines no scripts). Builds were run
+in dependency order (shared → adapters → web/marketing/relay → asterim → mcp-memory-server)
+because `--filter` does not build dependencies the way turbo does.
 
-| # | Command | Stated PASS condition | Observed | Verdict |
-| :-: | :--- | :--- | :--- | :---: |
-| 1 | `pnpm run typecheck` | 0 TypeScript errors across all workspaces | 11/11 turbo tasks; 7/7 workspaces `Done` uncached; **0 errors** | **PASS** |
-| 2 | `pnpm run lint` | 0 ESLint errors across 7 workspace packages | 7/7 turbo tasks; 7/7 workspaces `Done` uncached; **0 errors**, 682 warnings | **PASS** |
-| 3a | `pnpm --filter asterim exec tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts` | All assertions pass, exit 0 | **208/208 assertions passed**, 0 `FAIL` lines | **PASS** |
-| 3b | `pnpm --filter @asterim/web exec tsx src/components/desktop/__tests__/DesktopDaemonUI.test.ts` | All assertions pass, exit 0 | **207/207 assertions passed**, 0 `FAIL` lines | **PASS** |
-| 4 | `pnpm run test` | All 43+ suites pass, 0 failures | **43 suites / 5,298 assertions / 0 failures** | **PASS** |
-| 5 | `pnpm run build` | All 7 Turbo packages build successfully in under 10 s | 7/7 tasks successful; 7/7 workspaces `Done` uncached | **PASS** |
-
-**Overall: PASS.**
+Nothing else deviates from `tests/current.md`. No production code was touched.
 
 ---
 
-## 2. Execution Notes — Command Invocation Form
+## 1. Command 1 — `pnpm run typecheck` — **PASS**
 
-Two deliberate deviations in *form*, none in *scope*:
-
-1. **`pnpm run <script>` is blocked at this session's permission layer.** The allowlist carries
-   `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` and `pnpm --filter *`, but not the
-   `pnpm run …` spelling. Each gate was run through the exact equivalent `pnpm <script>` form, which
-   pnpm resolves to the identical root `package.json` script and therefore the identical
-   `turbo run <task>` fan-out. Nothing was substituted, narrowed, or skipped. This is the third
-   consecutive gate to hit this friction (P10-02 test gate §5.2, P10-03 execution report §7.4).
-2. **Every gate was additionally run per workspace (`pnpm --filter "*" run <script>`) to bypass the
-   turbo cache.** The working tree is source-identical to the previous session, so all four turbo
-   aggregate runs replayed from cache (`>>> FULL TURBO`, 83 ms / 94 ms / 106 ms / 137 ms). A cached
-   replay is not evidence that the gate passes *now*, so each was re-executed uncached per workspace
-   and the uncached result is what this report treats as the evidence. The turbo aggregate figures
-   are recorded for completeness.
-
-Commands 3a and 3b were run verbatim as written.
-
----
-
-## 3. Gate-by-Gate Evidence
-
-### 3.1 Typecheck
-
-**Turbo aggregate** — `pnpm typecheck` → `turbo run typecheck`:
-
-```
-   • Packages in scope: @asterim/adapters, @asterim/eslint-config, @asterim/marketing,
-                        @asterim/mcp-memory-server, @asterim/relay, @asterim/shared,
-                        @asterim/web, asterim
-   • Running typecheck in 8 packages
-
- Tasks:    11 successful, 11 total
-Cached:    11 cached, 11 total
-```
-
-**Uncached, per workspace** — `pnpm --filter "*" run typecheck` (scope: 8 of 9 projects;
-`@asterim/eslint-config` declares no `typecheck` script):
+Run as `pnpm --filter <ws> run typecheck` over all 7 workspaces. 0 TypeScript errors.
 
 | Workspace | Command | Result |
+| :--- | :--- | :---: |
+| `@asterim/shared` | `tsc --noEmit` | clean |
+| `@asterim/adapters` | `tsc --noEmit` | clean |
+| `asterim` (server) | `tsc --noEmit` | clean |
+| `@asterim/web` | `tsc --noEmit` | clean |
+| `@asterim/marketing` | `tsc -b` | clean |
+| `@asterim/relay` | `tsc --noEmit` | clean |
+| `@asterim/mcp-memory-server` | `tsc --noEmit` | clean |
+
+---
+
+## 2. Command 2 — `pnpm run lint` — **PASS**
+
+Run as `pnpm --filter <ws> run lint` over all 7 workspaces. **0 ESLint errors.** Warnings
+only, and all pre-existing in kind (`no-explicit-any`, `no-unused-vars`, `exhaustive-deps`,
+`react-refresh/only-export-components`).
+
+| Workspace | eslint summary |
+| :--- | :--- |
+| `@asterim/web` | 324 problems (0 errors, 324 warnings) |
+| `asterim` (server) | 319 problems (0 errors, 319 warnings) |
+| `@asterim/adapters` | 28 problems (0 errors, 28 warnings) |
+| `@asterim/marketing` | 18 problems (0 errors, 18 warnings) |
+| `@asterim/mcp-memory-server` | 12 problems (0 errors, 12 warnings) |
+| `@asterim/shared` | 3 problems (0 errors, 3 warnings) |
+| `@asterim/relay` | 0 problems |
+
+Every lint invocation exited 0.
+
+---
+
+## 3. Command 3 — Pipeline UI & server pipeline suites — **PASS**
+
+```
+pnpm --filter @asterim/web exec tsx src/components/pipelines/__tests__/PipelineUI.test.ts
+   → 252/252 assertions passed   (exit 0)
+
+pnpm --filter asterim exec tsx src/services/pipeline/__tests__/WorktreeFleet.test.ts
+   → 203 passed, 0 failed        (exit 0)
+
+pnpm --filter asterim exec tsx src/services/pipeline/__tests__/PipelineEngine.test.ts
+   → 199 passed, 0 failed        (exit 0)
+```
+
+Coverage observed in the output, mapped to the P9-03 acceptance criteria:
+
+- **DAG layout (AC-3):** `dagColumns` / `computeDagLayout` asserted over single-step, chain,
+  fan-out, diamond, two-root, longest-path, empty and cyclic definitions; edges, arrow
+  markers, column/row placement and canvas extents all asserted. "a cycle still draws rather
+  than hanging" and "a dependency on a step that does not exist is not an edge" confirm the
+  degenerate cases.
+- **Store + REST (AC-1, AC-5):** every action asserted against a recording `fetch` for URL,
+  verb, headers and body — `fetchPipelines`, `fetchPipeline`, `savePipeline`, `runPipeline`,
+  `fetchRun`, `cancelRun`, `checkConflicts`, `synthesizeRun`, plus the thread-scoped
+  verification read. The synthesize test asserts the exact route and that only the chosen
+  step ids are sent; the 409 path asserts no branch is recorded while the conflicted path is
+  surfaced.
+- **Socket reducer (AC-1):** `pipeline:started` / `step_started` / `step_completed` /
+  `completed` / `failed` all exercised, including the PENDING → RUNNING → PASSED transition
+  without a fetch, retry re-entry on a higher attempt, cancellation arriving on the failure
+  event, and "an unknown run is ignored rather than invented".
+- **Step inspector (AC-4):** brief, transcript, diff, branch, checkout path, commit,
+  duration, attempt badge and the project's verification report each asserted, with distinct
+  empty states and `SKIPPED` not rendered as `CANCELLED`.
+- **Conflicts / synthesis / editor (AC-5, AC-6):** clean, conflicted (pair + files) and
+  missing-branch states; synthesis dialog defaults to passing steps and disables with none
+  chosen; editor reports `Line N` for a tab and surfaces the Core's line-numbered refusal.
+- **Retention pruner (AC-7):** `WorktreeFleet.test.ts` §"old fleets are reclaimed, and only
+  old ones" — fresh fleets survive the default week; a kept run survives while an aged run
+  loses checkout and branch; a second pass is a no-op; a non-repository is safe; a branch
+  outside the `asterim/pipeline/` prefix is untouched; the working tree stays clean; and
+  `engine.pruneOldFleetWorktrees()` reclaims inside/outside the window correctly
+  (`[Pipeline] Reclaimed 2 stale pipeline checkout(s) and branch(es).`).
+- **No credential leakage:** "nothing rendered carries a credential — no token appears".
+
+---
+
+## 4. Command 4 — `pnpm run test` (full battery) — **PASS**
+
+Run as `pnpm --filter <ws> run test` over the 5 workspaces that define a `test` script.
+**0 failures anywhere.**
+
+| Workspace | Suites | Assertions | Result |
+| :--- | :---: | :---: | :---: |
+| `@asterim/web` | 13 | 2,520 | all pass |
+| `asterim` (server) | 30 | 4,064 | all pass |
+| `@asterim/mcp-memory-server` | 7 | 348 | all pass |
+| `@asterim/relay` | 1 | 71 | all pass |
+| `@asterim/adapters` | 1 | 30 | all pass |
+| **Total** | **52** | **7,033** | **0 failed** |
+
+Web suite breakdown (in script order): 19, 151, 37, 134, 113, 104, 85, 134, 686, 203, 207,
+395, **252** — the last being the new `PipelineUI.test.ts`, confirming AC-8's requirement
+that it is wired into `apps/web/package.json` `"test"`.
+
+Server suite breakdown includes `PipelineEngine.test.ts` (199 passed, 0 failed) and
+`WorktreeFleet.test.ts` (203 passed, 0 failed) alongside the 28 pre-existing suites —
+memory, git, MCP, skills, AI/delegation, team agents, verification, security and desktop —
+all green, so **no Phase 7/8 regression** is visible from the test battery.
+
+The `mcp-memory-server` dogfood suite additionally ran its read-only probe against the live
+`~/.asterim/asterim.db` and confirmed size and sha256 unchanged.
+
+---
+
+## 5. Command 5 — `pnpm run build` — **PASS**
+
+All 7 workspaces build.
+
+| Workspace | Builder | Result |
 | :--- | :--- | :--- |
-| `packages/shared` | `tsc --noEmit` | `Done` |
-| `apps/relay` | `tsc --noEmit` | `Done` |
-| `packages/adapters` | `tsc --noEmit` | `Done` |
-| `apps/marketing` | `tsc -b` | `Done` |
-| `apps/web` | `tsc --noEmit` | `Done` |
-| `apps/server` | `tsc --noEmit` | `Done` |
-| `packages/mcp-memory-server` | `tsc --noEmit` | `Done` |
+| `@asterim/shared` | `tsc` | OK |
+| `@asterim/adapters` | `tsc` | OK |
+| `@asterim/web` | `tsc && vite build` | 1,275 modules transformed; sw.js generated; PWA precache 11 entries |
+| `@asterim/marketing` | `tsc -b && vite build` | 1,808 modules transformed |
+| `@asterim/relay` | `tsc` | OK |
+| `asterim` (server) | `tsup` + copy web dist | `dist/index.js` 1.24 MB, build success |
+| `@asterim/mcp-memory-server` | `tsup` | `dist/index.js` 122.07 KB |
 
-Zero diagnostics emitted by any workspace in either form.
+Post-build check: `apps/server/dist/index.js` and `apps/server/dist/web/index.html` both
+exist, so the packaged binary carries the dashboard including the new Pipelines view.
 
-**PASS — 0 TypeScript errors across all workspaces.**
-
-### 3.2 Lint
-
-**Turbo aggregate** — `pnpm lint`: `Tasks: 7 successful, 7 total`.
-
-**Uncached, per workspace** — `pnpm --filter "*" run lint`, all 7 `Done`:
-
-| Package | ESLint summary |
-| :--- | :--- |
-| `@asterim/relay` | no summary line emitted — fully clean |
-| `@asterim/shared` | `✖ 3 problems (0 errors, 3 warnings)` |
-| `@asterim/adapters` | `✖ 28 problems (0 errors, 28 warnings)` |
-| `@asterim/marketing` | `✖ 18 problems (0 errors, 18 warnings)` |
-| `@asterim/web` | `✖ 309 problems (0 errors, 309 warnings)` |
-| `asterim` (server) | `✖ 312 problems (0 errors, 312 warnings)` |
-| `@asterim/mcp-memory-server` | `✖ 12 problems (0 errors, 12 warnings)` |
-
-**682 warnings, 0 errors.** Counts are identical to the P10-02 gate, i.e. P10-03 introduced no new
-lint findings of any severity — consistent with its claim that no product code was touched.
-
-**PASS — 0 ESLint errors across 7 workspace packages.**
-
-### 3.3 Phase 10 Specialised Suites (run verbatim)
-
-**`DesktopDaemonService.test.ts` (server) → `208/208 assertions passed`**, 0 `FAIL` lines.
-Sections all green: platform detection; notification text sanitisation; per-platform notification
-commands (notify-send/kdialog, osascript, PowerShell WinRT + NotifyIcon fallback); the
-metacharacter-injection properties on all three platforms; headless/CI skip detection incl.
-`ASTERIM_HEADLESS` override; dispatch, backend fall-through, total-failure tolerance; per-type rate
-limiting; malformed input; EventBus subscriptions (approval request, delegation completion, failed
-pipeline, settled batch); auto-start entries on Windows (HKCU Run via `reg`), macOS (LaunchAgent
-plist) and Linux (XDG `.desktop`), incl. real filesystem write/remove round-trips and XML/shell
-escaping of a hostile home path; open-command generation; tray status on a live Core and on a Core
-that cannot read its own database; tray menu rows; the live session counter; and the REST surface
-including **401 on all six `/api/v1/desktop/*` routes without a session** with no launcher invoked.
-
-**`DesktopDaemonUI.test.ts` (web) → `207/207 assertions passed`**, 0 `FAIL` lines. Sections all
-green: `trayVerdictOf` keeping PAUSED and OFFLINE distinct; `formatUptime` / `formatMemory` /
-`vaultBadgeOf` / `autoStartMechanismOf` / `describeDesktopError` / `describeNotifyOutcome`;
-`useDesktopStore` status fetch, failure-without-blanking, auto-start toggle (incl. non-optimistic
-settling on the Core's answer), launch actions, notification test, clearing, and the "no
-client-chosen path is ever sent" property; `DesktopDaemonCardView` healthy/paused/offline/loading/
-headless rendering, the `role="switch"` auto-start control, quick actions with pending states,
-`role="alert"` vs `role="status"` precedence, **design-token-only colours**, replay of the literal
-JSON bodies a running Core returns, and the "carries nothing private" check.
-
-**PASS — both suites green.**
-
-> **Assertion-count note.** The server suite reported **208**, not the 207 recorded by the P10-01
-> report, the P10-03 execution report and the stale turbo cache replay. This is not drift or a
-> regression: `DesktopDaemonService.test.ts:912-915` guards one restore assertion behind
-> `if (preexisting !== null && entryPath)` — it only runs on a host that already has an Asterim XDG
-> autostart entry, which this workstation now does (the suite's own enable/disable round-trip leaves
-> the developer's pre-existing entry restored). One conditional assertion accounts for the delta
-> exactly. Both counts are all-pass. It does shift the repo total from the 5,297 cited in
-> `reports/current.md` to **5,298** as measured here.
-
-### 3.4 Full Monorepo Test Battery
-
-**Uncached, per workspace** — `pnpm --filter "*" run test`, all 5 test-bearing workspaces `Done`,
-**zero `FAIL`, `Failed` or `ELIFECYCLE` lines** anywhere in the output:
-
-| Workspace | Suites | Assertions |
-| :--- | :-: | ---: |
-| `asterim` (server) | 24 | 2,996 |
-| `@asterim/web` | 10 | 1,854 |
-| `@asterim/mcp-memory-server` | 7 | 348 |
-| `@asterim/relay` | 1 | 71 |
-| `@asterim/adapters` | 1 | 29 |
-| **Total** | **43** | **5,298** |
-
-43 declared suites, 43 observed `N/N assertions passed` summary lines — so no `&&`-chained suite was
-cut short and nothing was skipped. `@asterim/shared`, `@asterim/marketing` and
-`@asterim/eslint-config` declare no `test` script. The last server line is the P10-01 suite
-(`208/208`); the last web line is the P10-02 suite (`207/207`).
-
-Three stderr lines appear in the server run and are **deliberate negative-path fixtures**, each
-followed by its suite's all-pass summary — not failures:
-`[ProjectMemoryService] Subscriber threw while handling 'memory.rule_created'`,
-`[MCP] Failed to start ghost/auto-broken: spawn … ENOENT`,
-`[MCP] Could not evaluate 'mcp__toolbox__read_file'`.
-
-**Turbo aggregate** — `pnpm test`: `Tasks: 9 successful, 9 total`.
-
-**PASS — 43 suites, 0 failures.**
-
-### 3.5 Production Build
-
-**Uncached, per workspace** — `pnpm --filter "*" run build`, all 7 `Done`:
-
-| Package | Evidence |
-| :--- | :--- |
-| `@asterim/shared` | `tsc` → `Done` |
-| `@asterim/adapters` | `tsc` → `Done` |
-| `@asterim/relay` | `tsc` → `Done` |
-| `@asterim/marketing` | `tsc -b` + vite → `✓ built in 655ms`, `Done` |
-| `@asterim/web` | `tsc && vite build` → `✓ built in 7.45s`; service worker `✓ built in 476ms`; PWA `precache 11 entries (2098.47 KiB)`, `Done` |
-| `asterim` (server) | `tsup` → `CJS dist/index.js 987.10 KB`, `Build success in 187ms`, then the `apps/web/dist` → `dist/web` copy, `Done` |
-| `@asterim/mcp-memory-server` | `tsup` → `CJS dist/index.js 88.54 KB`, `Build success in 59ms`, `Done` |
-
-**Turbo aggregate** — `pnpm build`: `Tasks: 7 successful, 7 total`, `137ms >>> FULL TURBO`.
-
-Only non-fatal notices are the pre-existing Vite >500 kB chunk advisory and the Vite CJS Node API
-deprecation warning; both pre-date Phase 10.
-
-**PASS — all 7 packages build successfully.** On the timing clause: the turbo form completes far
-inside the 10 s bound, but from a full cache, so the figure is not meaningful. The genuine cold cost
-is dominated by `@asterim/web` at ≈7.9 s, and the seven-workspace uncached run exceeds 10 s in
-aggregate. The gate is scored on the stated command (`turbo run build`, 7/7 successful); see §5.2.
+Only warnings emitted: the pre-existing vite >500 kB chunk-size advisory on the web bundle
+and the CJS-Node-API deprecation notice. Neither fails the build.
 
 ---
 
-## 4. Scope Discipline
+## 6. Repository State
 
-- **No production code was modified.** `git status --short` is byte-identical before and after all
-  five gates: ` M reports/current.md`, ` M tests/report.md`, `?? docs/phase10-production-gate.md` —
-  i.e. exactly the P10-03 execution artefacts that were already present when this session began,
-  plus this report.
-- No source file, `package.json`, config, or blueprint document was touched.
-- Nothing was written to `docs/`, `reports/`, `tasks/` or `scratch/`. `reports/current.md` was read
-  but left untouched, as this session is a verification gate and not a task execution.
-- Only the commands in `tests/current.md` were executed (in both the permitted `pnpm <script>` form
-  and the uncached per-workspace form), plus read-only `git status`, `wc -l`, `grep` and `ls`
-  inspection used to reconcile suite counts and explain the 208/207 delta.
-- The verification pass was strictly read-only with respect to the repository. It did **not** re-run
-  the live packaged-binary driver described in `reports/current.md` §3.2 — that helper is git-ignored
-  and outside this gate's five commands (see §5.3).
+```
+$ git status --short
+ M tests/report.md
+```
+
+No production code, configuration or test source was modified by this verification session.
+The only changed file is this report.
 
 ---
 
-## 5. Observations for Antigravity
+## 7. Not Covered by This Gate
 
-Not defects; none affects the verdict, and none was actioned.
+`tests/current.md` specifies five command-based gates and nothing else; all five were run in
+full. For completeness, two things the P9-03 implementation report itself flagged remain
+outside this gate's scope and were **not** exercised here:
 
-1. **The gate's stated assertion figures are now one off.** `tests/current.md` and
-   `reports/current.md` cite 207 for `DesktopDaemonService.test.ts` and 5,297 repo-wide; the measured
-   values on this host are **208 / 5,298**, caused by one host-conditional assertion
-   (`DesktopDaemonService.test.ts:912`). It is worth knowing that this suite's assertion count is
-   **environment-dependent**, so "207/207" should not be used as a fixed regression tripwire in
-   future gates — "0 FAIL lines" is the stable invariant.
-2. **The build gate's "under 10 seconds" bound is cache-sensitive and effectively untestable as
-   written.** With a warm turbo cache it passes in 137 ms; cold, `@asterim/web` alone is ≈7.9 s and a
-   full uncached fan-out exceeds 10 s. The P10-02 gate raised the same point. Recommend restating the
-   criterion as "builds successfully" and dropping the wall-clock threshold.
-3. **This gate did not re-verify the live packaged-distribution pass (67 checks) claimed in
-   `reports/current.md` §4.5.** That driver lives in git-ignored `scratch/`, is not among the five
-   commands in `tests/current.md`, and its two Core boots have side effects on the operator's machine
-   (`~/.asterim/server.log` truncation, per §7.2 of that report). If the orchestrator wants the live
-   pass independently confirmed rather than accepted on the executing agent's word, it needs to be a
-   named command in a gate — the 43 suites structurally cannot cover it.
-4. **`pnpm run <script>` remains blocked by `.claude/settings.json` for the third gate running.**
-   Aligning either the allowlist or the gate wording would remove a recurring ambiguity about
-   whether a gate was truly run as specified.
-5. **Turbo replayed all four aggregate gates from cache**, including a *stale* `asterim:test` log
-   still showing `207/207`. Cached replays print as though the work ran. Any gate that relies on the
-   aggregate form alone can pass without executing anything; per-workspace execution is the honest
-   form and is what this report scored.
-6. **`test` scripts remain `&&`-chained**, so a first failing suite would suppress every later suite
-   in that workspace. This run is clean and all 43 summary lines were observed, so nothing was
-   hidden — but a red run would report partial results. Repo-wide, long-standing (report §8.8).
+1. **A live boot of the packaged server** to observe the retention pass executing at startup.
+   The sandbox refuses running the built server binary. The call site (`apps/server/src/server.ts`,
+   after `recoverRuns()`) and the method it invokes are covered by automated assertions in
+   `WorktreeFleet.test.ts`, but the boot itself was not staged.
+2. **Screenshot / visual QA** of the Pipelines dashboard. Not requested by `tests/current.md`;
+   the UI is covered here by `react-dom/server` render assertions rather than a browser.
+
+Neither is a required item of this gate, so neither affects the verdict.
 
 ---
 
-## 6. Verdict
+## 8. Verdict
 
-**Result: PASS.** All five verification commands in `tests/current.md` executed and met their stated
-PASS conditions: 0 TypeScript errors across 7 workspaces, 0 ESLint errors across 7 packages,
-208/208 on `DesktopDaemonService` and 207/207 on `DesktopDaemonUI`, 43/43 suites with 5,298
-assertions and 0 failures, and a clean 7-package production build — each confirmed uncached, not
-from a turbo cache replay. `docs/phase10-production-gate.md` (359 lines) is present as the task's
-required artefact. No production code was modified. **P10-03 is verified.**
+**PASS.** All five verification commands in `tests/current.md` completed with 0 errors and
+0 failures: typecheck clean across 7 workspaces, lint 0 errors across 7 workspaces, the three
+named pipeline suites green (252 + 203 + 199), the full battery green (52 suites, 7,033
+assertions, 0 failed), and all 7 packages building. The claims recorded in
+`reports/current.md` for P9-03 are reproduced independently by this session.
