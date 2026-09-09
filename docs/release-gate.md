@@ -26,7 +26,7 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 ## C. Build and tests (blocking)
 
-- [ ] `pnpm run typecheck`, `pnpm run lint` (0 errors), `pnpm run test` (all suites, on Windows and Linux), `pnpm run build` are green in CI for the tag.
+- [~] `pnpm run typecheck`, `pnpm run lint` (0 errors) and `pnpm run build` are green. `pnpm run test` runs all 34 server suites; 33 pass and `AgentMcpIntegration.test.ts` ends at 156/160 on the ConPTY console-attachment defect (P1-06, `docs/development/testing.md`). Measured on Windows 10 on 2026-09-09. Not yet run on Linux in CI for a tag.
 - [ ] `tools/e2e` smoke (pair → project → task → approval → diff) passes against the packaged binary.
 
 ## D. Product surface (blocking)

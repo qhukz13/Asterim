@@ -439,8 +439,13 @@ async function main(): Promise<void> {
     equal('a missing binary fails the step', result.passed, false);
     check('rather than taking the process down', typeof result.exitCode === 'number' || result.exitCode === null);
     check(
+      // Every shell words this differently and the assertion is that the words
+      // reach the caller, not which words they are. cmd.exe says "is not
+      // recognized as an internal or external command"; sh says "not found".
       'and the shell’s complaint is carried back',
-      /not found|no such file|cannot find/i.test(`${result.stderrSummary ?? ''}${result.error ?? ''}`),
+      /not found|no such file|cannot find|not recognized/i.test(
+        `${result.stderrSummary ?? ''}${result.error ?? ''}`
+      ),
       `stderr: ${result.stderrSummary}, error: ${result.error}`
     );
   }
@@ -511,7 +516,14 @@ async function main(): Promise<void> {
 
     const noDir = await service.runStep({ name: 'x', command: 'echo hi' }, '/nowhere/at/all');
     equal('a directory that does not exist fails the step', noDir.passed, false);
-    check('naming the directory', (noDir.error ?? '').includes('/nowhere/at/all'));
+    // The message names the resolved directory, not the string that was passed
+    // in, so the comparison resolves too: on Windows "/nowhere/at/all" becomes
+    // "C:\nowhere\at\all" and a literal substring check never matched.
+    check(
+      'naming the directory',
+      (noDir.error ?? '').includes(path.resolve('/nowhere/at/all')),
+      noDir.error
+    );
 
     const huge = await service.runStep({ name: 'x', command: `echo ${'a'.repeat(3000)}` }, dir);
     equal('and an absurdly long command is refused', huge.passed, false);
