@@ -7,7 +7,10 @@
    squeezed the header onto three wrapped lines. The extra class wins on
    specificity instead of on import order. */
 .dialog-box.approval-card {
-  max-width: 680px;
+  /* Never edge to edge. On a 390px phone the card filled the screen with no
+     margin at all, which reads as a page rather than as something asking a
+     question and waiting. */
+  max-width: min(680px, calc(100vw - 28px));
   width: 100%;
   padding: 0;
   display: flex;
@@ -309,6 +312,9 @@
   }
   .approval-actions button {
     flex: 1;
+    /* A finger, not a cursor. 35px was tappable and uncomfortable, on the one
+       surface the site tells people they can approve from. */
+    min-height: 44px;
   }
 }
 

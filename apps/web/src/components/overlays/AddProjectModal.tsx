@@ -20,6 +20,14 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /**
+   * What the Core said when it refused, shown next to the button that was
+   * pressed. Before this, a folder that does not exist was rejected correctly
+   * by the server and then discarded silently here: the dialog stayed open,
+   * nothing changed, and the only account of what went wrong was in the browser
+   * console. The server's message already names the path and says what to do.
+   */
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const baseUrl =
     activeBackendUrl || window.location.origin;
@@ -81,6 +89,7 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
 
     try {
       setIsSubmitting(true);
+      setCreateError(null);
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
@@ -101,13 +110,20 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
         window.location.reload();
         return;
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.project) {
         useWorkspaceStore.getState().fetchWorkspaces();
         onSuccess(data.project);
+        return;
       }
+      setCreateError(
+        typeof data.error === 'string' && data.error
+          ? data.error
+          : `The workstation refused the project (${res.status}).`
+      );
     } catch (err) {
       console.error('Failed to create project', err);
+      setCreateError('Could not reach the workstation. Is it still running?');
     } finally {
       setIsSubmitting(false);
     }
@@ -406,6 +422,21 @@ export function AddProjectModal({ activeBackendUrl, onClose, onSuccess }: AddPro
                 {isSubmitting ? 'Adding...' : 'Add & Attach Project'}
               </button>
             </div>
+            {createError && (
+              <div
+                role="alert"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-state-error, #ef4444)',
+                  color: 'var(--color-state-error, #ef4444)',
+                  fontSize: '0.8rem',
+                  lineHeight: 1.45
+                }}
+              >
+                {createError}
+              </div>
+            )}
           </form>
         )}
       </div>

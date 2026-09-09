@@ -25,7 +25,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
             <ul>
               {[
                 'Claude Code adapter with the approval gate',
-                'Antigravity adapter (best effort)',
+                'Antigravity adapter (preview)',
                 'Transcript, Terminal, Changes views',
                 'Threads that resume after restart',
                 'The record, in a SQLite file you own',
@@ -51,13 +51,13 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
           <div className="plan">
             <div className="plan-name">Pro (waitlist)</div>
             <div className="plan-price">
-              TBD<small>expected $12 to $19 / month</small>
+              Not priced<small>nothing here is built</small>
             </div>
             <ul>
               {[
-                'Reach your workstation from outside your network',
-                'More than one machine in one dashboard',
-                'Priority support'
+                'PLANNED — reach your workstation from outside your network',
+                'PLANNED — more than one machine in one dashboard',
+                'PLANNED — priority support'
               ].map(item => (
                 <li key={item}>
                   <Check size={14} />

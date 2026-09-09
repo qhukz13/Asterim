@@ -9,5 +9,5 @@ export const LICENSE = 'MIT';
 
 export const ADAPTER_STATUS = [
   { name: 'Claude Code', status: 'working' },
-  { name: 'Antigravity', status: 'best effort' }
+  { name: 'Antigravity', status: 'preview' }
 ] as const;

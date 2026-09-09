@@ -21,7 +21,7 @@ const ENGINES: { id: EngineId; name: string; detail: string; install: string }[]
   {
     id: 'antigravity',
     name: 'Antigravity — preview',
-    detail: "Google's CLI agent, driven through its terminal interface. Best effort.",
+    detail: "Google's CLI agent, driven through its terminal interface. Preview: it scrapes a TUI and breaks when that TUI changes.",
     install: 'Install the Antigravity CLI (agy) from Google.'
   }
 ];

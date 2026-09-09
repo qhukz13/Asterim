@@ -109,7 +109,7 @@ export const DocsPage: React.FC = () => {
                 </tr>
                 <tr>
                   <td>Antigravity (Google)</td>
-                  <td>Best effort</td>
+                  <td>Preview</td>
                   <td>Terminal interface scraped with a state machine; breaks when the TUI changes.</td>
                 </tr>
                 <tr>

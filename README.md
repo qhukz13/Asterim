@@ -41,7 +41,7 @@ Threads remember their Claude Code session and resume after a restart.
 | Agent | Status | How |
 | --- | --- | --- |
 | Claude Code | Working | Headless stream protocol; permission prompts answered through the approval card; sessions resumed by id. |
-| Antigravity (Google) | Best effort | Terminal interface scraped by a state machine. |
+| Antigravity (Google) | Preview | Terminal interface scraped by a state machine. |
 | Aider, Codex | Not supported | |
 
 ## Security model

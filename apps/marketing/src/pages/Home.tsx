@@ -44,7 +44,7 @@ const FEATURES = [
 const FAQ = [
   {
     q: 'Which agents work?',
-    a: "Claude Code, through its headless stream protocol. Antigravity (Google's CLI) through its terminal interface, best effort. Aider and Codex are not supported."
+    a: "Claude Code, through its headless stream protocol. Antigravity (Google's CLI) through its terminal interface, preview quality: it scrapes a TUI and breaks when that TUI changes. Aider and Codex are not supported."
   },
   {
     q: 'Does it need an account?',
@@ -60,7 +60,7 @@ const FAQ = [
   },
   {
     q: 'Can I approve from my phone?',
-    a: 'On the same Wi-Fi, yes: open the dashboard URL on the phone and enter the PIN. Off-network access is on the Pro waitlist.'
+    a: 'Approving, yes. On the same Wi-Fi, open the dashboard URL on the phone and enter the PIN; when the agent asks for something the card fills the screen and you answer it there. The rest of the dashboard is built for a desktop window and is cramped on a phone. Off-network access is on the Pro waitlist.'
   },
   {
     q: 'What if the agent tries something dangerous?',
