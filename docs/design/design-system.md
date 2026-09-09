@@ -31,9 +31,20 @@ Supersedes `blueprint/DESIGN_SYSTEM.md`, `blueprint/UI_PRINCIPLES.md` and `bluep
 | `.view-tab` | `styles/layout.css` | Thread view tabs. Underline active state. |
 | `CustomDropdown` | `components/CustomDropdown.tsx` | Any select. |
 | `.dialog-overlay` + `.dialog-box` | `index.css` | Every modal, including the approval card. |
+| `ApprovalCard` | `components/approvals/ApprovalCard.tsx` | The approval. Never reimplement it; extend the consequence type instead. |
+| `ConfirmDialog` | `components/overlays/ConfirmDialog.tsx` | Every destructive action. |
+| `DiagnosticsPanel` | `components/diagnostics/DiagnosticsPanel.tsx` | The "is my setup right?" surface. |
 | `btn-primary`, `btn-deny`, `btn-approve` | `index.css` | Primary, destructive, confirm. |
 | `WorkspaceShell` | `components/WorkspaceShell.tsx` | The only page layout. |
 | `EmptyWorkspace` | `components/EmptyWorkspace.tsx` | Empty state pattern: icon, one sentence, primary action, secondary action. |
+
+## Two patterns that carry the product
+
+**The approval card.** It must answer three questions before it offers a button: what kind of action this is, what it targets, and what exactly will change. Creating a file and overwriting one are different decisions and never render the same. The agent's own words appear when they add something and are suppressed when they only repeat the path. Neither button is pre-selected, Escape denies, and the buttons do not act for 300 ms after the card appears so that a click already in flight cannot answer a card nobody has read.
+
+**Destructive confirmation.** Name the thing being removed, say what is deleted, say what is *not* touched, and focus Cancel. `ConfirmDialog` implements all four; use it rather than a bespoke dialog, and never `window.confirm`.
+
+**Failures.** Every failure a user can see names a cause and offers at least one thing to try (`Diagnosis` from the Core). A message from Asterim is labelled "Asterim", never "Agent Assistant" — attributing a tool failure to the model tells the user something false about what happened.
 
 ## States every view must have
 

@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import './styles/tokens.css';
 import './styles/layout.css';
+import './styles/approval.css';
+import './styles/diagnostics.css';
 import './index.css';
 import { setupGlobalErrorTracking, setupDOMObserver, setupRouterProxy, DebugErrorBoundary, Debug } from './utils/debug';
 

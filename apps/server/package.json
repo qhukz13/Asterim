@@ -1,18 +1,44 @@
 {
   "name": "asterim",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "Run your coding agent with a window and an approval gate around it. Local-first supervisor for Claude Code.",
+  "keywords": [
+    "claude-code",
+    "ai",
+    "agent",
+    "coding-agent",
+    "approval",
+    "local-first",
+    "cli",
+    "dashboard",
+    "permissions"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/qhukz13/Asterim#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qhukz13/Asterim.git",
+    "directory": "apps/server"
+  },
+  "bugs": {
+    "url": "https://github.com/qhukz13/Asterim/issues"
+  },
   "private": false,
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "asterim": "./dist/index.js"
   },
   "main": "dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
-    "build": "tsup && node -e \"require('fs').cpSync('../../apps/web/dist', './dist/web', {recursive: true}); require('fs').copyFileSync('../../packages/adapters/mock-antigravity.js', './dist/mock-antigravity.js')\"",
+    "build": "tsup && node -e \"const fs=require('fs'); fs.cpSync('../../apps/web/dist', './dist/web', {recursive: true}); fs.copyFileSync('../../packages/adapters/mock-antigravity.js', './dist/mock-antigravity.js'); fs.copyFileSync('../../README.md', './README.md')\"",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts && tsx src/services/memory/__tests__/DecisionExtractor.test.ts && tsx src/routes/__tests__/memory.test.ts && tsx src/routes/__tests__/memory-candidates.test.ts && tsx src/routes/__tests__/internal.test.ts && tsx src/services/git/__tests__/GitDriftDetector.test.ts && tsx src/services/git/__tests__/RemoteManager.test.ts && tsx src/services/git/__tests__/GitWorktreeService.test.ts && tsx src/services/__tests__/ChannelIsolation.test.ts && tsx src/services/__tests__/MigrationEngine.test.ts && tsx src/services/__tests__/CliDatabaseTooling.test.ts && tsx src/services/__tests__/SovereignMode.test.ts && tsx src/services/__tests__/ProjectMemoryService.test.ts && tsx src/services/__tests__/PairingService.test.ts && tsx src/services/__tests__/BillingService.test.ts && tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts && tsx src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts && tsx src/services/mcp/__tests__/McpToolInvocation.test.ts && tsx src/services/mcp/__tests__/McpAgentBridge.test.ts && tsx src/services/mcp/__tests__/AgentMcpIntegration.test.ts && tsx src/services/skills/__tests__/SkillService.test.ts && tsx src/services/ai/__tests__/ProfileService.test.ts && tsx src/services/ai/__tests__/AgentDelegationService.test.ts && tsx src/services/ai/__tests__/TeamAgentService.test.ts && tsx src/services/pipeline/__tests__/PipelineEngine.test.ts && tsx src/services/pipeline/__tests__/WorktreeFleet.test.ts && tsx src/services/verification/__tests__/VerificationPipelineService.test.ts && tsx src/services/security/__tests__/SecretVaultService.test.ts && tsx src/services/security/__tests__/EnvironmentSecretService.test.ts && tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts && tsx src/services/enterprise/__tests__/FleetGovernance.test.ts",
+    "test": "tsx src/services/memory/__tests__/MemoryRelevanceEngine.test.ts && tsx src/services/memory/__tests__/DecisionExtractor.test.ts && tsx src/routes/__tests__/memory.test.ts && tsx src/routes/__tests__/memory-candidates.test.ts && tsx src/routes/__tests__/internal.test.ts && tsx src/services/git/__tests__/GitDriftDetector.test.ts && tsx src/services/git/__tests__/RemoteManager.test.ts && tsx src/services/git/__tests__/GitWorktreeService.test.ts && tsx src/services/__tests__/ChannelIsolation.test.ts && tsx src/services/__tests__/MigrationEngine.test.ts && tsx src/services/__tests__/CliDatabaseTooling.test.ts && tsx src/services/__tests__/SovereignMode.test.ts && tsx src/services/__tests__/ProjectMemoryService.test.ts && tsx src/services/__tests__/PairingService.test.ts && tsx src/services/__tests__/BillingService.test.ts && tsx src/services/mcp/__tests__/McpProcessSupervisor.test.ts && tsx src/services/mcp/__tests__/McpCapabilityDiscovery.test.ts && tsx src/services/mcp/__tests__/McpToolInvocation.test.ts && tsx src/services/mcp/__tests__/McpAgentBridge.test.ts && tsx src/services/mcp/__tests__/AgentMcpIntegration.test.ts && tsx src/services/skills/__tests__/SkillService.test.ts && tsx src/services/ai/__tests__/ProfileService.test.ts && tsx src/services/ai/__tests__/AgentDelegationService.test.ts && tsx src/services/ai/__tests__/TeamAgentService.test.ts && tsx src/services/pipeline/__tests__/PipelineEngine.test.ts && tsx src/services/pipeline/__tests__/WorktreeFleet.test.ts && tsx src/services/verification/__tests__/VerificationPipelineService.test.ts && tsx src/services/security/__tests__/SecretVaultService.test.ts && tsx src/services/security/__tests__/EnvironmentSecretService.test.ts && tsx src/services/desktop/__tests__/DesktopDaemonService.test.ts && tsx src/services/enterprise/__tests__/FleetGovernance.test.ts && tsx src/services/approvals/__tests__/consequence.test.ts && tsx src/services/diagnostics/__tests__/AgentDiagnostics.test.ts",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "clean": "rm -rf dist"

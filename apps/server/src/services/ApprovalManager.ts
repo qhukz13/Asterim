@@ -1,5 +1,6 @@
 import { eventBus } from './EventBus';
 import { AsterimEvent, ClientApprovalResponsePayload } from '@asterim/shared';
+import type { ApprovalConsequence } from '@asterim/shared';
 import crypto from 'crypto';
 import { dbService } from './DatabaseService';
 import { fleetPolicyService } from './enterprise/FleetPolicyService';
@@ -27,6 +28,12 @@ export interface ApprovalRequestOptions {
   securityAnalysis?: CommandSecurityAnalysis;
   /** Called with the action id before the request goes out. */
   onActionId?: (actionId: string) => void;
+  /**
+   * What approving will actually do, for the card to render. Passed straight
+   * through to the event; not persisted, because the card is a live decision
+   * and a recovered approval has no live tool call behind it.
+   */
+  consequence?: ApprovalConsequence;
 }
 
 /**
@@ -354,6 +361,7 @@ export class ApprovalManager {
   private listenForResponses() {
     eventBus.subscribe<ClientApprovalResponsePayload>('client.approval_response', event => {
       const { actionId, approved } = event.payload;
+      const decidedBy = event.payload.decidedBy ?? 'unspecified';
 
       try {
         const db = dbService.getDb();
@@ -372,11 +380,11 @@ export class ApprovalManager {
         pending.resolve(approved);
         this.pendingApprovals.delete(actionId);
         console.log(
-          `[ApprovalManager] Action ${actionId} resolved as ${approved ? 'APPROVED' : 'DENIED'}`
+          `[ApprovalManager] Action ${actionId} resolved as ${approved ? 'APPROVED' : 'DENIED'} by ${decidedBy}`
         );
       } else {
         console.log(
-          `[ApprovalManager] Action ${actionId} resolved via EventBus as ${approved ? 'APPROVED' : 'DENIED'} (no active process resolver)`
+          `[ApprovalManager] Action ${actionId} resolved via EventBus as ${approved ? 'APPROVED' : 'DENIED'} by ${decidedBy} (no active process resolver)`
         );
       }
     });
@@ -460,7 +468,8 @@ export class ApprovalManager {
           actionId,
           description,
           command,
-          securityAnalysis: security
+          securityAnalysis: security,
+          consequence: options.consequence
         }
       });
     });

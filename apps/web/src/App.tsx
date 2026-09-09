@@ -27,6 +27,8 @@ const MORE_VIEWS: { id: ViewType; label: string }[] = [
 ];
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
+import { ApprovalCard } from './components/approvals/ApprovalCard';
+import { DiagnosticsPanel } from './components/diagnostics/DiagnosticsPanel';
 import { SessionSidebar } from './components/SessionSidebar';
 import { PinScreen } from './PinScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -76,159 +78,6 @@ if (typeof window !== 'undefined') {
     ThreadStore: useThreadStore,
     ViewStore: useViewStore
   };
-}
-
-interface ApprovalOverlayProps {
-
-  approvalRequest: {
-    actionId: string;
-    description: string;
-    command: string;
-    timestamp?: number;
-  };
-  onApprove: (actionId: string) => void;
-  onDeny: (actionId: string) => void;
-  onSwitchToTerminal?: (actionId: string) => void;
-}
-
-function ApprovalOverlay({
-  approvalRequest,
-  onApprove,
-  onDeny,
-  onSwitchToTerminal
-}: ApprovalOverlayProps) {
-  const [timeLeft, setTimeLeft] = useState<number>(300);
-
-  useEffect(() => {
-    const calculateTimeLeft = () => {
-      const startTime = approvalRequest.timestamp || Date.now();
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, 300 - elapsed);
-      setTimeLeft(remaining);
-    };
-
-    calculateTimeLeft();
-    const interval = setInterval(calculateTimeLeft, 1000);
-
-    return () => clearInterval(interval);
-  }, [approvalRequest]);
-
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
-  const isUrgent = timeLeft < 60;
-
-  const timerText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
-  return (
-    <div className="dialog-overlay">
-      <div className="dialog-box glass-panel">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px'
-          }}
-        >
-          <h3
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              margin: 0,
-              color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-warning-primary)'
-            }}
-          >
-            <IconAlertTriangle size={18} /> Action Required
-          </h3>
-          <div
-            className={isUrgent ? 'pulse-timer urgent' : 'pulse-timer'}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '20px',
-              fontSize: '0.85rem',
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              background: isUrgent ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-              color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-text-secondary)',
-              border: isUrgent ? '1px solid var(--color-error-primary)' : '1px solid transparent',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            {timerText}
-          </div>
-        </div>
-
-        <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginTop: 0 }}>
-          The agent needs your permission to proceed.
-        </p>
-
-        <div
-          style={{
-            background: 'rgba(0,0,0,0.3)',
-            padding: '12px',
-            borderRadius: '8px',
-            border: '1px solid var(--color-border-default)',
-            marginBottom: '16px'
-          }}
-        >
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px'
-            }}
-          >
-            Description
-          </div>
-          <div style={{ fontWeight: 500 }}>{approvalRequest.description}</div>
-
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--color-text-secondary)',
-              marginTop: '12px',
-              marginBottom: '4px'
-            }}
-          >
-            Command
-          </div>
-          <div
-            style={{
-              fontFamily: 'monospace',
-              color: 'var(--color-accent-hover)',
-              overflowX: 'auto',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all'
-            }}
-          >
-            {approvalRequest.command}
-          </div>
-        </div>
-
-        <div className="dialog-actions">
-          {approvalRequest.command === 'TERMINAL_ACTION_REQUIRED' && onSwitchToTerminal ? (
-            <button
-              className="btn-approve"
-              style={{ width: '100%', padding: '14px' }}
-              onClick={() => onSwitchToTerminal(approvalRequest.actionId)}
-            >
-              Switch to Terminal Tab
-            </button>
-          ) : (
-            <>
-              <button className="btn-deny" onClick={() => onDeny(approvalRequest.actionId)}>
-                Deny
-              </button>
-              <button className="btn-approve" onClick={() => onApprove(approvalRequest.actionId)}>
-                Approve
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 interface QuestionOverlayProps {
@@ -435,9 +284,9 @@ function ProjectWorkspace({
   useEffect(() => {
     if (approvalRequest && autoApproval !== 'ask') {
       if (autoApproval === 'approve') {
-        sendApproval(approvalRequest.actionId, true);
+        sendApproval(approvalRequest.actionId, true, 'auto-rule');
       } else if (autoApproval === 'deny') {
-        sendApproval(approvalRequest.actionId, false);
+        sendApproval(approvalRequest.actionId, false, 'auto-rule');
       }
     }
   }, [approvalRequest, autoApproval, sendApproval]);
@@ -512,7 +361,7 @@ function ProjectWorkspace({
               onChange={(val: any) => setAgentType(val)}
               options={[
                 { value: 'claude', label: 'Claude Code' },
-                { value: 'antigravity', label: 'Antigravity (Google)' }
+                { value: 'antigravity', label: 'Antigravity — preview' }
               ]}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             />
@@ -660,7 +509,7 @@ function ProjectWorkspace({
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             >
               <option value="claude">Claude Code</option>
-              <option value="antigravity">Antigravity (Google)</option>
+              <option value="antigravity">Antigravity — preview</option>
             </select>
             {isBinaryMissing && (
               <div
@@ -683,6 +532,7 @@ function ProjectWorkspace({
             )}
           </div>
           <AISettings activeBackendUrl={activeBackendUrl} />
+          <DiagnosticsPanel activeBackendUrl={activeBackendUrl} />
         </div>
       )}
 
@@ -830,8 +680,11 @@ function ProjectWorkspace({
         <>
           {overlays}
           {approvalRequest && autoApproval === 'ask' && (
-            <ApprovalOverlay
-              approvalRequest={approvalRequest}
+            <ApprovalCard
+              // A fresh subtree per request: two consecutive approvals must not
+              // share DOM, so a click aimed at one can never land on the next.
+              key={approvalRequest.actionId}
+              request={approvalRequest}
               onApprove={id => sendApproval(id, true)}
               onDeny={id => sendApproval(id, false)}
               onSwitchToTerminal={id => {
@@ -932,6 +785,7 @@ export function App() {
   const navigationSidebar = (
     <NavigationSidebar
       onAddProject={() => setShowAddProject(true)}
+      onProjectRemoved={refreshProjects}
     />
   );
 

@@ -28,6 +28,7 @@ import {
 import { fleetPolicyService } from './enterprise/FleetPolicyService';
 import type { AgentProfile } from '@asterim/shared';
 import type { NativePermissionAsk } from '@asterim/adapters';
+import { diagnoseAgentFailure } from './diagnostics/AgentDiagnostics';
 import type { CommandSecurityAnalysis } from './ApprovalManager';
 
 /** A permission request raised by an agent through its own protocol. */
@@ -376,7 +377,11 @@ export class AgentService {
         type: 'agent.status',
         payload: {
           status: 'error',
-          message: `Error: Workspace directory does not exist: ${workspace}`,
+          message: `Workspace directory does not exist: ${workspace}`,
+          diagnosis: diagnoseAgentFailure(
+            agentType,
+            `Workspace directory does not exist: ${workspace}`
+          ),
           projectId,
           threadId
         }
@@ -474,6 +479,21 @@ export class AgentService {
         },
         (event: AsterimEvent) => {
           event.payload = { ...event.payload, projectId, threadId };
+          // Anything the adapter reports as an error gets classified on the way
+          // out, so the dashboard can offer a next step instead of a string.
+          if (
+            event.type === 'agent.status' &&
+            (event.payload as { status?: string }).status === 'error' &&
+            !(event.payload as { diagnosis?: unknown }).diagnosis
+          ) {
+            event.payload = {
+              ...event.payload,
+              diagnosis: diagnoseAgentFailure(
+                agentType,
+                String((event.payload as { message?: string }).message ?? '')
+              )
+            };
+          }
           eventBus.publish(event);
         },
         async (exitCode) => {
@@ -675,6 +695,7 @@ export class AgentService {
         payload: {
           status: 'error',
           message: `Could not start ${agentType}: ${err.message || String(err)}`,
+          diagnosis: diagnoseAgentFailure(agentType, err?.message || String(err)),
           projectId,
           threadId
         }
@@ -708,18 +729,29 @@ export class AgentService {
     const { approvalManager } = await import('./ApprovalManager');
     const { projectManager } = await import('./ProjectManager');
     const project = projectManager.getProject(request.projectId);
-    const described = describePermission(request.toolName, request.toolInput);
-    const command = described.command;
-    // The agent's own description of the call is the most honest label; the
-    // derived one is the fallback. The escalation reason, when the CLI gives
-    // one, is the thing a person most wants to know before saying yes.
-    const description = [request.agentDescription || described.description, request.reason]
-      .filter(Boolean)
-      .join(' — ');
+
+    // What approving actually does, in a form the card can show. Built here,
+    // once, so the card, the log line and the `approvals` row cannot disagree
+    // about what was asked.
+    const { buildConsequence, summarise } = await import('./approvals/consequence');
+    const consequence = buildConsequence({
+      toolName: request.toolName,
+      input: request.toolInput,
+      intent: request.agentDescription,
+      escalationReason: request.reason,
+      projectPath: project?.path
+    });
+
+    // The heuristics judge the command for a shell action and the path
+    // otherwise — the same text a person is shown, so a warning always refers
+    // to something visible on the card.
+    const subject = consequence.command ?? consequence.path ?? consequence.url ?? request.toolName;
     const analysis: CommandSecurityAnalysis = approvalManager.evaluateCommandSecurity(
-      command,
+      subject,
       project?.path
     );
+    const description = consequence.headline;
+    const command = summarise(consequence);
 
     const publishStatus = (status: 'waiting_approval' | 'working', message: string) =>
       eventBus.publish({
@@ -750,12 +782,13 @@ export class AgentService {
     try {
       approved = await approvalManager.requestApproval(
         request.projectId,
-        `${request.toolName}: ${description}`,
+        description,
         command,
         300000,
         {
           threadId: request.threadId,
           securityAnalysis: analysis,
+          consequence,
           onActionId: id => {
             actionId = id;
             if (request.signal?.aborted) withdraw();

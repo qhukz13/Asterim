@@ -4,6 +4,8 @@ import type {
   ArchitecturalRule,
   DecisionStatus
 } from './types/memory';
+import type { ApprovalConsequence } from './types/approval';
+import type { Diagnosis } from './types/diagnostics';
 
 export interface AsterimEvent<T = any> {
   id: string;
@@ -21,12 +23,33 @@ export interface AgentLogPayload {
 export interface AgentStatusPayload {
   status: 'idle' | 'working' | 'waiting_approval' | 'waiting_question' | 'error' | 'startup';
   message?: string;
+  /**
+   * Present on `error`: what went wrong and what to try. The dashboard renders
+   * the remedies rather than only the message, because a user without a
+   * founder to ask needs the next step, not the stack.
+   */
+  diagnosis?: Diagnosis;
 }
 
 export interface ApprovalRequestPayload {
   actionId: string;
   description: string;
   command: string; // The command the agent wants to run
+  /**
+   * What approving actually does, in a form the card can render (the file that
+   * will be written, the edit that will be made, the command that will run).
+   * Absent for providers that only give us a line of text, and for approvals
+   * recovered from the database after a restart — the card falls back to
+   * `description` and `command` in both cases.
+   */
+  consequence?: ApprovalConsequence;
+  /** The Core's own risk read. Its warnings are shown on the card. */
+  securityAnalysis?: {
+    riskLevel: 'low' | 'medium' | 'high' | 'critical';
+    isPathTraversal: boolean;
+    warnings: string[];
+    requiresExplicitHumanApproval: boolean;
+  };
 }
 
 export interface ClientCommandPayload {
@@ -41,6 +64,13 @@ export interface ClientApprovalResponsePayload {
   actionId: string;
   approved: boolean;
   feedback?: string;
+  /**
+   * What produced this decision. `user` means someone clicked the card;
+   * `auto-rule` means a setting answered on their behalf. Recorded because a
+   * gate that cannot say who opened it is not a gate — an approval nobody made
+   * has to be visible in the record.
+   */
+  decidedBy?: 'user' | 'auto-rule';
 }
 
 export interface ChatMessagePayload {

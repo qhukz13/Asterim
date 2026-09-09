@@ -24,17 +24,17 @@ Status labels follow `docs/product/overview.md`: **CURRENT**, **MVP**, **POST-MV
 | P0-06 | Publish `asterim` to npm from the release workflow so the install command is real. | Open — needs the npm account (FD-A) |
 | P0-07 | Clean-machine end-to-end test: fresh account or VM, install, pair, run a Claude Code task through the gate. Script exists (`tools/e2e/core-loop.mjs`); it has only run on the founder's machine. | Open |
 | P0-08 | First-run wizard detects installed CLIs and never defaults to a missing one. | Done 2026-09-08 |
-| P0-09 | Project add validates the folder; delete asks for confirmation. | Validation done; confirmation open |
+| P0-09 | Project add validates the folder; delete asks for confirmation. | Done 2026-09-09, live-verified |
 | P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Site done; README open |
-| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Open — rewritten, see task spec |
-| P0-12 | "Copy diagnostics" button in Settings: versions, OS, adapter detection, redacted log tail. | Open |
+| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Open |
+| P0-12 | "Copy diagnostics" button in Settings: versions, OS, adapter detection, redacted log tail. | Done 2026-09-09, live-verified |
 | P0-13 | Status labels (AVAILABLE NOW / PREVIEW / PLANNED) applied consistently in the product UI and on the site; Antigravity labelled PREVIEW in the engine picker. | Open |
 
 ### P1 — strongly recommended before strangers see it
 
 | Id | Task |
 | --- | --- |
-| P1-02 | Approval card shows the real tool input: the command for Bash, the content or diff for Write and Edit. **The highest-value item in this list** — it is the difference between a gate and a rubber stamp. |
+| ~~P1-02~~ | **Done 2026-09-09, live-verified.** Approval card shows the real tool input: command for Bash, content for Write, before/after for Edit, plus create-versus-overwrite, the escalation reason and the risk warnings. |
 | P1-01 | Extract `ProjectWorkspace` from `App.tsx`; tab strip and overlays as components. Unblocks P1-02 and P1-07. |
 | P1-07 | Responsive pass at 1280×720 and 390×844: thread header, tab overflow, overlay stacking. |
 | P1-08 | Empty, loading and error states for Changes, Memory and the thread list. |

@@ -406,12 +406,27 @@ export function useSocket(
         );
         setAgentStatus(event.payload);
         if (event.payload.status === 'error' && event.payload.message) {
+          // A failure a stranger can act on: what happened, then what to try.
+          // The diagnosis comes from the Core (`AgentDiagnostics`); without one
+          // the raw message is still better than nothing.
+          const diagnosis = event.payload.diagnosis;
+          const content = diagnosis
+            ? [
+                `**${diagnosis.title}**`,
+                '',
+                diagnosis.detail,
+                '',
+                ...(diagnosis.remedies.length > 0
+                  ? ['What to try:', ...diagnosis.remedies.map((r: string) => `1. ${r}`)]
+                  : [])
+              ].join('\n')
+            : `**Something failed**: ${event.payload.message}`;
           setMessages(prev => [
             ...prev,
             {
               id: event.id || Date.now().toString(),
               role: 'system',
-              content: `**System Error**: ${event.payload.message}`,
+              content,
               timestamp: event.timestamp || Date.now()
             }
           ]);
@@ -553,10 +568,15 @@ export function useSocket(
     sendInternalEvent('client.command', { command: cmd, projectId, agentType, profileId });
   };
 
-  const sendApproval = (actionId: string, approved: boolean) => {
+  const sendApproval = (
+    actionId: string,
+    approved: boolean,
+    decidedBy: 'user' | 'auto-rule' = 'user'
+  ) => {
     sendInternalEvent('client.approval_response', {
       actionId,
       approved,
+      decidedBy,
       projectId,
       threadId: threadIdRef.current
     });

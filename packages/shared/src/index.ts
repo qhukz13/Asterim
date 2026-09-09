@@ -20,5 +20,7 @@ export * from './types/security';
 export * from './types/fleet';
 export * from './types/desktop';
 export * from './types/channels';
+export * from './types/approval';
+export * from './types/diagnostics';
 export * from './constants/channels';
 

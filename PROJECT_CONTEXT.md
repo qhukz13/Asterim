@@ -119,10 +119,10 @@ ASTERIM_URL=http://localhost:3000 ASTERIM_PIN=<pin> ASTERIM_PROJECT_PATH=<repo> 
 ## Known problems
 
 - Layout at 1280×720: thread header wraps, action buttons crowd the tab strip (P1-07).
-- The approval card shows the tool and path but not the content that will be written (P1-02 — the highest-value open item).
+- The approval card shows what will actually happen (command, file content, before/after for an edit, create versus overwrite). Done 2026-09-09.
 - The Antigravity parser hard-codes the founder's e-mail as a header filter (P1-10).
 - `App.tsx` is 1,200 lines (P1-01).
-- Force-killing the Core on Windows can leave WAL sidecars that make the next start fail with `disk I/O error`.
+- Force-killing the Core on Windows can leave WAL sidecars that make the next start fail with `disk I/O error`. The fix is to make sure no other Asterim process holds the file and start again. **Never move or delete `asterim.db-wal`**: it holds writes not yet in the main file, and discarding it loses recent projects, threads and approvals.
 - One Windows test-harness defect remains (ConPTY console attachment in the PTY integration suite, P1-06); ~700 lint warnings, 0 errors.
 - GitHub metadata says Apache-2.0 while `LICENSE` is MIT (FD-B). The git remote still points at `AgentDeck` (FD-C).
 

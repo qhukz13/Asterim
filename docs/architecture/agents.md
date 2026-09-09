@@ -46,7 +46,7 @@ ClaudeAdapter ──permissionResolver(ask)──▶ AgentService.requestNativeP
 2. `ClaudeAdapter.start` spawns the CLI (found via `ASTERIM_CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`; an npm `.cmd` shim is replaced by running its `cli.js` with the current Node). It writes an `initialize` control request, marks itself ready, and reports `idle`.
 3. Each user message is one JSON line on stdin. The adapter reports `working`.
 4. Output lines are parsed one per line. `stream_event` text deltas become `agent.stream` (accumulated text, one message id); `assistant` becomes `chat.message` plus `agent.tool_call` per tool block; `user` tool results become `agent.tool_result`; `result` becomes `idle` with duration and cost, or `error`.
-5. A `control_request` with `subtype: can_use_tool` is a permission prompt. The adapter calls the resolver; the Core runs its heuristics for the risk label, raises the normal approval (`ApprovalManager.requestApproval`, 5-minute timeout, persisted), and returns the decision; the adapter answers with a `control_response` (`allow` with `updatedInput`, or `deny` with a message the model reads).
+5. A `control_request` with `subtype: can_use_tool` is a permission prompt. The adapter calls the resolver; the Core builds an `ApprovalConsequence` from the tool name and input (`services/approvals/consequence.ts`), runs its heuristics for the risk label, raises the normal approval (`ApprovalManager.requestApproval`, 5-minute timeout, persisted), and returns the decision; the adapter answers with a `control_response` (`allow` with `updatedInput`, or `deny` with a message the model reads). The consequence is what the card renders: the command for a shell call, the content for a write, both sides of an edit, and whether the target file already exists.
 6. If the CLI sends `control_cancel_request` for a pending ask (a `PreToolUse` hook or a permission rule in the user's Claude Code settings decided first), the adapter aborts the ask's `AbortSignal`, the Core cancels the approval card, and a warning is logged in the thread. `ASTERIM_CLAUDE_DISABLE_HOOKS=true` passes `--settings {"disableAllHooks":true}` so that Asterim's card is the only decider.
 7. `system/init` carries the provider session id; the adapter publishes `agent.session`, and `AgentService` stores it in `settings` under `provider_session:<threadId>`. The next start of that thread passes `--resume <id>`. Clear chat deletes the key and stops the process.
 
@@ -71,6 +71,12 @@ Verified on 2026-09-08 with Claude Code 2.1.251 on Windows: a Write request prod
 - To change what the approval card shows for Claude Code, edit `describePermission` in `AgentService.ts`.
 - To change Claude Code flags, edit `ClaudeAdapter.getLaunchCommand` and the launch-command assertions in the test.
 
+## Failures
+
+Every error an adapter or a spawn attempt produces passes through `diagnoseAgentFailure` (`services/diagnostics/AgentDiagnostics.ts`) on its way out of `AgentService`, which attaches a `Diagnosis` — a code, a plain-language title, the original message and an ordered list of things to try — to the `agent.status` event. The dashboard renders that as a message from **Asterim** (not from the agent) with the remedies as a numbered list. `GET /api/v1/system/diagnostics` answers the same questions on demand, with the home and data directories and anything credential-shaped redacted before the report leaves the process.
+
+Adding a new recognisable failure means one branch in `diagnoseAgentFailure` and one case in its test. Never introduce a user-visible failure without one.
+
 ## DO NOT
 
 - Do not scrape Claude Code's terminal. The stream-json protocol exists; use it.
@@ -79,3 +85,5 @@ Verified on 2026-09-08 with Claude Code 2.1.251 on Windows: a Write request prod
 - Do not disable the user's hooks by default.
 - Do not add `AskUserQuestion` back without implementing the answer path (the host would have to return `updatedInput` with answers).
 - Do not let a session start reported as `idle` when the spawn failed; it must be `error` (this hid the stub adapter for months).
+- Do not show a user a failure without a `Diagnosis`. "Something went wrong" means their only recourse is the founder.
+- Do not put a path, a prompt or a credential into a diagnostics report. `redactForReport` runs on everything; keep it that way.

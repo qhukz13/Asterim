@@ -1,0 +1,402 @@
+/* The approval card. One accent, hairline borders, machine text in mono.
+   The card is the product's most important control, so it gets the room it
+   needs and nothing it does not. */
+
+.approval-card {
+  max-width: 680px;
+  width: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 82vh;
+  outline: none;
+  border: 1px solid var(--color-border-default);
+}
+
+.approval-card-critical {
+  border-color: var(--color-state-error, #ef4444);
+}
+
+.approval-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-primary);
+}
+
+/* Header */
+
+.approval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+}
+
+.approval-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-lg);
+  color: var(--color-state-paused, #f59e0b);
+}
+
+.approval-card-critical .approval-title {
+  color: var(--color-state-error, #ef4444);
+}
+
+.approval-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.approval-kind {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.approval-timer {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.approval-timer.urgent {
+  color: var(--color-state-error, #ef4444);
+  border-color: var(--color-state-error, #ef4444);
+}
+
+/* Body */
+
+.approval-body {
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.approval-headline {
+  font-size: 1.05rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: 1.35;
+}
+
+.approval-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--color-text-secondary);
+}
+
+.approval-target code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.approval-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.approval-tag-warn {
+  color: var(--color-state-paused, #f59e0b);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.approval-intent {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* Previews */
+
+.approval-preview {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-surface-1);
+}
+
+.approval-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.approval-preview-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.approval-preview-meta {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+}
+
+.approval-preview-body {
+  margin: 0;
+  padding: 10px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.approval-command {
+  color: var(--color-accent-hover);
+}
+
+.approval-preview-foot {
+  padding: 5px 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Edits: what goes, what arrives */
+
+.approval-edit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.approval-edit-side .approval-preview {
+  height: 100%;
+}
+
+.approval-edit-before .approval-preview {
+  border-left: 2px solid rgba(239, 68, 68, 0.55);
+}
+
+.approval-edit-after .approval-preview {
+  border-left: 2px solid var(--color-accent-primary);
+}
+
+@media (max-width: 620px) {
+  .approval-edit {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Warnings and notes */
+
+.approval-warnings {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.approval-warnings li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--color-state-paused, #f59e0b);
+  line-height: 1.4;
+}
+
+.approval-note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.approval-note-calm {
+  color: var(--color-text-muted);
+}
+
+/* Footer */
+
+.approval-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.approval-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  max-width: 46ch;
+  line-height: 1.4;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.approval-actions button {
+  min-width: 108px;
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.approval-actions button:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .approval-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .approval-actions {
+    margin-left: 0;
+  }
+  .approval-actions button {
+    flex: 1;
+  }
+}
+
+/* Destructive confirmation. Same shell as the approval card, smaller. */
+
+.confirm-dialog {
+  max-width: 460px;
+  width: 100%;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.confirm-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.confirm-body {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.confirm-body code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.confirm-reassurance {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.confirm-error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-state-error, #ef4444);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.confirm-actions button {
+  min-width: 96px;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.confirm-cancel {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+.confirm-cancel:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+.confirm-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The remove control on a project row: present but quiet until hovered. */
+.project-remove {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  color: var(--color-text-muted);
+  display: inline-flex;
+}
+
+.project-row:hover .project-remove,
+.project-remove:focus-visible {
+  opacity: 0.75;
+}
+
+.project-remove:hover {
+  opacity: 1 !important;
+  color: var(--color-state-error, #ef4444);
+}

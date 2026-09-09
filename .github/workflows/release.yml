@@ -140,6 +140,58 @@ jobs:
           path: release-assets/
           retention-days: 7
 
+  npm:
+    name: Publish asterim to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    # Provenance ties the published tarball to this workflow run.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # The published package is the Core plus the built dashboard under
+      # `dist/web` and the mock agent — everything `asterim` needs at runtime.
+      - name: Build
+        run: pnpm run build
+
+      # The tag is the source of truth for the version. A mismatch means the
+      # tag and the manifest disagree, which must stop the release rather than
+      # publish something nobody named.
+      - name: Check the tag matches the package version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./apps/server/package.json').version")"
+          echo "tag=$TAG package=$PKG"
+          test "$TAG" = "$PKG"
+
+      # Publishing is skipped without a token, so a fork or a repository that
+      # has not set the secret still gets a green release run.
+      - name: Publish
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
+        working-directory: apps/server
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   release:
     name: Draft GitHub Release
     needs: [verify, images]
