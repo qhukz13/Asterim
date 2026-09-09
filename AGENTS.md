@@ -2,6 +2,10 @@
 
 Operating rules for any coding agent (Claude Code, Codex, Antigravity, others) working on Asterim. `CLAUDE.md` holds the same rules with Claude Code specifics.
 
+## The one rule
+
+**The MVP is narrow, the architecture is extensible, the vision is ambitious.** Asterim is a local-first control layer for AI coding agents; it ships first as a Claude Code supervisor on one machine. Claims in `docs/` are labelled **CURRENT**, **MVP**, **POST-MVP** or **VISION**. Only CURRENT and MVP are instructions to build. A document describing the vision is not a ticket.
+
 ## Sources of truth
 
 1. `PROJECT_CONTEXT.md`: the product, the status, the invariants.

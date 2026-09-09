@@ -51,7 +51,7 @@ Conclusion: the *visibility* half of the original problem is now solved by the v
 
 **Why pay for Asterim instead of tools they already have?** Only if Asterim is the one place that (a) works across Claude Code and at least one other agent, (b) keeps an owned, exportable record of every approval and diff, and (c) can be reached from another machine without a vendor's cloud. Nothing else on the list does all three locally and open-source.
 
-**Strongest current positioning:** *A local supervisor for coding agents you already run: one dashboard for Claude Code (and Antigravity), every command and file write gated by you, a record of what happened that lives on your machine.*
+**Strongest current positioning:** undecided on purpose, and decided by Phase 2. The working hypothesis is tested in §5 below. What is safe to say today is the relationship, not the category: *Asterim works with the coding agent you already run — it shows you what the agent is doing, gates what it may do, and keeps the record on your machine.*
 
 **What Asterim should not compete with:** the vendors' own single-agent UX (Agent View, Codex app), cloud execution, enterprise governance consoles, workflow automation platforms, and terminal-native tools for people who want no GUI.
 
@@ -68,7 +68,37 @@ Conclusion: the *visibility* half of the original problem is now solved by the v
 
 What would invalidate this: Anthropic opening Agent View to third-party agents, or Nimbalyst going open source. Both are possible; neither has happened.
 
-## 5. Sources
+## 5. Testing the positioning hypothesis (2026-09-09)
+
+The proposed distinction was: **"Coding agents write the code. Asterim manages the environment around them."** It was tested against the market rather than adopted. It survives as a *product definition* and fails as *marketing language*, for two separate reasons.
+
+**"Control plane" and "control layer" were captured in 2026 by enterprise vendors.** Microsoft Agent 365 went generally available on 1 May 2026 as "a unified control plane to observe, govern and secure AI agents"; OpenHands launched an Agent Control Plane for "agent sprawl across modern enterprises"; IBM, Google Cloud Next 2026 and a stream of analyst frameworks use the same phrase. To the audience that matters — a developer running Claude Code on a laptop — "control plane" now signals compliance software bought by someone else. **Conclusion:** keep it as internal architecture vocabulary; never put it on the website.
+
+**"Works with your agent, doesn't replace it" is the category convention, not a differentiator.** "Claude Code GUI" is now its own comparison-article category, with at least four named tools and a Nimbalyst round-up ranking them. Every one of them says the same sentence. Saying it is still *necessary* — a visitor must understand the relationship immediately — but it distinguishes nothing.
+
+**What the category says its own value is:** parallel sessions and searchable history. The reviews describe the pain as "a stack of identical-looking tabs with no notification when the agent finishes" and "history is scrollback that you cannot search across sessions or days". That is direct external support for hypotheses H3 and H1, and for the record being the durable asset. It is also a warning: several products are already chasing it.
+
+**What survives as a real differentiator**, in decreasing confidence:
+
+1. **Local-first with an owned, searchable record** — no account, no telemetry, open source, verifiable air gap. The alternatives are closed desktop apps, several with cloud or team tiers. This is the one that is hard to copy for a company that needs a cloud business.
+2. **Reachable from any device on the network without a vendor cloud.**
+3. **Provider-agnostic by construction**, already proven against two structurally different agent protocols (ADR-004).
+
+**What does not survive:** "one dashboard for Claude Code" (commodity), "control plane" (enterprise-owned), and any framing whose first sentence is about the UI.
+
+The final positioning is deliberately not chosen here. It is chosen when the first users say which of the seven hypotheses is true (`docs/product/experiments.md`).
+
+## 6. The monetisation question, unanswered on purpose
+
+> Users already pay for Claude Code. Why would they pay for Asterim as well?
+
+This is the central commercial risk and it is not being reasoned away. Precedents exist in both directions: developers do pay for tools that wrap something they already pay for (editors, terminals, git clients), and developers also refuse to pay for open-source wrappers when a free equivalent is one `git clone` away — and in this category free equivalents exist.
+
+Four candidate dimensions, none chosen: **people** (a second person on the same instance), **machines** (remote access, several workstations), **history** (retention, search, export of the record), or **none** — the product stays free and the value is distribution and trust.
+
+The interview script asks about this directly and does not stop at the first "no" (`docs/product/experiments.md` § Interview script, questions 15 to 19). Until those answers exist: no pricing page commitments, no plan grid on the home page, no billing work. The code contains `$19`/`$49` and the old site said `$20`; all three are unvalidated and none should be repeated.
+
+## 7. Sources
 
 - Augment Code, "9 Open-Source Agent Orchestrators for AI Coding (2026)": https://www.augmentcode.com/tools/open-source-agent-orchestrators
 - Nimbalyst, "Best Tools for Managing Parallel AI Coding Agents in 2026": https://nimbalyst.com/blog/best-agent-management-tools-2026/
@@ -83,3 +113,13 @@ What would invalidate this: Anthropic opening Agent View to third-party agents, 
 - Steve Yegge, Gas Town: https://yegge.ai/gastown ; The New Stack on Gas Town in the cloud: https://thenewstack.io/steve-yegges-ai-agent-orchestration-project-gas-town-comes-to-the-cloud-and-brings-the-wasteland-with-it/
 - OpenClaw cost analyses: https://kilo.ai/openclaw/how-much-does-it-cost ; https://thunderbit.com/blog/openclaw-pricing-and-plans
 - Business agent platforms: https://www.sim.ai/library/best-ai-agent-platforms-2026 ; https://www.lindy.ai/blog/n8n-ai-agents
+
+Added 2026-09-09 for §5 and §6:
+
+- OpenHands Agent Control Plane launch: https://finance.yahoo.com/sectors/technology/articles/openhands-launches-agent-control-plane-135500983.html
+- The agent control plane race at Google Cloud Next 2026: https://siliconangle.com/2026/04/22/agent-control-plane-race-hits-overdrive-next-2026-googlecloudnext/
+- IBM on the agent control plane: https://www.ibm.com/think/topics/agent-control-plane
+- Nimbalyst, "Best Claude Code GUI in 2026: 4 Tools Compared": https://nimbalyst.com/blog/best-claude-code-gui-tools-2026/
+- CodeAgentSwarm, "Claude Code GUI: Desktop App, Task Board & Live Diffs (2026)": https://www.codeagentswarm.com/en/guides/claude-code-gui
+- "Claude Code GUI vs Terminal": https://vanja.io/claude-code-gui-vs-terminal-a-tale-of-two-workflows/
+- claude-code-gui (open source desktop wrapper): https://github.com/markes76/claude-code-gui

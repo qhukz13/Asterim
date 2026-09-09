@@ -2,6 +2,10 @@
 
 Guidance for Claude Code (and any coding agent) working in this repository.
 
+## The one rule that explains the others
+
+**The MVP is narrow. The architecture is extensible. The vision is ambitious.** Asterim is a local-first control layer for AI coding agents (the product); it ships first as a Claude Code supervisor on one machine (the MVP). Do not implement the vision because a document describes it. Every claim in `docs/` is labelled **CURRENT**, **MVP**, **POST-MVP** or **VISION** — only the first two are instructions.
+
 ## Read first
 
 1. `PROJECT_CONTEXT.md` (root): what Asterim is, what runs, what is frozen, the invariants. Five minutes.
@@ -34,7 +38,7 @@ Typecheck, lint and tests green; build green; every acceptance criterion in the 
 
 ## Invariants (do not break)
 
-See `PROJECT_CONTEXT.md` § Critical invariants. The short list: no unauthenticated `/api/v1/` route on any interface; never `--dangerously-skip-permissions`; the Core never auto-approves; native adapters never get `y`/`n` on stdin; every event carries `projectId` and `threadId`; old databases keep opening; the dashboard talks to its own origin; a failed agent start is `error`, never `idle`; marketing states only what the release gate exercised.
+See `PROJECT_CONTEXT.md` § Critical invariants. The short list: no unauthenticated `/api/v1/` route on any interface; never `--dangerously-skip-permissions`; the Core never auto-approves; native adapters never get `y`/`n` on stdin; every event carries `projectId` and `threadId`; old databases keep opening; the dashboard talks to its own origin; a failed agent start is `error`, never `idle`; the Core makes no outbound connections of its own; the Core assumes nothing about a provider's shape; anything not shipping carries a status word; marketing states only what the release gate exercised.
 
 ## Conventions
 
@@ -47,7 +51,7 @@ See `PROJECT_CONTEXT.md` § Critical invariants. The short list: no unauthentica
 
 ## Frozen areas
 
-`services/ai/TeamAgentService.ts`, `services/pipeline/`, `services/enterprise/`, `services/desktop/`, `services/ai/AgentDelegationService.ts`, `RelayClient.ts`, `PushService.ts`, `mDNSService.ts`, `BillingService.ts`, accounts. Do not extend them without a founder decision (`docs/decisions/FOUNDER_DECISIONS.md`, FD-1/FD-2). Keep their tests passing.
+`services/ai/TeamAgentService.ts`, `services/pipeline/`, `services/enterprise/`, `services/desktop/`, `services/ai/AgentDelegationService.ts`, `RelayClient.ts`, `PushService.ts`, `mDNSService.ts`, `BillingService.ts`, accounts. Do not extend them. They are frozen pending the first-users experiment, and several are the existing implementations of hypotheses it will test (`docs/decisions/ADR-005-frozen-code-disposition.md`). Keep their tests passing.
 
 ## Environment notes for this machine
 

@@ -1,69 +1,91 @@
 # Founder Decisions
 
-Decisions only the founder can make. Everything else in the 2026-09 audit was decided and implemented under stated assumptions (see `PROJECT_CONTEXT.md` § Assumptions). Keep this list short; close items by editing them, not by appending.
+Sorted by when they actually have to be answered, so that implementation is never interrupted for a decision that can wait. Close an item by editing it in place.
 
-## FD-1: Confirm the narrowed product scope
+The strategic correction of 2026-09-09 answered the biggest one: Asterim is a local-first control layer for AI coding agents (product), shipping first as a narrow Claude Code MVP. That is recorded in `docs/product/overview.md` and closes the former FD-1.
 
-**Decision.** Ship the "local supervisor for coding agents" defined in `docs/product/overview.md`, with Claude Code as the primary adapter and Antigravity as best-effort, and freeze everything else.
+---
 
-**Context.** The repository contains ten-plus subsystems (team agents, pipelines, fleet policy, accounts, billing, relay, desktop daemon, delegation, memory, MCP bridge) built on top of a Claude adapter that was a stub. None has a user. The only advantage Asterim can defend is the cross-vendor gate plus an owned record, and that needs one path to work flawlessly.
+## Blocking now
 
-**Options.** (a) Narrow as proposed. (b) Keep the enterprise/team story and ship accounts + billing first. (c) Pivot to a pure library/CLI (no dashboard).
+**None.** Every Phase 1 task can proceed without a founder decision, with one exception that has a workaround (FD-A below). This section should normally stay empty.
 
-**Recommendation.** (a).
+---
 
-**Why.** (b) sells features that GitHub and Anthropic already ship natively and that Asterim cannot secure today (accounts are broken end to end). (c) throws away the one thing that works and is differentiated (the gate with a UI reachable from another device).
+## Before the soft launch
 
-**If we do nothing.** The site keeps advertising installs that fail; nobody gets past minute one.
+### FD-A: npm name and publication
 
-## FD-2: Delete or keep the frozen subsystems
+The name `asterim` was free on npm as of 2026-09-08. Claiming it costs minutes; leaving it costs the possibility of losing it, and blocks P0-06.
 
-**Decision.** Whether the frozen code (about 40k lines: `services/ai/TeamAgentService.ts`, `services/pipeline/*`, `services/enterprise/*`, `services/desktop/*`, `services/ai/AgentDelegationService.ts`, the account portal, relay client) stays in the tree hidden, moves to a branch, or is deleted.
+**Options.** (a) Claim the name now, publish `0.2.0` when Phase 1 P0 closes. (b) Claim the name, soft-launch from source, publish before Phase 3. (c) Do nothing.
 
-**Options.** (a) Keep hidden (current state). (b) Move to `archive/2026-08-prototypes` branch and delete from `main`. (c) Delete outright.
+**Recommendation.** (b). The first 10 to 25 users can clone and build; the npm package matters for strangers, which is Phase 3. But claim the name today either way.
 
-**Recommendation.** (b) within a month of launch. Keep it now so the launch diff stays small and the tests keep passing.
+**Needs from you.** An npm account and a publish token in repository secrets.
 
-**Why.** Hidden code still costs typecheck time, migration surface (six migrations create tables nobody reads) and confusion for every agent that opens the repo. A branch loses nothing.
+### FD-B: licence metadata mismatch
 
-**If we do nothing.** Every future contributor and every coding agent reads 120k lines to find the 15k that matter.
+`LICENSE` says MIT; the GitHub repository displays Apache-2.0; the site and README say MIT.
 
-## FD-3: Domain and hosting for the landing page
+**Recommendation.** MIT, and fix the GitHub metadata. Five minutes, and it is a trust signal on a page where trust is the product.
 
-**Decision.** Register `asterim.dev` (it does not resolve today) and host the static marketing build, or launch from the GitHub README plus GitHub Pages.
+### FD-C: repository name and remote
 
-**Recommendation.** Register the domain if the name is kept (FD-6), host on GitHub Pages or Cloudflare Pages (static, free), point the README at it. Do not stand up the account portal.
+The git remote still points at `qhukz13/AgentDeck`. The product has been Asterim for months.
 
-**If we do nothing.** The site's own metadata (`og:url`) points at a dead domain.
+**Recommendation.** Rename the repository to `Asterim` (GitHub redirects the old URL) and update the remote.
 
-## FD-4: Opt-in product analytics
+### FD-D: how the first users reach you
 
-**Decision.** Whether to add the opt-in event ping described in task P0-11, given the zero-telemetry principle (DEC-028).
+The site and README point at GitHub Discussions and Issues. The experiment also needs a direct channel for day-3 check-ins and day-14 calls.
 
-**Options.** (a) Opt-in ping, six events, no identifiers beyond a random install id, disabled in sovereign mode, source visible. (b) No analytics; rely on interviews.
+**Recommendation.** Discussions for public questions; a personal e-mail or a small Discord for the cohort. Decide before the first invitation goes out.
 
-**Recommendation.** (a). The soft launch is a measurement exercise; without install-to-first-approval numbers the launch teaches nothing. Opt-in with visible source keeps the promise honest.
+### FD-E: Antigravity visible or hidden in the MVP
 
-**If we do nothing.** Launch decisions get made on anecdotes.
+It works, badly, and is the second provider that keeps the architecture honest (ADR-004).
 
-## FD-5: Licence
+**Options.** (a) Visible, labelled PREVIEW, only when the binary is detected. (b) Hidden behind a setting. (c) Removed from the UI entirely.
 
-**Decision.** `LICENSE` in the repository is MIT; GitHub displays Apache-2.0 for the repository; `blueprint/BUSINESS.md` says MIT. Pick one.
+**Recommendation.** (a). It is honest, costs nothing, and a user who has `agy` installed is exactly the person whose feedback on multi-provider matters.
 
-**Recommendation.** MIT (simplest, matches the file). Fix the GitHub metadata.
+---
 
-## FD-6: Name
+## Before the public launch
 
-**Decision.** Keep "Asterim". The git remote still points at `qhukz13/AgentDeck`, `agentdeck.db` sits at the repository root, and `.env.example` used `AGENTDECK_*` until today. The npm name `asterim` is free.
+### FD-F: telemetry beyond the local summary
 
-**Recommendation.** Keep Asterim; claim the npm name now; update the remote URL.
+Phase 1 ships a local usage summary with no network calls (P0-11). At public-launch scale, interviews stop scaling.
 
-## FD-7: Pricing intent for the waitlist
+**Options.** (a) Opt-in anonymous events. (b) None ever; interviews and issues only. (c) Local metrics the user can voluntarily export, which is what Phase 1 does.
 
-**Decision.** What the "Pro" waitlist on the landing page promises. Proposed: remote access off-LAN through the relay, multiple machines in one dashboard, priority support, at $12 to $19 per month, available "when ten people have asked".
+**Recommendation.** Ship (c), decide between (a) and (b) with the Phase 2 evidence in hand. Do not make network telemetry a launch requirement; it contradicts the trust model that is part of the value proposition.
 
-**Recommendation.** Promise nothing more specific than that. The code has `$19` (Pro) and `$49` (Team); the site said `$20`. Neither has been tested with a buyer.
+### FD-G: domain
 
-## FD-8: Founder time
+`asterim.dev` does not resolve. The site currently has nowhere to live.
 
-**Decision.** The Phase 1 P0 list is about three to four weeks of one person's focused time, with P0-06 (npm publish) and P0-11 (analytics endpoint) needing accounts only the founder can create. Confirm the calendar or cut P0-11.
+**Recommendation.** Register it if the name survives Phase 2; host the static build on GitHub Pages or Cloudflare Pages. A soft launch can run entirely from the repository.
+
+### FD-H: pricing and the monetisation dimension
+
+Deliberately unanswered. The interview script (`docs/product/experiments.md`) asks it directly. Code contains `$19`/`$49`, the old site said `$20`, none of it validated.
+
+**Recommendation.** Decide nothing until the Phase 2 report. The honest default is free and open source, with monetisation attached to whichever dimension users name.
+
+---
+
+## After launch
+
+### FD-I: disposition of the frozen subsystems
+
+ADR-005 keeps them, tied to hypotheses H3 and H6. The enterprise fleet-policy and SIEM code is the one subsystem with no route back and can be archived to a branch now.
+
+**Recommendation.** Decide at the end of Phase 2, with the report. Not on a timer.
+
+### FD-J: the account and billing system
+
+Broken end to end and unreachable from the product. Reviving it requires the full list in `docs/architecture/authentication.md`.
+
+**Recommendation.** Nothing until FD-H has an answer.

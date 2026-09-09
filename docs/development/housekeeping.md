@@ -25,7 +25,7 @@ What was moved or removed during the audit, and why, so nobody hunts for it.
 - `blueprint/` in place with a superseded banner: many archived documents link into it.
 - `graphify-out/`: the founder's knowledge-graph tool output.
 - `skills-lock.json`, `scripts/sandbox/`: not understood well enough to delete; candidates for the next pass.
-- Frozen subsystems in `apps/server` and `apps/web` (see `PROJECT_CONTEXT.md`): founder decision FD-2.
+- Frozen subsystems in `apps/server` and `apps/web` (see `PROJECT_CONTEXT.md`): disposition per subsystem in ADR-005.
 
 ## New locations
 

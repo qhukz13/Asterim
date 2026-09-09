@@ -1,8 +1,10 @@
 # Asterim
 
-**Run your coding agent. Approve every risky step. Keep the record.**
+**Works with the Claude Code you already run. See what your coding agent is doing, approve what matters, and keep the record.**
 
 Asterim runs Claude Code on your machine, shows you what it says and does in a browser, and stops it before every command or file write until you say yes. Approvals, denials, tool calls and diffs are stored in a SQLite file you own. Nothing leaves the machine except the agent's own API calls.
+
+Longer term Asterim is a local-first control layer for AI coding agents — the projects, tasks, permissions, context and history around them, independent of any one provider. Today it does the first piece of that, for one agent, well. See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
 Open source, MIT. No account, no telemetry. Windows, macOS, Linux. Node 22+.
 

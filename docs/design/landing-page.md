@@ -1,122 +1,138 @@
-# Landing Page: Audit, System and Copy
+# Landing Page: Strategy, Audit and Direction
 
-## 1. Audit of the previous page (`apps/marketing`, "8 acts", August 2026)
+Three passes are recorded here. The first (August 2026) was decorative and untruthful. The second (2026-09-08) made it truthful. The third, specified in §6, is the one that has to make it good.
 
-Reviewed from the source and the captures in `docs/archive/screenshots/`.
+---
 
-### Remove
+## 1. Pass one audit: the August site
 
-- Every claim that is not true today: "Open-Core v1.0 Released", `npx asterim`, `npm install -g asterim` (not on npm), `brew install asterim/tap/asterim`, AppImage/.deb/.exe downloads "AVAILABLE NOW", "AST Command Safety", "Claude Code 3.7", "Aider v0.72", "Hardware Enclave Scoped", "RISK SCORE 8.4/10", "Mobile push approvals", "E2E relay" as shipped features.
-- `AsterimWorkstationSandbox.tsx`: 892 lines of a fabricated dashboard with fake PIDs, fake diffs and fake timings. A fake product screenshot is worse than none.
-- The "WITHOUT ASTERIM" chaos strip with invented shell history ("API_KEY exposed in plain-text shell history").
-- The Download page and the account portal from navigation (the portal never sends a token; see `docs/audit/security-audit.md`).
-- The 8-act scroll narrative: eight sections that each re-explain the product.
-- The `Sparkles` icon as the logo, the 💡 emoji in pricing, glowing emerald borders around code pills, gradient CTA panels.
-- Inline `style={{}}` objects (108 in one file) in place of the CSS classes that already exist in `index.css`.
-- Satoshi from Fontshare as a third font source.
+Removed on 2026-09-08. It claimed an npm package, a Homebrew tap, AppImage and `.exe` downloads all "AVAILABLE NOW", a v1.0 release, "AST command safety", "Claude Code 3.7", "Hardware Enclave Scoped", a "RISK SCORE 8.4/10", and contained an 892-line fabricated dashboard with invented process ids and diffs. None of it existed. It also carried the decorative failure set: emerald glow, gradient panels, an eight-act scroll narrative, a `Sparkles` logo, an emoji in the pricing notice, and 100+ inline style objects per file.
 
-### Keep
+Kept from it: the dark near-monochrome surface with a single emerald accent, Inter plus JetBrains Mono, and the section rhythm.
 
-- The dark, near-monochrome surface with one emerald accent. It matches the dashboard and the design system.
-- Inter + JetBrains Mono.
-- The `section-tag / section-title / section-lead` rhythm and the `surface-card` primitive.
-- The navbar and mobile drawer structure.
-- The Docs page shell (sidebar + content), fed with true content.
+---
 
-### Redesign
+## 2. Pass two: what shipped on 2026-09-08
 
-- Hero: one sentence that says what it is and for whom, one real screenshot of the approval card, one install command. No topology animation.
-- "How it works": three steps that match the real first run (install and pair, add a project and give a task, approve and review the diff).
-- Capabilities: five, each a thing that exists and was exercised in the release gate.
-- Pricing: one free tier that is the whole product, and a Pro waitlist with an honest "when ten people ask" line.
-- FAQ: security model, what leaves the machine, which agents, Windows support, "is this a cloud service" (no).
+Truthful, restrained, class-based, real screenshots, five documented facts in one file (`apps/marketing/src/site.ts`). Every sentence maps to a release-gate row.
 
-### Add
+## 3. Pass two audit: why it is still not good enough
 
-- Screenshots taken from the actual dashboard (captured with puppeteer in `tools/e2e`, stored in `apps/marketing/public/screens/`).
-- A "Status" line in the footer that names the version and the adapters' status (Claude Code: working; Antigravity: best effort).
-- Privacy note and licence links.
-- Source link to the exact adapter file, because the audience reads code.
+The first failure was **decorative**. This one is **structural**, and structural is the harder tell that a page was machine-made: it is the default SaaS template.
 
-## 2. Design system for the site
-
-Visual personality: a tool page written by engineers for engineers. Restrained, literal, confident. Closer to a well-kept README than to a startup template.
-
-| Token | Value | Note |
+| Symptom | Present? | Detail |
 | --- | --- | --- |
-| Background | `#0b0f14` | Same family as the dashboard `--color-bg-primary`. |
-| Surface | `#111721` | Cards, code blocks. |
-| Border | `rgba(255,255,255,0.08)` | One border weight everywhere. |
-| Text | `#e6e9ee` / `#9aa4b2` / `#6b7480` | Primary / secondary / muted. |
-| Accent | `#10b981` | Primary CTA, active states, the approval "Approve" button in screenshots. Nothing else. |
-| Danger | `#ef4444` | Only inside product screenshots (the Deny button). |
-| Display font | Inter 600 to 700, tracking -0.02em | Headings up to 44 px. No 900 weights. |
-| Body font | Inter 400, 16 to 17 px, line-height 1.6 | |
-| Mono | JetBrains Mono 13 to 14 px | Install commands, file names, tool names. |
-| Radius | 6 px controls, 10 px cards | No pill buttons, no 16 px blobs. |
-| Shadow | none | Borders carry the hierarchy. |
-| Motion | 120 ms colour transitions on hover/focus only | No scroll animations, no floating elements. |
-| Spacing | 8 px base; sections 96 px apart on desktop, 64 px on mobile | |
-| Max width | 1080 px content, 720 px for prose | |
-| Icons | lucide-react at 16 to 18 px, stroke 1.75 | Never emoji. |
-| Screenshots | Real captures, 1 px border, no browser chrome, no glow | |
+| Generic SaaS layout | **Yes** | Feature-card grid, three-column "why", accordion FAQ, two-card pricing. The default template, in order. |
+| Excessive cards | **Yes** | Seven card containers on one page. |
+| Excessive hierarchy levels | **Yes** | Eyebrow, title, lead, card icon, card title, card body, card footnote — six or seven levels per section. |
+| Excessive sections | **Yes** | Seven body sections; the reader is asked to scroll through claims. |
+| Repetitive CTAs | **Yes** | Install appears four times. |
+| Meaningless icons | **Mild** | Five feature icons that decorate rather than inform. |
+| Screenshots that do not demonstrate value | **Yes — the worst of them** | Real captures, but shown as thumbnails in a three-column grid where nothing is legible. A screenshot nobody can read is decoration. |
+| Unnecessary animation | No — inverted | There is none at all, which is its own failure: nothing on the page explains the mechanism in motion. |
+| Gradients, glow, glassmorphism, blobs, fake dashboards, emoji, AI filler copy | No | Fixed in pass two; keep it that way. |
+| Fake feature density | **Partly** | Five features presented as a list of claims instead of one thing shown working. |
 
-## 3. Information architecture
+Two more, against the product brief rather than the aesthetic list:
+
+- **The hero does not answer the only question a Claude Code user has**: *why do I need this if I already have the agent?* It states what Asterim does, never the relationship to what they already run.
+- **A pricing table implies a business model that does not exist.** Pricing is an open question (FD-H). Showing two plan cards pre-commits an answer the first users are supposed to give.
+
+---
+
+## 4. Quality bar
+
+References for **quality only**, never for visual identity: Linear, Vercel, Raycast, Cursor, Claude. What is actually worth taking from them:
+
+- One idea per screen, with enough whitespace that the idea has nowhere to hide.
+- Typography carries the hierarchy; containers do not.
+- Product imagery is large, legible and real. When these companies show the product, you can read it.
+- Motion exists only where it explains a mechanism, and it is short.
+- Fewer sections than you think, each earning its place.
+
+What not to take: their palettes, their shapes, their voice, their scale of claim.
+
+## 5. The rule on simulation
+
+Ranked, best first:
+
+1. **A real capture** — screenshot or screen recording of the actual product.
+2. **An obvious diagram** — clearly a diagram, animated if that explains the mechanism.
+3. **Nothing.**
+4. **Never**: an interactive imitation of the product UI. That is what the August site did, and no caption redeems it.
+
+Anything not currently shipping carries a status word: **AVAILABLE NOW** (default, so it need not be printed), **BETA**, **PREVIEW**, **PLANNED**. Antigravity is PREVIEW. Pro is PLANNED. Simulated visuals, if any ever appear, say so in the caption.
+
+---
+
+## 6. Pass three direction
+
+### Structure: five sections, not seven
+
+Ordered by the questions a visitor actually asks.
 
 ```text
-NAV        Asterim · How it works · Pricing · Docs · GitHub · [Install]
-HERO       H1 (what/for whom) · one paragraph · install command · secondary link to GitHub
-           Screenshot: approval card over a real transcript
-HOW IT     Three numbered steps with one screenshot each (pair, task, diff)
-WORKS
-WHAT YOU   Five capabilities, plain sentences, one line each on what it is not
-GET
-WHY        Three paragraphs: one gate across agents; the record you own; nothing leaves the machine
-SECURITY   A short table: what runs where, what is stored, what is sent
-PRICING    Free (everything). Pro waitlist card.
-FAQ        Six questions
-FOOTER     Status line · docs · source · licence · privacy
+1  HERO            What is this, and why do I need it if I already run Claude Code?
+2  THE MOMENT      One large, real view of the approval card in context, with the
+                   mechanism in three lines beside it. Replaces the feature grid.
+3  HOW IT WORKS    Install and pair → give a task → approve and review.
+                   One meaningful motion piece showing the four states of a gated action.
+4  LOCAL-FIRST     The what-runs-where table. This is the differentiator and it is factual.
+5  TRY IT          One install command, the honest money line, FAQ, footer.
 ```
 
-## 4. Copy
+The dedicated `/pricing` page stays for anyone who looks for it; the home page carries one sentence instead of a plan grid: free, open source, no account, and a line about what a paid tier might one day be, marked PLANNED.
 
-**H1.** Run your coding agent. Approve every risky step. Keep the record.
+### Hero
 
-**Sub.** Asterim runs Claude Code on your machine, shows you what it says and does in a browser, and stops it before every command or file write until you say yes. Everything is stored locally.
+Must state the relationship before the capability. Structure:
 
-**Install pill.** `npm install -g asterim` then `asterim`
+```text
+[relationship line]   Works with the Claude Code you already run.
+[headline]            See what your coding agent is doing.
+                      Approve what matters. Keep the record.
+[sub]                 Asterim runs Claude Code on your machine and puts a window and a
+                      gate around it: every command and file write stops until you decide,
+                      and everything that happened stays in a database you own.
+[action]              $ npm install -g asterim        [Source]
+[meta]                Open source, MIT. Node 22+. No account. Nothing leaves your machine.
+```
 
-**Secondary.** View source on GitHub · MIT
+Alternative headline to test with the first users: *"Your coding agent, with a workspace around it."* All hero copy is v1 and revisable after Phase 2 — the wedge is not decided yet (`docs/product/experiments.md`).
 
-**How it works.**
-1. Install and pair. Run `asterim`. It prints a URL and a six-digit PIN. Open the URL on this machine or on a phone on the same Wi-Fi and enter the PIN.
-2. Add a project and give it a task. Point Asterim at a folder. Type what you want done. Claude Code starts in that folder.
-3. Approve, deny, review. Every command and file write shows up as a card with the exact command or path. The Changes view shows the diff. You commit; the agent never does.
+Words that stay banned: "the future of", "supercharge", "unlock the power", "AI-powered", "command center", "seamlessly", "revolutionise". Two more are banned for specific reasons: **"control plane"**, which enterprise vendors captured in 2026 and which now signals compliance software, and **"GUI for Claude Code"**, which is a crowded commodity category the product should not file itself into.
 
-**What you get.**
-- One approval gate. Claude Code's own permission requests, routed to a card you can answer from any browser on your network.
-- A transcript you can read. Messages, tool calls and results as structured events, not scraped terminal text.
-- Changes, not surprises. Status, diff, branches, commit and push, in the same window.
-- Threads that survive restarts. Each thread remembers its Claude Code session and resumes it.
-- A record on your disk. Every approval, denial and diff in a SQLite file you own. Export it, grep it, delete it.
+### The moment
 
-**Why Asterim.** The vendors' own dashboards each supervise one vendor's agent. Asterim is the layer you own across them: the same gate, the same record, for Claude Code today and for Antigravity on a best-effort basis, with a documented adapter interface for the next one. It is open source, it never phones home, and an air-gap switch turns off every outbound connection it could make.
+The single most important thing on the page. A full-width, legible capture of the workspace with the approval card open, showing a real command and a real path. Beside it, three lines of the mechanism:
 
-**Security.** Asterim runs as you, on your machine. The agent runs as you too. Asterim adds a gate; it does not add a sandbox. What leaves the machine: the agent's own API calls. What Asterim sends anywhere: nothing. The dashboard is served over plain HTTP on your LAN behind a PIN; do not expose it to the internet.
+```text
+The agent asks       Claude Code will not run a command or write a file without permission.
+Asterim holds        The request stops here and waits. Nothing runs meanwhile.
+You decide           Approve, or deny with a reason the agent reads and answers.
+```
 
-**Pricing.** Free. All of it, MIT-licensed, no account. Pro (waitlist): reach your workstation from outside your network, more than one machine in one dashboard, priority support. It ships when ten people have asked. Expected $12 to $19 per month.
+### Motion, once
 
-**FAQ.**
-- Which agents work? Claude Code, through its headless protocol. Antigravity (Google's CLI) through its terminal interface, best effort. Aider and Codex are not supported.
-- Does it need an account? No. A PIN pairs a browser to your machine.
-- Windows? Yes. Windows 10/11, macOS and Linux, Node 22 or newer.
-- Is my code uploaded anywhere? Not by Asterim. Your agent talks to its own vendor exactly as it does without Asterim.
-- Can I approve from my phone? On the same Wi-Fi, yes: open the dashboard URL, enter the PIN. Off-network access is on the Pro waitlist.
-- What if the agent tries something dangerous? Claude Code asks before commands and file writes in its default permission mode. Asterim shows that request and blocks until you answer. Asterim does not run anything the agent did not ask about.
+One sequence, about ten seconds, showing the four states of a gated action: proposed → held → decided → continued. Preference order from §5: a real screen recording first; a clearly diagrammatic animation second. It must respect `prefers-reduced-motion` and must not autoplay anything with sound. No other animation on the page.
 
-**Footer status line.** Asterim 0.2.0 · Claude Code adapter: working · Antigravity adapter: best effort · Nothing leaves your machine.
+### Screenshots
 
-## 5. Pages removed
+Two or three, full-width, each captioned with what to look at. No thumbnail grids. Regenerate them from `tools/e2e/core-loop.mjs` so they are always the current product.
 
-- `/download` (fake). The install command lives in the hero and in Docs → Install.
-- `/account/*` (broken). Returns after the account system is rebuilt, if ever.
+### CTAs
+
+Three total: nav, hero, and the close. Not four.
+
+### Definition of done for pass three
+
+- A Claude Code user understands within five seconds that this works with, not instead of, what they already run.
+- Nothing on the page is a claim that a section elsewhere does not show.
+- Every screenshot is legible at the size it is displayed.
+- Section count is five; card containers are at most three; hierarchy is at most four levels per section.
+- One motion piece, and it explains the gate.
+- Every non-shipping thing carries a status word.
+
+### Sequencing
+
+The cheap half — relationship line, larger screenshots, removing the pricing grid from the home page, status labels, deduplicated CTAs — is worth doing now (P1-11). The full restructure and the motion piece belong before Phase 3, when the positioning the page argues for has actually been decided by the first users.

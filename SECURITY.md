@@ -10,7 +10,7 @@ The latest published `asterim` release only.
 
 ## Security model
 
-Asterim is a local supervisor for coding agents. It runs on the developer's machine as the developer's user, and it runs the agent (Claude Code, Antigravity) as that user in a project folder. Asterim adds an approval gate in front of the agent's commands and file writes; it does not add a sandbox.
+Asterim is a local-first control layer for AI coding agents. It runs on the developer's machine as the developer's user, and it runs the agent (Claude Code; Antigravity as a preview) as that user in a project folder. Asterim adds an approval gate in front of the agent's commands and file writes; it does not add a sandbox.
 
 - **Authentication.** A six-digit PIN printed at start is exchanged for an HMAC-signed 30-day token. Every `/api/v1/` route and the Socket.IO handshake require it, on every interface. Five wrong PINs lock the address out for fifteen minutes.
 - **Network.** The Core listens on all interfaces by default so a phone can pair over the LAN, over plain HTTP. Set `HOST=127.0.0.1` to keep it on the machine. Do not expose the port to the internet.

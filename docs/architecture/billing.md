@@ -25,4 +25,4 @@ Stripe Checkout and Customer Portal sessions created over raw HTTPS (no SDK), a 
 
 ## DO NOT
 
-- Do not turn billing on before a paid feature works end to end and FD-7 is decided.
+- Do not turn billing on before a paid feature works end to end and FD-H is decided.

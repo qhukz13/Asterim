@@ -16,11 +16,17 @@ Asterim is a local tool with no telemetry by default (DEC-028). Observability th
 | Turn cost and duration | `agent.status` message after each turn (`Done · 12s · $0.031`) | Exists |
 | Diagnostic bundle | Settings → "Copy diagnostics" (versions, OS, adapter detection, last 200 log lines) | Task P0-12, open |
 
-### With consent (task P0-11, founder decision FD-4)
+### Local only, for the MVP (task P0-11)
 
-Six events, one random install id, no paths, no prompts, no code. Sent to a founder-owned endpoint. Off in sovereign mode, off until the user ticks the box in the first-run wizard, source visible in `apps/server/src/services/Telemetry.ts` when it exists.
+**Decision, 2026-09-09: no network telemetry ships with the MVP.** Three options were considered — opt-in anonymous events, nothing at all, or local metrics the user can see and voluntarily share. The third wins for the soft launch because the trust model is part of the product's value, because a 10-to-25-person cohort is better served by interviews than counters, and because a local summary is a feature the user gets rather than instrumentation they tolerate.
 
-`install`, `first_pair`, `first_project`, `first_approval`, `first_diff_viewed`, `thread_resumed`. Plus `agent_start_failed` with the adapter id and a coarse reason (`binary_missing`, `exit_nonzero`, `not_logged_in`).
+`asterim stats` and a Settings panel compute the numbers below from the local database, on demand, with no network calls and no identifiers. A copy button lets the user paste them into a conversation if they want to.
+
+Sessions and days used; projects and threads; agent turns by provider; approvals split into approved, denied, expired and withdrawn; time from install to first turn and to first approval; which views were ever opened; start failures by coarse reason (`binary_missing`, `exit_nonzero`, `not_logged_in`).
+
+"Withdrawn" is the count of approvals cancelled because the user's own Claude Code hooks or permission rules decided first. It is how we learn whether the gate is being pre-empted in the field, and it exists in no competitor's instrumentation.
+
+Whether anything is ever transmitted is deferred to FD-F, to be decided with the Phase 2 evidence in hand. It is explicitly not a launch requirement.
 
 ## Metrics (the few that matter)
 

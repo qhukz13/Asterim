@@ -1,93 +1,117 @@
 # Roadmap
 
-Replaces `blueprint/ROADMAP.md` (phases 7 to 10), `docs/product-backlog.md` and every `docs/phase*` plan. Those described a product that did not exist; this one starts from what runs today (`docs/audit/feature-inventory.md`).
+Four phases. Phase 1 is committed work. Phase 2 is an experiment. Phases 3 and 4 are deliberately undecided, because the experiment decides them — writing them down as commitments now would repeat the mistake that produced the previous roadmap.
 
-Priorities: **P0** blocks launch. **P1** strongly recommended before public launch, never allowed to delay it more than a week. **P2** after launch. Each task with an id has a full specification in `docs/tasks/`.
+Status labels follow `docs/product/overview.md`: **CURRENT**, **MVP**, **POST-MVP**, **VISION**.
 
-Definition of the launch bar (from `docs/release-gate.md`): a stranger with Claude Code installed can find Asterim, install it, pair a browser, add a project, run a task, approve a command, see the diff, and come back tomorrow, without the founder's help.
+---
 
-## Phase 1: Release-ready (target: 3 to 4 weeks of focused work)
+## Phase 1 — Release-ready MVP
 
-### P0
+**Goal.** A stranger who already uses Claude Code can install Asterim, understand what it is for, run a real task, see what the agent is doing, safely approve or deny its actions, review the result, and come back the next day — without the founder's help.
+
+**Not in this phase.** Any second provider, any speculative feature, anything from the frozen list, any monetisation, any cloud.
+
+### P0 — blocks the first release
 
 | Id | Task | Status |
 | --- | --- | --- |
-| P0-01 | Close the LAN auth bypass and remove the OAuth exchange (security S1, S2). | Done 2026-09-08 |
-| P0-02 | Dashboard must talk to the origin that served it, never a hard-coded port. | Done 2026-09-08 |
-| P0-03 | Real Claude Code adapter over stream-json with hook-based permission requests; thread session resume. | Done 2026-09-08, live-verified |
-| P0-04 | Surface agent start failures as errors; remove Aider from the UI; stop forcing the terminal tab. | Done 2026-09-08 |
-| P0-05 | Replace the landing, pricing and download pages with truthful copy and one install path. | Done 2026-09-08 (see `docs/design/landing-page.md`) |
-| P0-06 | Publish `asterim` to npm from the release workflow, with the dashboard bundled, so the install command on the landing page is real. | Open, founder action (npm account, name check) |
-| P0-07 | Windows-safe end-to-end smoke: packaged binary boots, pairs, runs a Claude Code turn, and writes one file through the gate. Scripted with puppeteer in `tools/e2e/`. | Open |
-| P0-08 | First-run wizard detects installed CLIs and refuses to default to a missing one. | Done 2026-09-08 |
-| P0-09 | Project add validates the folder exists; delete asks for confirmation. | Half done (validation done; confirmation open) |
-| P0-10 | Privacy note and licence page reachable from the landing footer; state exactly what leaves the machine (agent API calls only). | Open (copy drafted in `docs/design/landing-page.md`) |
-| P0-11 | Opt-in, anonymous, documented product events (install, first_pair, first_project, first_approval, first_diff_viewed, thread_resumed) to a self-hosted endpoint the founder owns; off by default in sovereign mode; never any code or paths. | Open; founder decision FD-4 |
-| P0-12 | Crash reporting: `crash.log` already exists; add a "copy diagnostic bundle" button in Settings (versions, OS, last 200 log lines, no paths outside the data dir). | Open |
+| P0-01 | Close the LAN auth bypass; remove the OAuth exchange (security S1, S2). | Done 2026-09-08 |
+| P0-02 | Dashboard talks to the origin that served it, never a hard-coded port. | Done 2026-09-08 |
+| P0-03 | Claude Code adapter over the native stream protocol, with permission requests routed to the approval card and session resume. | Done 2026-09-08, live-verified |
+| P0-04 | Agent start failures reported as errors; Aider removed from the UI; no forced tab switch on send. | Done 2026-09-08 |
+| P0-05 | Landing, pricing and docs pages made truthful; fake download and account pages removed. | Done 2026-09-08 |
+| P0-06 | Publish `asterim` to npm from the release workflow so the install command is real. | Open — needs the npm account (FD-A) |
+| P0-07 | Clean-machine end-to-end test: fresh account or VM, install, pair, run a Claude Code task through the gate. Script exists (`tools/e2e/core-loop.mjs`); it has only run on the founder's machine. | Open |
+| P0-08 | First-run wizard detects installed CLIs and never defaults to a missing one. | Done 2026-09-08 |
+| P0-09 | Project add validates the folder; delete asks for confirmation. | Validation done; confirmation open |
+| P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Site done; README open |
+| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Open — rewritten, see task spec |
+| P0-12 | "Copy diagnostics" button in Settings: versions, OS, adapter detection, redacted log tail. | Open |
+| P0-13 | Status labels (AVAILABLE NOW / PREVIEW / PLANNED) applied consistently in the product UI and on the site; Antigravity labelled PREVIEW in the engine picker. | Open |
 
-### P1
+### P1 — strongly recommended before strangers see it
 
 | Id | Task |
 | --- | --- |
-| P1-01 | Extract `ProjectWorkspace` from `App.tsx` into its own module with the tab strip as a component; remove remaining inline styles in the thread header. |
-| P1-02 | Approval card shows Claude Code's own tool name and input (file diff preview for Edit/Write, command for Bash), not only description/command strings. |
-| P1-03 | Per-thread "auto-approve read-only" and "always allow this command prefix" using Claude Code permission rules, written to `.claude/settings.local.json` on request. |
-| P1-04 | Pairing token revocation: list paired devices in Settings, revoke, rotate the PIN on demand. |
-| P1-05 | Deny-list of common secret variables from the agent environment (`AWS_*`, `GITHUB_TOKEN`, `*_SECRET`, `*_API_KEY`) with an allow-list override per environment. |
-| P1-06 | Windows test hygiene: the MCP memory server live-probe assertion and any other `process.platform === 'win32'` timing checks. |
-| P1-07 | Responsive pass of the dashboard at 1280×720 and 390×844: thread header wraps, tab overflow, overlay stacking. |
+| P1-02 | Approval card shows the real tool input: the command for Bash, the content or diff for Write and Edit. **The highest-value item in this list** — it is the difference between a gate and a rubber stamp. |
+| P1-01 | Extract `ProjectWorkspace` from `App.tsx`; tab strip and overlays as components. Unblocks P1-02 and P1-07. |
+| P1-07 | Responsive pass at 1280×720 and 390×844: thread header, tab overflow, overlay stacking. |
 | P1-08 | Empty, loading and error states for Changes, Memory and the thread list. |
-| P1-09 | `docs/` site generated from the repository docs instead of hand-written topics in `DocsPage.tsx`. |
-| P1-10 | Antigravity adapter: strip the founder's e-mail filter, make the header filters configurable, label the adapter "best effort" in the UI. |
+| P1-11 | Landing page second pass against the quality bar (`docs/design/landing-page.md` §6). Cheap parts now, full pass before Phase 3. |
+| P1-04 | Pairing device list and revocation; PIN rotation on demand. |
+| P1-05 | Deny-list for common secret environment variables reaching the agent, overridable per environment. |
+| P1-03 | Per-thread "always allow this command prefix", written through Claude Code's own permission rules. |
+| P1-09 | Docs site generated from `docs/` instead of hand-maintained page content. |
+| P1-10 | Antigravity: remove the hard-coded founder e-mail filter; make header filters configurable. |
+| P1-06 | Remaining Windows test-harness defect (ConPTY console attachment in the PTY integration suite). |
 
-### P2 (after launch)
+### P2 — after the first users, regardless of what they say
 
-Bundle splitting; test runner migration (vitest) with coverage; `packages/memory-core` extraction; entitlement refresh fix; Codex adapter feasibility spike (the Codex CLI has no hook protocol yet; check quarterly).
+Bundle splitting, vitest migration with coverage, `packages/memory-core` extraction, entitlement refresh fix.
 
-## Phase 2: Launch
+---
 
-### Pre-launch checklist (owner: founder)
+## Phase 2 — First users (soft launch)
 
-- Domain: decide whether `asterim.dev` will be registered (it does not resolve today) or whether the GitHub Pages/README is the landing page for the soft launch. FD-3.
-- npm name `asterim` is free as of 2026-09-08; publish 0.2.0 from the release workflow (P0-06).
-- Analytics endpoint stood up (P0-11) or the decision recorded to launch blind.
-- Error monitoring: the diagnostic bundle button (P0-12) plus a GitHub issue template that asks for it.
-- Support channel: GitHub Discussions, one pinned "how to report a broken session" thread.
-- Legal: MIT licence (the GitHub repository currently shows Apache-2.0 while `LICENSE` says MIT; resolve, FD-5), privacy note, no ToS needed for a local tool.
-- Launch assets: one 40-second screen recording of install → pair → task → approval → diff; three PNGs (approval card, transcript, Changes).
+**Goal: learn.** Not growth, not revenue, not press.
 
-### Soft launch (2 weeks, 10 to 25 people)
+10 to 25 people who already run Claude Code most days, recruited by direct message. Two weeks. The full design — seven hypotheses, what confirms and refutes each, what is measured, the interview script including the monetisation questions — is `docs/product/experiments.md`.
 
-Who: people already running Claude Code daily, recruited by direct message (Claude Code Discord/GitHub discussions, two or three engineering Slack communities, personal network). Not a public post.
+Entry criteria: Phase 1 P0 complete, the release gate signed off on a machine that is not the founder's.
 
-Measure (from the opt-in events or from asking):
+Exit criteria: one page per hypothesis marked confirmed, refuted or no signal, with evidence.
 
-- Install-to-first-approval time and completion rate. Target: 70% reach a first approval within 10 minutes.
-- Sessions per user per day on days 2 to 14. Target: 3 of 10 people use it on 5+ days.
-- Approval decisions per session and denial rate (does the gate matter?).
-- Threads resumed after restart.
+Nothing about positioning, pricing, packaging or the public launch message is decided before that page exists.
 
-Collect: every failed install on Windows/macOS/Linux; every "I expected X" comment; whether anyone opens the dashboard from a second device.
+---
 
-Bugs that block public launch: any data loss in the SQLite file, any unrecoverable stuck approval, any silent failure to start Claude Code, any LAN-reachable route without a token.
+## Phase 3 — Public launch
 
-Signal of value: at least three people say unprompted that they stopped watching the terminal. If nobody does, the positioning in `docs/product/positioning.md` is wrong and the public launch waits.
+**Decided by Phase 2, not before.** The open questions it answers:
 
-### Public launch
+- Which hypothesis is the wedge, and therefore what the headline says.
+- Whether Asterim is free forever, and if not, what dimension is charged for (people, machines, history, or something the users name).
+- Which capability gets promoted and which stays quiet.
+- Where the audience actually is.
 
-Channels, in order of expected yield for this audience: Hacker News "Show HN" (with the recording, the honest scope, and the security model up front), the Claude Code community spaces, r/ClaudeAI and r/LocalLLaMA, a short technical post on how the permission hook works (the one novel engineering piece), and direct replies to people asking "how do I supervise multiple Claude Code sessions". Founder-led onboarding: offer a 20-minute call to the first 20 people who install and hit a problem.
+Provisional and revisable: a Show HN with a real recording, the Claude Code community spaces, and a technical write-up of the permission protocol, which is the one genuinely novel piece of engineering. Founder-led onboarding for the first cohort of installs.
 
-## Phase 3: After launch
+---
 
-| Track | Now (next 4 to 8 weeks) | Next | Later | Maybe | Never |
-| --- | --- | --- | --- | --- | --- |
-| Product | Worktree-per-thread with a merge/discard action (the delegation prototype has the plumbing); diff preview in the approval card. | Codex adapter if a hook protocol appears; parallel thread board. | Scheduled tasks; cloud execution via Claude Code `--cloud`. | Visual pipeline editor. | Building our own model routing. |
-| Growth | Recording + technical post; GitHub README that matches the landing. | Homebrew tap and winget once the npm package is stable. | Integrations: open a thread from a GitHub issue. | Marketplace listing. | Paid ads. |
-| Retention | Searchable record across threads (approvals, diffs, decisions). | Project Memory surfaced as "what this project has decided" in the agent's system prompt (already implemented, hidden). | Digest of what agents did this week. | — | Gamification. |
-| Monetisation | Waitlist only. | Pro: off-LAN remote access through the existing relay, multi-machine, priority support, once ten people ask. | Team: shared record and shared approvals, once two people at one company ask. | Enterprise: only via a partner. | Selling seats before the free loop retains. |
-| Infrastructure | vitest migration; bundle split; CI on Windows. | Migration 007 (provider session column); `memory-core` package. | Signed installers. | — | Kubernetes. |
-| Moat | The owned record: export, search, retention controls. | Cross-vendor adapters. | LAN-first collaboration without a vendor cloud. | Community adapter SDK. | Proprietary lock-in of the record. |
+## Phase 4 — Post-launch product development
 
-## Why Asterim could still matter in 2028
+**Possibilities, not commitments.** Each is tied to the hypothesis that would justify it; most already have frozen code behind them (`docs/decisions/ADR-005-frozen-code-disposition.md`).
 
-Models will keep improving and vendors will keep improving their own dashboards. Two things do not improve on their own: a record of what agents did that belongs to the developer rather than to a vendor account, and a single control point across vendors. Both compound: every thread run under Asterim makes the record more valuable, and every adapter makes the control point harder to replace. That is the bet. It is not "a better UI", and it is not the model.
+| Direction | Justified by | State today |
+| --- | --- | --- |
+| Searchable record across threads and days | H1, H7 | Data exists; no search UI |
+| Worktree-per-thread with merge or discard | H3 | Frozen delegation code |
+| Repeatable and chained tasks, triggers, verification | H6 | Frozen pipeline code |
+| Project context surfaced into the agent's prompt | H4 | Project Memory, hidden |
+| Notifications when an agent finishes or asks | H3 | Frozen desktop daemon |
+| Additional providers (Codex when its CLI exposes a permission protocol) | Demand | ADR-004 |
+| Remote access beyond the LAN | Demand | Frozen relay |
+| Team dimension | Demand + monetisation | Frozen team agents |
+| Cloud or hybrid execution | Demand, and only if it beats local | Nothing |
+
+Local-first is not traded away for any of these. Cloud arrives where it clearly wins, not because SaaS is monetisable.
+
+---
+
+## The shape of the whole thing
+
+```text
+VISION      local-first control layer for AI coding agents
+   │
+MVP         Claude Code, one machine, exceptionally well executed
+   │
+   ▼
+10–25 users → learn which hypothesis is true
+   │
+   ▼
+positioning, pricing, public launch decided by evidence
+   │
+   ▼
+build only what the users showed matters → expand beyond one agent
+```

@@ -4,9 +4,12 @@ Start with [`PROJECT_CONTEXT.md`](../PROJECT_CONTEXT.md) at the repository root.
 
 ## Product
 
-- [overview.md](product/overview.md): what Asterim is, for whom, the core promise and workflow.
-- [positioning.md](product/positioning.md): September 2026 market research, competitive matrix, where Asterim can win.
-- [roadmap.md](product/roadmap.md): Phase 1 (release-ready), Phase 2 (launch), Phase 3 (after launch), Now/Next/Later/Maybe/Never.
+Read in this order. Every claim across `docs/` is labelled **CURRENT**, **MVP**, **POST-MVP** or **VISION**; the labels are defined in the overview and they are not decoration.
+
+- [overview.md](product/overview.md): the two-level definition — what Asterim is as a product, and what ships first.
+- [experiments.md](product/experiments.md): the seven hypotheses the first users are meant to settle, what confirms and refutes each, and the interview script including the monetisation questions.
+- [positioning.md](product/positioning.md): market research, competitive matrix, the test of the positioning hypothesis, and the unanswered monetisation question.
+- [roadmap.md](product/roadmap.md): Phase 1 release-ready MVP, Phase 2 first users, Phase 3 public launch, Phase 4 post-launch possibilities.
 - [metrics.md](product/metrics.md): observability minimum and the few metrics that matter.
 
 ## Audit (2026-09-08)
@@ -42,10 +45,12 @@ Each page answers WHAT, WHY, WHERE, HOW, CONTRACT, MODIFYING, DO NOT.
 
 ## Decisions
 
-- [FOUNDER_DECISIONS.md](decisions/FOUNDER_DECISIONS.md): the short list only the founder can close.
+- [FOUNDER_DECISIONS.md](decisions/FOUNDER_DECISIONS.md): sorted by when they must be answered — blocking now, before soft launch, before public launch, after.
 - [ADR-001-claude-code-native-protocol.md](decisions/ADR-001-claude-code-native-protocol.md)
-- [ADR-002-scope-freeze.md](decisions/ADR-002-scope-freeze.md)
+- [ADR-002-scope-freeze.md](decisions/ADR-002-scope-freeze.md) (amended 2026-09-09)
 - [ADR-003-local-auth-only.md](decisions/ADR-003-local-auth-only.md)
+- [ADR-004-provider-agnostic-architecture.md](decisions/ADR-004-provider-agnostic-architecture.md)
+- [ADR-005-frozen-code-disposition.md](decisions/ADR-005-frozen-code-disposition.md)
 
 ## Tasks
 

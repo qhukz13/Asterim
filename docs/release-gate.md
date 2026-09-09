@@ -31,8 +31,10 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 ## D. Product surface (blocking)
 
-- [ ] Landing page makes no claim that is not on this checklist. Install command is the real one. Screenshots are real captures.
-- [ ] Pricing shows Free and the waitlist only.
+- [ ] Landing page makes no claim that is not on this checklist. Install command is the real one. Screenshots are real captures, legible at the size shown, and regenerated from the current build.
+- [ ] Every capability shown in the product or on the site that is not shipping carries a status word: BETA, PREVIEW or PLANNED. Antigravity reads PREVIEW everywhere it appears.
+- [ ] No simulated product UI anywhere. A diagram is labelled a diagram; a recording is labelled a recording.
+- [ ] The home page states the relationship to Claude Code above the fold, and commits to no price.
 - [ ] Docs → Install, First run, Security model, Adapters, Troubleshooting exist and were followed verbatim by someone other than the author.
 - [ ] Footer links: source, licence (MIT), privacy note.
 - [ ] `README.md` says the same thing as the landing page.
@@ -41,7 +43,7 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 - [ ] `crash.log` and `server.log` land in the data directory; the Settings screen's diagnostic bundle copies without paths outside the data dir.
 - [ ] Backup story documented: the data directory is the backup; `asterim db:snapshot` works and is in Docs.
-- [ ] Opt-in analytics either implemented per FD-4 or explicitly recorded as "launching blind".
+- [ ] Local usage summary works and transmits nothing (P0-11), verified with a network capture.
 - [ ] Support channel exists (GitHub Discussions) with a "report a broken session" template.
 
 ## F. Responsive and accessibility (strongly recommended)

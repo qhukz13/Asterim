@@ -1,5 +1,14 @@
 # Asterim: Current State Audit and Strategic Answer (2026-09-08)
 
+> **Corrected 2026-09-09.** Every technical finding below stands and was re-verified. Two strategic conclusions were overturned by the founder's review and are wrong as written here:
+>
+> 1. **"Asterim is a local supervisor for coding agents"** collapsed the product into its first release. The product is a local-first control layer for AI coding agents; the supervisor is the MVP. `docs/product/overview.md` carries the two-level definition.
+> 2. **The frozen subsystems were treated as probably worthless.** They are unvalidated, which is not the same thing. Delegation and pipelines are the existing implementations of hypotheses H3 and H6, which the first users will test; their disposition waits for that evidence (`docs/decisions/ADR-005-frozen-code-disposition.md`).
+>
+> A third item was narrowed rather than overturned: the single predefined success signal ("users stop watching the terminal") is now one of seven hypotheses (`docs/product/experiments.md`), and the positioning below did not survive competitive testing (`docs/product/positioning.md` §5).
+>
+> Read this page as the record of what was found in the code on 2026-09-08. Read `docs/product/` for what to do about it.
+
 This is the report the founder asked for: what Asterim actually is today, what was found, what was changed during the audit session, and what to do next. Detailed evidence lives in the sibling documents; this page is the summary and the verdict.
 
 ## Method
@@ -34,7 +43,7 @@ Two critical findings, both fixed and re-verified: any device on the LAN could c
 
 ## Production readiness
 
-Before: not deployable to strangers (no working adapter, LAN RCE, fake installs). After this session: the core loop is verified end to end on Windows with real Claude Code (pair → project → task → approval card → approve → file written → transcript closed; deny → file untouched → model explains; withheld answer → CLI waits), typecheck, lint (0 errors), tests and build are green, and the site tells the truth. Remaining blockers are founder actions and small tasks: npm publish (P0-06), the diagnostics button (P0-12), the analytics decision (FD-4), delete confirmation (P0-09). `docs/release-gate.md`.
+Before: not deployable to strangers (no working adapter, LAN RCE, fake installs). After this session: the core loop is verified end to end on Windows with real Claude Code (pair → project → task → approval card → approve → file written → transcript closed; deny → file untouched → model explains; withheld answer → CLI waits), typecheck, lint (0 errors), tests and build are green, and the site tells the truth. Remaining blockers are founder actions and small tasks: npm publish (P0-06), the clean-machine test (P0-07), the diagnostics button (P0-12), the local usage summary (P0-11), delete confirmation (P0-09). `docs/release-gate.md`.
 
 ## Market
 
@@ -57,19 +66,19 @@ Claude Code itself (Agent View, Remote Control, auto mode) is the largest threat
 
 ## Technical debt
 
-`docs/audit/technical-debt.md`: 24 items; the ones that blocked launch are done (auth bypass, OAuth route, adapter, port, mock path, engines, `.env.example`, docs); the frozen subsystems (D11) await FD-2; `App.tsx` extraction, bundle splitting and the test runner are post-launch.
+`docs/audit/technical-debt.md`: 24 items; the ones that blocked launch are done (auth bypass, OAuth route, adapter, port, mock path, engines, `.env.example`, docs); the frozen subsystems (D11) are dispositioned in ADR-005; `App.tsx` extraction, bundle splitting and the test runner are post-launch.
 
 ## Missing features (that matter)
 
-npm package; diagnostics button; delete confirmation; delete/revoke pairing devices; richer approval card (content preview); responsive pass; opt-in analytics; Codex adapter (blocked on the Codex CLI exposing a permission protocol).
+npm package; diagnostics button; delete confirmation; delete/revoke pairing devices; richer approval card (content preview); responsive pass; local usage summary; Codex adapter (blocked on the Codex CLI exposing a permission protocol).
 
 ## Recommended changes (done unless marked)
 
-- Narrow scope to the core loop (ADR-002). **Founder to confirm (FD-1).**
+- Narrow the *first release* to the core loop (ADR-002). Confirmed by the founder on 2026-09-09, with the correction that the narrowing describes the MVP and not the product.
 - Real Claude Code adapter over the native protocol (ADR-001). Done.
 - Local pairing as the only auth (ADR-003). Done.
 - Honest site, honest README, honest docs. Done.
-- Archive the pipeline-era documentation and prototypes. Docs done; code freeze pending FD-2.
+- Archive the pipeline-era documentation and prototypes. Docs done; code frozen, disposition per ADR-005.
 - Publish, soft-launch, measure. **Founder.**
 
 ## What changed in this session (for the diff reviewer)
@@ -79,7 +88,7 @@ Server: `authMiddleware.ts` (loopback-only opt-in bypass), `routes/auth.ts` (OAu
 ## If I were the founder of Asterim today
 
 1. **Keep:** the Core (Fastify + SQLite + event bus), the pairing model, the new Claude Code adapter, the approval gate and its persistence, the Changes view, the terminal, the secret vault, sovereign mode, the migration engine, the test discipline, Project Memory (hidden, as a later moat).
-2. **Remove:** the account portal, the fake site, the Aider stub (done); after launch, move team agents, pipelines, fleet policy, desktop daemon, delegation, billing and the relay client to an archive branch (FD-2).
+2. **Remove:** the account portal, the fake site, the Aider stub (done). The rest is frozen, not condemned: delegation and pipelines are the existing implementations of hypotheses H3 and H6, and their disposition waits for the first-users report (ADR-005).
 3. **Redesign:** the thread workspace (`App.tsx` extraction, five tabs, 1280 px layout), the approval card (show the content that will be written), first run (done), the docs site (generate from `docs/`).
 4. **Build:** npm publish, diagnostics button, delete confirmation, device revocation, secret-variable deny-list, worktree-per-thread with merge/discard (the one piece of the delegation prototype worth promoting).
 5. **Not build:** cloud execution, accounts, billing, enterprise policy, team agents, a visual pipeline editor, our own model routing, a mobile app. The vendors own those or nobody asked.

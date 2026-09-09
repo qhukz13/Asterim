@@ -23,7 +23,7 @@ See `.env.example` (rewritten 2026-09-08; the `AGENTDECK_*` names are gone). Def
 
 - `<dataDir>/server.log` (stdout/stderr redirected, truncated on start), `<dataDir>/crash.log` (uncaught errors), `<dataDir>/audit.log` (frozen enterprise feature).
 - Backup is the data directory. `asterim db:snapshot` writes a consistent copy; `asterim data:backup` / `data:restore` wrap it.
-- No error tracking or analytics service exists; see `docs/product/metrics.md` and founder decision FD-4.
+- No error tracking or analytics service exists, by decision: the MVP ships a local usage summary and transmits nothing (`docs/product/metrics.md`, task P0-11). Whether anything is ever sent is FD-F, decided after the first users.
 
 ## Security posture of a default install
 
@@ -33,4 +33,4 @@ See `.env.example` (rewritten 2026-09-08; the `AGENTDECK_*` names are gone). Def
 
 ## Monitoring (launch minimum)
 
-Nothing runs server-side. The founder's monitoring is the soft-launch interviews plus the opt-in events if FD-4 is accepted. The "copy diagnostics" button (P0-12) is the support tool.
+Nothing runs server-side, and nothing is transmitted. The founder's instruments are the soft-launch interviews (`docs/product/experiments.md`) and the local usage summary a user chooses to share (P0-11). The "copy diagnostics" button (P0-12) is the support tool.
