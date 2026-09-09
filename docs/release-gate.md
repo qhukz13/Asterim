@@ -6,10 +6,10 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 - [ ] Fresh machine (or fresh user account): `npm install -g asterim@<rc>` succeeds on Windows 11, macOS, Ubuntu 24.04 with Node 22.
 - [ ] `asterim` prints the URL and PIN; the dashboard loads on `http://localhost:3000` and on `http://<lan-ip>:3000` from a phone.
-- [ ] Pairing succeeds with the PIN; a wrong PIN five times locks for 15 minutes; an unauthenticated request from the LAN to `/api/v1/projects` returns 401.
+- [x] Pairing succeeds with the PIN (every e2e run). Measured 2026-09-09 against the packaged build: four wrong PINs are refused with 401, the fifth attempt is refused with 429 and `Retry-After: 896`, and the correct PIN is refused too while the lock holds. `GET /api/v1/projects` without a token returns 401 on loopback and on the LAN address.
 - [ ] First-run wizard shows Claude Code as "Detected" when installed and "Not found" with the install command when not.
 - [ ] Add project with a non-existent folder shows an inline error; with a real folder the thread opens.
-- [ ] Send a task that requires a file write. The approval card shows the tool name, the path and the exact content or command. Approve → file appears. Deny → agent explains and stops.
+- [x] Verified by `tools/e2e/core-loop.mjs` on every run, both ways (2026-09-09). The card names the action ("Create a new file"), the path, and the two lines it would write. Deny: the file is not on disk, and the agent replies that the write was denied, says what it would have created, and asks how to proceed (`docs/screenshots/e2e/07-after-deny.png`). Approve: the file appears with the content shown on the card (`docs/screenshots/e2e/02-approval-card.png`).
 - [ ] Send a task that requires a shell command. Same card. The Terminal tab is untouched.
 - [ ] Transcript shows the agent's text, tool calls and results; status pill goes working → idle with cost.
 - [ ] Changes tab shows the diff; commit from Changes creates the commit with the user as author; the agent has not committed.
@@ -20,14 +20,14 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 ## B. Security (blocking)
 
 - [ ] `docs/audit/security-audit.md` has no open CRITICAL or HIGH item that affects the launch build.
-- [ ] `HOST=127.0.0.1` restricts the Core to the machine (document as the choice for shared networks).
-- [ ] No `--dangerously-skip-permissions`, `bypassPermissions` or `ASTERIM_DEV_AUTH_BYPASS` in any shipped default.
-- [ ] `pnpm audit --prod` shows no critical advisories.
+- [x] `HOST=127.0.0.1` restricts the Core to the machine. Measured 2026-09-09: the socket listens on 127.0.0.1:PORT only, loopback answers 200, and the LAN address does not connect.
+- [x] The packaged bundle contains no `--dangerously-skip-permissions` and no `bypassPermissions`. `ASTERIM_DEV_AUTH_BYPASS` appears once, as the name of a variable that must be set to `true` **and** be on loopback **and** not be production before it does anything; no default sets it.
+- [~] `pnpm audit --prod` shows no critical advisories. It showed 25 high on 2026-09-09; overrides for `socket.io-parser`, `fast-uri` and `brace-expansion` cleared 20 of them. The five that remain are all Fastify 4: the framework itself, `@fastify/static`, and `find-my-way`. Every fix is in a major (Fastify 5.7.3, @fastify/static 10.1.2), which is not a release-candidate change. The one that matters, a route-guard bypass via path traversal in @fastify/static, is mitigated by an onRequest guard that refuses any raw path containing a traversal segment in any encoding (verified against literal, percent-encoded, double-encoded and backslash forms). The upgrade is the top P1.
 
 ## C. Build and tests (blocking)
 
 - [~] `pnpm run typecheck`, `pnpm run lint` (0 errors) and `pnpm run build` are green. `pnpm run test` runs all 34 server suites; 33 pass and `AgentMcpIntegration.test.ts` ends at 156/160 on the ConPTY console-attachment defect (P1-06, `docs/development/testing.md`). Measured on Windows 10 on 2026-09-09. Not yet run on Linux in CI for a tag.
-- [ ] `tools/e2e` smoke (pair → project → task → approval → diff) passes against the packaged binary.
+- [x] `tools/e2e/core-loop.mjs` passes 10/10 against the packaged binary installed from a tarball into a clean prefix, with a clean data directory and a real Claude Code (2026-09-09).
 
 ## D. Product surface (blocking)
 

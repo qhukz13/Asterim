@@ -102,6 +102,43 @@ fastify.addHook('onSend', async (_request, reply) => {
   reply.header('Referrer-Policy', 'no-referrer');
 });
 
+/**
+ * Refuse any request whose raw path contains a traversal segment, before it
+ * reaches a route or the static handler.
+ *
+ * The shipped `@fastify/static` (7.x) has an advisory for a route-guard bypass
+ * via path traversal, fixed only in 10.1.2, which requires Fastify 5. That
+ * upgrade is a framework major and is not something to do in a release
+ * candidate week, so this closes the described class of request instead: the
+ * dashboard never asks for a path containing `..` in any encoding, and the
+ * Core is reachable on the LAN behind nothing but a PIN, so a file read outside
+ * the web root is not a risk worth carrying while waiting for the upgrade.
+ *
+ * Matching is on `request.raw.url`, the bytes as they arrived, because the
+ * whole point of the bypass is that decoding happens after the guard would
+ * otherwise have run. Repeated decoding catches double-encoded forms.
+ */
+const TRAVERSAL = /(^|[/\\])\.\.([/\\]|$)/;
+fastify.addHook('onRequest', async (request, reply) => {
+  let candidate = request.raw.url ?? '';
+  for (let i = 0; i < 3; i++) {
+    if (TRAVERSAL.test(candidate)) {
+      reply.status(400).send({ error: 'Bad Request' });
+      return reply;
+    }
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(candidate);
+    } catch {
+      // A malformed escape cannot be decoded and cannot be a traversal either.
+      break;
+    }
+    if (decoded === candidate) break;
+    candidate = decoded;
+  }
+  return undefined;
+});
+
 // Setup Static File Serving for Production (Phase 6)
 let webDistPath = path.join(__dirname, 'web');
 if (!fs.existsSync(webDistPath)) {

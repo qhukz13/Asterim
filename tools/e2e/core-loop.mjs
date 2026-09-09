@@ -31,6 +31,11 @@ fs.mkdirSync(outDir, { recursive: true });
 const target = path.join(projectPath, 'ASTERIM_E2E.txt');
 fs.rmSync(target, { force: true });
 
+/** The file the deny pass asks for and must never get. */
+const DENY_FILE = 'ASTERIM_E2E_DENIED.txt';
+const denyTarget = path.join(projectPath, DENY_FILE);
+fs.rmSync(denyTarget, { force: true });
+
 const steps = [];
 const step = async (name, fn) => {
   const t = Date.now();
@@ -165,6 +170,41 @@ try {
     await shot('01-thread-empty');
   });
 
+  // Deny first, then approve. Approving proves the gate lets work through;
+  // only denying proves it is a gate at all. A supervisor whose Deny button is
+  // decorative is worse than no supervisor, so the run asserts that the file
+  // the agent asked to write is not on disk afterwards.
+  if (engine === 'claude') {
+    await step('deny: the agent asks, and the file is not written', async () => {
+      await setReactValue(
+        'textarea.input-box',
+        `Create a file named ${DENY_FILE} in the project root containing exactly one line: denied. Do nothing else and do not run any other commands.`
+      );
+      if (!(await clickButton('Send'))) throw new Error('Send button not enabled');
+
+      await waitForButton('Deny', 90000);
+      await new Promise(r => setTimeout(r, 700));
+      await clickButton('Deny');
+      await page.waitForFunction(() => !document.querySelector('.dialog-box'), { timeout: 15000 });
+
+      // The agent is told why and carries on rather than dying, so the thread
+      // must come back to rest.
+      await page.waitForFunction(
+        () =>
+          /Idle|Done/.test(document.querySelector('.thread-header')?.innerText || '') ||
+          document.body.innerText.includes('Done'),
+        { timeout: 90000 }
+      );
+      await shot('07-after-deny');
+
+      // A write that was refused must not land late either.
+      await new Promise(r => setTimeout(r, 2000));
+      if (fs.existsSync(denyTarget)) {
+        throw new Error(`${denyTarget} exists — Deny did not stop the write`);
+      }
+    });
+  }
+
   await step('send a task that needs a file write', async () => {
     const prompt =
       engine === 'claude'
@@ -215,6 +255,7 @@ try {
   await shot('99-failure').catch(() => undefined);
 } finally {
   fs.rmSync(target, { force: true });
+  fs.rmSync(denyTarget, { force: true });
   await browser.close();
   const failed = steps.filter(s => !s.ok);
   console.log(`\n${steps.length - failed.length}/${steps.length} steps passed; screenshots in ${outDir}`);
