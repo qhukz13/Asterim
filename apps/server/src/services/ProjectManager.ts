@@ -72,18 +72,46 @@ export class ProjectManager {
 
   public addProject(name: string, projectPath: string, workspaceId?: string, visibility: string = 'private'): ProjectConfig {
     const db = dbService.getDb();
+
+    // `projects.workspace_id` references `workspaces(id)`, and the dashboard
+    // sends the environment it is showing. If that row is missing the insert
+    // fails with a bare "FOREIGN KEY constraint failed" and a 500 — which is
+    // exactly what a brand-new installation did on the very first project,
+    // before the personal environment was seeded (found by the clean-machine
+    // test, 2026-09-09). The environment is now seeded at boot; this keeps a
+    // stale or unknown id from ever being fatal again: the project is created
+    // unattached rather than refused.
+    let effectiveWorkspaceId = workspaceId || null;
+    if (effectiveWorkspaceId) {
+      try {
+        const exists = db
+          .prepare('SELECT 1 AS ok FROM workspaces WHERE id = ?')
+          .get(effectiveWorkspaceId) as { ok?: number } | undefined;
+        if (!exists) {
+          console.warn(
+            `[ProjectManager] Environment ${effectiveWorkspaceId} does not exist; creating "${name}" unattached.`
+          );
+          effectiveWorkspaceId = null;
+        }
+      } catch {
+        // A database old enough to lack the table cannot enforce the key either.
+        effectiveWorkspaceId = null;
+      }
+    }
+
     const newProject: ProjectConfig = {
       id: crypto.randomUUID(),
-      workspace_id: workspaceId,
+      workspace_id: effectiveWorkspaceId ?? undefined,
       name,
       path: projectPath,
       visibility,
     };
 
     const insert = db.prepare('INSERT INTO projects (id, workspace_id, name, path, visibility) VALUES (?, ?, ?, ?, ?)');
-    insert.run(newProject.id, workspaceId || null, newProject.name, newProject.path, visibility || 'private');
+    insert.run(newProject.id, effectiveWorkspaceId, newProject.name, newProject.path, visibility || 'private');
 
-    if (workspaceId) {
+    if (effectiveWorkspaceId) {
+      const workspaceId = effectiveWorkspaceId;
       try {
         const attachId = `epa_${crypto.randomUUID()}`;
         db.prepare('INSERT OR IGNORE INTO environment_project_attachments (id, environment_id, project_id, attached_at) VALUES (?, ?, ?, ?)')

@@ -2,7 +2,11 @@
    The card is the product's most important control, so it gets the room it
    needs and nothing it does not. */
 
-.approval-card {
+/* `.dialog-box.approval-card`, not `.approval-card`: index.css is imported
+   after this file and its `.dialog-box` caps every dialog at 400px, which
+   squeezed the header onto three wrapped lines. The extra class wins on
+   specificity instead of on import order. */
+.dialog-box.approval-card {
   max-width: 680px;
   width: 100%;
   padding: 0;
@@ -11,14 +15,22 @@
   max-height: 82vh;
   outline: none;
   border: 1px solid var(--color-border-default);
+  /* The card must be opaque. `.dialog-box` carries no surface of its own -
+     every other dialog pairs it with `.glass-panel` - so without this the
+     workspace behind showed through the header and the person reading the
+     request was reading it over the transcript. A control you answer with
+     your eyes has to be the only thing you can see. */
+  background: var(--color-surface-0);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg, 0 24px 60px rgba(0, 0, 0, 0.55));
 }
 
-.approval-card-critical {
+.dialog-box.approval-card-critical {
   border-color: var(--color-state-error, #ef4444);
 }
 
 .approval-card:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-accent-primary);
+  box-shadow: var(--shadow-lg), 0 0 0 2px var(--color-accent-primary);
 }
 
 /* Header */

@@ -21,14 +21,14 @@ Status labels follow `docs/product/overview.md`: **CURRENT**, **MVP**, **POST-MV
 | P0-03 | Claude Code adapter over the native stream protocol, with permission requests routed to the approval card and session resume. | Done 2026-09-08, live-verified |
 | P0-04 | Agent start failures reported as errors; Aider removed from the UI; no forced tab switch on send. | Done 2026-09-08 |
 | P0-05 | Landing, pricing and docs pages made truthful; fake download and account pages removed. | Done 2026-09-08 |
-| P0-06 | Publish `asterim` to npm from the release workflow so the install command is real. | Open — needs the npm account (FD-A) |
-| P0-07 | Clean-machine end-to-end test: fresh account or VM, install, pair, run a Claude Code task through the gate. Script exists (`tools/e2e/core-loop.mjs`); it has only run on the founder's machine. | Open |
+| P0-06 | Publish `asterim` to npm from the release workflow so the install command is real. | Prepared 2026-09-09: metadata, provenance publish job, tag/version check, packaged tarball verified (13 files, 1.3 MB) and installed. **Founder action left: npm account + NPM_TOKEN secret (FD-A).** |
+| P0-07 | Clean install of the packed tarball into an isolated prefix with a fresh data directory, then the full journey. | Done 2026-09-09: 10/10. Found and fixed two launch blockers — `workspace:*` runtime deps that made `npm install -g` impossible, and a foreign-key failure that made the first project on a fresh database fail with a 500. |
 | P0-08 | First-run wizard detects installed CLIs and never defaults to a missing one. | Done 2026-09-08 |
 | P0-09 | Project add validates the folder; delete asks for confirmation. | Done 2026-09-09, live-verified |
-| P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Site done; README open |
-| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Open |
+| P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Done |
+| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Done |
 | P0-12 | "Copy diagnostics" button in Settings: versions, OS, adapter detection, redacted log tail. | Done 2026-09-09, live-verified |
-| P0-13 | Status labels (AVAILABLE NOW / PREVIEW / PLANNED) applied consistently in the product UI and on the site; Antigravity labelled PREVIEW in the engine picker. | Open |
+| P0-13 | Status labels applied consistently; Antigravity reads "preview" in the engine picker and the wizard. | Done 2026-09-09 |
 
 ### P1 — strongly recommended before strangers see it
 

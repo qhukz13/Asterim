@@ -3,6 +3,7 @@ import type { CliIo } from './context';
 import { CliError, consoleIo } from './context';
 import { commandDbMigrate, commandDbSnapshot, commandDbStatus } from './db';
 import { commandDataBackup, commandDataClone, commandDataRestore } from './data';
+import { commandStats } from './stats';
 
 /**
  * The `asterim` command line (P7-03).
@@ -22,6 +23,10 @@ import { commandDataBackup, commandDataClone, commandDataRestore } from './data'
 
 /** Every subcommand, with the one-line summary `--help` prints. */
 export const CLI_COMMANDS: Record<string, { usage: string; summary: string }> = {
+  stats: {
+    usage: 'stats [--channel <stable|dev>]',
+    summary: 'Print how much this machine has used Asterim. Local; nothing is sent.'
+  },
   'db:status': {
     usage: 'db:status [--channel <stable|dev>]',
     summary: 'Show schema version, migration history and snapshots.'
@@ -62,6 +67,7 @@ export function isCliInvocation(argv: string[]): boolean {
   const first = argv.find(token => token.length > 0);
   if (first === undefined) return false;
   if (HELP_COMMANDS.has(first)) return true;
+  if (first === 'stats') return true;
   return first.startsWith('db:') || first.startsWith('data:');
 }
 
@@ -107,6 +113,8 @@ export function runCli(argv: string[], io: CliIo = consoleIo): number {
 
   try {
     switch (args.command) {
+      case 'stats':
+        return commandStats(args, io);
       case 'db:status':
         return commandDbStatus(args, io);
       case 'db:migrate':

@@ -48,6 +48,31 @@ Threads remember their Claude Code session and resume after a restart.
 
 Asterim runs as you; the agent runs as you. Asterim adds a gate, not a sandbox, and never passes the flag that skips permissions. The dashboard is served over plain HTTP on your LAN behind a PIN; do not expose it to the internet (`HOST=127.0.0.1` keeps it on this machine). Details: `docs/architecture/authentication.md`, `docs/audit/security-audit.md`.
 
+## Privacy
+
+Asterim makes no outbound network connections of its own. There is no account, no analytics, no crash reporting and no usage ping. Claude Code talks to Anthropic exactly as it does without Asterim; Asterim neither proxies nor inspects that traffic.
+
+What leaves your machine, in full:
+
+| Leaves | To | When |
+| --- | --- | --- |
+| Your prompts and the files the agent reads | Anthropic, by Claude Code itself | Whenever the agent runs, with or without Asterim |
+| Nothing else | | |
+
+What stays, in full:
+
+| Stored | Where | Contains |
+| --- | --- | --- |
+| Projects, threads, events, approvals | `~/.asterim/asterim.db` | Prompts, agent messages, tool calls, commands, paths |
+| Application and crash logs | `~/.asterim/server.log`, `~/.asterim/crash.log` | Log lines with vault secrets redacted |
+| Pairing PIN and device tokens | `~/.asterim/` | Credentials for browsers you paired |
+
+Delete `~/.asterim` and all of it is gone. Set `ASTERIM_DATA_DIR` to keep it somewhere else.
+
+`asterim stats`, and Settings in the dashboard, show how much you have used Asterim: sessions, threads, agent turns, approvals by outcome. It is computed from your own database on demand, it contains no names, paths, prompts or commands, and it is sent nowhere. Copying it into a conversation is your decision alone.
+
+If an opt-in usage ping is ever added it will be off by default, documented here, and its source will be one file.
+
 ## Configuration
 
 `PORT`, `HOST`, `ASTERIM_DATA_DIR`, `ASTERIM_SOVEREIGN_MODE`, `ASTERIM_CLAUDE_BIN`, `ASTERIM_CLAUDE_DISABLE_HOOKS`, `MOCK_AGENT`. See `.env.example`.

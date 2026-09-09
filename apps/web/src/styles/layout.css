@@ -175,6 +175,9 @@
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  /* The tab strip grows to fill the row, so without a gap here its scrolled
+     edge sits flush against the action buttons on the right. */
+  gap: 16px;
 }
 
 .view-navigation-tabs {
@@ -189,6 +192,14 @@
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-strong) transparent;
+  /* The strip scrolls, so its right edge lands mid-tab whenever there are
+     more views than fit. Butted straight against the action buttons a
+     half-drawn tab reads as two controls overlapping, which is what the
+     product screenshots showed. The fade says "there is more, scroll" and
+     the padding keeps the cut off the buttons. */
+  padding-right: 20px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
 }
 
 .view-navigation-tabs::-webkit-scrollbar {

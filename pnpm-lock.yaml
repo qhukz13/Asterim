@@ -109,12 +109,6 @@ importers:
 
   apps/server:
     dependencies:
-      '@asterim/adapters':
-        specifier: workspace:*
-        version: link:../../packages/adapters
-      '@asterim/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@fastify/cors':
         specifier: ^8.5.0
         version: 8.5.0
@@ -155,9 +149,15 @@ importers:
         specifier: ^3.6.7
         version: 3.6.7
     devDependencies:
+      '@asterim/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@asterim/eslint-config':
         specifier: workspace:^
         version: link:../../packages/config-eslint
+      '@asterim/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@types/node':
         specifier: ^26.0.0
         version: 26.0.0

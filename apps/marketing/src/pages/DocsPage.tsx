@@ -211,6 +211,12 @@ export const DocsPage: React.FC = () => {
             <code>~/.asterim</code> on your machine; delete the directory and it is gone. If an opt-in usage
             ping is ever added, it will be off by default, documented here, and its source will be one file.
           </p>
+          <p>
+            There is a usage summary, and it is local. <code>asterim stats</code> and the Settings panel show
+            how much you have used Asterim — sessions, threads, agent turns, approvals by outcome — computed
+            from your own database on demand. It contains no project name, path, prompt or command, and
+            Asterim sends it nowhere. Copying it into a conversation is your decision alone.
+          </p>
 
           <h2 id="licence">Licence</h2>
           <p>

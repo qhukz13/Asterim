@@ -172,6 +172,25 @@ export default async function systemRoutes(fastify: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /api/v1/system/usage
+   *
+   * The local usage summary (P0-11): counts and durations describing how this
+   * installation has been used, computed on demand from the local database.
+   * It carries no project name, path, prompt, command or file name, and
+   * Asterim transmits it nowhere — the user decides whether to share it.
+   */
+  fastify.get('/api/v1/system/usage', async (request, reply) => {
+    try {
+      const { computeUsageSummary, formatUsageSummary } = await import('../services/UsageSummary');
+      const summary = computeUsageSummary(dbService.getDb());
+      return { summary, text: formatUsageSummary(summary) };
+    } catch (err) {
+      console.error('[SystemRoute] Failed to compute the usage summary:', err);
+      reply.status(500).send({ error: 'Could not read the usage summary' });
+    }
+  });
+
   fastify.get('/api/v1/system/vapid', async (request, reply) => {
     return { publicKey: pushService.getPublicKey() };
   });

@@ -121,6 +121,12 @@ function makeRepo(prefix: string): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   tempDirs.push(dir);
   git('git init -q -b main', dir);
+  // With the operator's global core.autocrlf=true, git rewrites line endings
+  // on checkout, so a file a step wrote with LF comes back CRLF-terminated in
+  // the next step's checkout and fails a byte comparison. The same guard is in
+  // GitWorktreeService.test.ts; see docs/development/testing.md.
+  git('git config core.autocrlf false', dir);
+  git('git config core.eol lf', dir);
   git('git config user.email fleet@test.local', dir);
   git('git config user.name "Fleet Test"', dir);
   git('git config commit.gpgsign false', dir);

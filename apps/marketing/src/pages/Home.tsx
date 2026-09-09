@@ -1,8 +1,8 @@
 import React from 'react';
-import { Check, Database, FileDiff, MessageSquareText, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Database, FileDiff, MessageSquareText, RotateCcw, ShieldCheck } from 'lucide-react';
 import { InstallCommand } from '../components/InstallCommand';
 import { GithubIcon } from '../components/GithubIcon';
-import { DISCUSSIONS_URL, GITHUB_URL, INSTALL_COMMAND, LICENSE } from '../site';
+import { GITHUB_URL, INSTALL_COMMAND, LICENSE } from '../site';
 
 interface HomeProps {
   navigate: (path: string) => void;
@@ -74,10 +74,14 @@ export const Home: React.FC<HomeProps> = ({ navigate }) => {
       <section className="hero">
         <div className="container hero-grid">
           <div>
-            <h1 className="hero-title">Run your coding agent. Approve every risky step. Keep the record.</h1>
+            {/* The relationship first: a Claude Code user's only question is why
+                they need this in addition to what they already run. */}
+            <span className="eyebrow">Works with the Claude Code you already run</span>
+            <h1 className="hero-title">See what your coding agent is doing. Approve what matters. Keep the record.</h1>
             <p className="hero-sub">
-              Asterim runs Claude Code on your machine, shows you what it says and does in a browser, and
-              stops it before every command or file write until you say yes. Everything is stored locally.
+              Asterim runs Claude Code on your machine and puts a window and a gate around it. Every
+              command and file write stops until you decide, and everything that happened stays in a
+              database you own.
             </p>
             <div className="hero-actions">
               <InstallCommand command={INSTALL_COMMAND} />
@@ -93,13 +97,49 @@ export const Home: React.FC<HomeProps> = ({ navigate }) => {
           <figure>
             <img
               className="shot"
-              src="/screens/approval-card.png"
-              alt="Asterim approval card asking to allow a file write, with Deny and Approve buttons"
+              src="/screens/transcript.png"
+              alt="The Asterim workspace showing a thread with the agent's messages and tool calls"
               width={1280}
               height={800}
             />
-            <figcaption className="shot-caption">The gate: Claude Code asked to write a file; nothing happens until you decide.</figcaption>
+            <figcaption className="shot-caption">
+              One thread: what you asked, what the agent said, and what it did.
+            </figcaption>
           </figure>
+        </div>
+      </section>
+
+      <section className="section" id="the-moment">
+        <div className="container">
+          <span className="eyebrow">The moment it matters</span>
+          <h2 className="section-title">The agent asks. Asterim holds. You decide.</h2>
+          <p className="section-lead">
+            Claude Code will not run a command or write a file without permission. Asterim shows you
+            exactly what it wants to do — the command, the path, the content it would write — and
+            nothing happens until you answer.
+          </p>
+          <figure>
+            <img
+              className="shot"
+              src="/screens/approval-card.png"
+              alt="The approval card showing a file write request with its full path and the content that would be written"
+              loading="lazy"
+            />
+            <figcaption className="shot-caption">
+              A real request from Claude Code: the tool, the file, and what would be written. Deny sends
+              the agent a reason and it carries on.
+            </figcaption>
+          </figure>
+          <div className="features">
+            {FEATURES.map(f => (
+              <div className="feature" key={f.title}>
+                <f.icon size={18} className="feature-icon" />
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+                <div className="not">{f.not}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -123,7 +163,6 @@ export const Home: React.FC<HomeProps> = ({ navigate }) => {
                 Point Asterim at a folder. Type what you want done. Claude Code starts in that folder and
                 the transcript fills in as it works.
               </p>
-              <img className="shot" src="/screens/transcript.png" alt="A thread transcript with the agent's messages" loading="lazy" />
             </li>
             <li className="step">
               <div className="step-num">03</div>
@@ -135,55 +174,6 @@ export const Home: React.FC<HomeProps> = ({ navigate }) => {
               <img className="shot" src="/screens/changes.png" alt="The Changes view listing modified files" loading="lazy" />
             </li>
           </ol>
-        </div>
-      </section>
-
-      <section className="section" id="what-you-get">
-        <div className="container">
-          <span className="eyebrow">What you get</span>
-          <h2 className="section-title">Five things, all of them working today</h2>
-          <p className="section-lead">Each was exercised in the release gate before it was written here.</p>
-          <div className="features">
-            {FEATURES.map(f => (
-              <div className="feature" key={f.title}>
-                <f.icon size={18} className="feature-icon" />
-                <h3>{f.title}</h3>
-                <p>{f.body}</p>
-                <div className="not">{f.not}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section" id="why">
-        <div className="container">
-          <span className="eyebrow">Why Asterim</span>
-          <h2 className="section-title">The layer you own, across vendors</h2>
-          <div className="why-grid">
-            <div>
-              <h3>One gate for every agent</h3>
-              <p>
-                The vendors' own dashboards each supervise one vendor's agent. Asterim puts the same
-                card and the same risk labels in front of Claude Code today and Antigravity on a
-                best-effort basis, with a documented adapter interface for the next one.
-              </p>
-            </div>
-            <div>
-              <h3>The record you own</h3>
-              <p>
-                Approvals, denials, tool calls and diffs land in a SQLite file in your home directory,
-                not in a vendor account. It is yours to search, export or delete.
-              </p>
-            </div>
-            <div>
-              <h3>Nothing leaves the machine</h3>
-              <p>
-                Asterim is open source and never phones home. Sovereign mode turns off every outbound
-                connection it could make, and the code that would make them is a single switch.
-              </p>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -234,54 +224,29 @@ export const Home: React.FC<HomeProps> = ({ navigate }) => {
         </div>
       </section>
 
-      <section className="section" id="pricing">
+      <section className="section" id="try-it">
         <div className="container">
-          <span className="eyebrow">Pricing</span>
-          <h2 className="section-title">Free. All of it.</h2>
-          <div className="plans">
-            <div className="plan featured">
-              <div className="plan-name">Asterim</div>
-              <div className="plan-price">
-                $0<small>forever, {LICENSE}</small>
-              </div>
-              <ul>
-                {['Claude Code adapter with the approval gate', 'Transcript, Terminal, Changes', 'Threads that resume', 'The record, on your disk', 'No account, no telemetry'].map(item => (
-                  <li key={item}>
-                    <Check size={14} />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <a
-                href="/docs#install"
-                className="btn btn-primary"
-                onClick={e => {
-                  e.preventDefault();
-                  navigate('/docs#install');
-                }}
-              >
-                Install
-              </a>
-            </div>
-            <div className="plan">
-              <div className="plan-name">Pro (waitlist)</div>
-              <div className="plan-price">
-                TBD<small>expected $12 to $19 / month</small>
-              </div>
-              <ul>
-                {['Reach your workstation from outside your network', 'More than one machine in one dashboard', 'Priority support'].map(item => (
-                  <li key={item}>
-                    <Check size={14} />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <div className="note">Ships when ten people have asked for it. Say so in Discussions and we will count you.</div>
-              <a href={DISCUSSIONS_URL} className="btn" target="_blank" rel="noopener noreferrer">
-                Ask for Pro
-              </a>
-            </div>
+          <span className="eyebrow">Try it</span>
+          <h2 className="section-title">Free, and open source</h2>
+          <p className="section-lead">
+            All of it, {LICENSE}-licensed, no account. There is no paid tier yet: a few things people
+            keep asking for are written down on the pricing page, marked PLANNED, and nothing is built
+            for sale until enough people ask.
+          </p>
+          <div className="hero-actions">
+            <InstallCommand command={INSTALL_COMMAND} />
+            <a
+              href="/pricing"
+              className="btn"
+              onClick={e => {
+                e.preventDefault();
+                navigate('/pricing');
+              }}
+            >
+              What might be paid later
+            </a>
           </div>
+          <p className="hero-meta">Requires Node 22 or newer and Claude Code. Windows, macOS and Linux.</p>
         </div>
       </section>
 

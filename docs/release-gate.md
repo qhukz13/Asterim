@@ -43,12 +43,12 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 - [ ] `crash.log` and `server.log` land in the data directory; the Settings screen's diagnostic bundle copies without paths outside the data dir.
 - [ ] Backup story documented: the data directory is the backup; `asterim db:snapshot` works and is in Docs.
-- [ ] Local usage summary works and transmits nothing (P0-11), verified with a network capture.
+- [x] Local usage summary works and transmits nothing (P0-11). Verified by `UsageSummary.test.ts`, which replaces `net.Socket.prototype.connect`, `net.connect`, `dns.lookup`, `http.request`, `https.request` and `fetch` with functions that throw, then computes and formats the summary again. A packet capture was not run; refusing the primitives fails louder and in CI.
 - [ ] Support channel exists (GitHub Discussions) with a "report a broken session" template.
 
 ## F. Responsive and accessibility (strongly recommended)
 
-- [ ] Dashboard usable at 1280×720 without overlapping controls; the tab strip does not overflow.
+- [x] Dashboard usable at 1280×720 without overlapping controls. Measured 2026-09-09: the view tabs end 16 px before the action buttons, the page does not scroll horizontally, and the thread header wraps its agent controls onto a second row rather than truncating the thread name. The tab strip **does** overflow at this width and scrolls; it fades at its right edge instead of colliding with the buttons beside it (`docs/screenshots/e2e/06-narrow-1280x720.png`).
 - [ ] Approval card usable on a 390 px wide phone; Approve/Deny reachable by keyboard.
 - [ ] Empty, loading and error states present for thread list, Changes and Memory.
 

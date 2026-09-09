@@ -24,16 +24,23 @@ H7 is the meta-hypothesis: if it fails, the others are academic. H3 and H6 are t
 
 ## What we measure
 
-Quantitative, from what the user can see locally and chooses to share (`docs/tasks/P0-11-local-usage-summary.md` — no telemetry for the soft launch):
+Quantitative, from what the user can see locally and chooses to share (`docs/tasks/P0-11-local-usage-summary.md` — no telemetry for the soft launch). The summary is shipped: `asterim stats` prints it, Settings shows it, and `apps/server/src/services/UsageSummary.ts` computes it.
 
-- Install succeeded, and on which OS.
-- Time from install to first successful agent turn.
-- Time from install to first approval decision.
-- First task completed, or abandoned and where.
-- Sessions per day, days used out of the trial window.
-- Threads per session; projects per user.
-- Approvals: total, denied, expired, and how many were withdrawn by the user's own Claude Code hooks.
-- Which views were opened at all (transcript, terminal, changes, memory).
+In the summary, so a user can paste it:
+
+- Days used, and sessions across them.
+- Projects and threads.
+- Agent turns, split by provider.
+- Tool calls.
+- Approvals: total, approved, denied, expired, and how many were withdrawn by the user's own Claude Code hooks or rules.
+- Time from first launch to the first approval.
+- Agent start failures, by diagnosis code.
+
+Not in the summary, and asked for in the interview instead:
+
+- Which OS, and whether the install itself succeeded — the diagnostics report (`Settings → Copy diagnostics`) carries this, and someone who never got Asterim running has no database to summarise.
+- Whether the first task was completed or abandoned, and where — the database records what happened, not whether the person got what they wanted.
+- Which views were opened. No view-opened event is recorded, and adding one to answer a research question is instrumentation of the kind this decision rejected.
 
 Qualitative, from conversation — the primary instrument at this cohort size:
 

@@ -22,5 +22,6 @@ export * from './types/desktop';
 export * from './types/channels';
 export * from './types/approval';
 export * from './types/diagnostics';
+export * from './types/usage';
 export * from './constants/channels';
 

@@ -29,6 +29,7 @@ import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
 import { ApprovalCard } from './components/approvals/ApprovalCard';
 import { DiagnosticsPanel } from './components/diagnostics/DiagnosticsPanel';
+import { UsagePanel } from './components/usage/UsagePanel';
 import { SessionSidebar } from './components/SessionSidebar';
 import { PinScreen } from './PinScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -311,6 +312,36 @@ function ProjectWorkspace({
     }
   }, [events, activeTab]);
 
+  /**
+   * When something last happened in this thread, from the transcript itself.
+   *
+   * This line used to read "just now" unconditionally, whatever the timestamp
+   * on the last message was. A header that states a fact it has not checked is
+   * worse than a header that omits it, so an empty transcript now shows
+   * nothing at all rather than a comfortable fiction.
+   */
+  const [clockTick, setClockTick] = React.useState(0);
+  React.useEffect(() => {
+    // The clock is read in an effect, not during render: reading it during
+    // render is impure, and a label that never re-renders would freeze at
+    // whatever it said when the last message arrived.
+    setClockTick(Date.now());
+    const id = setInterval(() => setClockTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [messages]);
+
+  const lastActivityLabel = React.useMemo(() => {
+    const last = messages.length ? messages[messages.length - 1].timestamp : 0;
+    if (!last || !clockTick) return '';
+    const seconds = Math.max(0, Math.round((clockTick - last) / 1000));
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }, [messages, clockTick]);
+
   const mainContent = (
     <main className="workspace-main-content">
       {/* Layer 1: Thread Header */}
@@ -322,19 +353,46 @@ function ProjectWorkspace({
           alignItems: 'center',
           padding: '12px 24px',
           borderBottom: '1px solid var(--color-border-default)',
-          background: 'rgba(255, 255, 255, 0.02)'
+          background: 'rgba(255, 255, 255, 0.02)',
+          /* At 1280 px the centre column cannot hold the thread identity and
+             the agent controls side by side. Wrapping puts the controls on a
+             second row; squeezing instead truncated the thread name to one
+             letter and pushed the status badge over the thread id. */
+          flexWrap: 'wrap',
+          rowGap: '10px'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+        {/* `minWidth: 0` so this side yields at 1280 px instead of forcing the
+            meta line to wrap one word per row, which is what it did before. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '260px', flex: '1 1 auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: '1.1rem',
+                fontWeight: 600,
+                color: 'var(--color-text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
               {activeThreadId 
                 ? (threads.find(t => t.id === activeThreadId)?.name || `Thread ${activeThreadId.slice(0, 8)}`)
                 : 'No Active Mission'}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '4px', display: 'flex', gap: '12px' }}>
+            <div
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-text-secondary)',
+                marginTop: '4px',
+                display: 'flex',
+                gap: '12px',
+                flexWrap: 'wrap',
+                whiteSpace: 'nowrap'
+              }}
+            >
               <span>{activeThreadId ? `Thread: ${activeThreadId.slice(0, 8)}` : 'Idle Workspace'}</span>
-              {activeThreadId && <span>Last activity: just now</span>}
+              {activeThreadId && lastActivityLabel && <span>Last activity: {lastActivityLabel}</span>}
               {agentStatus.status === 'waiting_approval' && <span style={{ color: '#fbbf24' }}>1 Pending Approval</span>}
             </div>
           </div>
@@ -354,7 +412,7 @@ function ProjectWorkspace({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
           <div style={{ width: '220px' }}>
             <CustomDropdown
               value={agentType}
@@ -533,6 +591,7 @@ function ProjectWorkspace({
           </div>
           <AISettings activeBackendUrl={activeBackendUrl} />
           <DiagnosticsPanel activeBackendUrl={activeBackendUrl} />
+          <UsagePanel activeBackendUrl={activeBackendUrl} />
         </div>
       )}
 

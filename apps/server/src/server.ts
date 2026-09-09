@@ -288,6 +288,20 @@ const start = async () => {
     const { profileService } = await import('./services/ai/ProfileService');
     profileService.initBuiltinProfiles();
 
+    // The personal environment. The dashboard hard-codes `personal` as the
+    // environment a project belongs to, and `projects.workspace_id` is a
+    // foreign key, so on a database that has never seen one the very first
+    // "Add project" failed with a 500 (found by the clean-machine test,
+    // 2026-09-09). Seeding it here makes it an invariant of a running Core
+    // rather than something the client has to provoke by calling
+    // `/api/v1/workspaces` in the right order.
+    try {
+      const { workspaceService } = await import('./services/WorkspaceService');
+      workspaceService.ensurePersonalWorkspace('acc_dev', 'usr_dev');
+    } catch (err) {
+      console.error('[Startup] Could not seed the personal environment:', err);
+    }
+
     // The channel supplies the default port, so a stable Core on 3000 and a
     // development Core on 3001 can be up at the same time (DEC-029). An explicit
     // PORT still wins.

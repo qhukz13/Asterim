@@ -45,7 +45,12 @@ const step = async (name, fn) => {
   }
 };
 
-const browser = await puppeteer.launch({ headless: true, defaultViewport: { width: 1280, height: 800 } });
+// 1512x900 rather than 1280x800: at the narrower size the three-panel layout
+// squeezes the centre column until the view tabs clip mid-word, which is a
+// property of the window and not of the product. These captures are also the
+// landing page's product shots, so they are taken at a size a person would
+// actually use.
+const browser = await puppeteer.launch({ headless: true, defaultViewport: { width: 1512, height: 900 } });
 const page = await browser.newPage();
 const shot = name => page.screenshot({ path: path.join(outDir, `${name}.png`) });
 
@@ -62,13 +67,30 @@ const setReactValue = async (selector, value) => {
     value
   );
 };
-const clickButton = async text =>
-  page.evaluate(t => {
+/**
+ * Clicks a button by its exact label, waiting for it to exist and be enabled.
+ *
+ * It throws rather than returning false. An earlier version returned a boolean
+ * that call sites ignored, so a step that clicked nothing still reported PASS
+ * and the failure surfaced two steps later as something unrelated. A test that
+ * can pass without doing anything is worse than no test.
+ */
+const clickButton = async (text, { timeout = 15000, optional = false } = {}) => {
+  try {
+    await waitForButton(text, timeout);
+  } catch (err) {
+    if (optional) return false;
+    throw new Error(`button "${text}" never became clickable`);
+  }
+  const clicked = await page.evaluate(t => {
     const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === t && !x.disabled);
     if (!b) return false;
     b.click();
     return true;
   }, text);
+  if (!clicked && !optional) throw new Error(`button "${text}" vanished before it could be clicked`);
+  return clicked;
+};
 const waitForButton = (text, timeout) =>
   page.waitForFunction(
     t => [...document.querySelectorAll('button')].some(x => x.textContent.trim() === t && !x.disabled),
@@ -86,10 +108,11 @@ try {
     for (const label of ['Choose an agent', 'Continue', 'Open the workspace']) {
       const found = await page.evaluate(t => [...document.querySelectorAll('button')].some(x => x.textContent.trim() === t), label);
       if (found) {
-        await clickButton(label);
-        await new Promise(r => setTimeout(r, 400));
+        await clickButton(label, { optional: true });
+        await new Promise(r => setTimeout(r, 500));
       }
     }
+    await page.waitForFunction(() => !document.querySelector('.dialog-box'), { timeout: 10000 }).catch(() => undefined);
   });
 
   await step('add the project', async () => {
@@ -102,11 +125,12 @@ try {
       return;
     }
     await clickButton('Add Project / Existing Repository');
-    await waitForButton('+ Add New Folder', 5000);
     await clickButton('+ Add New Folder');
     await setReactValue('input[placeholder="e.g. Asterim Service"]', 'E2E project');
     await setReactValue('input[placeholder="e.g. /home/user/code/my-project"]', projectPath);
     await clickButton('Add & Attach Project');
+    // The modal closes only once the project is actually created.
+    await page.waitForFunction(() => !document.querySelector('.dialog-box'), { timeout: 20000 });
   });
 
   await step('socket connects and a thread is active', async () => {
@@ -152,12 +176,19 @@ try {
 
   await step('approval card appears', async () => {
     await waitForButton('Approve', 90000);
+    // The dialog fades in; a capture taken on the first frame is half
+    // transparent and useless as a screenshot of the product.
+    await new Promise(r => setTimeout(r, 900));
     await shot('02-approval-card');
     const card = await page.evaluate(() => document.querySelector('.dialog-box')?.innerText || '');
     if (!/Write|Bash|proceed/i.test(card)) throw new Error(`unexpected card text: ${card.slice(0, 120)}`);
   });
 
   await step('approve and the agent finishes', async () => {
+    // The card ignores clicks for its first 300ms so that a click already in
+    // flight cannot answer a card nobody has read (ApprovalCard.ARM_DELAY_MS).
+    // A person is never that fast; a script is, so it waits like a reader.
+    await new Promise(r => setTimeout(r, 700));
     await clickButton('Approve');
     await page.waitForFunction(() => !document.querySelector('.dialog-box'), { timeout: 15000 });
     await page.waitForFunction(

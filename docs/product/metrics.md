@@ -22,7 +22,7 @@ Asterim is a local tool with no telemetry by default (DEC-028). Observability th
 
 `asterim stats` and a Settings panel compute the numbers below from the local database, on demand, with no network calls and no identifiers. A copy button lets the user paste them into a conversation if they want to.
 
-Sessions and days used; projects and threads; agent turns by provider; approvals split into approved, denied, expired and withdrawn; time from install to first turn and to first approval; which views were ever opened; start failures by coarse reason (`binary_missing`, `exit_nonzero`, `not_logged_in`).
+Shipped 2026-09-09 as `apps/server/src/services/UsageSummary.ts`, `asterim stats` and the Settings panel. It reports: sessions and days used; projects and threads; agent turns by provider; tool calls; approvals split into approved, denied, expired and withdrawn; time from first launch to the first approval; and start failures grouped by `DiagnosisCode`. Views opened is **not** reported — no view-opened event exists, and adding one purely to answer a research question is the instrumentation this decision rejected.
 
 "Withdrawn" is the count of approvals cancelled because the user's own Claude Code hooks or permission rules decided first. It is how we learn whether the gate is being pre-empted in the field, and it exists in no competitor's instrumentation.
 
