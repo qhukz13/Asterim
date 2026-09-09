@@ -266,6 +266,61 @@ await step('the approval card fits a 390px phone, takes focus, and Escape denies
   await desk.close();
 });
 
+// --- 3. A shell command gets the same gate, and denying it stops the command --
+
+await step('a shell command is gated, and denying it stops the command running', async () => {
+  const desk = await openPaired({ width: 1512, height: 900 });
+  const threadName = `Shell ${Date.now().toString(36)}`;
+  await clickButton(desk, 'New Agent');
+  await setReactValue(desk, 'input[placeholder="e.g. Frontend Refactor"]', threadName);
+  await clickButton(desk, 'Create Agent');
+  await new Promise(r => setTimeout(r, 2500));
+
+  await desk.waitForSelector('textarea.input-box', { timeout: 30000 });
+  await desk.waitForFunction(() => !document.querySelector('textarea.input-box').disabled, { timeout: 60000 });
+
+  // The command has to have an effect the agent cannot fake. Asked to "run
+  // echo hello", Claude Code will often just reply "hello" without invoking
+  // anything -- correct of it, and it produces no card because nothing was
+  // attempted. A file written by the shell is unambiguous: either the command
+  // ran or the file is not there.
+  const shellFile = `ASTERIM_GATE_SHELL_${Date.now().toString(36)}.txt`;
+  const shellTarget = path.join(projectPath, shellFile);
+  fs.rmSync(shellTarget, { force: true });
+
+  await setReactValue(
+    desk,
+    'textarea.input-box',
+    `Use your Bash tool to run a single shell command that creates ${shellFile} in the project root containing the word ok. Use the shell, not your file-writing tool. Do nothing else.`
+  );
+  await clickButton(desk, 'Send');
+
+  try {
+    await desk.waitForFunction(() => document.querySelector('.approval-card'), { timeout: 150000 });
+  } catch {
+    await desk.screenshot({ path: path.join(outDir, '99-shell-no-card.png') });
+    const said = await desk.evaluate(() => document.body.innerText.slice(-700));
+    throw new Error(`no card for the shell command; the thread ended with: ${said.replace(/s+/g, ' ')}`);
+  }
+  await new Promise(r => setTimeout(r, 900));
+  await desk.screenshot({ path: path.join(outDir, '04-shell-approval.png') });
+
+  const card = await desk.evaluate(() => document.querySelector('.approval-card')?.innerText || '');
+  if (!card.includes(shellFile)) {
+    throw new Error(`the card does not show the command it would run: ${card.replace(/s+/g, ' ').slice(0, 240)}`);
+  }
+
+  await new Promise(r => setTimeout(r, 700));
+  await clickButton(desk, 'Deny');
+  await desk.waitForFunction(() => !document.querySelector('.approval-card'), { timeout: 15000 });
+  await new Promise(r => setTimeout(r, 4000));
+  if (fs.existsSync(shellTarget)) {
+    fs.rmSync(shellTarget, { force: true });
+    throw new Error('the command ran even though it was denied');
+  }
+  await desk.close();
+});
+
 // --- 3. The thread survives the Core restarting ------------------------------
 
 // Opt-in, because only the caller knows how to stop and start this Core.
