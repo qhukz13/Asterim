@@ -25,8 +25,8 @@ Status labels follow `docs/product/overview.md`: **CURRENT**, **MVP**, **POST-MV
 | P0-07 | Clean install of the packed tarball into an isolated prefix with a fresh data directory, then the full journey. | Done 2026-09-09: 10/10. Found and fixed two launch blockers — `workspace:*` runtime deps that made `npm install -g` impossible, and a foreign-key failure that made the first project on a fresh database fail with a 500. |
 | P0-08 | First-run wizard detects installed CLIs and never defaults to a missing one. | Done 2026-09-08 |
 | P0-09 | Project add validates the folder; delete asks for confirmation. | Done 2026-09-09, live-verified |
-| P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Done |
-| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Done |
+| P0-10 | Privacy and licence statements reachable from the site and the README, stating exactly what leaves the machine. | Done 2026-09-09. The README now carries a Privacy section with two tables: what leaves (nothing beyond Claude Code's own API calls) and what is stored where. |
+| P0-11 | Local usage summary the user can see and choose to share. **No network telemetry for the soft launch.** | Done 2026-09-09. `asterim stats` and a Settings panel, one formatter behind both. Verified on a seeded and a real database; the test asserts no identifier reaches the output and that the whole path makes no network call. |
 | P0-12 | "Copy diagnostics" button in Settings: versions, OS, adapter detection, redacted log tail. | Done 2026-09-09, live-verified |
 | P0-13 | Status labels applied consistently; Antigravity reads "preview" in the engine picker and the wizard. | Done 2026-09-09 |
 
@@ -36,9 +36,9 @@ Status labels follow `docs/product/overview.md`: **CURRENT**, **MVP**, **POST-MV
 | --- | --- |
 | ~~P1-02~~ | **Done 2026-09-09, live-verified.** Approval card shows the real tool input: command for Bash, content for Write, before/after for Edit, plus create-versus-overwrite, the escalation reason and the risk warnings. |
 | P1-01 | Extract `ProjectWorkspace` from `App.tsx`; tab strip and overlays as components. Unblocks P1-02 and P1-07. |
-| P1-07 | Responsive pass at 1280×720 and 390×844: thread header, tab overflow, overlay stacking. |
+| ~~P1-07~~ | **Done 2026-09-09.** Responsive pass: the thread header wraps rather than truncating at 1280×720, the tab strip fades instead of colliding with the buttons beside it, and the approval card keeps a margin and 44 px targets at 390×844. Both widths are asserted by `tools/e2e/gate-checks.mjs` and `docs/screenshots/`. |
 | P1-08 | Empty, loading and error states for Changes, Memory and the thread list. |
-| P1-11 | Landing page second pass against the quality bar (`docs/design/landing-page.md` §6). Cheap parts now, full pass before Phase 3. |
+| P1-11 | Landing page second pass against the quality bar (`docs/design/landing-page.md` §6). Cheap parts done 2026-09-09: the approval moment is the section under the hero, the screenshots are legible captures of the current build, no image is used twice, the price range is gone and the phone claim is accurate. The full design pass is still open. |
 | P1-04 | Pairing device list and revocation; PIN rotation on demand. |
 | P1-05 | Deny-list for common secret environment variables reaching the agent, overridable per environment. |
 | P1-03 | Per-thread "always allow this command prefix", written through Claude Code's own permission rules. |
