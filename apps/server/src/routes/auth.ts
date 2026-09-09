@@ -1,14 +1,47 @@
 import { FastifyInstance } from 'fastify';
 import { pairingService } from '../services/PairingService';
 import { authController } from '../controllers/AuthController';
+import { ACCOUNTS_DISABLED_BODY, accountsEnabled } from '../services/AccountsFeature';
 
 export default async function authRoutes(fastify: FastifyInstance) {
+  /**
+   * Every account endpoint is gated on `accountsEnabled()`.
+   *
+   * These are on the public allow-list in `authMiddleware`, which is what an
+   * unauthenticated registration endpoint needs to work at all. Shipped and
+   * reachable, that made the pairing PIN optional: register from anywhere on
+   * the LAN, receive a JWT, and the rest of the API opens
+   * (`docs/audit/security-audit.md`, S5, raised to CRITICAL on 2026-09-09).
+   * They answer 404 rather than 403 because a workstation with accounts off
+   * has no account system, and saying so is not information anyone needs.
+   */
+  const requireAccounts = (reply: import('fastify').FastifyReply): boolean => {
+    if (accountsEnabled()) return true;
+    reply.status(404).send(ACCOUNTS_DISABLED_BODY);
+    return false;
+  };
+
   // Phase 2 Centralized Web Auth Endpoints
-  fastify.post('/api/v1/auth/register', (req, reply) => authController.register(req, reply));
-  fastify.post('/api/v1/auth/login', (req, reply) => authController.login(req, reply));
-  fastify.post('/api/v1/auth/refresh', (req, reply) => authController.refresh(req, reply));
-  fastify.post('/api/v1/auth/logout', (req, reply) => authController.logout(req, reply));
-  fastify.get('/api/v1/auth/me', (req, reply) => authController.me(req, reply));
+  fastify.post('/api/v1/auth/register', (req, reply) => {
+    if (!requireAccounts(reply)) return;
+    return authController.register(req, reply);
+  });
+  fastify.post('/api/v1/auth/login', (req, reply) => {
+    if (!requireAccounts(reply)) return;
+    return authController.login(req, reply);
+  });
+  fastify.post('/api/v1/auth/refresh', (req, reply) => {
+    if (!requireAccounts(reply)) return;
+    return authController.refresh(req, reply);
+  });
+  fastify.post('/api/v1/auth/logout', (req, reply) => {
+    if (!requireAccounts(reply)) return;
+    return authController.logout(req, reply);
+  });
+  fastify.get('/api/v1/auth/me', (req, reply) => {
+    if (!requireAccounts(reply)) return;
+    return authController.me(req, reply);
+  });
   // The former `/api/v1/auth/oauth/token` exchange accepted any code and signed
   // the caller in as the oldest user. It was removed in the 2026-09 audit
   // (docs/audit/security-audit.md, S2). Desktop deep-link login, if it returns,

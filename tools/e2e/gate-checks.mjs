@@ -85,10 +85,13 @@ const clickButton = async (page, text, { timeout = 15000, optional = false } = {
   }, text);
 };
 
+// The PIN changes every time the Core starts, so the restart check replaces it.
+let currentPin = pin;
+
 const openPaired = async viewport => {
   const page = await browser.newPage();
   await page.setViewport(viewport);
-  await page.goto(`${url}/?pin=${pin}`, { waitUntil: 'networkidle2' });
+  await page.goto(`${url}/?pin=${currentPin}`, { waitUntil: 'networkidle2' });
   await page.waitForFunction(() => !document.querySelector('input[placeholder="Enter PIN"]'), { timeout: 20000 });
   for (const label of ['Choose an agent', 'Continue', 'Open the workspace']) {
     if (await clickButton(page, label, { optional: true, timeout: 2000 })) {
@@ -150,7 +153,46 @@ await step('the approval card fits a 390px phone, takes focus, and Escape denies
   // phone is what you have in your hand — and it is also the only way to reach
   // the composer, which the workspace layout does not give a phone.
   const desk = await openPaired({ width: 1512, height: 900 });
+
+  // A fresh thread, so the agent has no history of this request being denied.
+  // A thread resumes its Claude Code session, and after a few refusals the
+  // agent stops retrying the shape of the request rather than the exact one --
+  // it asks what you are actually trying to do instead. Reasonable of it, and
+  // fatal to a check that needs a card.
+  const threadName = `Gate ${Date.now().toString(36)}`;
+  await clickButton(desk, 'New Agent');
+  await setReactValue(desk, 'input[placeholder="e.g. Frontend Refactor"]', threadName);
+  await clickButton(desk, 'Create Agent');
+  await new Promise(r => setTimeout(r, 2500));
+
+  // The phone opens after the thread exists, and is put on it. An approval
+  // belongs to a thread, and a window looking at a different thread does not
+  // show its card -- correct, and worth knowing if you plan to approve from a
+  // phone you left on another screen.
   const phone = await openPaired({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  const onThread = await phone.evaluate(name => {
+    // Thread rows are role="button" divs carrying the name as their title.
+    const el = [...document.querySelectorAll('[role="button"]')].find(
+      x => x.getAttribute('title') === name || x.textContent.trim() === name
+    );
+    if (!el) return false;
+    el.click();
+    return true;
+  }, threadName);
+  if (!onThread) throw new Error(`the phone could not find the thread "${threadName}"`);
+  // Clicking is not selecting. Confirm the phone is actually on that thread
+  // before anything is sent, or the card goes to a window nobody is watching
+  // and the failure looks like a missing card.
+  await phone
+    .waitForFunction(
+      name => (document.querySelector('.thread-header')?.innerText || '').includes(name),
+      { timeout: 15000 },
+      threadName
+    )
+    .catch(() => {
+      throw new Error(`the phone clicked "${threadName}" but stayed on another thread`);
+    });
+  await new Promise(r => setTimeout(r, 2000));
 
   await desk.waitForSelector('textarea.input-box', { timeout: 30000 });
   await desk.waitForFunction(() => !document.querySelector('textarea.input-box').disabled, { timeout: 60000 });
@@ -223,6 +265,41 @@ await step('the approval card fits a 390px phone, takes focus, and Escape denies
   await phone.close();
   await desk.close();
 });
+
+// --- 3. The thread survives the Core restarting ------------------------------
+
+// Opt-in, because only the caller knows how to stop and start this Core.
+// ASTERIM_RESTART_CMD must return once the Core is answering again.
+if (process.env.ASTERIM_RESTART_CMD) {
+  await step('the transcript and the session survive the Core restarting', async () => {
+    const before = await openPaired({ width: 1512, height: 900 });
+    await before.waitForSelector('textarea.input-box', { timeout: 30000 });
+    await new Promise(r => setTimeout(r, 2000));
+    const seen = await before.evaluate(() => document.body.innerText);
+    const marker = /ASTERIM_[A-Z0-9_]+\.txt/.exec(seen)?.[0];
+    if (!marker) throw new Error('no earlier task found in the transcript to look for after the restart');
+    await before.close();
+
+    const { execSync } = await import('node:child_process');
+    // A restart prints a new pairing PIN. If the command echoes one, use it —
+    // otherwise the next page load would spend an attempt on a stale PIN and
+    // walk into the lockout this same gate verifies works.
+    const output = execSync(process.env.ASTERIM_RESTART_CMD, { encoding: 'utf8', shell: true });
+    process.stdout.write(output);
+    const fresh = /(\d{6})/.exec(output);
+    if (fresh) currentPin = fresh[1];
+
+    const after = await openPaired({ width: 1512, height: 900 });
+    await after.waitForSelector('textarea.input-box', { timeout: 60000 });
+    await new Promise(r => setTimeout(r, 3000));
+    await after.screenshot({ path: path.join(outDir, '03-after-restart.png') });
+    const text = await after.evaluate(() => document.body.innerText);
+    if (!text.includes(marker)) {
+      throw new Error(`the transcript did not come back; "${marker}" is missing after the restart`);
+    }
+    await after.close();
+  });
+}
 
 fs.rmSync(phoneTarget, { force: true });
 await browser.close();

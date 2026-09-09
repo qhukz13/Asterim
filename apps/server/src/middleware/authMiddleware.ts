@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { pairingService } from '../services/PairingService';
 import { tokenService } from '../services/TokenService';
+import { accountsEnabled } from '../services/AccountsFeature';
 import { AccessTokenPayload } from '@asterim/shared';
 
 /** True for addresses that can only originate on this machine. */
@@ -22,7 +23,10 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
     // Only protect API routes
     if (!request.url.startsWith('/api/v1/')) return;
 
-    // Public auth endpoints
+    // Public auth endpoints. The three account routes are on this list because
+    // an unauthenticated registration endpoint cannot work otherwise; the
+    // routes themselves answer 404 unless `accountsEnabled()`, which is what
+    // stops the list from being a way past the PIN.
     if (
       request.url.startsWith('/api/v1/auth/pair') ||
       request.url.startsWith('/api/v1/auth/register') ||
@@ -64,11 +68,16 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       if (token) {
-        // 1. Check Access Token
-        const jwtPayload = tokenService.verifyAccessToken(token);
-        if (jwtPayload) {
-          request.user = jwtPayload;
-          return;
+        // 1. An account access token, but only where accounts exist. A JWT
+        //    signed before the feature was turned off, or minted by a build
+        //    that had it on, must not open anything on a workstation whose
+        //    only stated credential is the pairing PIN.
+        if (accountsEnabled()) {
+          const jwtPayload = tokenService.verifyAccessToken(token);
+          if (jwtPayload) {
+            request.user = jwtPayload;
+            return;
+          }
         }
         // 2. Fallback to PIN pairing token
         if (pairingService.validateToken(token)) {
