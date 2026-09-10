@@ -246,10 +246,31 @@ try {
     });
   }
 
-  await step('Changes view renders', async () => {
+  await step('Changes view renders, and a changed file shows its diff', async () => {
     await clickButton('Changes');
     await new Promise(r => setTimeout(r, 2500));
+
+    // Selecting a file is the point of the view. Capturing it with nothing
+    // selected produced a screenshot of a panel saying "No File Selected" —
+    // a true picture of the view and a useless picture of the product.
+    const picked = await page.evaluate(name => {
+      const row = [...document.querySelectorAll('div')]
+        .filter(el => el.textContent.trim() === name)
+        .pop();
+      if (!row) return false;
+      (row.closest('div[style]') || row).click();
+      return true;
+    }, 'ASTERIM_E2E.txt');
+    if (!picked) throw new Error('no changed file could be selected in the Changes view');
+
+    await page
+      .waitForFunction(() => !document.body.innerText.includes('No File Selected'), { timeout: 15000 })
+      .catch(() => undefined);
+    await new Promise(r => setTimeout(r, 1500));
     await shot('04-changes');
+
+    const showsDiff = await page.evaluate(() => !document.body.innerText.includes('No File Selected'));
+    if (!showsDiff) throw new Error('a file was selected but no diff appeared');
   });
 } catch {
   await shot('99-failure').catch(() => undefined);

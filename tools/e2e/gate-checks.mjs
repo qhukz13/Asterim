@@ -266,6 +266,45 @@ await step('the approval card fits a 390px phone, takes focus, and Escape denies
   await desk.close();
 });
 
+// --- 2b. The usage summary is in Settings and shows real numbers ---------------
+
+await step('the usage summary renders in Settings with numbers from this machine', async () => {
+  const page = await openPaired({ width: 1512, height: 900 });
+  const opened = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find(x => /^Settings$/i.test(x.textContent.trim()));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  if (!opened) throw new Error('the Settings view could not be opened');
+  await page.waitForFunction(() => document.body.innerText.includes('Usage on this machine'), {
+    timeout: 20000
+  });
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('h3')].find(x => /Usage on this machine/i.test(x.textContent));
+    el?.scrollIntoView({ block: 'center' });
+  });
+  await new Promise(r => setTimeout(r, 1200));
+  await page.screenshot({ path: path.join(outDir, '05-usage.png') });
+
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll('.usage-row')].map(r => r.innerText.split('\n').join(' | '))
+  );
+  if (rows.length < 6) throw new Error(`the summary showed only ${rows.length} rows`);
+  const approvals = rows.find(r => r.startsWith('Approvals'));
+  if (!approvals || !/approved \d+/.test(approvals)) {
+    throw new Error(`the approvals row is missing its breakdown: ${approvals}`);
+  }
+  // Counts only. A name, path or prompt here is the one thing this panel
+  // promises never to show.
+  const text = await page.evaluate(() => document.querySelector('.usage-panel')?.innerText || '');
+  const PATH_SHAPED = /[A-Za-z]:\\|\/home\/|\/Users\//;
+  if (PATH_SHAPED.test(text)) {
+    throw new Error('the usage panel shows a filesystem path');
+  }
+  await page.close();
+});
+
 // --- 3. A shell command gets the same gate, and denying it stops the command --
 
 await step('a shell command is gated, and denying it stops the command running', async () => {
