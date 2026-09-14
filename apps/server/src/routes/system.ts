@@ -139,6 +139,58 @@ export default async function systemRoutes(fastify: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /api/v1/system/diagnostics
+   *
+   * Everything a support conversation needs about this installation, with the
+   * home directory, the data directory and anything credential-shaped replaced
+   * before it leaves the process. Computed on demand; nothing is stored and
+   * nothing is transmitted anywhere by Asterim.
+   */
+  fastify.get('/api/v1/system/diagnostics', async (request, reply) => {
+    try {
+      const { collectDiagnostics, formatDiagnostics } = await import(
+        '../services/diagnostics/AgentDiagnostics'
+      );
+
+      let schemaVersion: number | undefined;
+      try {
+        const row = dbService
+          .getDb()
+          .prepare('SELECT MAX(version) as version FROM schema_migrations')
+          .get() as { version?: number } | undefined;
+        schemaVersion = row?.version ?? undefined;
+      } catch {
+        schemaVersion = undefined;
+      }
+
+      const report = collectDiagnostics(schemaVersion);
+      return { report, text: formatDiagnostics(report) };
+    } catch (err) {
+      console.error('[SystemRoute] Failed to collect diagnostics:', err);
+      reply.status(500).send({ error: 'Could not collect diagnostics' });
+    }
+  });
+
+  /**
+   * GET /api/v1/system/usage
+   *
+   * The local usage summary (P0-11): counts and durations describing how this
+   * installation has been used, computed on demand from the local database.
+   * It carries no project name, path, prompt, command or file name, and
+   * Asterim transmits it nowhere — the user decides whether to share it.
+   */
+  fastify.get('/api/v1/system/usage', async (request, reply) => {
+    try {
+      const { computeUsageSummary, formatUsageSummary } = await import('../services/UsageSummary');
+      const summary = computeUsageSummary(dbService.getDb());
+      return { summary, text: formatUsageSummary(summary) };
+    } catch (err) {
+      console.error('[SystemRoute] Failed to compute the usage summary:', err);
+      reply.status(500).send({ error: 'Could not read the usage summary' });
+    }
+  });
+
   fastify.get('/api/v1/system/vapid', async (request, reply) => {
     return { publicKey: pushService.getPublicKey() };
   });

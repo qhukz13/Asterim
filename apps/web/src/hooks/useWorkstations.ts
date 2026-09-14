@@ -23,7 +23,7 @@ export function useWorkstations() {
       const protocol = window.location.protocol;
       const hostname = window.location.hostname;
       // Query the local server for discovery
-      const res = await fetch(`${protocol}//${hostname}:3000/api/v1/system/workstations`);
+      const res = await fetch(`${window.location.origin}/api/v1/system/workstations`);
       if (res.ok) {
         const data = await res.json();
         setDiscovered(data.workstations || []);
@@ -57,7 +57,7 @@ export function useWorkstations() {
 
   const activeBackendUrl = activeWorkstation
     ? `http://${activeWorkstation.ip}:${activeWorkstation.port}`
-    : `http://${window.location.hostname}:3000`; // fallback to current host
+    : window.location.origin; // the Core that served this page
 
   const setActiveWorkstation = (id: string | undefined) => {
     setConfig((prev: WorkstationConfig) => ({ ...prev, preferredWorkstationId: id }));

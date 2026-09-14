@@ -175,6 +175,9 @@
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  /* The tab strip grows to fill the row, so without a gap here its scrolled
+     edge sits flush against the action buttons on the right. */
+  gap: 16px;
 }
 
 .view-navigation-tabs {
@@ -189,6 +192,14 @@
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-strong) transparent;
+  /* The strip scrolls, so its right edge lands mid-tab whenever there are
+     more views than fit. Butted straight against the action buttons a
+     half-drawn tab reads as two controls overlapping, which is what the
+     product screenshots showed. The fade says "there is more, scroll" and
+     the padding keeps the cut off the buttons. */
+  padding-right: 20px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
 }
 
 .view-navigation-tabs::-webkit-scrollbar {
@@ -216,4 +227,43 @@
 /* Right-hand actions never collapse, and never take space from the tabs. */
 .view-navigation-actions {
   flex-shrink: 0;
+}
+
+/* Thread view tabs. One accent, an underline, no gradients: the design system's
+   single-emerald rule applies to the most-used control in the product. */
+.view-tab {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.view-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.view-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+
+.view-tab:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: -2px;
+}
+
+.view-tab-more {
+  width: 150px;
+  flex-shrink: 0;
+  align-self: center;
 }

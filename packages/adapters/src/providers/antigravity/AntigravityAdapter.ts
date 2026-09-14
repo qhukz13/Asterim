@@ -4,6 +4,27 @@ import { AdapterCapabilities, LaunchConfig, IParser } from '../../sdk/types';
 import { AntigravityParser } from './AntigravityParser';
 import { AsterimEvent } from '@asterim/shared';
 
+/**
+ * Where the scripted mock agent lives.
+ *
+ * Under `tsx` this file is `packages/adapters/src/providers/antigravity/`, so the
+ * script is three directories up. In the bundled Core it is `apps/server/dist/`,
+ * where the build copies the script next to `index.js`. Both are tried; the
+ * source layout is the fallback so an unexpected bundle still says which file
+ * it could not find.
+ */
+export function resolveMockScript(): string {
+  const fs = require('fs');
+  const candidates = [
+    path.join(__dirname, 'mock-antigravity.js'),
+    path.join(__dirname, '..', '..', '..', 'mock-antigravity.js')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[candidates.length - 1];
+}
+
 export class AntigravityAdapter extends BaseAdapter {
   public readonly id = 'antigravity';
   
@@ -53,7 +74,7 @@ export class AntigravityAdapter extends BaseAdapter {
     const isMock = config.isMock || process.env.MOCK_AGENT === 'true';
 
     let spawnCmd = isMock ? 'node' : 'agy';
-    let spawnArgs = isMock ? [path.join(__dirname, '..', '..', '..', 'mock-antigravity.js')] : [];
+    let spawnArgs = isMock ? [resolveMockScript()] : [];
     if (!isMock) {
       if (config.hasHistory !== false) {
         spawnArgs.push('-c');

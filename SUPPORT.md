@@ -15,6 +15,6 @@ If you have discovered a security vulnerability, please do **NOT** open a public
 
 ## Best Practices for Getting Help
 
-- **Read the Blueprint**: Before asking a design question, please check the `blueprint/` directory. It is our comprehensive source of truth for architecture and product decisions.
+- **Read the docs**: Before asking a design question, check `PROJECT_CONTEXT.md` and `docs/` (index in `docs/README.md`).
 - **Provide Context**: When reporting an issue, provide as much context as possible (OS, Node version, logs, and screenshots if applicable).
 - **Be Respectful**: Please review and adhere to our [Code of Conduct](./CODE_OF_CONDUCT.md).

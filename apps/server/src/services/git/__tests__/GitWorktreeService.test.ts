@@ -114,6 +114,9 @@ function read(dir: string, relative: string): string {
 function makeRepo(prefix = 'asterim-worktree-repo-'): string {
   const dir = makeTempDir(prefix);
   git('git init -q -b main', dir);
+  // Windows checkouts default to autocrlf=true, which rewrites the line endings
+  // this suite compares byte for byte. The temporary repos opt out.
+  git('git config core.autocrlf false', dir);
   git('git config user.email worktree@test.local', dir);
   git('git config user.name "Worktree Test"', dir);
   write(dir, 'README.md', '# base\n');
@@ -229,6 +232,7 @@ async function main(): Promise<void> {
 
   const empty = makeTempDir('asterim-worktree-empty-');
   git('git init -q -b main', empty);
+  git('git config core.autocrlf false', empty);
   await throwsCode('nor in a repository with no commits', 'NO_COMMITS', () =>
     service.createWorktree(empty, 'thread-empty')
   );

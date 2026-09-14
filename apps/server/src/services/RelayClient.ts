@@ -63,6 +63,18 @@ export class RelayClient {
       return;
     }
 
+    // The relay is a frozen subsystem and is not part of the MVP. Without this
+    // the Core opened a socket to `http://localhost:4000` on every boot and
+    // retried it forever, because the URL has a default. Nothing left the
+    // machine — the default is loopback — but "Asterim makes no outbound
+    // connections" should be true by construction, not because the default
+    // happens to point at this machine. Setting ASTERIM_RELAY_URL is the
+    // opt-in.
+    if (!process.env.ASTERIM_RELAY_URL) {
+      console.log('[RelayClient] No ASTERIM_RELAY_URL set; the Core stays local and connects to nothing.');
+      return;
+    }
+
     this.keyPair = await generateECDHKeyPair();
 
     console.log(`[RelayClient] Connecting to relay: ${this.relayUrl}`);

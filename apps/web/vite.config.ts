@@ -69,6 +69,12 @@ export default defineConfig({
         target: `ws://localhost:${corePort}`,
         ws: true,
       },
+      // The dashboard always talks to the origin that served it; in Vite dev
+      // that origin is this proxy, so Socket.IO has to be forwarded as well.
+      '/socket.io': {
+        target: `http://localhost:${corePort}`,
+        ws: true,
+      },
     },
   }
 });

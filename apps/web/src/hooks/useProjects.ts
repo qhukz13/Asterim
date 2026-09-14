@@ -13,7 +13,7 @@ export function useProjects(activeBackendUrl?: string, environmentId?: string) {
   const [error, setError] = useState<string | null>(null);
 
   const baseUrl =
-    activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+    activeBackendUrl || window.location.origin;
 
   const fetchProjects = async () => {
     try {

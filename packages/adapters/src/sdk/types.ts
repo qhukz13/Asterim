@@ -23,6 +23,23 @@ export interface IParser {
   processOutput(chunk: any): void;
 }
 
+/** One tool call a native-protocol agent wants a human to decide on. */
+export interface NativePermissionAsk {
+  toolName: string;
+  input: Record<string, unknown>;
+  toolUseId?: string;
+  /** The agent's own one-line description of the call, when it gave one. */
+  description?: string;
+  /** Why the agent's own rules did not decide this call themselves. */
+  reason?: string;
+  /**
+   * Aborted when the agent withdraws the request before it is answered (a
+   * hook or a permission rule decided first). The resolver should stop waiting
+   * on the human and cancel anything it showed.
+   */
+  signal?: AbortSignal;
+}
+
 export interface LaunchConfig {
   workspace: string;
   isMock?: boolean;
@@ -38,6 +55,17 @@ export interface LaunchConfig {
   mcpTools?: AgentToolDescriptor[];
   /** The instructions describing those tools and how to call them. */
   mcpToolInstructions?: string;
+  /**
+   * Answers permission requests raised by an agent through its own protocol
+   * (Claude Code's `can_use_tool` control request). The Core resolves it after
+   * the human decides. Absent means every such request is denied, which is the
+   * safe reading of "nobody is there to answer".
+   */
+  permissionResolver?: (ask: NativePermissionAsk) => Promise<{ approved: boolean; message?: string }>;
+  /** A provider session id to resume, when the thread has one. */
+  resumeSessionId?: string;
+  /** Extra text appended to the provider's system prompt (profiles, briefings). */
+  systemPromptAppendix?: string;
 }
 
 export interface IAgentProvider {

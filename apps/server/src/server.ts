@@ -93,6 +93,52 @@ fastify.register(cors, {
 // Register authentication middleware
 fastify.register(authMiddleware);
 
+// The dashboard and the API share an origin and the Core is reachable on the
+// LAN, so a paired browser tab must not be framable by another site and the
+// browser must not sniff types. Kept minimal; there is no inline-script CSP yet.
+fastify.addHook('onSend', async (_request, reply) => {
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('Referrer-Policy', 'no-referrer');
+});
+
+/**
+ * Refuse any request whose raw path contains a traversal segment, before it
+ * reaches a route or the static handler.
+ *
+ * The shipped `@fastify/static` (7.x) has an advisory for a route-guard bypass
+ * via path traversal, fixed only in 10.1.2, which requires Fastify 5. That
+ * upgrade is a framework major and is not something to do in a release
+ * candidate week, so this closes the described class of request instead: the
+ * dashboard never asks for a path containing `..` in any encoding, and the
+ * Core is reachable on the LAN behind nothing but a PIN, so a file read outside
+ * the web root is not a risk worth carrying while waiting for the upgrade.
+ *
+ * Matching is on `request.raw.url`, the bytes as they arrived, because the
+ * whole point of the bypass is that decoding happens after the guard would
+ * otherwise have run. Repeated decoding catches double-encoded forms.
+ */
+const TRAVERSAL = /(^|[/\\])\.\.([/\\]|$)/;
+fastify.addHook('onRequest', async (request, reply) => {
+  let candidate = request.raw.url ?? '';
+  for (let i = 0; i < 3; i++) {
+    if (TRAVERSAL.test(candidate)) {
+      reply.status(400).send({ error: 'Bad Request' });
+      return reply;
+    }
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(candidate);
+    } catch {
+      // A malformed escape cannot be decoded and cannot be a traversal either.
+      break;
+    }
+    if (decoded === candidate) break;
+    candidate = decoded;
+  }
+  return undefined;
+});
+
 // Setup Static File Serving for Production (Phase 6)
 let webDistPath = path.join(__dirname, 'web');
 if (!fs.existsSync(webDistPath)) {
@@ -278,6 +324,20 @@ const start = async () => {
     // catalogue is never briefly empty on a fresh workstation.
     const { profileService } = await import('./services/ai/ProfileService');
     profileService.initBuiltinProfiles();
+
+    // The personal environment. The dashboard hard-codes `personal` as the
+    // environment a project belongs to, and `projects.workspace_id` is a
+    // foreign key, so on a database that has never seen one the very first
+    // "Add project" failed with a 500 (found by the clean-machine test,
+    // 2026-09-09). Seeding it here makes it an invariant of a running Core
+    // rather than something the client has to provoke by calling
+    // `/api/v1/workspaces` in the right order.
+    try {
+      const { workspaceService } = await import('./services/WorkspaceService');
+      workspaceService.ensurePersonalWorkspace('acc_dev', 'usr_dev');
+    } catch (err) {
+      console.error('[Startup] Could not seed the personal environment:', err);
+    }
 
     // The channel supplies the default port, so a stable Core on 3000 and a
     // development Core on 3001 can be up at the same time (DEC-029). An explicit

@@ -344,6 +344,26 @@ export class VerificationPipelineService {
             process.kill(-child.pid, signal);
             return;
           }
+          if (child.pid && process.platform === 'win32') {
+            // `shell: true` means the child is cmd.exe and the real work is its
+            // own child. `child.kill()` is TerminateProcess on the shell alone,
+            // which leaves the grandchild running with the pipes still open, so
+            // `close` never fires and the step hangs for ever rather than
+            // timing out. `taskkill /t` is the only way to take the tree down.
+            // Found on 2026-09-09: this suite had never run on Windows, because
+            // an earlier suite in the chain failed first and stopped it.
+            spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+              stdio: 'ignore',
+              windowsHide: true
+            }).on('error', () => {
+              try {
+                child.kill(signal);
+              } catch {
+                /* already dead */
+              }
+            });
+            return;
+          }
         } catch {
           // The group is already gone, or was never created. Fall through to the
           // child itself, which is the only handle left.
@@ -360,10 +380,16 @@ export class VerificationPipelineService {
       // moment the process closes, so a step that dies politely leaves no timer
       // holding the event loop open.
       let hardTimer: NodeJS.Timeout | undefined;
+      let lastResortTimer: NodeJS.Timeout | undefined;
       const softTimer = setTimeout(() => {
         timedOut = true;
         killTree('SIGTERM');
-        hardTimer = setTimeout(() => killTree('SIGKILL'), VERIFICATION_KILL_GRACE_MS);
+        hardTimer = setTimeout(() => {
+          killTree('SIGKILL');
+          // Whatever happens to the process, this call answers. A step that
+          // could not be killed must not hold the pipeline open behind it.
+          lastResortTimer = setTimeout(() => settle(null), VERIFICATION_KILL_GRACE_MS);
+        }, VERIFICATION_KILL_GRACE_MS);
       }, limit);
 
       const settle = (exitCode: number | null) => {
@@ -371,6 +397,7 @@ export class VerificationPipelineService {
         settled = true;
         clearTimeout(softTimer);
         if (hardTimer) clearTimeout(hardTimer);
+        if (lastResortTimer) clearTimeout(lastResortTimer);
 
         const durationMs = Date.now() - startedAt;
         const error = timedOut
@@ -381,7 +408,13 @@ export class VerificationPipelineService {
           name,
           command,
           passed: !timedOut && !spawnError && exitCode === 0,
-          exitCode,
+          // A step we killed has no exit code worth reporting, whatever the
+          // platform hands back. POSIX reports null for a signalled process;
+          // Windows reports whatever the terminated shell happened to return,
+          // usually 1, which reads as "the command failed" rather than "we
+          // stopped it". Normalising here keeps one contract: timed out means
+          // no exit code.
+          exitCode: timedOut ? null : exitCode,
           durationMs,
           stdoutSummary: bounded(stdout),
           stderrSummary: bounded(stderr),

@@ -150,7 +150,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
     setIsSettingRemote(true);
     setError(null);
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl = activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
@@ -191,7 +191,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
     setError(null);
 
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl = activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
@@ -233,7 +233,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
     setIsGeneratingCommit(true);
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl = activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
@@ -263,7 +263,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
     setIsExplainingDiff(true);
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl = activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 
@@ -293,7 +293,7 @@ export function ChangesView({ socket, projectId, activeBackendUrl, agentStatus, 
 
     setIsReviewingChanges(true);
     try {
-      const baseUrl = activeBackendUrl || `${window.location.protocol}//${window.location.hostname}:3000`;
+      const baseUrl = activeBackendUrl || window.location.origin;
       const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
       const token = localStorage.getItem(tokenKey) || '';
 

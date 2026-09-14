@@ -49,3 +49,6 @@ coverage/
 temp_test_nogit/
 
 scratch/
+
+# Copied from the repository root at build time so npm shows it.
+apps/server/README.md

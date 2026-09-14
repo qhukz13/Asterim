@@ -5,6 +5,8 @@ import crypto from 'crypto';
 
 export class WorkspaceMonitor {
   private watcher: FSWatcher | null = null;
+  /** Watch failures already reported, so one unreadable tree logs once. */
+  private reportedWatchErrors = new Set<string>();
   private git: SimpleGit;
   private eventCallback?: (event: AsterimEvent) => void;
 
@@ -41,7 +43,20 @@ export class WorkspaceMonitor {
     this.watcher
       .on('add', (path: string) => this.handleFileEvent(path, 'added'))
       .on('change', (path: string) => this.handleFileEvent(path, 'modified'))
-      .on('unlink', (path: string) => this.handleFileEvent(path, 'deleted'));
+      .on('unlink', (path: string) => this.handleFileEvent(path, 'deleted'))
+      // A project folder almost always contains something this process may not
+      // read: a protected system directory, a permission-restricted mount, a
+      // file that vanished between the scan and the stat. Without this handler
+      // chokidar surfaces each one as an unhandled rejection, which the Core
+      // writes to `crash.log` — one real project produced 1,796 of them and a
+      // multi-megabyte crash file. Watching is best-effort by nature, so a path
+      // that cannot be watched is logged once, at most, and skipped.
+      .on('error', (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        if (this.reportedWatchErrors.has(message)) return;
+        this.reportedWatchErrors.add(message);
+        console.warn(`[WorkspaceMonitor] Not watching part of ${this.workspacePath}: ${message}`);
+      });
 
     console.log(`[WorkspaceMonitor] Started watching ${this.workspacePath}`);
   }

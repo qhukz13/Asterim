@@ -1,0 +1,121 @@
+/* Local usage summary panel (P0-11). A table of counts, so the numbers line up
+   in one column and the eye can run down them without reading the labels. */
+
+.usage-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.usage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.usage-head h3 {
+  margin: 0 0 4px;
+}
+
+.usage-sub {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.usage-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.usage-refresh:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+.usage-period {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.usage-error,
+.usage-empty,
+.usage-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+}
+
+.usage-error {
+  border-color: var(--color-state-error, #ef4444);
+  color: var(--color-state-error, #ef4444);
+}
+
+.usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.usage-row {
+  display: grid;
+  /* Label, then a fixed numeric column, then the qualifier. The middle column
+     is fixed so every count lines up regardless of how long its label is. */
+  grid-template-columns: minmax(120px, 1fr) 72px minmax(0, 2fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.usage-row:last-child {
+  border-bottom: none;
+}
+
+.usage-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.usage-value {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  text-align: right;
+}
+
+.usage-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.usage-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.usage-hint-inline {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  max-width: 52ch;
+}

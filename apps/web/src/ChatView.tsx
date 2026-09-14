@@ -8,6 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   IconUser,
   IconBot,
+  IconAlertTriangle,
   IconChevronRight,
   IconChevronDown,
   IconTerminal,
@@ -486,7 +487,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                     height: '26px',
                     borderRadius: 'var(--radius-xs)',
                     background: msg.role === 'user' ? 'var(--color-surface-3)' : 'var(--color-surface-2)',
-                    color: msg.role === 'user' ? 'var(--color-text-primary)' : 'var(--color-accent-primary)',
+                    color:
+                      msg.role === 'user'
+                        ? 'var(--color-text-primary)'
+                        : msg.role === 'system'
+                          ? 'var(--color-state-paused, #f59e0b)'
+                          : 'var(--color-accent-primary)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -494,7 +500,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                     border: '1px solid var(--color-border-subtle)'
                   }}
                 >
-                  {msg.role === 'user' ? <IconUser size={14} /> : <IconBot size={14} />}
+                  {msg.role === 'user' ? (
+                    <IconUser size={14} />
+                  ) : msg.role === 'system' ? (
+                    <IconAlertTriangle size={14} />
+                  ) : (
+                    <IconBot size={14} />
+                  )}
                 </div>
 
                 {/* Message Bubble Container */}
@@ -502,7 +514,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                   style={{
                     flex: 1,
                     background: msg.role === 'user' ? 'var(--color-surface-1)' : 'var(--color-surface-0)',
-                    border: '1px solid var(--color-border-subtle)',
+                    border:
+                      msg.role === 'system'
+                        ? '1px solid rgba(245, 158, 11, 0.4)'
+                        : '1px solid var(--color-border-subtle)',
                     borderRadius: 'var(--radius-sm)',
                     padding: 'var(--spacing-3) var(--spacing-4)',
                     maxWidth: '100%'
@@ -521,10 +536,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                       style={{
                         fontSize: 'var(--font-size-md)',
                         fontWeight: 'var(--font-weight-semibold)',
-                        color: msg.role === 'user' ? 'var(--color-text-primary)' : 'var(--color-accent-hover)'
+                        color:
+                          msg.role === 'user'
+                            ? 'var(--color-text-primary)'
+                            : msg.role === 'system'
+                              ? 'var(--color-state-paused, #f59e0b)'
+                              : 'var(--color-accent-hover)'
                       }}
                     >
-                      {msg.role === 'user' ? 'Developer' : 'Agent Assistant'}
+                      {/* A message from Asterim itself is not the agent talking.
+                          Labelling a failure "Agent Assistant" told people the
+                          model had said something it never said. */}
+                      {msg.role === 'user' ? 'Developer' : msg.role === 'system' ? 'Asterim' : 'Agent Assistant'}
                     </span>
                     <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                       {new Date(msg.timestamp).toLocaleTimeString([], {
@@ -542,7 +565,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ messages, isWorking }) => {
                       color: 'var(--color-text-primary)'
                     }}
                   >
-                    {msg.role === 'agent' ? renderMessageContent(msg.content) : msg.content}
+                    {/* System messages carry diagnoses with a numbered list of
+                        things to try, so they need markdown as much as the
+                        agent's own output does. */}
+                    {msg.role === 'agent' || msg.role === 'system'
+                      ? renderMessageContent(msg.content)
+                      : msg.content}
                   </div>
                 </div>
               </div>

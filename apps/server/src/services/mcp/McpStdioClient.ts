@@ -117,6 +117,31 @@ export class McpStdioClient {
 
     this.onData = (chunk: Buffer) => this.ingest(chunk.toString('utf8'));
     this.stdout.on('data', this.onData);
+
+    // A server that exits leaves its stdin destroyed. `write()` on a destroyed
+    // pipe does not throw — it emits `error` asynchronously, and a stream with
+    // no error listener raises an uncaught exception. On 2026-09-09 a single
+    // misconfigured MCP server (a command that exits immediately) crash-looped
+    // the Core on every boot with `write EPIPE`, so the machine could not start
+    // at all until the row was deleted by hand. An MCP server must never be
+    // able to do that: the failure belongs to whoever asked for the request.
+    this.stdin.on('error', err => {
+      this.log(`[MCP] The server's input stream failed: ${(err as Error).message}`);
+      this.failAllPending(err as Error);
+    });
+    this.stdout.on('error', err => {
+      this.log(`[MCP] The server's output stream failed: ${(err as Error).message}`);
+      this.failAllPending(err as Error);
+    });
+  }
+
+  /** Rejects every in-flight request, because nothing is going to answer them. */
+  private failAllPending(err: Error): void {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      this.pending.delete(id);
+      pending.reject(err);
+    }
   }
 
   /**
@@ -206,6 +231,9 @@ export class McpStdioClient {
       });
 
       try {
+        if (this.stdin.destroyed || this.stdin.writableEnded) {
+          throw new Error('the MCP server is not running');
+        }
         this.stdin.write(`${payload}\n`);
       } catch (err) {
         this.pending.delete(id);
@@ -218,7 +246,13 @@ export class McpStdioClient {
   /** Sends a notification. Nothing answers, so nothing is awaited. */
   public notify(method: string, params?: Record<string, unknown>): void {
     if (this.disposed) return;
-    this.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params: params ?? {} })}\n`);
+    if (this.stdin.destroyed || this.stdin.writableEnded) return;
+    try {
+      this.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params: params ?? {} })}\n`);
+    } catch (err) {
+      // Nothing awaits a notification, so there is nobody to reject.
+      this.log(`[MCP] Could not send '${method}': ${(err as Error).message}`);
+    }
   }
 
   /**

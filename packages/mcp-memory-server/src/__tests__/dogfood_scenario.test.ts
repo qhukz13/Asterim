@@ -495,7 +495,14 @@ async function main(): Promise<void> {
       );
 
       assertStdoutPurity(probe);
-      equal('the live probe exited cleanly', await probe.stop(), 0);
+      // Windows reports `null` for a child ended by TerminateProcess() rather
+      // than the 0 a POSIX SIGTERM handler returns; the probe still stopped.
+      const exitCode = await probe.stop();
+      equal(
+        'the live probe exited cleanly',
+        process.platform === 'win32' && exitCode === null ? 0 : exitCode,
+        0
+      );
     }
 
     equal('the live database was not modified — size unchanged', fs.statSync(livePath).size, beforeSize);

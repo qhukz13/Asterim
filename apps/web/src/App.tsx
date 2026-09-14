@@ -3,9 +3,33 @@ import { useLocation } from 'wouter';
 import { useSocket } from './hooks/useSocket';
 import { XTerminal } from './XTerminal';
 import { ChatView } from './ChatView';
-import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar, IconCommand, IconFileCode, IconUsers, IconActivity } from './components/icons/Icons';
+import { IconMessage, IconTerminal, IconGitBranch, IconSettings, IconAlertTriangle, IconStar } from './components/icons/Icons';
+import type { ViewType } from './stores/useViewStore';
+
+/**
+ * The views a thread opens with. Five, on purpose: everything a first session
+ * needs is here, and the rest lives under "More" so the strip never overflows
+ * at laptop widths. Team and pipeline views are frozen prototypes and are not
+ * offered at all; their routes still resolve for anyone who has a URL.
+ */
+const PRIMARY_VIEWS: { id: ViewType; label: string; icon: typeof IconMessage }[] = [
+  { id: 'chat', label: 'Chat', icon: IconMessage },
+  { id: 'terminal', label: 'Terminal', icon: IconTerminal },
+  { id: 'changes', label: 'Changes', icon: IconGitBranch },
+  { id: 'memory', label: 'Memory', icon: IconStar },
+  { id: 'settings', label: 'Settings', icon: IconSettings }
+];
+
+const MORE_VIEWS: { id: ViewType; label: string }[] = [
+  { id: 'mcp', label: 'MCP servers' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'environment', label: 'Environment' }
+];
 import { useAuth } from './hooks/useAuth';
 import { ChatInput } from './components/ChatInput';
+import { ApprovalCard } from './components/approvals/ApprovalCard';
+import { DiagnosticsPanel } from './components/diagnostics/DiagnosticsPanel';
+import { UsagePanel } from './components/usage/UsagePanel';
 import { SessionSidebar } from './components/SessionSidebar';
 import { PinScreen } from './PinScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -57,159 +81,6 @@ if (typeof window !== 'undefined') {
   };
 }
 
-interface ApprovalOverlayProps {
-
-  approvalRequest: {
-    actionId: string;
-    description: string;
-    command: string;
-    timestamp?: number;
-  };
-  onApprove: (actionId: string) => void;
-  onDeny: (actionId: string) => void;
-  onSwitchToTerminal?: (actionId: string) => void;
-}
-
-function ApprovalOverlay({
-  approvalRequest,
-  onApprove,
-  onDeny,
-  onSwitchToTerminal
-}: ApprovalOverlayProps) {
-  const [timeLeft, setTimeLeft] = useState<number>(300);
-
-  useEffect(() => {
-    const calculateTimeLeft = () => {
-      const startTime = approvalRequest.timestamp || Date.now();
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, 300 - elapsed);
-      setTimeLeft(remaining);
-    };
-
-    calculateTimeLeft();
-    const interval = setInterval(calculateTimeLeft, 1000);
-
-    return () => clearInterval(interval);
-  }, [approvalRequest]);
-
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
-  const isUrgent = timeLeft < 60;
-
-  const timerText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
-  return (
-    <div className="dialog-overlay">
-      <div className="dialog-box glass-panel">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px'
-          }}
-        >
-          <h3
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              margin: 0,
-              color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-warning-primary)'
-            }}
-          >
-            <IconAlertTriangle size={18} /> Action Required
-          </h3>
-          <div
-            className={isUrgent ? 'pulse-timer urgent' : 'pulse-timer'}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '20px',
-              fontSize: '0.85rem',
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              background: isUrgent ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-              color: isUrgent ? 'var(--color-error-primary)' : 'var(--color-text-secondary)',
-              border: isUrgent ? '1px solid var(--color-error-primary)' : '1px solid transparent',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            {timerText}
-          </div>
-        </div>
-
-        <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginTop: 0 }}>
-          The agent needs your permission to proceed.
-        </p>
-
-        <div
-          style={{
-            background: 'rgba(0,0,0,0.3)',
-            padding: '12px',
-            borderRadius: '8px',
-            border: '1px solid var(--color-border-default)',
-            marginBottom: '16px'
-          }}
-        >
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px'
-            }}
-          >
-            Description
-          </div>
-          <div style={{ fontWeight: 500 }}>{approvalRequest.description}</div>
-
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--color-text-secondary)',
-              marginTop: '12px',
-              marginBottom: '4px'
-            }}
-          >
-            Command
-          </div>
-          <div
-            style={{
-              fontFamily: 'monospace',
-              color: 'var(--color-accent-hover)',
-              overflowX: 'auto',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all'
-            }}
-          >
-            {approvalRequest.command}
-          </div>
-        </div>
-
-        <div className="dialog-actions">
-          {approvalRequest.command === 'TERMINAL_ACTION_REQUIRED' && onSwitchToTerminal ? (
-            <button
-              className="btn-approve"
-              style={{ width: '100%', padding: '14px' }}
-              onClick={() => onSwitchToTerminal(approvalRequest.actionId)}
-            >
-              Switch to Terminal Tab
-            </button>
-          ) : (
-            <>
-              <button className="btn-deny" onClick={() => onDeny(approvalRequest.actionId)}>
-                Deny
-              </button>
-              <button className="btn-approve" onClick={() => onApprove(approvalRequest.actionId)}>
-                Approve
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface QuestionOverlayProps {
   questionRequest: {
     questionId: string;
@@ -225,7 +96,7 @@ function QuestionOverlay({ questionRequest, onSelect }: QuestionOverlayProps) {
     <div className="dialog-overlay">
       <div className="dialog-box glass-panel" style={{ maxWidth: '600px', width: '90%' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, color: 'var(--color-accent-hover)' }}>❓ Question from Agent</h3>
+          <h3 style={{ margin: 0, color: 'var(--color-accent-hover)' }}>Question from the agent</h3>
         </div>
 
         <p style={{ fontSize: '1.05rem', fontWeight: 500, marginTop: 0, marginBottom: '20px' }}>
@@ -414,9 +285,9 @@ function ProjectWorkspace({
   useEffect(() => {
     if (approvalRequest && autoApproval !== 'ask') {
       if (autoApproval === 'approve') {
-        sendApproval(approvalRequest.actionId, true);
+        sendApproval(approvalRequest.actionId, true, 'auto-rule');
       } else if (autoApproval === 'deny') {
-        sendApproval(approvalRequest.actionId, false);
+        sendApproval(approvalRequest.actionId, false, 'auto-rule');
       }
     }
   }, [approvalRequest, autoApproval, sendApproval]);
@@ -432,9 +303,6 @@ function ProjectWorkspace({
         sendChatMessage(text);
       }
 
-      if (agentType === 'claude' || agentType === 'aider') {
-        setActiveTab('terminal');
-      }
     }
   };
 
@@ -443,6 +311,36 @@ function ProjectWorkspace({
       terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [events, activeTab]);
+
+  /**
+   * When something last happened in this thread, from the transcript itself.
+   *
+   * This line used to read "just now" unconditionally, whatever the timestamp
+   * on the last message was. A header that states a fact it has not checked is
+   * worse than a header that omits it, so an empty transcript now shows
+   * nothing at all rather than a comfortable fiction.
+   */
+  const [clockTick, setClockTick] = React.useState(0);
+  React.useEffect(() => {
+    // The clock is read in an effect, not during render: reading it during
+    // render is impure, and a label that never re-renders would freeze at
+    // whatever it said when the last message arrived.
+    setClockTick(Date.now());
+    const id = setInterval(() => setClockTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [messages]);
+
+  const lastActivityLabel = React.useMemo(() => {
+    const last = messages.length ? messages[messages.length - 1].timestamp : 0;
+    if (!last || !clockTick) return '';
+    const seconds = Math.max(0, Math.round((clockTick - last) / 1000));
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }, [messages, clockTick]);
 
   const mainContent = (
     <main className="workspace-main-content">
@@ -455,19 +353,46 @@ function ProjectWorkspace({
           alignItems: 'center',
           padding: '12px 24px',
           borderBottom: '1px solid var(--color-border-default)',
-          background: 'rgba(255, 255, 255, 0.02)'
+          background: 'rgba(255, 255, 255, 0.02)',
+          /* At 1280 px the centre column cannot hold the thread identity and
+             the agent controls side by side. Wrapping puts the controls on a
+             second row; squeezing instead truncated the thread name to one
+             letter and pushed the status badge over the thread id. */
+          flexWrap: 'wrap',
+          rowGap: '10px'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+        {/* `minWidth: 0` so this side yields at 1280 px instead of forcing the
+            meta line to wrap one word per row, which is what it did before. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '260px', flex: '1 1 auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: '1.1rem',
+                fontWeight: 600,
+                color: 'var(--color-text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
               {activeThreadId 
                 ? (threads.find(t => t.id === activeThreadId)?.name || `Thread ${activeThreadId.slice(0, 8)}`)
                 : 'No Active Mission'}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '4px', display: 'flex', gap: '12px' }}>
+            <div
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-text-secondary)',
+                marginTop: '4px',
+                display: 'flex',
+                gap: '12px',
+                flexWrap: 'wrap',
+                whiteSpace: 'nowrap'
+              }}
+            >
               <span>{activeThreadId ? `Thread: ${activeThreadId.slice(0, 8)}` : 'Idle Workspace'}</span>
-              {activeThreadId && <span>Last activity: just now</span>}
+              {activeThreadId && lastActivityLabel && <span>Last activity: {lastActivityLabel}</span>}
               {agentStatus.status === 'waiting_approval' && <span style={{ color: '#fbbf24' }}>1 Pending Approval</span>}
             </div>
           </div>
@@ -480,22 +405,21 @@ function ProjectWorkspace({
               color: agentStatus.status === 'working' ? '#60a5fa' : agentStatus.status === 'waiting_approval' ? '#fbbf24' : 'var(--color-text-secondary)',
               border: `1px solid ${agentStatus.status === 'working' ? 'rgba(59, 130, 246, 0.3)' : agentStatus.status === 'waiting_approval' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255,255,255,0.1)'}`
             }}>
-              {agentStatus.status === 'working' ? '● Executing' : 
-               agentStatus.status === 'waiting_approval' ? '⏸ Paused for Review' :
-               agentStatus.status === 'error' ? '✖ Error' : '○ Idle'}
+              {agentStatus.status === 'working' ? 'Executing' :
+               agentStatus.status === 'waiting_approval' ? 'Paused for review' :
+               agentStatus.status === 'error' ? 'Error' : 'Idle'}
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
           <div style={{ width: '220px' }}>
             <CustomDropdown
               value={agentType}
               onChange={(val: any) => setAgentType(val)}
               options={[
-                { value: 'claude', label: 'Claude (Anthropic)' },
-                { value: 'aider', label: 'Aider (Python)' },
-                { value: 'antigravity', label: 'Antigravity (Google)' }
+                { value: 'claude', label: 'Claude Code' },
+                { value: 'antigravity', label: 'Antigravity — preview' }
               ]}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             />
@@ -541,220 +465,28 @@ function ProjectWorkspace({
         }}
       >
         <div className="view-navigation-tabs">
-          {/* Future Thread Timeline (Execution History) Placeholder */}
-          {/* <ThreadTimeline threadId={activeThreadId} /> */}
-          <button
-            className={`nav-btn ${activeTab === 'chat' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'chat' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'chat' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'chat' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('chat')}
-          >
-            <IconMessage size={15} /> Chat
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'terminal' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'terminal' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'terminal' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'terminal' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('terminal')}
-          >
-            <IconTerminal size={15} /> Terminal
-          </button>
-
-          <button
-            className={`nav-btn ${activeTab === 'changes' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'changes' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'changes' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'changes' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('changes')}
-          >
-            <IconGitBranch size={15} /> Changes
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'memory' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'memory' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'memory' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'memory' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('memory')}
-          >
-            <IconStar size={15} /> Memory
-          </button>
-
-          <button
-            className={`nav-btn ${activeTab === 'mcp' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'mcp' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'mcp' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'mcp' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('mcp')}
-          >
-            <IconCommand size={15} /> MCP
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'skills' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'skills' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'skills' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'skills' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('skills')}
-          >
-            <IconFileCode size={15} /> Skills
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'team' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'team' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'team' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'team' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('team')}
-          >
-            <IconUsers size={15} /> Team
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'pipelines' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'pipelines' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'pipelines' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'pipelines' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('pipelines')}
-          >
-            <IconActivity size={15} /> Pipelines
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'settings' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'settings' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'settings' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('settings')}
-          >
-            <IconSettings size={15} /> Settings
-          </button>
-          <button
-            className={`nav-btn ${activeTab === 'environment' || activeTab === 'workspace' ? 'active' : ''}`}
-            style={{
-              padding: '8px 18px',
-              height: '40px',
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)',
-              background: activeTab === 'environment' || activeTab === 'workspace' ? 'var(--color-surface-2)' : 'transparent',
-              color: activeTab === 'environment' || activeTab === 'workspace' ? '#ffffff' : 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'environment' || activeTab === 'workspace' ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
-              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onClick={() => setActiveTab('environment')}
-          >
-            ⚙ Environment
-          </button>
+          {PRIMARY_VIEWS.map(view => {
+            const Icon = view.icon;
+            return (
+              <button
+                key={view.id}
+                className={`view-tab ${activeTab === view.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(view.id)}
+              >
+                <Icon size={15} />
+                <span>{view.label}</span>
+              </button>
+            );
+          })}
+          <div className="view-tab-more">
+            <CustomDropdown
+              value={MORE_VIEWS.some(v => v.id === activeTab) ? activeTab : '__more'}
+              onChange={(val: string) => {
+                if (val !== '__more') setActiveTab(val);
+              }}
+              options={[{ value: '__more', label: 'More' }, ...MORE_VIEWS.map(v => ({ value: v.id, label: v.label }))]}
+            />
+          </div>
         </div>
 
         <div className="view-navigation-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -786,7 +518,7 @@ function ProjectWorkspace({
           )}
           {activeTab === 'chat' && messages.length > 0 && (
             <button className="clear-chat-btn" onClick={clearMessages} title="Clear Chat History">
-              🧹 Clear Chat
+              Clear chat
             </button>
           )}
         </div>
@@ -834,9 +566,8 @@ function ProjectWorkspace({
               }}
               disabled={agentStatus.status !== 'idle' && agentStatus.status !== 'error'}
             >
-              <option value="claude">Claude Code (Anthropic)</option>
-              <option value="aider">Aider (Python)</option>
-              <option value="antigravity">Antigravity (Google)</option>
+              <option value="claude">Claude Code</option>
+              <option value="antigravity">Antigravity — preview</option>
             </select>
             {isBinaryMissing && (
               <div
@@ -859,6 +590,8 @@ function ProjectWorkspace({
             )}
           </div>
           <AISettings activeBackendUrl={activeBackendUrl} />
+          <DiagnosticsPanel activeBackendUrl={activeBackendUrl} />
+          <UsagePanel activeBackendUrl={activeBackendUrl} />
         </div>
       )}
 
@@ -1006,8 +739,11 @@ function ProjectWorkspace({
         <>
           {overlays}
           {approvalRequest && autoApproval === 'ask' && (
-            <ApprovalOverlay
-              approvalRequest={approvalRequest}
+            <ApprovalCard
+              // A fresh subtree per request: two consecutive approvals must not
+              // share DOM, so a click aimed at one can never land on the next.
+              key={approvalRequest.actionId}
+              request={approvalRequest}
               onApprove={id => sendApproval(id, true)}
               onDeny={id => sendApproval(id, false)}
               onSwitchToTerminal={id => {
@@ -1108,17 +844,19 @@ export function App() {
   const navigationSidebar = (
     <NavigationSidebar
       onAddProject={() => setShowAddProject(true)}
+      onProjectRemoved={refreshProjects}
     />
   );
 
   const [serverRelayUrl, setServerRelayUrl] = useState<string | undefined>(undefined);
   const [isFirstRun, setIsFirstRun] = useState(false);
+  const [detectedBinaries, setDetectedBinaries] = useState<{ claude?: boolean; antigravity?: boolean } | null>(null);
 
   useEffect(() => {
     // Fetch system info to get relay url
     const baseUrl =
       workstations.activeBackendUrl ||
-      `${window.location.protocol}//${window.location.hostname}:3000`;
+      window.location.origin;
     const tokenKey = workstations.activeBackendUrl
       ? `asterim_token_${workstations.activeBackendUrl}`
       : 'asterim_token';
@@ -1128,6 +866,7 @@ export function App() {
       .then(data => {
         if (data.relayUrl) setServerRelayUrl(data.relayUrl);
         if (data.isFirstRun) setIsFirstRun(true);
+        if (data.binaries) setDetectedBinaries(data.binaries);
       })
       .catch(console.error);
   }, [workstations.activeBackendUrl]);
@@ -1151,6 +890,7 @@ export function App() {
       {isFirstRun && (
         <FirstRunWizard
           activeBackendUrl={workstations.activeBackendUrl}
+          binaries={detectedBinaries}
           onComplete={() => setIsFirstRun(false)}
         />
       )}

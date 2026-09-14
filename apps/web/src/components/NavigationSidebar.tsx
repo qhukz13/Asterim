@@ -4,19 +4,29 @@ import { useProjectStore } from '../stores/useProjectStore';
 import { useDebugLifecycle } from '../utils/debug';
 import { usePanelStore } from '../stores/usePanelStore';
 import { useLocation } from 'wouter';
-import { IconPlus, IconFolder, IconSearch, IconStar } from './icons/Icons';
+import { IconPlus, IconFolder, IconSearch, IconStar, IconTrash } from './icons/Icons';
+import { ConfirmDialog } from './overlays/ConfirmDialog';
+import { getAuthHeaders } from '../utils/auth';
 
 interface NavigationSidebarProps {
   onAddProject: () => void;
+  /** Called after a project is removed, so the caller can refresh its list. */
+  onProjectRemoved?: () => void;
 }
 
-export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
+export function NavigationSidebar({ onAddProject, onProjectRemoved }: NavigationSidebarProps) {
   const projects = useWorkspaceStore((s) => s.projects);
   const activeEnvironmentId = useWorkspaceStore((s) => s.activeEnvironmentId) || 'personal';
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const [, setLocation] = useLocation();
 
   const [searchQuery, setSearchQuery] = useState('');
+  /** The project whose removal is awaiting confirmation, if any. */
+  const [pendingRemoval, setPendingRemoval] = useState<{ id: string; name: string; path?: string } | null>(
+    null
+  );
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [isCompact, setIsCompact] = useState<boolean>(() => {
     return localStorage.getItem('asterim_sidebar_compact') === 'true';
   });
@@ -61,6 +71,37 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
   };
 
   useDebugLifecycle('NavigationSidebar', { activeProjectId });
+
+  /**
+   * Removes a project from Asterim.
+   *
+   * The agent is stopped first: deleting the thread rows out from under a
+   * running session would leave a process writing to a project that no longer
+   * exists. Files on disk are never touched — the dialog says so.
+   */
+  const confirmRemoval = async () => {
+    if (!pendingRemoval) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      const res = await fetch(`/api/v1/projects/${pendingRemoval.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `The server answered ${res.status}`);
+      }
+      const removedActive = activeProjectId === pendingRemoval.id;
+      setPendingRemoval(null);
+      if (removedActive) setLocation('/');
+      onProjectRemoved?.();
+    } catch (err) {
+      setRemoveError((err as Error).message);
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   const isCollapsed = usePanelStore((s) => s.isLeftSidebarCollapsed);
   const width = usePanelStore((s) => s.leftSidebarWidth);
@@ -276,6 +317,32 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
           </div>
         )}
       </div>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${pendingRemoval.name} from Asterim?`}
+          body={
+            <>
+              Asterim will forget this project and its threads, transcripts and approval history.
+              {pendingRemoval.path && (
+                <>
+                  {' '}
+                  The folder <code>{pendingRemoval.path}</code> is not touched.
+                </>
+              )}
+            </>
+          }
+          reassurance="Nothing on disk is deleted. You can add the folder again at any time, but the conversation history will not come back."
+          confirmLabel="Remove project"
+          busy={removing}
+          error={removeError}
+          onConfirm={confirmRemoval}
+          onCancel={() => {
+            setPendingRemoval(null);
+            setRemoveError(null);
+          }}
+        />
+      )}
     </aside>
   );
 
@@ -284,6 +351,7 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
     return (
       <div
         key={p.id}
+        className="project-row"
         onClick={() => setLocation(`/workspace/project/${p.id}`)}
         style={{
           padding: isCompact ? '4px 6px' : '6px 8px',
@@ -340,6 +408,18 @@ export function NavigationSidebar({ onAddProject }: NavigationSidebarProps) {
             )}
           </div>
         </div>
+
+        <button
+          className="project-remove"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPendingRemoval(p);
+          }}
+          title={`Remove ${p.name} from Asterim`}
+          aria-label={`Remove ${p.name} from Asterim`}
+        >
+          <IconTrash size={12} />
+        </button>
 
         <button
           onClick={(e) => togglePinProject(e, p.id)}

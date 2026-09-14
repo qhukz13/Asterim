@@ -157,7 +157,11 @@ function insertProject(dbPath: string, id: string, name: string): void {
 /** Uses the per-channel home-relative directories instead of ASTERIM_DATA_DIR. */
 function useChannelDirs(): void {
   delete process.env.ASTERIM_DATA_DIR;
+  // `os.homedir()` reads USERPROFILE on Windows and HOME elsewhere. Setting
+  // only HOME once pointed this suite at the operator's real ~/.asterim and
+  // migrated it (2026-09-08). Both are overridden, always.
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
 }
 
 /** Pins both channels onto one explicit directory again. */
@@ -168,6 +172,7 @@ function useExplicitDir(dir: string): void {
 
 function main(): void {
   const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   const stableDir = path.join(fakeHome, '.asterim');
   const devDir = path.join(fakeHome, '.asterim-dev');
   const stableDb = path.join(stableDir, 'asterim.db');
@@ -627,7 +632,18 @@ function main(): void {
   describe('spawned for real, a CLI invocation exits without becoming a server');
 
   process.env.HOME = originalHome;
-  const tsxBin = path.resolve(__dirname, '../../../node_modules/.bin/tsx');
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
+  // `node_modules/.bin/tsx` is a POSIX shell script; on Windows only the `.cmd`
+  // shim next to it is spawnable, and neither takes the arguments unchanged.
+  // Running tsx's own CLI entry under the current Node works everywhere.
+  let tsxCli: string;
+  try {
+    tsxCli = require.resolve('tsx/cli');
+  } catch {
+    tsxCli = '';
+  }
+  const tsxBin = tsxCli;
   const entrypoint = path.resolve(__dirname, '../../index.ts');
   const spawnDir = path.join(tmpDir, 'spawned');
   fs.mkdirSync(spawnDir, { recursive: true, mode: 0o700 });
@@ -635,7 +651,7 @@ function main(): void {
   if (!fs.existsSync(tsxBin)) {
     check('tsx is available to spawn the entrypoint', false, `not found at ${tsxBin}`);
   } else {
-    const spawned = spawnSync(tsxBin, [entrypoint, 'db:status'], {
+    const spawned = spawnSync(process.execPath, [tsxBin, entrypoint, 'db:status'], {
       encoding: 'utf8',
       timeout: 60_000,
       env: {
@@ -671,7 +687,7 @@ function main(): void {
       spawned.stdout.slice(0, 400)
     );
 
-    const spawnedHelp = spawnSync(tsxBin, [entrypoint, '--help'], {
+    const spawnedHelp = spawnSync(process.execPath, [tsxBin, entrypoint, '--help'], {
       encoding: 'utf8',
       timeout: 60_000,
       env: { ...process.env, ASTERIM_DATA_DIR: spawnDir, PORT: '39217' }
@@ -679,7 +695,7 @@ function main(): void {
     equal('--help exits 0 as a subprocess too', spawnedHelp.status, 0);
     check('printing the command list', spawnedHelp.stdout.includes('data:clone'));
 
-    const spawnedBad = spawnSync(tsxBin, [entrypoint, 'db:staus'], {
+    const spawnedBad = spawnSync(process.execPath, [tsxBin, entrypoint, 'db:staus'], {
       encoding: 'utf8',
       timeout: 60_000,
       env: { ...process.env, ASTERIM_DATA_DIR: spawnDir, PORT: '39217' }

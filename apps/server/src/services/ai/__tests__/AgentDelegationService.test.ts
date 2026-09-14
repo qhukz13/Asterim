@@ -1,3 +1,6 @@
+// The suite exercises routes through fastify.inject() as the local developer user; the middleware only grants that on loopback with this explicit opt-in (docs/audit/security-audit.md, S1).
+process.env.ASTERIM_DEV_AUTH_BYPASS = process.env.ASTERIM_DEV_AUTH_BYPASS ?? 'true';
+
 /**
  * Tests for the Multi-Agent Handoff & Role Delegation protocol (P7-01).
  *
@@ -2219,6 +2222,13 @@ async function main(): Promise<void> {
       execSync(command, { cwd, encoding: 'utf8', env: gitEnv, stdio: 'pipe' }).trim();
 
     git('git init -q -b main');
+    // With the operator's global core.autocrlf=true, git rewrites line
+    // endings on checkout, so a file merged back from a worktree comes out
+    // CRLF-terminated and fails a byte comparison against the LF the test
+    // wrote. The same guard is in GitWorktreeService.test.ts; see
+    // docs/development/testing.md.
+    git('git config core.autocrlf false');
+    git('git config core.eol lf');
     git('git config user.email delegation@test.local');
     git('git config user.name "Delegation Test"');
     fs.writeFileSync(path.join(repoDir, 'app.ts'), 'export const version = 1;\n');

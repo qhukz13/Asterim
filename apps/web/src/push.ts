@@ -18,7 +18,7 @@ export async function subscribeToPushNotifications(token: string) {
     const hostname = window.location.hostname;
 
     // Fetch VAPID public key
-    const vapidRes = await fetch(`${protocol}//${hostname}:3000/api/v1/system/vapid`, {
+    const vapidRes = await fetch(`${window.location.origin}/api/v1/system/vapid`, {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -41,7 +41,7 @@ export async function subscribeToPushNotifications(token: string) {
     });
 
     // Send subscription to server
-    await fetch(`${protocol}//${hostname}:3000/api/v1/system/subscribe`, {
+    await fetch(`${window.location.origin}/api/v1/system/subscribe`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
