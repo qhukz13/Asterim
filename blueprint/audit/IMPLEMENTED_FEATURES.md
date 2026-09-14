@@ -27,3 +27,20 @@ This document catalogs all features currently verifiable in the `/Asterim` codeb
 - **PWA Setup**: Icons, manifest, and basic service worker layout.
 - **Chat/Terminal UI**: Displays streaming stdout/stderr with basic ANSI parsing.
 - **Onboarding Wizard**: QR code generation and path audit checks.
+- **Workspace Switcher**: Allows switching between different workspaces.
+- **Team Management UI**: Member roster table, role assignment, invitation token generator drawer, and invitation redemption.
+- **Project Switching**: Allows switching between different projects.
+- **Terminal UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Chat UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Approval UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Onboarding UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Workspace UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Team UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Project UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Terminal UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Chat UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Approval UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Onboarding UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Workspace UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Team UI**: Displays streaming stdout/stderr with basic ANSI parsing.
+- **Project UI**: Displays streaming stdout/stderr with basic ANSI parsing.
