@@ -6,6 +6,7 @@ import './styles/layout.css';
 import './styles/approval.css';
 import './styles/diagnostics.css';
 import './styles/usage.css';
+import './styles/workspace.css';
 import './index.css';
 import { setupGlobalErrorTracking, setupDOMObserver, setupRouterProxy, DebugErrorBoundary, Debug } from './utils/debug';
 

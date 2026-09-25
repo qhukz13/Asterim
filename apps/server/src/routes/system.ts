@@ -8,6 +8,7 @@ import { SECRET_MASK, isMasked } from '../services/security/EnvironmentSecretSer
 import { startupService } from '../services/StartupService';
 import { mdnsService } from '../services/mDNSService';
 import { describeChannel } from '../utils/channel';
+import { globalProviderRegistry } from '@asterim/adapters';
 
 export default async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/api/v1/system', async (request, reply) => {
@@ -29,6 +30,15 @@ export default async function systemRoutes(fastify: FastifyInstance) {
       isFirstRun,
       sovereignMode: isSovereignMode(),
       binaries: startupService.getAgentBinariesStatus()
+    };
+  });
+
+  /**
+   * Registered agent providers and their current status (ADR-004).
+   */
+  fastify.get('/api/v1/system/providers', async () => {
+    return {
+      providers: globalProviderRegistry.getProviderDescriptors()
     };
   });
 
@@ -164,7 +174,18 @@ export default async function systemRoutes(fastify: FastifyInstance) {
         schemaVersion = undefined;
       }
 
-      const report = collectDiagnostics(schemaVersion);
+      let projectPaths: string[] = [];
+      try {
+        const rows = dbService
+          .getDb()
+          .prepare('SELECT path FROM projects')
+          .all() as { path?: string }[];
+        projectPaths = rows.map(r => r.path ?? '').filter(Boolean);
+      } catch {
+        projectPaths = [];
+      }
+
+      const report = collectDiagnostics(schemaVersion, projectPaths);
       return { report, text: formatDiagnostics(report) };
     } catch (err) {
       console.error('[SystemRoute] Failed to collect diagnostics:', err);

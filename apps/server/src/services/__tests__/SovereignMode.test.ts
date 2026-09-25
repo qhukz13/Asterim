@@ -26,6 +26,7 @@ interface SocketAttempt {
 }
 const socketAttempts: SocketAttempt[] = [];
 const pushAttempts: { endpoint: string }[] = [];
+const bonjourAttempts: any[] = [];
 
 const originalLoad = (Module as any)._load;
 (Module as any)._load = function patched(request: string, parent: unknown, isMain: boolean) {
@@ -49,6 +50,23 @@ const originalLoad = (Module as any)._load;
       }
     };
     return { ...stub, default: stub };
+  }
+  if (request === 'bonjour-service') {
+    class MockBonjour {
+      publish(opts: any) {
+        bonjourAttempts.push(opts);
+        return { stop: () => undefined };
+      }
+      find() {
+        return { on: () => undefined };
+      }
+      destroy() {
+        return undefined;
+      }
+    }
+    (MockBonjour as any).default = MockBonjour;
+    (MockBonjour as any).Service = class {};
+    return MockBonjour;
   }
   return originalLoad.apply(this, [request, parent, isMain]);
 };
@@ -153,10 +171,15 @@ async function main(): Promise<void> {
   let RelayClient: any;
   socketAttempts.length = 0;
   await withSovereign(true, async () => {
-    RelayClient = require('../RelayClient').RelayClient;
-    const client = new RelayClient();
-    await wait(50);
-    check('a tunnel id is still issued', typeof client.tunnelId === 'string' && client.tunnelId.length > 0);
+    process.env.ASTERIM_RELAY_URL = 'http://localhost:4000';
+    try {
+      RelayClient = require('../RelayClient').RelayClient;
+      const client = new RelayClient();
+      await wait(50);
+      check('a tunnel id is still issued', typeof client.tunnelId === 'string' && client.tunnelId.length > 0);
+    } finally {
+      delete process.env.ASTERIM_RELAY_URL;
+    }
   });
   equal(
     'no socket was opened — by the singleton or the explicit instance',
@@ -166,8 +189,13 @@ async function main(): Promise<void> {
 
   socketAttempts.length = 0;
   await withSovereign(false, async () => {
-    new RelayClient();
-    await wait(50);
+    process.env.ASTERIM_RELAY_URL = 'http://localhost:4000';
+    try {
+      new RelayClient();
+      await wait(50);
+    } finally {
+      delete process.env.ASTERIM_RELAY_URL;
+    }
   });
   equal('with sovereign mode off, the relay still connects', socketAttempts.length, 1);
   check(
@@ -201,6 +229,25 @@ async function main(): Promise<void> {
   });
   equal('with sovereign mode off, the push is dispatched', pushAttempts.length, 1);
   check('to the stored subscription', pushAttempts[0]?.endpoint.includes('fcm.googleapis.com'), pushAttempts[0]?.endpoint);
+
+  // --- MDNSService -----------------------------------------------------------
+  describe('MDNSService publishes nothing in sovereign mode');
+
+  const { MDNSService } = require('../mDNSService');
+  const mdns = new MDNSService();
+
+  bonjourAttempts.length = 0;
+  await withSovereign(true, async () => {
+    mdns.start(3000);
+  });
+  equal('no mDNS service was published in sovereign mode', bonjourAttempts.length, 0);
+
+  bonjourAttempts.length = 0;
+  await withSovereign(false, async () => {
+    mdns.start(3000);
+  });
+  equal('with sovereign mode off, the mDNS service is published', bonjourAttempts.length, 1);
+  mdns.stop();
 
   // --- AI provider (DEC-028 § 3) --------------------------------------------
   describe('AI generation stays local in sovereign mode');

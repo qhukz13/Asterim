@@ -1,6 +1,7 @@
 import Bonjour, { Service } from 'bonjour-service';
 import { Workstation } from '@asterim/shared';
 import os from 'os';
+import { isSovereignMode, announceSovereignBlock } from './SovereignMode';
 
 export class MDNSService {
   private bonjour: Bonjour | null = null;
@@ -9,6 +10,10 @@ export class MDNSService {
   private listeners: ((workstations: Workstation[]) => void)[] = [];
 
   public start(port: number) {
+    if (isSovereignMode()) {
+      announceSovereignBlock('mDNS', 'Local network service publishing and discovery disabled.');
+      return;
+    }
     try {
       this.bonjour = new Bonjour();
       this.service = this.bonjour.publish({

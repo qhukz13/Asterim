@@ -7,6 +7,7 @@ import { BaseAdapter } from '../../sdk/BaseAdapter';
 import { AdapterCapabilities, LaunchConfig, IParser, NativePermissionAsk } from '../../sdk/types';
 import { sanitizeAgentEnv } from '../../sdk/ProcessManager';
 import { AsterimEvent } from '@asterim/shared';
+import { buildClaudeConsequence } from './consequence';
 
 /**
  * Claude Code adapter.
@@ -178,6 +179,7 @@ export class ClaudeAdapter extends BaseAdapter {
   private pendingMessages: string[] = [];
   private providerSessionId: string | null = null;
   private permissionResolver: LaunchConfig['permissionResolver'];
+  private workspace?: string;
   /** Permission requests waiting on a human, by the CLI's request id. */
   private pendingAsks = new Map<string, AbortController>();
 
@@ -246,6 +248,7 @@ export class ClaudeAdapter extends BaseAdapter {
   public async start(config: LaunchConfig & { onExit?: (code: number) => void }): Promise<void> {
     this.parser = this.createParser();
     this.permissionResolver = config.permissionResolver;
+    this.workspace = config.workspace;
     const launch = this.getLaunchCommand(config);
 
     this.emitStatus('startup', 'Starting Claude Code…');
@@ -472,13 +475,28 @@ export class ClaudeAdapter extends BaseAdapter {
 
     const controller = new AbortController();
     this.pendingAsks.set(requestId, controller);
+
+    const toolName = request.tool_name ?? 'tool';
+    const input = request.input ?? {};
+    const intent = request.description ?? request.title;
+    const escalationReason = request.decision_reason;
+
+    const consequence = buildClaudeConsequence({
+      toolName,
+      input,
+      intent,
+      escalationReason,
+      projectPath: this.workspace
+    });
+
     const ask: NativePermissionAsk = {
-      toolName: request.tool_name ?? 'tool',
-      input: request.input ?? {},
+      toolName,
+      input,
       toolUseId: request.tool_use_id,
-      description: request.description ?? request.title,
-      reason: request.decision_reason,
-      signal: controller.signal
+      description: intent,
+      reason: escalationReason,
+      signal: controller.signal,
+      consequence
     };
 
     let approved = false;

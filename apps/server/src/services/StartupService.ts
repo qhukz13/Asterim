@@ -61,7 +61,7 @@ export class StartupService {
     }
   }
 
-  private binaryCache: { claude: boolean; aider: boolean; antigravity: boolean } | null = null;
+  private binaryCache: Record<string, boolean> | null = null;
 
   public getAntigravityBinaryPath(): string | null {
     if (this.isBinaryOnPath('agy')) {
@@ -84,25 +84,18 @@ export class StartupService {
 
   public checkBinaries() {
     const hasClaude = this.isBinaryOnPath('claude');
-    const hasAider = this.isBinaryOnPath('aider');
     const antigravityPath = this.getAntigravityBinaryPath();
     const hasAntigravity = antigravityPath !== null;
 
     this.binaryCache = {
       claude: hasClaude,
-      aider: hasAider,
-      antigravity: hasAntigravity || true // fallback to true to prevent UI error because we use mock
+      antigravity: hasAntigravity
     };
 
     if (!hasClaude) {
       console.warn(`\x1b[33m⚠️  Warning: 'claude' CLI binary was not found on your PATH.
    Claude Code is required for the Claude Agent.
    Install via: npm install -g @anthropic-ai/claude-code\x1b[0m\n`);
-    }
-    if (!hasAider) {
-      console.warn(`\x1b[33m⚠️  Warning: 'aider' CLI binary was not found on your PATH.
-   Aider is required for the Aider Agent.
-   Install via: pip install aider-chat\x1b[0m\n`);
     }
     if (hasAntigravity) {
       console.log(`\x1b[32mℹ️  Info: 'agy' CLI binary found at ${antigravityPath}.

@@ -31,10 +31,10 @@ Last 200 log lines (paths under the data dir and project folders replaced with <
 **Edge cases.** Log file missing (fresh install); log line longer than 2,000 characters (truncate); Windows path separators in redaction.
 
 **Acceptance criteria.**
-- [ ] Bundle contains versions, OS, adapter detection, schema version, uptime, and the log tail.
-- [ ] No absolute path from outside the data directory survives redaction (test with a project under `C:\Users\<name>\...` and under `/home/<name>/...`).
-- [ ] No chat content survives.
-- [ ] Works when `server.log` does not exist.
+- [x] Bundle contains versions, OS, adapter detection, schema version, uptime, and the log tail.
+- [x] No absolute path from outside the data directory survives redaction (test with a project under `C:\Users\<name>\...` and under `/home/<name>/...`).
+- [x] No chat content survives.
+- [x] Works when `server.log` does not exist.
 
 **Testing requirements.** Unit test for the redaction function with Windows and POSIX paths; manual check of the button on the release gate.
 

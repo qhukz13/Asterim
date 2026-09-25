@@ -26,7 +26,7 @@ import {
   profileService
 } from './ai/ProfileService';
 import { fleetPolicyService } from './enterprise/FleetPolicyService';
-import type { AgentProfile } from '@asterim/shared';
+import type { AgentProfile, ApprovalConsequence } from '@asterim/shared';
 import type { NativePermissionAsk } from '@asterim/adapters';
 import { diagnoseAgentFailure } from './diagnostics/AgentDiagnostics';
 import type { CommandSecurityAnalysis } from './ApprovalManager';
@@ -40,6 +40,7 @@ export interface NativePermissionRequest {
   toolUseId?: string;
   agentDescription?: string;
   reason?: string;
+  consequence?: ApprovalConsequence;
   /** Aborted when the agent withdraws the request before it is answered. */
   signal?: AbortSignal;
 }
@@ -98,7 +99,7 @@ export class AgentService {
     {
       projectId: string;
       workspace: string;
-      agentType: 'aider' | 'claude' | 'antigravity';
+      agentType: string;
       profileId?: string;
     }
   >();
@@ -118,7 +119,7 @@ export class AgentService {
         const { command } = event.payload;
         const projectId = (event.payload as any).projectId;
         const threadId = (event.payload as any).threadId;
-        const agentType = (event.payload as any).agentType || 'aider'; // 'aider', 'claude' or 'antigravity'
+        const agentType = (event.payload as any).agentType || 'claude';
         // The profile the dashboard has selected for this thread, when it has
         // one. Absent means "whatever the thread was last started under".
         const profileId = (event.payload as any).profileId as string | undefined;
@@ -317,7 +318,7 @@ export class AgentService {
     projectId: string,
     threadId: string,
     projectPath: string,
-    agentType: 'aider' | 'claude' | 'antigravity',
+    agentType: string,
     profileId?: string
   ) {
     if (this.sessionManager.getSessionAdapter(threadId)) {
@@ -456,6 +457,7 @@ export class AgentService {
               toolUseId: ask.toolUseId,
               agentDescription: ask.description,
               reason: ask.reason,
+              consequence: ask.consequence,
               signal: ask.signal
             })
         : undefined;
@@ -730,17 +732,20 @@ export class AgentService {
     const { projectManager } = await import('./ProjectManager');
     const project = projectManager.getProject(request.projectId);
 
-    // What approving actually does, in a form the card can show. Built here,
-    // once, so the card, the log line and the `approvals` row cannot disagree
-    // about what was asked.
+    // What approving actually does, in a form the card can show. If the provider
+    // adapter computed the consequence natively, we use it directly. Otherwise,
+    // we fall back to buildConsequence so the card, the log line and the
+    // `approvals` row cannot disagree about what was asked.
     const { buildConsequence, summarise } = await import('./approvals/consequence');
-    const consequence = buildConsequence({
-      toolName: request.toolName,
-      input: request.toolInput,
-      intent: request.agentDescription,
-      escalationReason: request.reason,
-      projectPath: project?.path
-    });
+    const consequence =
+      request.consequence ??
+      buildConsequence({
+        toolName: request.toolName,
+        input: request.toolInput,
+        intent: request.agentDescription,
+        escalationReason: request.reason,
+        projectPath: project?.path
+      });
 
     // The heuristics judge the command for a shell action and the path
     // otherwise — the same text a person is shown, so a warning always refers

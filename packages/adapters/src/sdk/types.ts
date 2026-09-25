@@ -1,4 +1,4 @@
-import { AgentToolDescriptor, AsterimEvent } from '@asterim/shared';
+import { AgentToolDescriptor, AsterimEvent, ApprovalConsequence } from '@asterim/shared';
 
 export interface AdapterCapabilities {
   supportsDiff: boolean;
@@ -38,6 +38,8 @@ export interface NativePermissionAsk {
    * on the human and cancel anything it showed.
    */
   signal?: AbortSignal;
+  /** Pre-computed neutral consequence built by the adapter. */
+  consequence?: ApprovalConsequence;
 }
 
 export interface LaunchConfig {

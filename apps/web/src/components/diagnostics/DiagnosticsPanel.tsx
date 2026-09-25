@@ -33,6 +33,7 @@ export function DiagnosticsPanel({ activeBackendUrl }: { activeBackendUrl?: stri
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [showFallback, setShowFallback] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,8 +62,10 @@ export function DiagnosticsPanel({ activeBackendUrl }: { activeBackendUrl?: stri
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
+      setShowFallback(false);
       setTimeout(() => setCopied(false), 2000);
     } catch {
+      setShowFallback(true);
       setError('The clipboard is blocked. Select the text below and copy it manually.');
     }
   };
@@ -127,6 +130,18 @@ export function DiagnosticsPanel({ activeBackendUrl }: { activeBackendUrl?: stri
               Includes {report.logTail.length} recent log lines with paths and credentials removed.
             </span>
           </div>
+
+          {showFallback && (
+            <div className="diag-manual-copy">
+              <textarea
+                readOnly
+                value={text}
+                rows={10}
+                className="diag-textarea"
+                onClick={e => (e.target as HTMLTextAreaElement).select()}
+              />
+            </div>
+          )}
         </>
       )}
     </div>

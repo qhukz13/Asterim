@@ -4,9 +4,6 @@ import { projectManager } from '../../ProjectManager';
 import { execFile } from 'child_process';
 import { resolveClaudeLaunch } from '@asterim/adapters';
 import util from 'util';
-import { promises as fs } from 'fs';
-import os from 'os';
-import path from 'path';
 
 const execFileAsync = util.promisify(execFile);
 
@@ -43,17 +40,11 @@ export class ActiveAgentProvider implements IAIProvider {
     const agentType = this.getActiveAgentType(projectId);
 
     const isWin = process.platform === 'win32';
-    const tempFile = path.join(os.tmpdir(), `asterim-prompt-${Date.now()}-${Math.floor(Math.random() * 1000)}.txt`);
     
     let cmd: string;
     let args: string[];
 
     switch (agentType) {
-      case 'aider':
-        await fs.writeFile(tempFile, prompt, 'utf8');
-        cmd = isWin ? 'aider.cmd' : 'aider';
-        args = ['--message-file', tempFile, '--no-auto-commits', '--yes'];
-        break;
       case 'antigravity':
         cmd = isWin ? 'agy.cmd' : 'agy';
         args = ['-p', prompt];
@@ -78,10 +69,8 @@ export class ActiveAgentProvider implements IAIProvider {
     try {
       console.log(`[ActiveAgentProvider] Running headless agent: ${agentType} in ${workspace}`);
       const { stdout, stderr } = await execFileAsync(cmd, args, { cwd: workspace, maxBuffer: 1024 * 1024 * 10 });
-      if (agentType === 'aider') await fs.unlink(tempFile).catch(() => {});
       return stdout.trim() || stderr.trim();
     } catch (err: any) {
-      if (agentType === 'aider') await fs.unlink(tempFile).catch(() => {});
       console.error('[ActiveAgentProvider] Failed to run agent headless:', err);
       if (err.stdout) return err.stdout.trim();
       throw new Error(`Failed to run active agent (${agentType}): ${err.message}`, { cause: err });

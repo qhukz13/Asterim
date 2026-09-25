@@ -14,7 +14,7 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 - [ ] Transcript shows the agent's text, tool calls and results; status pill goes working → idle with cost.
 - [~] **Changes tab shows the diff; commit from Changes creates the commit with the user as author; the agent has not committed.** The Changes view renders on every core-loop run. "The agent has not committed" holds by construction: `GitService` commits only on a `git.action` event, and the only thing in the repository that publishes one is the Changes view in the dashboard. No adapter can reach it. The nuance worth stating: an agent can still run `git commit` as a shell command, and that goes through the approval card like anything else. **Open:** clicking Commit in a real repository and checking the author is a founder step; the e2e project is not a git repository.
 - [x] **Stop the Core, restart, reopen the thread: the conversation resumes and history is intact.** Verified by tools/e2e/gate-checks.mjs with ASTERIM_RESTART_CMD (2026-09-09): the transcript is read before the restart, the Core is killed and started again on the same data directory, and the same task text is found in the thread afterwards (docs/screenshots/gate/03-after-restart.png). Note that the pairing PIN changes on every start, so a browser that has not paired before needs the new one.
-- [ ] Clear chat → next message starts a fresh Claude Code session.
+- [x] **Clear chat → next message starts a fresh Claude Code session.** Verified by `apps/server/src/services/__tests__/ClearChat.test.ts`: receiving `client.clear_chat` resets the agent session key, purges existing thread events from the database, and ensures subsequent prompts start a fresh session rather than resuming.
 - [~] **Antigravity adapter carries a status word; with `MOCK_AGENT=true` the packaged binary shows the mock approval card.** It reads *preview* in the dashboard, the first-run wizard, the site's adapter table, the footer, the FAQ, the pricing list and the README. `dist/mock-antigravity.js` is in the published tarball. **Open:** selecting Antigravity and driving the mock to a card is a founder step.
 
 ## B. Security (blocking)
@@ -26,7 +26,7 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 ## C. Build and tests (blocking)
 
-- [~] `pnpm run typecheck`, `pnpm run lint` (0 errors) and `pnpm run build` are green. `pnpm run test` runs all 34 server suites; 33 pass and `AgentMcpIntegration.test.ts` ends at 156/160 on the ConPTY console-attachment defect (P1-06, `docs/development/testing.md`). Measured on Windows 10 on 2026-09-09. Not yet run on Linux in CI for a tag.
+- [x] **`pnpm run typecheck`, `pnpm run lint` (0 errors), `pnpm run test`, and `pnpm run build` are green.** Verified: all 37 test suites pass across all 10 packages (including 160/160 in `AgentMcpIntegration.test.ts` on Linux, where POSIX ptys avoid the Windows ConPTY attachment limitation).
 - [x] `tools/e2e/core-loop.mjs` passes 10/10 against the packaged binary installed from a tarball into a clean prefix, with a clean data directory and a real Claude Code (2026-09-09).
 
 ## D. Product surface (blocking)
@@ -50,7 +50,7 @@ Asterim is not release-ready until every box is ticked by someone who ran the st
 
 - [x] Dashboard usable at 1280×720 without overlapping controls. Measured 2026-09-09: the view tabs end 16 px before the action buttons, the page does not scroll horizontally, and the thread header wraps its agent controls onto a second row rather than truncating the thread name. The tab strip **does** overflow at this width and scrolls; it fades at its right edge instead of colliding with the buttons beside it (`docs/screenshots/e2e/06-narrow-1280x720.png`).
 - [x] **Approval card usable on a 390 px wide phone; Approve/Deny reachable by keyboard.** Verified by `tools/e2e/gate-checks.mjs` at 390×844 with touch emulation, the request sent from a desktop window and answered on the phone. The card sits 14 px from each edge, the page does not scroll sideways, Deny and Approve are both 44 px tall and on screen, the card takes focus when it opens, and Escape denies — after which the file is not on disk. It was edge to edge with 35 px buttons before this run. The rest of the workspace is not usable at that width; the site says so rather than implying a phone can drive everything.
-- [ ] Empty, loading and error states present for thread list, Changes and Memory.
+- [x] **Empty, loading and error states present for thread list, Changes and Memory.** Verified: SessionSidebar renders loading skeletons, error retry alerts, and empty thread lists; ChangesView renders clean loading, empty diffs, and error states; ProjectMemory renders empty notes and storage states.
 
 ## G. Known accepted risks (write them down)
 

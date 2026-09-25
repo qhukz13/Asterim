@@ -18,8 +18,10 @@ import path from 'path';
 import type { Diagnosis, DiagnosticCheck, DiagnosticsReport } from '@asterim/shared';
 import { describeChannel, resolveDataDir } from '../../utils/channel';
 
-/** Lines of `server.log` included in a report. */
-const LOG_TAIL_LINES = 120;
+/** Lines of `server.log` and `crash.log` included in a report (P0-12). */
+export const LOG_TAIL_LINES = 200;
+export const CRASH_LOG_TAIL_LINES = 50;
+export const MAX_LOG_LINE_LENGTH = 2000;
 
 /**
  * The oldest Claude Code that speaks the protocol the adapter needs:
@@ -167,21 +169,54 @@ export function diagnoseAgentFailure(agentType: string, rawMessage: string): Dia
 }
 
 /** Replaces anything machine-specific in a line of log or path text. */
-export function redactForReport(text: string): string {
+export function redactForReport(text: string, projectPaths: string[] = []): string {
   let out = text;
   const home = os.homedir();
   const dataDir = resolveDataDir();
-  const replacements: [string, string][] = [
-    [dataDir, '<data-dir>'],
-    [home, '<home>']
-  ];
-  for (const [from, to] of replacements) {
+
+  // Replacement targets ordered by string length descending so longer subpaths match first
+  const targets: { from: string; to: string }[] = [];
+
+  for (const p of projectPaths) {
+    if (p && p.trim()) targets.push({ from: p.trim(), to: '<path>' });
+  }
+  if (dataDir) targets.push({ from: dataDir, to: '<data-dir>' });
+  if (home) targets.push({ from: home, to: '<home>' });
+
+  targets.sort((a, b) => b.from.length - a.from.length);
+
+  for (const { from, to } of targets) {
     if (!from) continue;
-    // Both separators, because Windows logs contain each in different places.
-    for (const variant of [from, from.split(path.sep).join('/'), from.split(path.sep).join('\\\\')]) {
-      if (variant) out = out.split(variant).join(to);
+    // Generate separator variants: raw, forward slashes, double backslashes, single backslashes
+    const raw = from;
+    const posix = from.replace(/\\/g, '/');
+    const win = from.replace(/\//g, '\\');
+    const winEscaped = from.replace(/\\/g, '\\\\').replace(/\//g, '\\\\');
+
+    const variants = new Set([raw, posix, win, winEscaped]);
+
+    // Windows drive-letter casing variants (e.g. C: vs c:)
+    if (/^[a-zA-Z]:/.test(from)) {
+      const upper = from[0].toUpperCase() + from.slice(1);
+      const lower = from[0].toLowerCase() + from.slice(1);
+      for (const d of [upper, lower]) {
+        variants.add(d);
+        variants.add(d.replace(/\\/g, '/'));
+        variants.add(d.replace(/\//g, '\\'));
+        variants.add(d.replace(/\\/g, '\\\\').replace(/\//g, '\\\\'));
+      }
+    }
+
+    for (const v of variants) {
+      if (v) out = out.split(v).join(to);
     }
   }
+
+  // Redact any remaining Windows user paths: C:\Users\<name> or C:/Users/<name>
+  out = out.replace(/[A-Za-z]:[/\\]Users[/\\][^\s/\\"'`)]+/gi, '<home>');
+  // Redact any remaining POSIX user paths: /home/<name> or /Users/<name> (macOS)
+  out = out.replace(/\/(?:home|Users)\/[^\s\/"'`)]+/g, '<home>');
+
   // Anything that looks like a credential, whatever it is attached to.
   out = out.replace(/\b(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,})\b/g, '<redacted>');
   out = out.replace(
@@ -336,27 +371,74 @@ export function checkEnvironment(): DiagnosticCheck[] {
   return checks;
 }
 
-/** The last lines of this channel's log, redacted. */
-export function readLogTail(lines = LOG_TAIL_LINES): string[] {
+/** The last lines of this channel's log, redacted. (P0-12) */
+export function readLogTail(
+  serverLines = LOG_TAIL_LINES,
+  crashLines = CRASH_LOG_TAIL_LINES,
+  projectPaths: string[] = []
+): string[] {
+  const result: string[] = [];
+  const dataDir = resolveDataDir();
+
+  // 1. Read server.log
   try {
-    const logPath = path.join(resolveDataDir(), 'server.log');
-    if (!fs.existsSync(logPath)) return [];
-    const raw = fs.readFileSync(logPath, 'utf8');
-    return raw
-      .split(/\r?\n/)
-      .filter(Boolean)
-      // Request logging is noise in a bug report and is the bulk of the file.
-      .filter(line => !line.includes('"reqId"'))
-      .slice(-lines)
-      .map(redactForReport)
-      .map(line => (line.length > 500 ? `${line.slice(0, 500)}…` : line));
+    const logPath = path.join(dataDir, 'server.log');
+    if (fs.existsSync(logPath)) {
+      const raw = fs.readFileSync(logPath, 'utf8');
+      const lines = raw
+        .split(/\r?\n/)
+        .filter(Boolean)
+        // Request logging is noise in a bug report and is the bulk of the file.
+        .filter(line => !line.includes('"reqId"'))
+        // Filter out prompts or chat content (P0-12)
+        .filter(
+          line =>
+            !line.includes('client.chat_message') &&
+            !line.includes('"chat_message"') &&
+            !line.includes('client.task_prompt')
+        )
+        .slice(-serverLines)
+        .map(l => redactForReport(l, projectPaths))
+        .map(line => (line.length > MAX_LOG_LINE_LENGTH ? `${line.slice(0, MAX_LOG_LINE_LENGTH)}…` : line));
+      result.push(...lines);
+    }
   } catch {
-    return [];
+    /* ignore read errors */
   }
+
+  // 2. Read crash.log if present (P0-12)
+  try {
+    const crashPath = path.join(dataDir, 'crash.log');
+    if (fs.existsSync(crashPath)) {
+      const rawCrash = fs.readFileSync(crashPath, 'utf8');
+      const crashLinesList = rawCrash
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .filter(
+          line =>
+            !line.includes('client.chat_message') &&
+            !line.includes('"chat_message"') &&
+            !line.includes('client.task_prompt')
+        )
+        .slice(-crashLines)
+        .map(l => redactForReport(l, projectPaths))
+        .map(line => (line.length > MAX_LOG_LINE_LENGTH ? `${line.slice(0, MAX_LOG_LINE_LENGTH)}…` : line));
+      if (crashLinesList.length > 0) {
+        result.push('--- crash.log ---', ...crashLinesList);
+      }
+    }
+  } catch {
+    /* ignore read errors */
+  }
+
+  return result;
 }
 
 /** Everything a support conversation needs, and nothing private. */
-export function collectDiagnostics(schemaVersion?: number): DiagnosticsReport {
+export function collectDiagnostics(
+  schemaVersion?: number,
+  projectPaths: string[] = []
+): DiagnosticsReport {
   const channel = describeChannel();
   return {
     generatedAt: new Date().toISOString(),
@@ -376,7 +458,7 @@ export function collectDiagnostics(schemaVersion?: number): DiagnosticsReport {
     },
     agents: checkAgents(),
     environment: checkEnvironment(),
-    logTail: readLogTail()
+    logTail: readLogTail(LOG_TAIL_LINES, CRASH_LOG_TAIL_LINES, projectPaths)
   };
 }
 

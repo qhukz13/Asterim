@@ -63,7 +63,7 @@ export function useSocket(
   >(null);
   const [fileChanges, setFileChanges] = useState<FileChangedPayload[]>([]);
   const [systemStatus, setSystemStatus] = useState<{
-    binaries: { claude: boolean; aider: boolean; antigravity: boolean };
+    binaries: Record<string, boolean>;
   } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 

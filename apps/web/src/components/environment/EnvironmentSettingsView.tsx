@@ -6,11 +6,15 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { IconCheck, IconUser, IconBuilding, IconPlus } from '../icons/Icons';
 import { EnvironmentSecretsPanel } from './EnvironmentSecretsPanel';
 import { DesktopDaemonCard } from '../desktop/DesktopDaemonCard';
+import { useSkillsStore } from '../../stores/useSkillsStore';
+import { useProfileStore } from '../../stores/useProfileStore';
 
 export const EnvironmentSettingsView: React.FC = () => {
   const [, setLocation] = useLocation();
   const { activeWorkspace, workspaces, fetchWorkspaces, setActiveWorkspace } = useWorkspaceStore();
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
+  const { skills, loadSkills, isLoading: skillsLoading } = useSkillsStore();
+  const { profiles, loadProfiles, isLoading: profilesLoading } = useProfileStore();
   const currentEnv = activeWorkspace || {
     id: 'personal',
     name: 'Personal Environment',
@@ -112,6 +116,14 @@ export const EnvironmentSettingsView: React.FC = () => {
     setEnvName(currentEnv.name);
     setEnvPreset(currentEnv.preset || 'personal');
   }, [currentEnv.id, currentEnv.name, currentEnv.preset]);
+
+  useEffect(() => {
+    if (activeSubTab === 'skills') {
+      loadSkills();
+    } else if (activeSubTab === 'agents') {
+      loadProfiles(currentEnv.id);
+    }
+  }, [activeSubTab, currentEnv.id, loadSkills, loadProfiles]);
 
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -840,14 +852,23 @@ export const EnvironmentSettingsView: React.FC = () => {
             <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
               Agent Skills available in this Environment context (`.agents/skills/`).
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
-              {['caveman', 'cavecrew', 'graphify'].map((sk) => (
-                <div key={sk} style={{ padding: '12px 14px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{ color: '#34d399', fontWeight: 600, fontSize: '0.9rem' }}>/{sk}</div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: '4px' }}>Environment Agent Skill</div>
-                </div>
-              ))}
-            </div>
+            {skillsLoading ? (
+              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Loading skills...</div>
+            ) : skills.length === 0 ? (
+              <div style={{ color: '#94a3b8', fontSize: '0.9rem', padding: '1.5rem 0' }}>
+                No agent skills discovered in `.agents/skills/` or global skill directories.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
+                {skills.map((sk) => (
+                  <div key={sk.id || sk.name} style={{ padding: '12px 14px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ color: '#34d399', fontWeight: 600, fontSize: '0.9rem' }}>/{sk.name}</div>
+                    <div style={{ color: '#cbd5e1', fontSize: '0.8rem', marginTop: '4px' }}>{sk.description || 'Agent skill'}</div>
+                    <div style={{ color: '#64748b', fontSize: '0.72rem', marginTop: '6px', textTransform: 'uppercase' }}>Scope: {sk.scope}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -857,50 +878,55 @@ export const EnvironmentSettingsView: React.FC = () => {
               Environment Agent Profiles
             </h3>
             <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-              Configure specialized agent personas (Development, Review, Security, Architecture, Experiment).
+              Configured agent personas for this environment.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
-              {[
-                { name: 'Development Agent', model: 'claude-3-5-sonnet', temp: 0.2, desc: 'High-speed coding agent with interactive command approvals.' },
-                { name: 'Review Agent', model: 'gpt-4o', temp: 0.0, desc: 'Read-only diff inspection and pull request reviewer.' },
-                { name: 'Security Audit Agent', model: 'claude-3-5-sonnet', temp: 0.0, desc: 'Zero-trust security scanner with strict execution rules.' },
-                { name: 'Architecture Agent', model: 'claude-3-5-sonnet', temp: 0.1, desc: 'System design and AST symbol graph analysis persona.' },
-                { name: 'Experiment Agent', model: 'claude-3-5-sonnet', temp: 0.7, desc: 'Sandbox persona for trying new tools with auto-approvals.' },
-              ].map((prof, idx) => (
-                <div key={idx} style={{ padding: '16px', background: '#131b2e', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>{prof.name}</div>
-                  <div style={{ color: '#34d399', fontSize: '0.78rem', fontFamily: 'monospace', marginBottom: '8px' }}>Model: {prof.model} (t={prof.temp})</div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.4 }}>{prof.desc}</div>
-                </div>
-              ))}
-            </div>
+            {profilesLoading ? (
+              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Loading profiles...</div>
+            ) : profiles.length === 0 ? (
+              <div style={{ color: '#94a3b8', fontSize: '0.9rem', padding: '1.5rem 0' }}>
+                No agent profiles configured for this environment.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+                {profiles.map((prof) => (
+                  <div key={prof.id} style={{ padding: '16px', background: '#131b2e', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>{prof.name}</div>
+                    <div style={{ color: '#34d399', fontSize: '0.78rem', fontFamily: 'monospace', marginBottom: '8px' }}>Role: {prof.role}</div>
+                    <div style={{ color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.4 }}>{prof.description || 'No description provided.'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {activeSubTab === 'knowledge' && (
           <div style={{ maxWidth: '800px' }}>
-            <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
-              Environment Knowledge System
-            </h3>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-              Architecture blueprints, coding conventions, glossaries, and product decisions indexed into local RAG vector search.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+                Environment Knowledge System
+              </h3>
+              <span
+                style={{
+                  background: 'rgba(148, 163, 184, 0.15)',
+                  border: '1px solid rgba(148, 163, 184, 0.3)',
+                  color: '#94a3b8',
+                  fontSize: '0.7rem',
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                }}
+              >
+                Planned
+              </span>
+            </div>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              Centralized environment knowledge indexing is planned for a future release. Currently, project decisions, conventions, and working context are tracked per project within the Memory and Context views.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {[
-                { title: 'System Architecture Blueprint', category: 'architecture', summary: 'Core monorepo design, SQLite database schema, and event routing.' },
-                { title: 'TypeScript & Code Standards', category: 'convention', summary: 'Strict typing guidelines, ESLint rules, and error handling patterns.' },
-                { title: 'Domain Terminology Glossary', category: 'glossary', summary: 'Definition of Environments, Threads, Missions, and MCP Tooling.' },
-              ].map((ki, idx) => (
-                <div key={idx} style={{ padding: '14px 18px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.9rem' }}>{ki.title}</div>
-                    <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '2px' }}>{ki.summary}</div>
-                  </div>
-                  <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, textTransform: 'uppercase' }}>
-                    {ki.category}
-                  </span>
-                </div>
-              ))}
+            <div style={{ padding: '16px 20px', background: '#131b2e', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', color: '#cbd5e1', fontSize: '0.875rem', lineHeight: 1.5 }}>
+              To view or manage active project decisions and architectural rules, open a project in the workspace and navigate to the <strong>Memory</strong> tab.
             </div>
           </div>
         )}

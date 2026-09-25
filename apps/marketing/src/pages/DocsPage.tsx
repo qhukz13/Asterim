@@ -199,8 +199,9 @@ export const DocsPage: React.FC = () => {
           </p>
           <h3>Reporting a problem</h3>
           <p>
-            Open an issue at <a href={ISSUES_URL}>GitHub Issues</a> with your OS, the versions of Node and Claude
-            Code, and the last lines of <code>~/.asterim/server.log</code>. Remove anything private first.
+            Open Settings in the dashboard and click <strong>Copy diagnostics</strong> to copy a bundle with your
+            system details, adapter detection, schema version, and recent log tail (with paths and credentials
+            redacted). Paste the block into an issue at <a href={ISSUES_URL}>GitHub Issues</a>.
           </p>
 
           <h2 id="privacy">Privacy</h2>

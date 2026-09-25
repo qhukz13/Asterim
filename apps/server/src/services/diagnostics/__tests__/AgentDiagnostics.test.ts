@@ -109,6 +109,30 @@ describe('redaction: a report may leave the machine, so nothing private may be i
     assert.ok(out.includes('<data-dir>'));
   });
 
+  check('registered project paths are replaced with <path>', () => {
+    const posix = redactForReport('opened /home/alice/repo/file.ts', ['/home/alice/repo']);
+    assert.ok(!posix.includes('/home/alice/repo'), posix);
+    assert.ok(posix.includes('<path>/file.ts'));
+
+    const win = redactForReport('opened C:\\Users\\alice\\repo\\file.ts', ['C:\\Users\\alice\\repo']);
+    assert.ok(!win.includes('C:\\Users\\alice\\repo'), win);
+    assert.ok(win.includes('<path>\\file.ts'));
+
+    const winForward = redactForReport('opened C:/Users/alice/repo/file.ts', ['C:\\Users\\alice\\repo']);
+    assert.ok(!winForward.includes('C:/Users/alice/repo'), winForward);
+    assert.ok(winForward.includes('<path>/file.ts'));
+  });
+
+  check('no absolute user path survives redaction on Windows or POSIX', () => {
+    const win = redactForReport('read C:\\Users\\charlie\\Desktop\\secret.txt');
+    assert.ok(!win.includes('C:\\Users\\charlie'), win);
+    assert.ok(win.includes('<home>'));
+
+    const posix = redactForReport('read /home/charlie/Desktop/secret.txt');
+    assert.ok(!posix.includes('/home/charlie'), posix);
+    assert.ok(posix.includes('<home>'));
+  });
+
   check('credential-shaped strings are removed', () => {
     const out = redactForReport('using sk-abcdef1234567890 and ghp_ABCDEFGHIJ1234567890');
     assert.ok(!out.includes('sk-abcdef1234567890'), out);
@@ -130,30 +154,49 @@ describe('redaction: a report may leave the machine, so nothing private may be i
 describe('the log tail');
 {
   const logPath = path.join(dataDir, 'server.log');
+  const crashPath = path.join(dataDir, 'crash.log');
   fs.writeFileSync(
     logPath,
     [
       '{"level":30,"reqId":"req-1","msg":"incoming request"}',
       `[Server] opened ${os.homedir()}/work/thing`,
-      'x'.repeat(900),
-      '[Agent] started'
+      'x'.repeat(2500),
+      '[Agent] started',
+      'client.chat_message {"prompt":"secret project code do not leak"}'
     ].join('\n')
   );
 
-  const tail = readLogTail();
+  fs.writeFileSync(
+    crashPath,
+    Array.from({ length: 60 }, (_, i) => `crash error line ${i}`).join('\n')
+  );
+
+  const tail = readLogTail(200, 50);
 
   check('request-log noise is dropped', () => {
     assert.ok(!tail.some(l => l.includes('incoming request')), JSON.stringify(tail));
+  });
+  check('chat messages and prompts never survive into the log tail', () => {
+    assert.ok(!tail.some(l => l.includes('secret project code')), 'chat content found in log');
+    assert.ok(!tail.some(l => l.includes('client.chat_message')), 'chat event found in log');
   });
   check('paths in the tail are redacted', () => {
     assert.ok(tail.some(l => l.includes('<home>')));
     assert.ok(!tail.some(l => l.includes(os.homedir())));
   });
-  check('very long lines are cut', () => {
-    assert.ok(tail.every(l => l.length <= 501), 'no line over the cap');
+  check('very long lines (> 2000 chars) are truncated', () => {
+    assert.ok(tail.every(l => l.length <= 2001), 'no line over the 2000 char cap + ellipsis');
+    assert.ok(tail.some(l => l.length === 2001 && l.endsWith('…')), 'long line was truncated');
+  });
+  check('crash.log is included up to 50 lines', () => {
+    assert.ok(tail.some(l => l === '--- crash.log ---'), 'crash log separator present');
+    assert.ok(tail.some(l => l.includes('crash error line 59')), 'recent crash line included');
+    // First 10 lines (0..9) should be sliced off since 60 total and limit is 50
+    assert.ok(!tail.some(l => l === 'crash error line 0'), 'older crash lines pruned');
   });
   check('a missing log file is not an error', () => {
     fs.rmSync(logPath);
+    fs.rmSync(crashPath);
     assert.deepStrictEqual(readLogTail(), []);
   });
 }

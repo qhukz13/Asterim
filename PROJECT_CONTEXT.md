@@ -10,6 +10,7 @@ Every claim in this repository is one of four things. Confusing them is what pro
 | --- | --- |
 | **CURRENT** | Runs today, verified. |
 | **MVP** | Must exist for the first public release. |
+| **FOUNDATION** | Structural groundwork that buys no MVP time and ships no user feature, but whose absence forces a redesign later. |
 | **POST-MVP** | Considered only after the first users show it matters. |
 | **VISION** | What Asterim could become. Never an instruction to build. |
 
@@ -41,13 +42,15 @@ Not: another coding agent, an editor, an autocomplete, a generic automation plat
 
 Claude Code first is not Claude Code only: the architecture stays provider-agnostic (ADR-004), but no MVP time goes to new providers.
 
-## Status (CURRENT, 2026-09-09)
+## Status (CURRENT, 2026-09-25)
 
-- **Working and live-verified:** pairing, projects, threads, the Claude Code adapter (native stream protocol, permission requests answered through the approval card, session resume), transcript, terminal, Changes, deny path, restart recovery. `tools/e2e/core-loop.mjs` passes 10/10 against the built binary.
+- **Working and live-verified:** pairing, projects, threads, the Claude Code adapter (native stream protocol, permission requests answered through the approval card, session resume), transcript, terminal, Changes, deny path, restart recovery. `tools/e2e/core-loop.mjs` passes 11/11 against the built binary, and `tools/e2e/gate-checks.mjs` passes 4/4.
 - **PREVIEW:** Antigravity adapter (terminal scraping). Kept because it is the second structurally different provider and keeps the abstraction honest. No further investment.
 - **Frozen** (present, tested, hidden, not marketed, not extended): team agents, pipelines, worktree fleet, delegation, fleet policy and SIEM export, desktop daemon, accounts and JWT, Stripe billing, cloud relay client, web push, mDNS. Disposition per subsystem in ADR-005; several are the existing implementations of hypotheses the first users will test, so they are frozen rather than condemned.
-- **Removed:** the OAuth code exchange (account takeover), the LAN auth bypass, the Aider stub from the UI, the fake download page and account portal, the fabricated landing page.
-- **Open for the MVP:** npm publish (P0-06), clean-machine test (P0-07), delete confirmation (P0-09), local usage summary (P0-11), diagnostics button (P0-12), status labels (P0-13).
+- **Removed:** the OAuth code exchange (account takeover), the LAN auth bypass, the Aider stub from both UI and adapters, the fake download page and account portal, the fabricated landing page.
+- **P0 Progress:** P0-01 through P0-05, P0-07 through P0-13 are completed and verified. `NPM_TOKEN` has been configured in GitHub repository secrets for P0-06.
+- **Structural and Seam Improvements:** App.tsx modularized (P1-01) with clean workspace and overlay extractions; consequence translation moved to provider adapters; `/api/v1/system/providers` exposed; mDNS gated in sovereign mode; simulated UI copy in environment settings replaced with real stores.
+
 
 ## Tech stack
 

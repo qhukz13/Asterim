@@ -50,6 +50,7 @@ export function SessionSidebar({
     setLocation(`/workspace/project/${projectId}/thread/${threadId}/view/${lastView}`);
   };
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
 
   const isCollapsed = usePanelStore(s => s.isCenterSidebarCollapsed);
@@ -82,6 +83,8 @@ export function SessionSidebar({
     const tokenKey = activeBackendUrl ? `asterim_token_${activeBackendUrl}` : 'asterim_token';
     const token = localStorage.getItem(tokenKey) || '';
 
+    setError(null);
+    setLoading(true);
     fetch(`${baseUrl}/api/v1/projects/${projectId}/threads`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     })
@@ -97,6 +100,7 @@ export function SessionSidebar({
       })
       .catch(err => {
         console.error('Failed to fetch threads', err);
+        setError((err as Error).message || 'Failed to fetch threads');
         setLoading(false);
       });
   }, [projectId]);
@@ -242,7 +246,11 @@ export function SessionSidebar({
           Active Threads
         </div>
 
-        {loading ? (
+        {error ? (
+          <div style={{ color: 'var(--color-error-primary)', fontSize: 'var(--font-size-xs)', padding: 'var(--spacing-2)' }}>
+            Failed to load threads: {error}
+          </div>
+        ) : loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 var(--spacing-1)' }}>
             <div className="skeleton-loader skeleton-card" />
             <div className="skeleton-loader skeleton-card" />
